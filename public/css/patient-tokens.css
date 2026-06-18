@@ -1,68 +1,83 @@
 /* =========================================================================
-   TASHKHEESA — Warm Clinical Design System (Patient Portal tokens)
-   Source: docs/redesign/patient/tokens.css
-   Status: ported verbatim — tokens-only, no physical layout properties.
-   Loaded BEFORE patient-portal-v2.css from views/layouts/patient.ejs.
+   TASHKHEESA — Calm Clinical · Night (Patient Portal tokens — NAVY WORLD)
+   Source of truth: docs/redesign/patient-navy/styles/tokens.css (canonical).
+   Status: token VALUES re-pointed to the navy palette. Variable NAMES are
+   unchanged from the warm-clinical v2 set so the 1,035-line component sheet and
+   every view re-skin for free. New tokens added where the navy world needs them
+   (navy scale, surface-2/3, --r-2xl, --shadow-teal). No physical layout props.
+   Loaded BEFORE patient-portal-v2.css from views/partials/patient/head.ejs.
+   Rollback: docs/redesign/_rollback/patient-tokens.warmclinical.css
    ========================================================================= */
 
 :root {
+  /* ---- Navy scale (new tokens — app identity) ---- */
+  --navy-900: #081120;   /* deepest — page void / status bar bg */
+  --navy-800: #0c1c30;   /* primary navy — app background */
+  --navy-700: #0f2238;   /* raised background bands */
+
   /* ---- Surfaces ---- */
-  --bg:            #F8F5EF;   /* warm cream page background — NOT white */
-  --surface:       #FFFFFF;   /* card / panel surface */
-  --surface-sunk:  #F2EEE5;   /* slightly warmer recessed area */
+  --bg:            var(--navy-800);   /* was #F8F5EF — navy app background (NOT void) */
+  --surface:       #112844;           /* was #FFFFFF — card / sheet surface on navy */
+  --surface-2:     #16304f;           /* new — nested surface, inputs */
+  --surface-3:     #1c3a5e;           /* new — hover / pressed surface */
+  --surface-sunk:  var(--navy-700);   /* was #F2EEE5 — recessed band */
 
-  /* ---- Brand: deep teal (AP-watch bezel) ---- */
-  --primary:        #0B6B5F;
-  --primary-dark:   #074B43;  /* sidebar gradient end, hover for primary */
-  --primary-light:  #E8F3F1;  /* chip backgrounds, subtle fills */
-  --primary-tint:   #D4E9E5;  /* hover for primary-light chips */
+  /* ---- Brand: bright teal (navy-world accent) ---- */
+  --primary:        #5fe6e0;                  /* was #0B6B5F — bright teal */
+  --primary-dark:   #3aa8a3;                  /* muted teal — hover / on-light */
+  --primary-light:  rgba(95,230,224,0.14);    /* teal chip/fill (spec --teal-tint) */
+  --primary-tint:   rgba(95,230,224,0.22);    /* stronger teal fill (spec --teal-tint-2) */
 
-  /* ---- Brass accent (luxury / numerals) — meant to POP against teal ---- */
-  --accent:         #B38B3E;
-  --accent-dark:    #8E6C2C;
-  --accent-light:   #F2E4C7;  /* fast-track SLA chips */
-  --accent-tint:    #FAF1DD;
+  /* ---- Accent: brass name kept, NEUTRALIZED to teal ----
+     The navy app world is teal-only. The TRUE gold lives ONLY in the reserved
+     report world (.rpt-world in patient-report.css) and must not leak in here. */
+  --accent:         var(--primary);
+  --accent-dark:    var(--primary-dark);
+  --accent-light:   var(--primary-light);
+  --accent-tint:    var(--primary-tint);
 
   /* ---- Ink ---- */
-  --ink:            #0F1E2D;  /* primary text */
-  --ink-2:          #2C3A4A;  /* secondary text on surface */
-  --muted:          #6B7A8A;  /* meta / tertiary */
-  --muted-2:        #93A0AE;  /* placeholder, disabled */
-  --on-primary:     #F8F5EF;  /* text on deep teal */
-  --on-accent:      #1B1305;  /* text on brass */
+  --ink:            #eaf2f9;   /* was #0F1E2D — primary text on navy (spec --text) */
+  --ink-2:          #aebfd2;   /* secondary text (spec --text-2) */
+  --muted:          #7388a0;   /* meta / tertiary */
+  --muted-2:        #51647c;   /* placeholder / disabled */
+  --on-primary:     #042027;   /* ink on teal (spec --on-teal) */
+  --on-accent:      #042027;   /* accent == teal, so ink-on-accent == ink-on-teal */
 
-  /* ---- Borders / rules ---- */
-  --rule:           #E5E9EE;
-  --rule-strong:    #D4DAE2;
-  --rule-on-dark:   rgba(248, 245, 239, 0.10);
+  /* ---- Borders / rules (on navy) ---- */
+  --rule:           rgba(174,191,210,0.13);   /* spec --rule */
+  --rule-strong:    rgba(174,191,210,0.22);   /* spec --rule-strong */
+  --rule-on-dark:   rgba(174,191,210,0.07);   /* faintest hairline (spec --rule-faint) */
 
-  /* ---- Semantic ---- */
-  --danger:         #B91C1C;
-  --danger-bg:      #FBEAEA;
-  --warn:           #C2410C;
-  --warn-bg:        #FBECDF;
-  --success:        #047857;
-  --success-bg:     #E2F1EA;
-  --info:           #1D4ED8;
-  --info-bg:        #E5ECFB;
+  /* ---- Semantic (navy-tuned) ---- */
+  --danger:         #f87171;
+  --danger-bg:      rgba(248,113,113,0.13);
+  --warn:           #fbbf24;
+  --warn-bg:        rgba(251,191,36,0.13);
+  --success:        #34d399;
+  --success-bg:     rgba(52,211,153,0.13);
+  --info:           #60a5fa;
+  --info-bg:        rgba(96,165,250,0.13);
 
-  /* ---- SLA dots (status urgency) — brighter, more assertive ---- */
-  --sla-green:      #10B981;
-  --sla-amber:      #F59E0B;
-  --sla-red:        #EF4444;
+  /* ---- SLA dots (status urgency) ---- */
+  --sla-green:      #34d399;
+  --sla-amber:      #fbbf24;
+  --sla-red:        #f87171;
 
-  /* ---- Shadows: tight + subtle ---- */
-  --shadow-1:  0 1px 3px rgba(15, 30, 45, 0.04);
-  --shadow-2:  0 2px 6px rgba(15, 30, 45, 0.06), 0 1px 2px rgba(15, 30, 45, 0.04);
-  --shadow-3:  0 8px 22px rgba(15, 30, 45, 0.08), 0 2px 4px rgba(15, 30, 45, 0.04);
-  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  /* ---- Shadows: on dark, depth = teal glow + near-black, NOT heavy drop ---- */
+  --shadow-1:  0 1px 2px rgba(0,0,0,0.30);
+  --shadow-2:  0 4px 14px rgba(0,0,0,0.34), 0 1px 3px rgba(0,0,0,0.30);
+  --shadow-3:  0 14px 40px rgba(0,0,0,0.46), 0 4px 12px rgba(0,0,0,0.32);
+  --shadow-teal: 0 6px 22px rgba(95,230,224,0.22);   /* NEW — primary-action glow */
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.04);  /* was 0.6 (light) — subtle on-dark sheen */
 
-  /* ---- Radii ---- */
-  --r-xs:  4px;
-  --r-sm:  8px;
-  --r-md:  10px;
-  --r-lg:  14px;   /* cards */
-  --r-xl:  20px;
+  /* ---- Radii (full navy spec scale) ---- */
+  --r-xs:  6px;
+  --r-sm:  10px;
+  --r-md:  14px;
+  --r-lg:  18px;   /* cards */
+  --r-xl:  24px;   /* sheets / modals */
+  --r-2xl: 30px;   /* NEW — large sheets (spec) */
   --r-pill: 999px;
 
   /* ---- Spacing scale ---- */
@@ -84,13 +99,14 @@
   --content-pad-x: 36px;
 
   /* ---- Type ---- */
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+  --font-sans: "Sora", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
                 "Inter", "Noto Sans Arabic", "SF Arabic", system-ui, sans-serif;
   --font-arabic: "SF Arabic", "Noto Sans Arabic", "Helvetica Neue", sans-serif;
-  --font-display: "Cormorant Garamond", "Iowan Old Style", Georgia, serif;
+  --font-display: "Sora", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+                system-ui, sans-serif;   /* was Cormorant serif — navy world has no serif display */
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 
-  /* Numerals — brass-feel via tabular monospaced figures */
+  /* Numerals — Western 0-9, tabular lining figures (HARD CONSTRAINT — unchanged) */
   --numerals: tabular-nums lining-nums;
 
   /* ---- Type scale ---- */
@@ -105,7 +121,7 @@
   --t-label:         11px;     /* uppercase labels */
   --t-numeral-xl:    34px;     /* hero KPI tile numeral */
   --t-numeral-lg:    24px;
-  --t-display:       40px;     /* serif display, login/signup */
+  --t-display:       40px;     /* display, login/signup */
 
   --lh-tight: 1.15;
   --lh-snug:  1.35;
@@ -140,7 +156,7 @@
   text-rendering: optimizeLegibility;
 }
 
-/* All numbers should look engraved — tabular + lining */
+/* All numbers should look engraved — tabular + lining (Western 0-9 both langs) */
 .p-portal .num,
 .p-portal .numeral,
 .p-portal [data-numeric] {

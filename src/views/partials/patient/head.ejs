@@ -51,19 +51,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="description" content="<%= __desc %>" />
-  <meta name="theme-color" content="#0B6B5F" />
+  <meta name="theme-color" content="#081120" />
   <title><%= __pageTitle %></title>
   <link rel="icon" href="/assets/favicons/favicon.ico" type="image/x-icon" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
-  <!-- Self-hosted webfonts (Cormorant Garamond) — preloaded for above-the-fold serif headings -->
-  <link rel="preload" as="font" type="font/woff2" href="/fonts/cormorant-garamond/cormorant-garamond-latin-500-normal.woff2" crossorigin />
-  <link rel="preload" as="font" type="font/woff2" href="/fonts/cormorant-garamond/cormorant-garamond-latin-600-normal.woff2" crossorigin />
+  <!-- Self-hosted webfonts (Sora) — preloaded for above-the-fold body + headings (navy world) -->
+  <link rel="preload" as="font" type="font/woff2" href="/fonts/sora/sora-latin-400-normal.woff2" crossorigin />
+  <link rel="preload" as="font" type="font/woff2" href="/fonts/sora/sora-latin-700-normal.woff2" crossorigin />
 
-  <!-- Patient v2 design system (load order matters: fonts → tokens → components) -->
+  <!-- Patient v2 design system (load order matters: fonts → tokens → components → report) -->
   <link rel="stylesheet" href="/css/fonts.css" />
   <link rel="stylesheet" href="/css/patient-tokens.css" />
   <link rel="stylesheet" href="/css/patient-portal-v2.css" />
+  <link rel="stylesheet" href="/css/patient-report.css" />
 </head>
 <body class="p-portal<%= __bodyClass %>">
 <div class="p-app<%= __variant === 'light' ? ' p-app--light' : '' %>">

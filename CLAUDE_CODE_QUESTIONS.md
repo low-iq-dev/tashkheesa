@@ -102,3 +102,77 @@ etc.), which I did.
 **Question:** any future intent to move this to a shared
 `.p-modal` / `.p-modal__box` set of classes? Not blocking — just flagging
 that the modal still lives only in this view.
+
+---
+---
+
+# Patient Navy Redesign — Phase 1 (tokens) — deltas & decisions
+
+Logged while executing `CLAUDE_CODE_BRIEF_PATIENT_NAVY_REDESIGN.md` Phase 0–1.
+**Token source of truth = canonical `docs/redesign/patient-navy/styles/tokens.css`**
+(extracted from the prototype bundle `tashkheesa app.zip1`). Where the brief's
+hand-transcribed values disagreed with that file, the **spec wins** (per Ziad's
+overrides). This records the disagreements, the decisions taken, and Phase 2/3 follow-ups.
+
+## A. Resolved by Ziad's overrides (recorded for the diff trail)
+
+1. **Report-world tokens use the canonical spec, not the brief.** 5 brief values + 1
+   omission differed; `patient-report.css` uses canonical:
+   `--rpt-ink-2 #45524a` (brief `#2f3b34`), `--rpt-muted #7c887f` (brief `#6b7768`),
+   `--rpt-rule rgba(31,77,58,0.16)` translucent (brief opaque `#e3dcc8`),
+   `--rpt-rule-gold rgba(176,133,49,0.32)` (brief `0.35`),
+   `--shadow-rpt` two-layer (brief single-layer), **added `--rpt-green-2 #2f6b4f`**.
+
+2. **Full spec radius scale** (not current+2): `--r-xs 6 / --r-sm 10 / --r-md 14 /
+   --r-lg 18 / --r-xl 24 / --r-pill 999`, plus **`--r-2xl: 30px`** — spec defines it as
+   **30px**, not the `24px` the brief stated.
+
+3. **Navy app-world alphas/shadows use the canonical spec** (brief values were also
+   transcriptions): `--primary-light 0.14`, `--primary-tint 0.22`;
+   `--rule rgba(174,191,210,0.13)`, `--rule-strong 0.22`; semantic `*-bg` at `0.13`;
+   `--shadow-1/2/3` = spec's deeper values; `--shadow-teal 0 6px 22px rgba(95,230,224,0.22)`.
+   (All solid hexes matched the brief already.)
+
+## B. Judgment calls (no spec/brief value existed; flag if you disagree)
+
+4. **`--rule-on-dark`** (not in brief) re-pointed from warm cream `rgba(248,245,239,0.10)`
+   to the spec's faint hairline `rgba(174,191,210,0.07)` (spec `--rule-faint`). Name kept.
+5. **`--shadow-inset`** was a light white inset at `0.6` (wrong on dark) → subtle on-dark
+   `inset 0 1px 0 rgba(255,255,255,0.04)`. Name kept.
+6. **`--accent*` neutralized to teal** (brief 1.4 default): `--accent → var(--primary)`,
+   `-dark/-light/-tint → primary equivalents`, `--on-accent → #042027`. App world is teal-only.
+7. **`theme-color` meta** (`head.ejs`) `#0B6B5F` → `#081120` so the mobile status bar matches navy.
+8. **Sidebar (desktop chrome) fully converted to navy.** Its teal gradient / brass tile /
+   cream text were hardcoded light-world values (not token-driven) → part of the 1.2 sweep.
+   Principle applied app-wide: **large branded fills → navy surfaces; small accents → teal.**
+9. **Dashboard blog hero-strip** (in scope): teal gradient → navy
+   `linear-gradient(var(--surface-2) → var(--navy-900))`; brass watermark numeral → `var(--primary-tint)`.
+10. **Sora self-hosted** (400/500/600/700, woff2+woff, OFL) under `public/fonts/sora/`,
+    downloaded from the fontsource CDN and committed — **no `package.json` change**, mirroring
+    Cormorant. `--font-display` serif→Sora. Cormorant `@font-face` kept (lazy) for rollback,
+    but its two `<link rel=preload>` lines were **removed** (Cormorant is now unreferenced —
+    dead preloads). **If Phase 3's report world wants serif, re-add a Cormorant preload.**
+
+## C. Open follow-ups for Phase 2/3 (NOT changed in Phase 1, by scope)
+
+11. **Arabic font:** spec wants **IBM Plex Sans Arabic**; we kept the working `SF Arabic`/`Noto`
+    stack (`--font-arabic`) per the brief's hard constraint. Follow-up: self-host IBM Plex Sans
+    Arabic (OFL) the same way Sora was done, then prepend it to `--font-arabic`.
+12. **Hardcoded component radii not tokenized:** Phase 1 changed radius *tokens* only.
+    `.p-card` (14px), `.p-btn`/`.p-field` (10px), tiles (9px), nav (8px), etc. keep their
+    literals, so they don't pick up `--r-lg: 18px` yet — only components already using
+    `var(--r-*)` (e.g. `.p-dash-blog__card`) do. Reconcile in the Phase 2 component pass.
+13. **Type scale differs from spec, kept as-is** (brief 1.1 changed fonts only). Spec mobile
+    scale (`--t-body 15`, `--t-display 32`, `--t-h1 26`…) vs our desktop scale + our token
+    names; `--lh-*` and tracking differ slightly. Decide in Phase 2/3.
+14. **Spacing `--s-9`:** ours/brief `36px`, spec `40px`. Kept `36px` (spacing out of override
+    scope). Flag if you want the spec value.
+15. **Motion kept per brief** (`--t-fast/base/slow` 120/200/320; `--ease` matches spec). Spec
+    is 130/220/340 and adds **`--ease-out`** (sheet/toast slide-ins) — add in Phase 2.
+16. **Spec tokens not added in Phase 1** (Phase 2/3 ports reference them): `--teal-bright #7af0ea`,
+    `--rule-faint` (value reused for `--rule-on-dark`), `--on-navy-faint rgba(234,242,249,0.05)`,
+    named `--teal-tint`/`--teal-tint-2`, `--track-label`, `--ease-out`, `--safe-top`/`--safe-bottom`
+    (iOS safe-area — relevant to the WebView). Ported spec components reference
+    `--teal`/`--text`/`--teal-tint`/`--on-teal` directly; add aliases or rename on port.
+17. **Landing hero block left untouched** (`.p-landing`, `.p-hero*`, ~lines 327–387) — flagged
+    "out of scope / kept for reference" in the file header; still has warm-clinical literals.

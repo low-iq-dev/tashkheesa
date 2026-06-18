@@ -1,0 +1,47 @@
+/* =========================================================================
+   TASHKHEESA — RESERVED REPORT WORLD (green + gold on parchment)
+   Source of truth: docs/redesign/patient-navy/styles/tokens.css (canonical).
+   Used ONLY on the signed specialist report so receiving an opinion feels like
+   an official, weighty document — NOT the navy app world.
+
+   Phase 1 status: INERT. This sheet defines the report-world tokens and base
+   surface, scoped under .rpt-world. The class is NOT yet applied to any view —
+   the report screen gets `.rpt-world` + its layout in Phase 3. Loaded after
+   patient-portal-v2.css in head.ejs; harmless until the scope class exists.
+
+   Token NAMES/values are the new report-world set (prefixed --rpt-*), kept
+   scoped so navy-world tokens never leak in and the gold never leaks out.
+   ========================================================================= */
+
+.rpt-world {
+  /* parchment surfaces */
+  --rpt-bg:        #f6f1e4;   /* warm parchment */
+  --rpt-bg-2:      #efe7d3;   /* recessed parchment */
+  --rpt-surface:   #fffdf8;   /* paper card */
+
+  /* authority green */
+  --rpt-green:      #1f4d3a;  /* deep authority green */
+  --rpt-green-2:    #2f6b4f;  /* mid authority green */
+  --rpt-green-deep: #143527;
+
+  /* gold accent — seals, rules, signature */
+  --rpt-gold:      #b08531;
+  --rpt-gold-2:    #caa44f;
+  --rpt-gold-soft: #e7d3a1;
+
+  /* report ink */
+  --rpt-ink:    #1c2620;   /* report body text */
+  --rpt-ink-2:  #45524a;
+  --rpt-muted:  #7c887f;
+
+  /* rules / hairlines (translucent green + gold) */
+  --rpt-rule:      rgba(31,77,58,0.16);
+  --rpt-rule-gold: rgba(176,133,49,0.32);
+
+  /* elevation — two-layer paper shadow */
+  --shadow-rpt: 0 10px 34px rgba(31,49,42,0.16), 0 2px 8px rgba(31,49,42,0.10);
+
+  /* base surface for the report container */
+  background: var(--rpt-bg);
+  color: var(--rpt-ink);
+}
