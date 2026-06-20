@@ -1025,3 +1025,91 @@ test('POST /sla-override — ATOMICITY: failure at the order_events insert rolls
   assert.ok(!calls.includes('COMMIT'), 'must NOT COMMIT a failed transaction');
   assert.ok(calls.some((s) => /UPDATE orders SET sla_hours/.test(s)), 'the orders UPDATE was attempted before the failure');
 });
+
+// ─────────────────────────── POST /cases/:id/refund ───────────────────────────
+// Money-path write. The full happy/partial/rejection/atomicity behaviour is
+// proven against a REAL Postgres in tests/admin/admin_refund.test.js; these
+// mock-route tests cover the gate, route-level input validation (before any
+// txn), the success shape, code mapping, and ROLLBACK-on-fault at the HTTP layer.
+function refundHandler(over = {}) {
+  const order = over.order === null ? null : {
+    id: 'ord-1', patient_id: 'pat-1', payment_status: 'paid',
+    base_price: 500, urgency_uplift_amount: 100, ...(over.order || {}),
+  };
+  return (sql) => {
+    if (/FOR UPDATE/.test(sql)) return { rows: order ? [order] : [] };
+    if (/FROM refunds WHERE order_id/.test(sql)) return { rows: over.existingRefund ? [{ id: 'rf-existing' }] : [] };
+    if (/INSERT INTO refunds/.test(sql)) {
+      if (over.failOn && over.failOn.test(sql)) throw new Error('injected failure');
+      return { rows: [{ refunded_at: new Date('2026-06-20T10:00:00Z') }] };
+    }
+    if (/^INSERT/i.test(sql)) {
+      if (over.failOn && over.failOn.test(sql)) throw new Error('injected failure');
+      return { rows: [] };
+    }
+    return { rows: [] };
+  };
+}
+
+async function refundReq(over = {}, body = { amount: 600, instapayHandle: '@patient.handle' }) {
+  const client = txClient(refundHandler(over));
+  const app = makeApp({ pool: poolWith(client) });
+  try {
+    const res = await fetch(`${app.base}/api/v1/admin/cases/ord-1/refund`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${mintToken(SUPERADMIN)}` },
+      body: JSON.stringify(body),
+    });
+    return { res, body: await res.json().catch(() => null), calls: client.calls };
+  } finally { app.server.close(); }
+}
+
+test('POST /cases/:id/refund — gate: 401 no token, 403 patient', async () => {
+  const app = makeApp({ pool: poolWith(txClient(refundHandler())) });
+  try {
+    assert.equal((await fetch(`${app.base}/api/v1/admin/cases/ord-1/refund`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 401);
+    const pt = mintToken({ id: 'p', email: 'p@x.com', role: 'patient', name: 'P' });
+    assert.equal((await fetch(`${app.base}/api/v1/admin/cases/ord-1/refund`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${pt}` }, body: JSON.stringify({ amount: 600, instapayHandle: '@p.handle' }) })).status, 403);
+  } finally { app.server.close(); }
+});
+
+test('POST /refund — happy: 200, COMMIT, writes refunds+event+audit, pending shape', async () => {
+  const { res, body, calls } = await refundReq();
+  assert.equal(res.status, 200);
+  assert.equal(body.data.refund.status, 'pending');
+  assert.equal(body.data.refund.amountEgp, 600);
+  assert.equal(body.data.refund.reason, 'operator_refund');
+  assert.equal(body.data.refund.instapayHandle, '@patient.handle');
+  assert.ok(body.data.refund.id && body.data.refund.createdAt);
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+  assert.ok(calls.some((s) => /INSERT INTO refunds/.test(s)));
+  assert.ok(calls.some((s) => /INSERT INTO order_events/.test(s)));
+  assert.ok(calls.some((s) => /INSERT INTO error_logs/.test(s)));
+});
+
+test('POST /refund — input validation rejects with 400 BEFORE opening a transaction', async () => {
+  for (const body of [{ instapayHandle: '@p.handle' }, { amount: 0, instapayHandle: '@p.handle' }, { amount: -5, instapayHandle: '@p.handle' }, { amount: 600, instapayHandle: 'ab' }, { amount: 600 }]) {
+    const { res, body: rb, calls } = await refundReq({}, body);
+    assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(body)}`);
+    assert.equal(rb.code, 'BAD_REQUEST');
+    assert.ok(!calls.includes('BEGIN'), 'must not open a txn on invalid input');
+  }
+});
+
+test('POST /refund — rejections roll back with the right codes', async () => {
+  assert.equal((await refundReq({ order: null })).body.code, 'ORDER_NOT_FOUND');
+  assert.equal((await refundReq({ order: { payment_status: 'unpaid' } })).body.code, 'ORDER_NOT_PAID');
+  assert.equal((await refundReq({ existingRefund: true })).body.code, 'REFUND_ALREADY_EXISTS');
+  assert.equal((await refundReq({}, { amount: 700, instapayHandle: '@p.handle' })).body.code, 'AMOUNT_EXCEEDS_MAX');
+  const rolledBack = await refundReq({ order: { payment_status: 'unpaid' } });
+  assert.ok(rolledBack.calls.includes('ROLLBACK'));
+});
+
+test('POST /refund — ATOMICITY: a fault at the admin-audit insert rolls back (no COMMIT)', async () => {
+  const { res, calls } = await refundReq({ failOn: /INSERT INTO error_logs/ });
+  assert.equal(res.status, 500);
+  assert.ok(calls.includes('ROLLBACK'), 'must ROLLBACK on mid-transaction failure');
+  assert.ok(!calls.includes('COMMIT'), 'must NOT COMMIT a failed transaction');
+  assert.ok(calls.some((s) => /INSERT INTO refunds/.test(s)), 'the refunds INSERT was attempted before the failure');
+});

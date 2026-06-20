@@ -46,6 +46,7 @@ const {
   acceptByIso,
 } = require('./_assign_helpers');
 const { bulkAutoAssign } = require('../../services/admin_bulk_assign');
+const { issueRefund } = require('../../services/admin_refund');
 
 // Single-account lock (decision 1): the app authenticates ONLY the Shifa
 // superadmin. Email allowlist is defense-in-depth on top of the role gate.
@@ -1139,6 +1140,43 @@ module.exports = function (db, helpers, deploy, deps) {
       // bulkAutoAssign already rolled the whole batch back before re-throwing.
       console.error('[admin/bulk-auto-assign] failed:', err && err.message);
       return res.fail('Bulk auto-assign failed', 500, 'BULK_ASSIGN_ERROR');
+    } finally {
+      if (client && client.release) client.release();
+    }
+  });
+
+  // ─── POST /cases/:id/refund (production MONEY-PATH WRITE — atomic) ──
+  // Operator-initiated refund: records a PENDING refund row (a payout
+  // OBLIGATION) + both audit rows in ONE atomic txn, mirroring the validated
+  // web-superadmin create. Money is returned MANUALLY via InstaPay; completion
+  // (approve/mark-paid) stays on web. v1 touches the orders row not at all, no
+  // earnings clawback, no notification (silent). The order is locked FOR UPDATE
+  // so concurrent refund attempts on the same order serialize (no double-refund).
+  // requireJWT + requireRole('superadmin') inherited from the router-level gate.
+  router.post('/cases/:id/refund', async (req, res) => {
+    const id = req.params.id;
+    const body = req.body || {};
+    const amount = Number(body.amount);
+    const instapayHandle = body.instapayHandle != null ? String(body.instapayHandle).trim() : '';
+    const notes = body.notes != null ? String(body.notes).slice(0, 1000) : '';
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.fail('amount must be a positive number', 400, 'BAD_REQUEST');
+    }
+    if (instapayHandle.length < 3 || instapayHandle.length > 100) {
+      return res.fail('instapayHandle is required (3–100 chars)', 400, 'BAD_REQUEST');
+    }
+
+    let client;
+    try {
+      client = await db.connect();
+      const refund = await issueRefund(client, { orderId: id, amount, instapayHandle, notes, actorId: req.user.id });
+      return res.ok({ refund });
+    } catch (err) {
+      // issueRefund already rolled back before re-throwing; map known rejects.
+      if (err && err.http) return res.fail(err.message, err.http, err.code);
+      console.error('[admin/refund] failed:', err && err.message);
+      return res.fail('Refund failed', 500, 'REFUND_ERROR');
     } finally {
       if (client && client.release) client.release();
     }
