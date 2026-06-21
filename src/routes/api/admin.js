@@ -736,6 +736,114 @@ module.exports = function (db, helpers, deploy, deps) {
     }
   });
 
+  // ─── GET /doctors (read-only roster) ──────────────────────────
+  // The Doctors-tab roster: every doctor with computed active load, SLA hit-rate,
+  // and rating, plus a derived status and a per-specialty active-supply summary.
+  // Reuses the canonical patterns verbatim: load = active-case COUNT over
+  // orders_active using the /candidates exclusion list (the single canonical
+  // form), sla_hit = the case-detail card's completed-within-deadline ratio,
+  // rating = AVG(reviews.rating). No filters in v1 — the full roster (~14 rows)
+  // is returned and the app filters client-side.
+  router.get('/doctors', async (req, res) => {
+    try {
+      const n = (v) => Number(v) || 0;
+      // sla_tiers_supported is stored as JSON (sometimes a string). Parse it the
+      // same defensive way doctorSupportsTier does, but keep the array for output.
+      const parseTiers = (raw) => {
+        let arr = raw;
+        if (typeof arr === 'string') {
+          try { arr = JSON.parse(arr); } catch (_) { arr = null; }
+        }
+        return Array.isArray(arr) ? arr.map((s) => String(s)) : [];
+      };
+
+      const rows = await safeAll(
+        `SELECT u.id, u.name, u.name_ar, u.display_name, u.email, u.phone,
+                u.specialty_id, COALESCE(sp.name, '—') AS specialty,
+                u.is_active, u.is_paused, u.is_available, u.pending_approval,
+                u.max_active_cases, u.max_active_cases_urgent, u.sla_tiers_supported,
+                u.years_of_experience, u.medical_license_number,
+                u.created_at, u.approved_at, u.last_seen_at,
+                (SELECT COUNT(*) FROM orders_active o WHERE o.doctor_id = u.id
+                   AND LOWER(COALESCE(o.status,'')) NOT IN ('completed','cancelled','expired_unpaid','refunded')) AS load,
+                (SELECT COUNT(*) FILTER (WHERE o.completed_at IS NOT NULL AND o.deadline_at IS NOT NULL
+                          AND o.completed_at::timestamptz <= o.deadline_at::timestamptz)::float
+                        / NULLIF(COUNT(*) FILTER (WHERE o.completed_at IS NOT NULL), 0)
+                   FROM orders_active o WHERE o.doctor_id = u.id) AS sla_hit,
+                (SELECT AVG(rating)::numeric(3,1) FROM reviews r WHERE r.doctor_id = u.id) AS rating,
+                (SELECT COUNT(*) FROM reviews r WHERE r.doctor_id = u.id) AS rating_count
+           FROM users u LEFT JOIN specialties sp ON sp.id = u.specialty_id
+          WHERE u.role = 'doctor'
+          ORDER BY u.name ASC`
+      );
+
+      const doctors = (rows || []).map((d) => {
+        // Status precedence: a pending application outranks paused/active; an
+        // explicitly paused doctor outranks the active flag.
+        const status = d.pending_approval ? 'pending'
+          : d.is_paused ? 'paused'
+          : d.is_active ? 'active'
+          : 'inactive';
+        return {
+          id: d.id,
+          name: d.name,
+          nameAr: d.name_ar || null,
+          displayName: d.display_name || null,
+          email: d.email || null,
+          phone: d.phone || null,
+          specialtyId: d.specialty_id || null,
+          specialty: d.specialty,
+          status,
+          isAvailable: !!d.is_available,
+          load: { active: n(d.load), max: n(d.max_active_cases), maxUrgent: n(d.max_active_cases_urgent) },
+          slaTiersSupported: parseTiers(d.sla_tiers_supported),
+          slaHitRate: d.sla_hit == null ? null : Number(d.sla_hit),
+          rating: { avg: d.rating == null ? null : Number(d.rating), count: n(d.rating_count) },
+          yearsOfExperience: d.years_of_experience == null ? null : n(d.years_of_experience),
+          medicalLicenseNumber: d.medical_license_number || null,
+          createdAt: toIso(d.created_at),
+          approvedAt: toIso(d.approved_at),
+          lastSeenAt: toIso(d.last_seen_at),
+        };
+      });
+
+      // Roster ordering: pending applications first (they need a decision), then
+      // ascending active load (most-available first) — the same load metric the
+      // assignment picker sorts on.
+      doctors.sort((a, b) => {
+        const ap = a.status === 'pending' ? 0 : 1;
+        const bp = b.status === 'pending' ? 0 : 1;
+        if (ap !== bp) return ap - bp;
+        return a.load.active - b.load.active;
+      });
+
+      // Summary computed in JS from the fetched rows (no extra count queries).
+      const byStatus = { active: 0, pending: 0, paused: 0, inactive: 0 };
+      const specOrder = [];
+      const specMap = new Map();
+      for (const doc of doctors) {
+        if (Object.prototype.hasOwnProperty.call(byStatus, doc.status)) byStatus[doc.status] += 1;
+        if (doc.specialtyId) {
+          let entry = specMap.get(doc.specialtyId);
+          if (!entry) {
+            entry = { specialtyId: doc.specialtyId, specialty: doc.specialty, activeCount: 0 };
+            specMap.set(doc.specialtyId, entry);
+            specOrder.push(entry);
+          }
+          if (doc.status === 'active') entry.activeCount += 1;
+        }
+      }
+      const bySpecialty = specOrder.sort((a, b) => a.specialty.localeCompare(b.specialty));
+
+      return res.ok({
+        doctors,
+        summary: { total: doctors.length, byStatus, bySpecialty },
+      });
+    } catch (err) {
+      return res.fail('Failed to load doctors', 500, 'DOCTORS_ERROR');
+    }
+  });
+
   // ─── POST /cases/:id/assign (FIRST production WRITE — atomic) ──
   // One all-or-nothing transaction: SELECT … FOR UPDATE, re-validate all 10
   // rules from fresh in-txn reads (client never trusted), then 4 writes (orders
