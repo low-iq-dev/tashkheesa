@@ -18,7 +18,7 @@ const apiResponse = require('../middleware/apiResponse');
 const { requireJWT, requireRole } = require('../middleware/requireJWT');
 const { getSignedDownloadUrl } = require('../storage');
 
-module.exports = function (db, helpers) {
+module.exports = function (db, helpers, deploy) {
   const router = express.Router();
 
   // ─── Global API Middleware ─────────────────────────────────
@@ -75,6 +75,15 @@ module.exports = function (db, helpers) {
   router.get('/health', (req, res) => {
     res.ok({ status: 'ok', version: '1.0.0', timestamp: new Date().toISOString() });
   });
+
+  // ─── Admin (Tashkheesa Command — superadmin-only, read-only) ─
+  // Mounted BEFORE the patient gate below so its own /auth/login stays public
+  // and its protected routes gate on 'superadmin' (not 'patient'). The login/
+  // refresh surface gets the strict auth limiter; /admin/health uses the
+  // general apiLimiter so the dashboard can poll. See src/routes/api/admin.js.
+  router.use('/admin/auth', authLimiter);
+  const adminRoutes = require('./api/admin')(db, helpers, deploy);
+  router.use('/admin', adminRoutes);
 
   // ─── Protected Routes (JWT required) ───────────────────────
 
