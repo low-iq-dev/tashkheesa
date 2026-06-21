@@ -736,12 +736,10 @@ function resolveSlaHoursForCase(orderRow) {
   return Number.isFinite(n) && n > 0 ? n : 48;
 }
 
-// Cairo time restriction for urgent tier (7am–7pm Cairo / Africa/Cairo)
-function isUrgentWindowOpen() {
-  const cairoTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
-  const hour = cairoTime.getHours();
-  return hour >= 7 && hour < 19;
-}
+// Cairo time restriction for urgent tier (7am–7pm Cairo). Single source
+// of truth: services/urgency_window (DST-aware via Intl — Egypt has DST
+// again since April 2023, so local offset math is not safe here).
+const { isUrgentWindowOpen } = require('./services/urgency_window');
 
 const STATUS_TRANSITIONS = Object.freeze({
   [CASE_STATUS.DRAFT]: [CASE_STATUS.SUBMITTED],

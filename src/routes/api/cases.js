@@ -15,6 +15,8 @@ function body(...a) { return ev().body(...a); }
 function validationResult(...a) { return ev().validationResult(...a); }
 function query(...a) { return ev().query(...a); }
 const { validateImageFromUrl, isImageExtension } = require('../../ai_image_check');
+// DST-aware Cairo urgent-window gate (single source of truth; Egypt has DST since 2023).
+const { isUrgentWindowOpen } = require('../../services/urgency_window');
 // Theme 13 Sub-issue D + I: signed-URL generation for the AI image-quality
 // worker when the file was uploaded directly to R2 (instead of the legacy
 // Uploadcare CDN path). See POST /cases handler below.
@@ -245,17 +247,14 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     const refNumber = generateReferenceId();
     const slaDeadline = new Date(Date.now() + slaHours * 60 * 60 * 1000).toISOString();
 
-    // Urgent order cutoff: only 07:00-19:00 Cairo time (UTC+2)
-    if (urgencyTier === 'urgent') {
-      const now = new Date();
-      const cairoHour = new Date(now.getTime() + 2 * 60 * 60 * 1000).getUTCHours();
-      if (cairoHour < 7 || cairoHour >= 19) {
-        return res.fail(
-          'Urgent orders are only available between 7:00am and 7:00pm Cairo time. Please select standard or fast-track.',
-          400,
-          'URGENT_UNAVAILABLE'
-        );
-      }
+    // Urgent order cutoff: only 07:00–18:59 Cairo wall-clock time.
+    // DST-aware via services/urgency_window (Egypt has DST again since April 2023).
+    if (urgencyTier === 'urgent' && !isUrgentWindowOpen()) {
+      return res.fail(
+        'Urgent orders are only available between 7:00am and 7:00pm Cairo time. Please select standard or fast-track.',
+        400,
+        'URGENT_UNAVAILABLE'
+      );
     }
 
     await safeRun(`
