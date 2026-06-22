@@ -421,6 +421,104 @@ module.exports = function (db, helpers, deploy, deps) {
     }
   });
 
+  // ─── GET /refunds (read-only refund queue + revenue KPIs) ─────
+  // The Payments tab. Three status buckets joined to the PATIENT VIA THE ORDER
+  // (o.patient_id) — NOT via r.requested_by, which the web /superadmin/refunds
+  // uses and which mislabels operator-initiated refunds. KPIs reuse the
+  // authoritative dashboard/finance formulas verbatim:
+  //   - collected = SUM(orders_active.price) WHERE payment_status IN ('paid','captured')
+  //   - refundedMTD = committed refunds (status paid/approved/auto_approved) this month
+  //     (identical to superadmin_dashboard so the two never disagree)
+  //   - refundsOwed = the OPERATIONAL unpaid obligation (pending/approved/auto_approved),
+  //     kept SEPARATE from refundedMTD.
+  router.get('/refunds', async (req, res) => {
+    try {
+      const n = (v) => Number(v) || 0;
+
+      // One row's columns — shared across the three buckets. Patient via the
+      // order; reference_id is the display ref (NULL in prod → app falls back).
+      const ROW = `r.id, r.order_id, r.amount_egp, r.requested_amount, r.approved_amount,
+                   r.status, r.reason, r.instapay_handle, r.instapay_reference,
+                   r.refunded_at, r.reviewed_at, r.paid_at,
+                   p.name AS patient_name, o.reference_id, o.service_id, o.price, o.currency
+              FROM refunds r
+              JOIN orders o ON o.id = r.order_id
+              LEFT JOIN users p ON p.id = o.patient_id`;
+
+      const [pendingRows, awaitingRows, recentRows, rev, ref] = await Promise.all([
+        // pending — FIFO, oldest obligation first
+        safeAll(`SELECT ${ROW} WHERE r.status = 'pending' ORDER BY r.refunded_at ASC`),
+        // approved but not yet paid out
+        safeAll(`SELECT ${ROW} WHERE r.status IN ('approved','auto_approved') ORDER BY r.refunded_at ASC`),
+        // recently closed (paid or denied), last 30d — no reason filter (show
+        // operator refunds too, unlike the web queue)
+        safeAll(
+          `SELECT ${ROW} WHERE r.status IN ('paid','denied')
+             AND r.refunded_at > NOW() - INTERVAL '30 days'
+           ORDER BY r.refunded_at DESC LIMIT 50`
+        ),
+        // Collected revenue (paid/captured) — orders_active, matching the finance
+        // route's authoritative formula.
+        safeGet(
+          `SELECT
+             COALESCE(SUM(price) FILTER (WHERE created_at >= date_trunc('day', NOW())), 0) AS collected_today,
+             COALESCE(SUM(price) FILTER (WHERE created_at >= date_trunc('month', NOW())), 0) AS collected_mtd
+           FROM orders_active
+           WHERE payment_status IN ('paid','captured')`
+        ),
+        // refundedMTD (committed) + refundsOwed (operational obligation), one pass.
+        safeGet(
+          `SELECT
+             COALESCE(SUM(amount_egp) FILTER (
+               WHERE refunded_at >= date_trunc('month', NOW())
+                 AND status IN ('paid','approved','auto_approved')), 0) AS refunded_mtd,
+             COUNT(*) FILTER (WHERE status IN ('pending','approved','auto_approved')) AS owed_count,
+             COALESCE(SUM(amount_egp) FILTER (WHERE status IN ('pending','approved','auto_approved')), 0) AS owed_total
+           FROM refunds`
+        ),
+      ]);
+
+      const mapRefund = (r) => ({
+        id: r.id,
+        orderId: r.order_id,
+        patientName: r.patient_name || null,
+        orderReference: r.reference_id || null,
+        serviceId: r.service_id || null,
+        price: r.price == null ? null : Number(r.price),
+        currency: r.currency || null,
+        amountEgp: n(r.amount_egp),
+        requestedAmount: r.requested_amount == null ? null : Number(r.requested_amount),
+        approvedAmount: r.approved_amount == null ? null : Number(r.approved_amount),
+        status: r.status,
+        reason: r.reason || null,
+        instapayHandle: r.instapay_handle || null,
+        instapayReference: r.instapay_reference || null,
+        refundedAt: toIso(r.refunded_at),
+        reviewedAt: toIso(r.reviewed_at),
+        paidAt: toIso(r.paid_at),
+      });
+
+      const pending = (pendingRows || []).map(mapRefund);
+      const awaitingPayment = (awaitingRows || []).map(mapRefund);
+      const recent = (recentRows || []).map(mapRefund);
+      const r1 = rev || {};
+      const r2 = ref || {};
+
+      return res.ok({
+        queue: { pending, awaitingPayment, recent },
+        kpis: {
+          collectedToday: n(r1.collected_today),
+          collectedMTD: n(r1.collected_mtd),
+          refundedMTD: n(r2.refunded_mtd),
+          refundsOwed: { count: n(r2.owed_count), total: n(r2.owed_total) },
+        },
+        counts: { pending: pending.length, awaitingPayment: awaitingPayment.length },
+      });
+    } catch (err) {
+      return res.fail('Failed to load refunds', 500, 'REFUNDS_ERROR');
+    }
+  });
+
   // ─── GET /cases (filterable / sortable / paginated list) ────
   // READ-ONLY triage queue over orders_active. Default scope excludes
   // expired_unpaid + draft (dead/pre-payment noise) UNLESS an explicit status
