@@ -445,24 +445,33 @@ module.exports = function (db, helpers, deploy, deps) {
               JOIN orders o ON o.id = r.order_id
               LEFT JOIN users p ON p.id = o.patient_id`;
 
-      const [pendingRows, awaitingRows, recentRows, rev, ref] = await Promise.all([
+      const [pendingRows, awaitingRows, recentRows, refundedMtdRows, rev, ref] = await Promise.all([
         // pending — FIFO, oldest obligation first
         safeAll(`SELECT ${ROW} WHERE r.status = 'pending' ORDER BY r.refunded_at ASC`),
         // approved but not yet paid out
         safeAll(`SELECT ${ROW} WHERE r.status IN ('approved','auto_approved') ORDER BY r.refunded_at ASC`),
         // recently closed (paid or denied), last 30d — no reason filter (show
-        // operator refunds too, unlike the web queue)
+        // operator refunds too, unlike the web queue). Left UNCHANGED.
         safeAll(
           `SELECT ${ROW} WHERE r.status IN ('paid','denied')
              AND r.refunded_at > NOW() - INTERVAL '30 days'
            ORDER BY r.refunded_at DESC LIMIT 50`
         ),
-        // Collected revenue (paid/captured) — orders_active, matching the finance
-        // route's authoritative formula.
+        // Refunded-MTD list — the EXACT set behind the refundedMTD KPI: committed
+        // refunds (paid/approved/auto_approved) this calendar MONTH, so this list's
+        // total equals the tile. Distinct from `recent` (30d rolling + denied).
+        safeAll(
+          `SELECT ${ROW} WHERE r.status IN ('paid','approved','auto_approved')
+             AND r.refunded_at >= date_trunc('month', NOW())
+           ORDER BY r.refunded_at DESC`
+        ),
+        // Collected revenue (paid/captured) — orders_active. Date column is
+        // COALESCE(paid_at, created_at) so this KPI equals the GET /revenue list
+        // total (which buckets by the same coalesced collected-date).
         safeGet(
           `SELECT
-             COALESCE(SUM(price) FILTER (WHERE created_at >= date_trunc('day', NOW())), 0) AS collected_today,
-             COALESCE(SUM(price) FILTER (WHERE created_at >= date_trunc('month', NOW())), 0) AS collected_mtd
+             COALESCE(SUM(price) FILTER (WHERE COALESCE(paid_at, created_at) >= date_trunc('day', NOW())), 0) AS collected_today,
+             COALESCE(SUM(price) FILTER (WHERE COALESCE(paid_at, created_at) >= date_trunc('month', NOW())), 0) AS collected_mtd
            FROM orders_active
            WHERE payment_status IN ('paid','captured')`
         ),
@@ -501,11 +510,12 @@ module.exports = function (db, helpers, deploy, deps) {
       const pending = (pendingRows || []).map(mapRefund);
       const awaitingPayment = (awaitingRows || []).map(mapRefund);
       const recent = (recentRows || []).map(mapRefund);
+      const refundedMtd = (refundedMtdRows || []).map(mapRefund);
       const r1 = rev || {};
       const r2 = ref || {};
 
       return res.ok({
-        queue: { pending, awaitingPayment, recent },
+        queue: { pending, awaitingPayment, recent, refundedMtd },
         kpis: {
           collectedToday: n(r1.collected_today),
           collectedMTD: n(r1.collected_mtd),
@@ -516,6 +526,53 @@ module.exports = function (db, helpers, deploy, deps) {
       });
     } catch (err) {
       return res.fail('Failed to load refunds', 500, 'REFUNDS_ERROR');
+    }
+  });
+
+  // ─── GET /revenue?scope=today|mtd (read-only paid-orders list) ─
+  // The list behind the Collected today / Collected MTD tiles. Buckets by
+  // COALESCE(paid_at, created_at) — the SAME coalesced collected-date the
+  // collected KPI now sums on — so this list's row set matches the tile's window.
+  router.get('/revenue', async (req, res) => {
+    try {
+      const n = (v) => Number(v) || 0;
+      const scope = String((req.query && req.query.scope) || '').toLowerCase();
+      const unit = scope === 'today' ? 'day' : scope === 'mtd' ? 'month' : null;
+      if (!unit) return res.fail("scope must be 'today' or 'mtd'", 400, 'BAD_REQUEST');
+
+      const rows = await safeAll(
+        `SELECT o.id, o.reference_id, COALESCE(p.name,'—') AS patient, COALESCE(sv.name,'—') AS service,
+                o.base_price, o.price, o.total_price_with_addons, o.currency, o.payment_method,
+                COALESCE(o.paid_at, o.created_at) AS collected_at
+           FROM orders_active o
+           LEFT JOIN users p     ON p.id = o.patient_id
+           LEFT JOIN services sv ON sv.id = o.service_id
+          WHERE LOWER(COALESCE(o.payment_status,'')) IN ('paid','captured')
+            AND COALESCE(o.paid_at, o.created_at) >= date_trunc($1, NOW())
+          ORDER BY COALESCE(o.paid_at, o.created_at) DESC`,
+        [unit]
+      );
+
+      const orders = (rows || []).map((o) => {
+        const grandTotal = n(o.total_price_with_addons != null ? o.total_price_with_addons : o.price);
+        return {
+          id: o.id,
+          orderReference: o.reference_id || null,
+          patient: o.patient,
+          service: o.service,
+          basePrice: n(o.base_price),
+          price: n(o.price),
+          grandTotal,
+          currency: o.currency || null,
+          paymentMethod: o.payment_method || null,
+          collectedAt: toIso(o.collected_at),
+        };
+      });
+      const amount = orders.reduce((s, o) => s + o.grandTotal, 0);
+
+      return res.ok({ scope, orders, total: { count: orders.length, amount } });
+    } catch (err) {
+      return res.fail('Failed to load revenue', 500, 'REVENUE_ERROR');
     }
   });
 
@@ -530,6 +587,7 @@ module.exports = function (db, helpers, deploy, deps) {
       const q = req.query || {};
       const limit = Math.min(100, Math.max(1, parseInt(q.limit, 10) || 25));
       const offset = Math.max(0, parseInt(q.offset, 10) || 0);
+      const n = (v) => Number(v) || 0;
 
       // Parameterized dynamic WHERE.
       const cond = [];
@@ -559,6 +617,18 @@ module.exports = function (db, helpers, deploy, deps) {
       if (q.breached === '1' || q.breached === 'true') {
         cond.push("o.completed_at IS NULL AND o.deadline_at IS NOT NULL AND o.deadline_at::timestamptz < NOW()");
       }
+      // Active = the pulse "Active cases" KPI set (the ACTIVE_STATUSES constant),
+      // not yet completed. This ANDs with assigned=unassigned to yield the EXACT
+      // pulse "Pending assign" definition — so the loose `assigned` filter the
+      // Cases screen relies on is left unchanged (tightening is gated behind active).
+      if (q.active === '1' || q.active === 'true') {
+        cond.push(`o.completed_at IS NULL AND LOWER(o.status) IN ${ACTIVE_STATUSES}`);
+      }
+      // No active timer = the pulse "No active timer" KPI: active, not completed,
+      // and no SLA clock yet (deadline_at NULL — case not yet accepted).
+      if (q.timer === 'none') {
+        cond.push(`o.completed_at IS NULL AND o.deadline_at IS NULL AND LOWER(o.status) IN ${ACTIVE_STATUSES}`);
+      }
       if (q.q) {
         params.push('%' + String(q.q).trim() + '%');
         const i = ph();
@@ -580,6 +650,7 @@ module.exports = function (db, helpers, deploy, deps) {
         safeAll(
           `SELECT o.id, o.reference_id, o.status, o.urgency_tier, o.payment_status, o.doctor_id, o.created_at,
                   o.deadline_at, o.completed_at,
+                  o.base_price, o.price, o.total_price_with_addons,
                   COALESCE(p.name,'—') AS patient, p.gender, p.date_of_birth,
                   COALESCE(sp.name,'—') AS specialty, COALESCE(sv.name,'—') AS service,
                   d.name AS doctor_name,
@@ -626,6 +697,11 @@ module.exports = function (db, helpers, deploy, deps) {
           breached: !r.completed_at && r.sla_mins != null && Number(r.sla_mins) < 0,
           unassigned: !r.doctor_id && norm === 'paid',
           createdAt: toIso(r.created_at),
+          // Money (additive). base = base_price; price = charged (urgency incl.);
+          // grandTotal = COALESCE(total_price_with_addons, price) (incl. add-ons).
+          basePrice: n(r.base_price),
+          price: n(r.price),
+          grandTotal: n(r.total_price_with_addons != null ? r.total_price_with_addons : r.price),
         };
       });
 
