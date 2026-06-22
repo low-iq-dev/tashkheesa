@@ -171,7 +171,7 @@ test('GET /refunds: empty — buckets [], kpis zeroed, counts zero', async () =>
     const { res, body } = await getRefunds(base, mintToken(SUPERADMIN));
     assert.equal(res.status, 200);
     assert.equal(body.success, true);
-    assert.deepEqual(body.data.queue, { pending: [], awaitingPayment: [], recent: [] });
+    assert.deepEqual(body.data.queue, { pending: [], awaitingPayment: [], recent: [], refundedMtd: [] });
     assert.deepEqual(body.data.kpis, {
       collectedToday: 0,
       collectedMTD: 0,
