@@ -288,6 +288,10 @@ test('GET /refunds — adds queue.refundedMtd (committed, this month); collected
     const collectedSql = cap.find((s) => /collected_today/.test(s)) || '';
     assert.ok(collectedSql.includes("COALESCE(paid_at, created_at) >= date_trunc('day'"), 'collectedToday coalesced date');
     assert.ok(collectedSql.includes("COALESCE(paid_at, created_at) >= date_trunc('month'"), 'collectedMTD coalesced date');
+    // Sums grandTotal (COALESCE(total_price_with_addons, price)), not bare price —
+    // so the tile equals the /revenue list total (hard rule, incl. add-on orders).
+    assert.ok(collectedSql.includes('SUM(COALESCE(total_price_with_addons, price))'), 'collected KPI sums grandTotal');
+    assert.ok(!/SUM\(price\)/.test(collectedSql), 'collected KPI no longer sums bare price');
   } finally {
     server.close();
   }

@@ -465,13 +465,15 @@ module.exports = function (db, helpers, deploy, deps) {
              AND r.refunded_at >= date_trunc('month', NOW())
            ORDER BY r.refunded_at DESC`
         ),
-        // Collected revenue (paid/captured) — orders_active. Date column is
-        // COALESCE(paid_at, created_at) so this KPI equals the GET /revenue list
-        // total (which buckets by the same coalesced collected-date).
+        // Collected revenue (paid/captured) — orders_active. Sums grandTotal
+        // = COALESCE(total_price_with_addons, price), bucketed by
+        // COALESCE(paid_at, created_at) — the SAME amount column and date as the
+        // GET /revenue list total, so the tile always equals the list (including
+        // orders with file add-ons).
         safeGet(
           `SELECT
-             COALESCE(SUM(price) FILTER (WHERE COALESCE(paid_at, created_at) >= date_trunc('day', NOW())), 0) AS collected_today,
-             COALESCE(SUM(price) FILTER (WHERE COALESCE(paid_at, created_at) >= date_trunc('month', NOW())), 0) AS collected_mtd
+             COALESCE(SUM(COALESCE(total_price_with_addons, price)) FILTER (WHERE COALESCE(paid_at, created_at) >= date_trunc('day', NOW())), 0) AS collected_today,
+             COALESCE(SUM(COALESCE(total_price_with_addons, price)) FILTER (WHERE COALESCE(paid_at, created_at) >= date_trunc('month', NOW())), 0) AS collected_mtd
            FROM orders_active
            WHERE payment_status IN ('paid','captured')`
         ),
