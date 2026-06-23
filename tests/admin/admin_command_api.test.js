@@ -1184,3 +1184,26 @@ test('POST /doctors/:id/reactivate — patient token → 403 FORBIDDEN', async (
     assert.equal(json.code, 'FORBIDDEN');
   } finally { server.close(); }
 });
+
+// ─────────── doctor approve (slice 2a) — route-level gate ───────────
+// Write logic proven on real Postgres in admin_doctor_approve.test.js. Gate
+// rejects before db.connect, so these stay hermetic with the stub pool.
+
+test('POST /doctors/:id/approve — no token → 401 AUTH_REQUIRED', async () => {
+  const { server, base } = makeApp();
+  try {
+    const { res, json } = await pausePost(base, '/doctors/doc-x/approve');
+    assert.equal(res.status, 401);
+    assert.equal(json.code, 'AUTH_REQUIRED');
+  } finally { server.close(); }
+});
+
+test('POST /doctors/:id/approve — patient token → 403 FORBIDDEN', async () => {
+  const { server, base } = makeApp();
+  try {
+    const token = mintToken({ id: 'p-1', email: 'p@example.com', role: 'patient' });
+    const { res, json } = await pausePost(base, '/doctors/doc-x/approve', { token });
+    assert.equal(res.status, 403);
+    assert.equal(json.code, 'FORBIDDEN');
+  } finally { server.close(); }
+});
