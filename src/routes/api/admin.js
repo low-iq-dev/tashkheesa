@@ -1543,13 +1543,33 @@ module.exports = function (db, helpers, deploy, deps) {
   // STANDALONE "send welcome invite" for any ACTIVE doctor. inviteDoctor
   // atomically issues a 7-day magic-login token, stamps welcome_email_last_sent_at,
   // and audits (one txn); THEN this fires the doctor_approved welcome
-  // notification (internal + email + WhatsApp) OFF the committed txn. Serves as
-  // BOTH first-invite AND resend — the app warns before a resend, the backend
-  // always (re)sends. Deliberately decoupled from /approve, which stays SILENT
-  // (slice 2a). requireJWT + requireRole('superadmin') inherited from the
-  // router-level gate.
+  // notification OFF the committed txn. Optional body { channels: ('email'|
+  // 'whatsapp')[] } selects the CONTACT channels; the in-app 'internal' record
+  // is always sent. Omitted → BOTH (backward-compatible). Serves as BOTH
+  // first-invite AND resend — the app warns before a resend, the backend always
+  // (re)sends. Deliberately decoupled from /approve, which stays SILENT (slice
+  // 2a). requireJWT + requireRole('superadmin') inherited from the router gate.
   router.post('/doctors/:id/invite', async (req, res) => {
     const doctorId = req.params.id;
+
+    // Channel selection (optional). 'internal' (the in-app bell / notification
+    // record) is ALWAYS sent — it's the system record, not a "contact the
+    // doctor" channel; the operator only toggles email / whatsapp. Validate
+    // BEFORE db.connect so an invalid request writes nothing (no token / stamp /
+    // audit). Omitted → BOTH (preserves the prior always-both behavior).
+    const CONTACT_CHANNELS = ['email', 'whatsapp'];
+    let selectedContact = CONTACT_CHANNELS;
+    if (req.body && req.body.channels !== undefined) {
+      const sel = req.body.channels;
+      const valid = Array.isArray(sel) && sel.length > 0 && sel.every((c) => CONTACT_CHANNELS.includes(c));
+      if (!valid) {
+        return res.fail("channels must be a non-empty subset of ['email','whatsapp']", 400, 'INVALID_CHANNELS');
+      }
+      selectedContact = sel;
+    }
+    // internal always first, then the selected contact channels in a stable
+    // order (the filter also dedups, e.g. against ['email','email']).
+    const channels = ['internal', ...CONTACT_CHANNELS.filter((c) => selectedContact.includes(c))];
 
     // baseUrl (pure, no DB) — env first, request headers fallback; mirrors
     // superadmin.js _issueDoctorWelcomePayload. A null baseUrl yields a null
@@ -1592,7 +1612,7 @@ module.exports = function (db, helpers, deploy, deps) {
         notification = await safeQueue({
           orderId: null,
           toUserId: doctorId,
-          channels: ['internal', 'email', 'whatsapp'],
+          channels,
           template: 'doctor_approved',
           response: welcomePayload,
           dedupe_key: 'doctor_invite:' + doctorId + ':' + Date.now(),
