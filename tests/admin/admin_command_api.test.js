@@ -1113,3 +1113,74 @@ test('POST /refund — ATOMICITY: a fault at the admin-audit insert rolls back (
   assert.ok(!calls.includes('COMMIT'), 'must NOT COMMIT a failed transaction');
   assert.ok(calls.some((s) => /INSERT INTO refunds/.test(s)), 'the refunds INSERT was attempted before the failure');
 });
+
+// ─────────── doctor pause / reactivate — route-level gate + validation ───────────
+// The write logic is proven on real Postgres in admin_doctor_pause.test.js.
+// These paths return BEFORE db.connect (gate reject / reason validation), so
+// they stay hermetic with the stub pool.
+
+async function pausePost(base, path, { token, body } = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${base}/api/v1/admin${path}`, {
+    method: 'POST', headers, body: JSON.stringify(body ?? {}),
+  });
+  const json = await res.json().catch(() => null);
+  return { res, json };
+}
+
+test('POST /doctors/:id/pause — no token → 401 AUTH_REQUIRED', async () => {
+  const { server, base } = makeApp();
+  try {
+    const { res, json } = await pausePost(base, '/doctors/doc-x/pause', { body: { reason: 'x' } });
+    assert.equal(res.status, 401);
+    assert.equal(json.code, 'AUTH_REQUIRED');
+  } finally { server.close(); }
+});
+
+test('POST /doctors/:id/pause — patient token → 403 FORBIDDEN', async () => {
+  const { server, base } = makeApp();
+  try {
+    const token = mintToken({ id: 'p-1', email: 'p@example.com', role: 'patient' });
+    const { res, json } = await pausePost(base, '/doctors/doc-x/pause', { token, body: { reason: 'x' } });
+    assert.equal(res.status, 403);
+    assert.equal(json.code, 'FORBIDDEN');
+  } finally { server.close(); }
+});
+
+test('POST /doctors/:id/pause — missing reason → 400 REASON_REQUIRED', async () => {
+  const { server, base } = makeApp();
+  try {
+    const { res, json } = await pausePost(base, '/doctors/doc-x/pause', { token: mintToken(SUPERADMIN), body: {} });
+    assert.equal(res.status, 400);
+    assert.equal(json.code, 'REASON_REQUIRED');
+  } finally { server.close(); }
+});
+
+test('POST /doctors/:id/pause — whitespace-only reason → 400 REASON_REQUIRED', async () => {
+  const { server, base } = makeApp();
+  try {
+    const { res, json } = await pausePost(base, '/doctors/doc-x/pause', { token: mintToken(SUPERADMIN), body: { reason: '   ' } });
+    assert.equal(res.status, 400);
+    assert.equal(json.code, 'REASON_REQUIRED');
+  } finally { server.close(); }
+});
+
+test('POST /doctors/:id/reactivate — no token → 401 AUTH_REQUIRED', async () => {
+  const { server, base } = makeApp();
+  try {
+    const { res, json } = await pausePost(base, '/doctors/doc-x/reactivate');
+    assert.equal(res.status, 401);
+    assert.equal(json.code, 'AUTH_REQUIRED');
+  } finally { server.close(); }
+});
+
+test('POST /doctors/:id/reactivate — patient token → 403 FORBIDDEN', async () => {
+  const { server, base } = makeApp();
+  try {
+    const token = mintToken({ id: 'p-1', email: 'p@example.com', role: 'patient' });
+    const { res, json } = await pausePost(base, '/doctors/doc-x/reactivate', { token });
+    assert.equal(res.status, 403);
+    assert.equal(json.code, 'FORBIDDEN');
+  } finally { server.close(); }
+});

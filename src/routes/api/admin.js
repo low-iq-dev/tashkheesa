@@ -47,6 +47,7 @@ const {
 } = require('./_assign_helpers');
 const { bulkAutoAssign } = require('../../services/admin_bulk_assign');
 const { issueRefund } = require('../../services/admin_refund');
+const { setDoctorPause } = require('../../services/admin_doctor_pause');
 
 // Single-account lock (decision 1): the app authenticates ONLY the Shifa
 // superadmin. Email allowlist is defense-in-depth on top of the role gate.
@@ -1461,6 +1462,45 @@ module.exports = function (db, helpers, deploy, deps) {
       if (err && err.http) return res.fail(err.message, err.http, err.code);
       console.error('[admin/refund] failed:', err && err.message);
       return res.fail('Refund failed', 500, 'REFUND_ERROR');
+    } finally {
+      if (client && client.release) client.release();
+    }
+  });
+
+  // ─── POST /doctors/:id/pause + /reactivate (operator pause, atomic WRITES) ──
+  // The FIRST mutating writes in the Command app. is_paused removes the doctor
+  // from assignment eligibility (assign/candidates/bulk-auto-assign all gate on
+  // it) — a pure flag flip + audit, no case or availability cascade. Asymmetric:
+  // pause requires a reason, reactivate clears it. requireJWT +
+  // requireRole('superadmin') inherited from the router-level gate.
+  router.post('/doctors/:id/pause', async (req, res) => {
+    const reason = req.body && req.body.reason != null ? String(req.body.reason).trim() : '';
+    if (!reason) return res.fail('Pause reason required', 400, 'REASON_REQUIRED');
+    let client;
+    try {
+      client = await db.connect();
+      const doctor = await setDoctorPause(client, { doctorId: req.params.id, paused: true, reason, actorId: req.user.id });
+      return res.ok({ doctor });
+    } catch (err) {
+      // setDoctorPause already rolled back before re-throwing; map known rejects.
+      if (err && err.http) return res.fail(err.message, err.http, err.code);
+      console.error('[admin/doctor-pause] failed:', err && err.message);
+      return res.fail('Pause update failed', 500, 'PAUSE_ERROR');
+    } finally {
+      if (client && client.release) client.release();
+    }
+  });
+
+  router.post('/doctors/:id/reactivate', async (req, res) => {
+    let client;
+    try {
+      client = await db.connect();
+      const doctor = await setDoctorPause(client, { doctorId: req.params.id, paused: false, reason: null, actorId: req.user.id });
+      return res.ok({ doctor });
+    } catch (err) {
+      if (err && err.http) return res.fail(err.message, err.http, err.code);
+      console.error('[admin/doctor-reactivate] failed:', err && err.message);
+      return res.fail('Pause update failed', 500, 'PAUSE_ERROR');
     } finally {
       if (client && client.release) client.release();
     }
