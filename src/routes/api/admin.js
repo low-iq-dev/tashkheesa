@@ -48,6 +48,7 @@ const {
 const { bulkAutoAssign } = require('../../services/admin_bulk_assign');
 const { issueRefund } = require('../../services/admin_refund');
 const { setDoctorPause } = require('../../services/admin_doctor_pause');
+const { setDoctorApproval } = require('../../services/admin_doctor_approve');
 
 // Single-account lock (decision 1): the app authenticates ONLY the Shifa
 // superadmin. Email allowlist is defense-in-depth on top of the role gate.
@@ -1501,6 +1502,28 @@ module.exports = function (db, helpers, deploy, deps) {
       if (err && err.http) return res.fail(err.message, err.http, err.code);
       console.error('[admin/doctor-reactivate] failed:', err && err.message);
       return res.fail('Pause update failed', 500, 'PAUSE_ERROR');
+    } finally {
+      if (client && client.release) client.release();
+    }
+  });
+
+  // ─── POST /doctors/:id/approve (pending → active, SILENT + atomic WRITE) ──
+  // Slice 2a: flips pending_approval=false, is_active=true, stamps approved_at +
+  // approved_by, clears rejection_reason. SILENT by design — NO welcome token,
+  // NO email/WhatsApp/notification (the web approve does those; deferred to slice
+  // 2b, like assign→assign-notifications). requireJWT + requireRole('superadmin')
+  // inherited from the router-level gate.
+  router.post('/doctors/:id/approve', async (req, res) => {
+    let client;
+    try {
+      client = await db.connect();
+      const doctor = await setDoctorApproval(client, { doctorId: req.params.id, actorId: req.user.id });
+      return res.ok({ doctor });
+    } catch (err) {
+      // setDoctorApproval already rolled back before re-throwing; map known rejects.
+      if (err && err.http) return res.fail(err.message, err.http, err.code);
+      console.error('[admin/doctor-approve] failed:', err && err.message);
+      return res.fail('Approve failed', 500, 'APPROVE_ERROR');
     } finally {
       if (client && client.release) client.release();
     }
