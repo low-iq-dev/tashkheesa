@@ -1241,10 +1241,12 @@ function inviteApp(over = {}) {
   return { ...makeApp({ pool, notifiers }), calls };
 }
 
-async function invitePost(base, id, token) {
+async function invitePost(base, id, token, body) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(`${base}/api/v1/admin/doctors/${id}/invite`, { method: 'POST', headers, body: '{}' });
+  const res = await fetch(`${base}/api/v1/admin/doctors/${id}/invite`, {
+    method: 'POST', headers, body: body !== undefined ? JSON.stringify(body) : '{}',
+  });
   return { res, json: await res.json().catch(() => null) };
 }
 
@@ -1343,5 +1345,98 @@ test('POST /invite — an unexpected (non-af) failure → 500 INVITE_ERROR', asy
     const { res, json } = await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN));
     assert.equal(res.status, 500);
     assert.equal(json.code, 'INVITE_ERROR');
+  } finally { app.server.close(); }
+});
+
+// ─────────── invite channel selection (optional body { channels }) ───────────
+// 'internal' (the in-app bell / notification record) is ALWAYS sent — the
+// operator's choice only toggles the contact channels email / whatsapp. Omitted
+// body → BOTH (backward-compat with the prior always-both behavior). Invalid
+// selection → 400 INVALID_CHANNELS, rejected BEFORE the txn (no token, no notify).
+
+test('POST /invite — { channels:[email] } → notifier channels = [internal, email]', async () => {
+  const app = inviteApp();
+  try {
+    const { res } = await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN), { channels: ['email'] });
+    assert.equal(res.status, 200);
+    assert.equal(app.calls.queue.length, 1);
+    assert.deepEqual(app.calls.queue[0].channels, ['internal', 'email']);
+  } finally { app.server.close(); }
+});
+
+test('POST /invite — { channels:[whatsapp] } → notifier channels = [internal, whatsapp]', async () => {
+  const app = inviteApp();
+  try {
+    const { res } = await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN), { channels: ['whatsapp'] });
+    assert.equal(res.status, 200);
+    assert.deepEqual(app.calls.queue[0].channels, ['internal', 'whatsapp']);
+  } finally { app.server.close(); }
+});
+
+test('POST /invite — { channels:[email,whatsapp] } → notifier channels = [internal, email, whatsapp]', async () => {
+  const app = inviteApp();
+  try {
+    const { res } = await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN), { channels: ['email', 'whatsapp'] });
+    assert.equal(res.status, 200);
+    assert.deepEqual(app.calls.queue[0].channels, ['internal', 'email', 'whatsapp']);
+  } finally { app.server.close(); }
+});
+
+test('POST /invite — body omitted defaults to BOTH (internal + email + whatsapp)', async () => {
+  const app = inviteApp();
+  try {
+    const { res } = await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN)); // no body
+    assert.equal(res.status, 200);
+    assert.deepEqual(app.calls.queue[0].channels, ['internal', 'email', 'whatsapp']);
+  } finally { app.server.close(); }
+});
+
+test('POST /invite — channel order is normalized regardless of input order', async () => {
+  const app = inviteApp();
+  try {
+    await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN), { channels: ['whatsapp', 'email'] });
+    assert.deepEqual(app.calls.queue[0].channels, ['internal', 'email', 'whatsapp']);
+  } finally { app.server.close(); }
+});
+
+test('POST /invite — { channels:[] } → 400 INVALID_CHANNELS, no token issued, no notification', async () => {
+  const app = inviteApp();
+  try {
+    const { res, json } = await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN), { channels: [] });
+    assert.equal(res.status, 400);
+    assert.equal(json.code, 'INVALID_CHANNELS');
+    assert.equal(app.calls.issue.length, 0, 'rejected before the txn — no token issued');
+    assert.equal(app.calls.queue.length, 0, 'no notification dispatched');
+  } finally { app.server.close(); }
+});
+
+test('POST /invite — { channels:[sms] } (unknown channel) → 400 INVALID_CHANNELS, no token, no notify', async () => {
+  const app = inviteApp();
+  try {
+    const { res, json } = await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN), { channels: ['sms'] });
+    assert.equal(res.status, 400);
+    assert.equal(json.code, 'INVALID_CHANNELS');
+    assert.equal(app.calls.issue.length, 0, 'no token issued');
+    assert.equal(app.calls.queue.length, 0, 'no notification dispatched');
+  } finally { app.server.close(); }
+});
+
+test('POST /invite — { channels:[internal] } (internal is not operator-selectable) → 400 INVALID_CHANNELS', async () => {
+  const app = inviteApp();
+  try {
+    const { res, json } = await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN), { channels: ['internal'] });
+    assert.equal(res.status, 400);
+    assert.equal(json.code, 'INVALID_CHANNELS');
+    assert.equal(app.calls.issue.length, 0);
+  } finally { app.server.close(); }
+});
+
+test('POST /invite — { channels: "email" } (not an array) → 400 INVALID_CHANNELS', async () => {
+  const app = inviteApp();
+  try {
+    const { res, json } = await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN), { channels: 'email' });
+    assert.equal(res.status, 400);
+    assert.equal(json.code, 'INVALID_CHANNELS');
+    assert.equal(app.calls.issue.length, 0);
   } finally { app.server.close(); }
 });
