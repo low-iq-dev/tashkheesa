@@ -174,6 +174,13 @@ module.exports = function (db, helpers, deploy, deps) {
     || require('../../notify').queueMultiChannelNotification;
   const notifyCaseAssigned = assignDeps.notifyCaseAssigned
     || require('../../services/emailService').notifyCaseAssigned;
+  // Slice 2b: the doctor-welcome token issuer (atomically issues a magic-login
+  // token + welcome stamp + audit on the txn client; see services/admin_doctor_invite.js).
+  // Injectable so POST /doctors/:id/invite stays hermetically testable; defaults
+  // to the real service. In prod (api_v1.js passes no 4th arg) this
+  // require-fallback is what runs — same pattern as the assign notifiers above.
+  const issueDoctorWelcome = assignDeps.issueDoctorWelcome
+    || require('../../services/admin_doctor_invite').inviteDoctor;
 
   // ─── POST /auth/login (public) ─────────────────────────────
   // Generic 401 INVALID_CREDENTIALS for every failure mode — no account
@@ -941,7 +948,7 @@ module.exports = function (db, helpers, deploy, deps) {
                 u.is_active, u.is_paused, u.is_available, u.pending_approval,
                 u.max_active_cases, u.max_active_cases_urgent, u.sla_tiers_supported,
                 u.years_of_experience, u.medical_license_number,
-                u.created_at, u.approved_at, u.last_seen_at,
+                u.created_at, u.approved_at, u.last_seen_at, u.welcome_email_last_sent_at,
                 (SELECT COUNT(*) FROM orders_active o WHERE o.doctor_id = u.id
                    AND LOWER(COALESCE(o.status,'')) NOT IN ('completed','cancelled','expired_unpaid','refunded')) AS load,
                 (SELECT COUNT(*) FILTER (WHERE o.completed_at IS NOT NULL AND o.deadline_at IS NOT NULL
@@ -982,6 +989,9 @@ module.exports = function (db, helpers, deploy, deps) {
           createdAt: toIso(d.created_at),
           approvedAt: toIso(d.approved_at),
           lastSeenAt: toIso(d.last_seen_at),
+          // slice 2b: null = never invited; non-null = welcome (re)sent at (lets
+          // the app show invited-state + warn before a resend).
+          lastInvitedAt: toIso(d.welcome_email_last_sent_at),
         };
       });
 
@@ -1524,6 +1534,80 @@ module.exports = function (db, helpers, deploy, deps) {
       if (err && err.http) return res.fail(err.message, err.http, err.code);
       console.error('[admin/doctor-approve] failed:', err && err.message);
       return res.fail('Approve failed', 500, 'APPROVE_ERROR');
+    } finally {
+      if (client && client.release) client.release();
+    }
+  });
+
+  // ─── POST /doctors/:id/invite (welcome magic-login link — slice 2b WRITE) ──
+  // STANDALONE "send welcome invite" for any ACTIVE doctor. inviteDoctor
+  // atomically issues a 7-day magic-login token, stamps welcome_email_last_sent_at,
+  // and audits (one txn); THEN this fires the doctor_approved welcome
+  // notification (internal + email + WhatsApp) OFF the committed txn. Serves as
+  // BOTH first-invite AND resend — the app warns before a resend, the backend
+  // always (re)sends. Deliberately decoupled from /approve, which stays SILENT
+  // (slice 2a). requireJWT + requireRole('superadmin') inherited from the
+  // router-level gate.
+  router.post('/doctors/:id/invite', async (req, res) => {
+    const doctorId = req.params.id;
+
+    // baseUrl (pure, no DB) — env first, request headers fallback; mirrors
+    // superadmin.js _issueDoctorWelcomePayload. A null baseUrl yields a null
+    // magicLinkUrl (the email gates its CTA on it) — never throws.
+    let baseUrl = String(process.env.BASE_URL || process.env.APP_URL || '').trim().replace(/\/+$/, '');
+    if (!baseUrl) {
+      try {
+        const protoRaw = (req.get('x-forwarded-proto') || req.protocol || 'http');
+        const proto = String(protoRaw).split(',')[0].trim() || 'http';
+        const host = req.get('x-forwarded-host') || req.get('host');
+        baseUrl = host ? `${proto}://${host}` : '';
+      } catch (_) { baseUrl = ''; }
+    }
+
+    let client;
+    try {
+      client = await db.connect();
+      const { welcomePayload, lastInvitedAt } = await issueDoctorWelcome(client, {
+        doctorId, baseUrl: baseUrl || null, actorId: req.user.id,
+      });
+
+      // Post-commit, best-effort, OFF the txn: fire the welcome notification.
+      // UNIQUE/timestamped dedupe_key per call — /invite is ALWAYS a potential
+      // resend and the worker dedupes PERMANENTLY on dedupe_key, so a fixed key
+      // would let the first send through and silently DROP every resend (same
+      // posture as the web resend, superadmin.js:3285). safeQueue maps the
+      // result to queued/failed; the outer umbrella guarantees nothing thrown
+      // post-commit can break the already-committed invite response.
+      let notification = 'queued';
+      try {
+        const safeQueue = async (opts) => {
+          try {
+            const r = await queueMultiChannelNotification(opts);
+            return (r && r.ok === false) ? 'failed' : 'queued';
+          } catch (e) {
+            console.error('[admin/doctor-invite] notify failed:', opts && opts.template, e && e.message);
+            return 'failed';
+          }
+        };
+        notification = await safeQueue({
+          orderId: null,
+          toUserId: doctorId,
+          channels: ['internal', 'email', 'whatsapp'],
+          template: 'doctor_approved',
+          response: welcomePayload,
+          dedupe_key: 'doctor_invite:' + doctorId + ':' + Date.now(),
+        });
+      } catch (e) {
+        console.error('[admin/doctor-invite] post-commit notification failed:', e && e.message);
+        notification = 'failed';
+      }
+
+      return res.ok({ invited: true, notification, lastInvitedAt });
+    } catch (err) {
+      // inviteDoctor already rolled back before re-throwing; map known rejects.
+      if (err && err.http) return res.fail(err.message, err.http, err.code);
+      console.error('[admin/doctor-invite] failed:', err && err.message);
+      return res.fail('Invite failed', 500, 'INVITE_ERROR');
     } finally {
       if (client && client.release) client.release();
     }

@@ -81,6 +81,7 @@ function fakeRows() {
       max_active_cases: 5, max_active_cases_urgent: 8, sla_tiers_supported: '["standard","urgent"]',
       years_of_experience: 12, medical_license_number: 'LIC-PENDING',
       created_at: new Date('2026-06-10T08:00:00.000Z'), approved_at: null, last_seen_at: null,
+      welcome_email_last_sent_at: null,
       load: '2', sla_hit: null, rating: null, rating_count: '0',
     },
     {
@@ -100,6 +101,7 @@ function fakeRows() {
       years_of_experience: 8, medical_license_number: 'LIC-ACTIVE',
       created_at: new Date('2026-04-01T08:00:00.000Z'), approved_at: new Date('2026-04-02T08:00:00.000Z'),
       last_seen_at: new Date('2026-06-21T08:00:00.000Z'),
+      welcome_email_last_sent_at: new Date('2026-06-20T09:00:00.000Z'),
       load: '1', sla_hit: 0.75, rating: '4.5', rating_count: '4',
     },
     {
@@ -169,6 +171,10 @@ test('GET /doctors: happy path — envelope, mapping, status, summary', async ()
     assert.equal(active.createdAt, '2026-04-01T08:00:00.000Z');
     assert.equal(active.lastSeenAt, '2026-06-21T08:00:00.000Z');
     assert.equal(byId['doc-pending'].approvedAt, null);
+
+    // lastInvitedAt (slice 2b): welcome stamp → ISO; never-invited → null
+    assert.equal(active.lastInvitedAt, '2026-06-20T09:00:00.000Z');
+    assert.equal(byId['doc-pending'].lastInvitedAt, null);
 
     // sort: pending first, then ascending active load
     assert.equal(body.data.doctors[0].id, 'doc-pending');
