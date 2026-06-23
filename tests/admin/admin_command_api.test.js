@@ -1207,3 +1207,141 @@ test('POST /doctors/:id/approve — patient token → 403 FORBIDDEN', async () =
     assert.equal(json.code, 'FORBIDDEN');
   } finally { server.close(); }
 });
+
+// ─────────── doctor invite / resend-welcome (slice 2b) — route-level ───────────
+// The IN-TXN write (token + welcome stamp + audit, atomicity) is proven on real
+// Postgres in admin_doctor_invite.test.js. These cover the gate plus the
+// POST-COMMIT wiring: the token helper runs on the route's client, the welcome
+// notification fires with the right template/payload and a UNIQUE (timestamped)
+// dedupe key per call, and a post-commit notifier failure NEVER fails the
+// already-committed invite — while an in-txn (token-helper) reject DOES.
+
+// Build an app with spy issueDoctorWelcome + queueMultiChannelNotification.
+// issueDoctorWelcome is stubbed, so the route's db.connect() client is never
+// used for queries — connect() just returns a releasable handle.
+function inviteApp(over = {}) {
+  const calls = { issue: [], queue: [] };
+  let tok = 0;
+  const notifiers = {
+    ensureConversation: async () => 'convo-stub',
+    notifyCaseAssigned: async () => ({ ok: true, messageId: 'stub' }),
+    queueMultiChannelNotification: over.queue
+      || (async (opts) => { calls.queue.push(opts); return { ok: true, results: {} }; }),
+    issueDoctorWelcome: over.issue
+      || (async (client, args) => {
+        calls.issue.push(args);
+        tok += 1;
+        return {
+          welcomePayload: { magicLinkUrl: `https://portal.test/magic-login/tok-${tok}?lang=en`, doctorName: 'Dr Y', firstName: 'Y' },
+          lastInvitedAt: '2026-06-23T00:00:00.000Z',
+        };
+      }),
+  };
+  const pool = { totalCount: 1, idleCount: 1, waitingCount: 0, connect: async () => ({ release() {} }) };
+  return { ...makeApp({ pool, notifiers }), calls };
+}
+
+async function invitePost(base, id, token) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${base}/api/v1/admin/doctors/${id}/invite`, { method: 'POST', headers, body: '{}' });
+  return { res, json: await res.json().catch(() => null) };
+}
+
+test('POST /doctors/:id/invite — no token → 401 AUTH_REQUIRED', async () => {
+  const { server, base } = makeApp();
+  try {
+    const { res, json } = await pausePost(base, '/doctors/doc-x/invite');
+    assert.equal(res.status, 401);
+    assert.equal(json.code, 'AUTH_REQUIRED');
+  } finally { server.close(); }
+});
+
+test('POST /doctors/:id/invite — patient token → 403 FORBIDDEN', async () => {
+  const { server, base } = makeApp();
+  try {
+    const token = mintToken({ id: 'p-1', email: 'p@example.com', role: 'patient' });
+    const { res, json } = await pausePost(base, '/doctors/doc-x/invite', { token });
+    assert.equal(res.status, 403);
+    assert.equal(json.code, 'FORBIDDEN');
+  } finally { server.close(); }
+});
+
+test('POST /invite — 200: runs the token helper, fires doctor_approved with the payload + a unique dedupe key', async () => {
+  const app = inviteApp();
+  try {
+    const { res, json } = await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN));
+    assert.equal(res.status, 200);
+    assert.equal(json.success, true);
+    assert.equal(json.data.invited, true);
+    assert.equal(json.data.notification, 'queued');
+    assert.equal(json.data.lastInvitedAt, '2026-06-23T00:00:00.000Z');
+
+    // the injected token helper ran on the route's client, carrying the doctor id
+    assert.equal(app.calls.issue.length, 1);
+    assert.equal(app.calls.issue[0].doctorId, 'doc-1');
+
+    // the welcome notification fired with the helper's payload, all channels
+    assert.equal(app.calls.queue.length, 1);
+    const n = app.calls.queue[0];
+    assert.equal(n.template, 'doctor_approved');
+    assert.equal(n.toUserId, 'doc-1');
+    assert.deepEqual(n.channels, ['internal', 'email', 'whatsapp']);
+    assert.ok(n.response && n.response.magicLinkUrl, 'welcome payload carried as response');
+    // UNIQUE/timestamped dedupe key — a fixed key would let the worker drop resends
+    assert.match(n.dedupe_key, /^doctor_invite:.+:\d+$/);
+  } finally { app.server.close(); }
+});
+
+test('POST /invite — resend: two calls both 200 with DIFFERENT dedupe keys (so neither is dropped)', async () => {
+  const app = inviteApp();
+  try {
+    const t = mintToken(SUPERADMIN);
+    const a = await invitePost(app.base, 'doc-1', t);
+    await new Promise((r) => setTimeout(r, 5)); // guarantee Date.now() advances between calls
+    const b = await invitePost(app.base, 'doc-1', t);
+    assert.equal(a.res.status, 200);
+    assert.equal(b.res.status, 200);
+    assert.equal(app.calls.queue.length, 2);
+    assert.notEqual(app.calls.queue[0].dedupe_key, app.calls.queue[1].dedupe_key, 'unique dedupe key per call');
+  } finally { app.server.close(); }
+});
+
+test('POST /invite — a notifier THROW does NOT break the committed invite (200, notification:failed)', async () => {
+  const app = inviteApp({ queue: async () => { throw new Error('notify down'); } });
+  try {
+    const { res, json } = await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN));
+    assert.equal(res.status, 200, 'invite still succeeds despite a post-commit notifier failure');
+    assert.equal(json.data.invited, true);
+    assert.equal(json.data.notification, 'failed');
+  } finally { app.server.close(); }
+});
+
+test('POST /invite — a notifier returning {ok:false} surfaces as failed without throwing', async () => {
+  const app = inviteApp({ queue: async () => ({ ok: false, skipped: true }) });
+  try {
+    const { res, json } = await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN));
+    assert.equal(res.status, 200);
+    assert.equal(json.data.notification, 'failed');
+  } finally { app.server.close(); }
+});
+
+test('POST /invite — an in-txn (token helper) reject returns the af error, NOT 200, and fires no notification', async () => {
+  const app = inviteApp({ issue: async () => { const e = new Error('Doctor is not active'); e.http = 409; e.code = 'DOCTOR_NOT_ACTIVE'; throw e; } });
+  try {
+    const { res, json } = await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN));
+    assert.equal(res.status, 409);
+    assert.equal(json.success, false);
+    assert.equal(json.code, 'DOCTOR_NOT_ACTIVE');
+    assert.equal(app.calls.queue.length, 0, 'no notification when the write rejected');
+  } finally { app.server.close(); }
+});
+
+test('POST /invite — an unexpected (non-af) failure → 500 INVITE_ERROR', async () => {
+  const app = inviteApp({ issue: async () => { throw new Error('boom'); } });
+  try {
+    const { res, json } = await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN));
+    assert.equal(res.status, 500);
+    assert.equal(json.code, 'INVITE_ERROR');
+  } finally { app.server.close(); }
+});
