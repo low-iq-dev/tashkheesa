@@ -51,6 +51,7 @@ const { setDoctorPause } = require('../../services/admin_doctor_pause');
 const { setDoctorApproval } = require('../../services/admin_doctor_approve');
 const { setDoctorRejection } = require('../../services/admin_doctor_reject');
 const { setRefundApproval } = require('../../services/admin_refund_approve');
+const { setRefundDenial } = require('../../services/admin_refund_deny');
 
 // Single-account lock (decision 1): the app authenticates ONLY the Shifa
 // superadmin. Email allowlist is defense-in-depth on top of the role gate.
@@ -1758,6 +1759,71 @@ module.exports = function (db, helpers, deploy, deps) {
       if (err && err.http) return res.fail(err.message, err.http, err.code);
       console.error('[admin/refund-approve] failed:', err && err.message);
       return res.fail('Approve failed', 500, 'REFUND_APPROVE_ERROR');
+    } finally {
+      if (client && client.release) client.release();
+    }
+  });
+
+  // ─── POST /refunds/:id/deny (refund lifecycle — slice 5, status flip) ──────────
+  // Deny a pending refund with a REQUIRED reason. setRefundDenial owns the txn:
+  // SELECT…FOR UPDATE → af guards → UPDATE (status='denied', denial_reason, reviewer
+  // stamp; NO amount changes — denied is excluded from the money KPIs) → in-txn
+  // order_events + error_logs audit → COMMIT. THEN fires the internal+email patient
+  // notice OFF-txn/best-effort (recipient = the ORDER's patient_id, not
+  // refunds.requested_by). requireJWT + requireRole('superadmin') inherited gate.
+  router.post('/refunds/:id/deny', async (req, res) => {
+    const refundId = req.params.id;
+    const body = req.body || {};
+    const denialReason = String((body.denial_reason != null ? body.denial_reason : '')).trim();
+    // Shallow validation — required, 1–1000 chars (mirrors the web's bound).
+    if (denialReason.length < 1 || denialReason.length > 1000) {
+      return res.fail('Denial reason required', 400, 'DENIAL_REASON_REQUIRED');
+    }
+
+    let client;
+    try {
+      client = await db.connect();
+      const refund = await setRefundDenial(client, { refundId, denialReason, actorId: req.user.id });
+
+      // Post-commit, off-txn, best-effort: notify the PATIENT (resolved via the
+      // order's patient_id). safeQueue maps to queued/failed; the outer umbrella
+      // guarantees nothing post-commit can unwind the committed denial.
+      let notification = 'queued';
+      try {
+        const safeQueue = async (opts) => {
+          try {
+            const r = await queueMultiChannelNotification(opts);
+            return (r && r.ok === false) ? 'failed' : 'queued';
+          } catch (e) {
+            console.error('[admin/refund-deny] notify failed:', opts && opts.template, e && e.message);
+            return 'failed';
+          }
+        };
+        const ord = await safeGet('SELECT patient_id FROM orders WHERE id = $1', [refund.orderId]);
+        const patientUserId = ord && ord.patient_id ? ord.patient_id : null;
+        notification = await safeQueue({
+          orderId: refund.orderId,
+          toUserId: patientUserId,
+          channels: ['internal', 'email'],
+          template: 'patient_refund_denied',
+          response: {
+            case_id: refund.orderId,
+            caseReference: String(refund.orderId || '').slice(0, 12).toUpperCase(),
+            denialReason: refund.denialReason,
+          },
+          dedupe_key: 'refund_denied:' + refundId,
+        });
+      } catch (e) {
+        console.error('[admin/refund-deny] post-commit notification failed:', e && e.message);
+        notification = 'failed';
+      }
+
+      return res.ok({ refund, notification });
+    } catch (err) {
+      // setRefundDenial already rolled back before re-throwing; map known rejects.
+      if (err && err.http) return res.fail(err.message, err.http, err.code);
+      console.error('[admin/refund-deny] failed:', err && err.message);
+      return res.fail('Deny failed', 500, 'REFUND_DENY_ERROR');
     } finally {
       if (client && client.release) client.release();
     }
