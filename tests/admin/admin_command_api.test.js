@@ -1231,6 +1231,112 @@ test('POST /refunds/:id/approve — ATOMICITY: a fault at the audit insert rolls
   assert.ok(!calls.includes('COMMIT'));
 });
 
+// ─────────── refund DENY (slice 5) — route-level ───────────
+// The in-txn write (status flip, FROM guard, atomicity) is proven on real
+// Postgres in admin_refund_deny.test.js. These run the real setRefundDenial
+// against a mock txn client to cover the route: gate, DENIAL_REASON_REQUIRED
+// shallow validation, af→code mapping, and the POST-COMMIT internal+email patient
+// notify (safeQueue + umbrella so a notify failure can't roll back the denial).
+
+function denyRefundHandler(over = {}) {
+  const refund = over.refund === null ? null : {
+    id: 'rf-1', order_id: 'ord-1', status: 'pending', ...(over.refund || {}),
+  };
+  return (sql, params) => {
+    if (/FOR UPDATE/.test(sql)) return { rows: refund ? [refund] : [] };
+    if (/^UPDATE refunds/i.test(sql)) {
+      if (over.failOn && over.failOn.test(sql)) throw new Error('injected failure');
+      return { rows: [{ id: 'rf-1', status: 'denied', denial_reason: params && params[1], reviewed_at: new Date('2026-06-24T10:00:00Z'), order_id: 'ord-1' }] };
+    }
+    if (/^INSERT/i.test(sql)) {
+      if (over.failOn && over.failOn.test(sql)) throw new Error('injected failure');
+      return { rows: [] };
+    }
+    return { rows: [] };
+  };
+}
+
+async function denyRefundReq(over = {}, body = { denial_reason: 'Outside the refund window' }, spy) {
+  const client = txClient(denyRefundHandler(over));
+  const notifiers = spy || notifierSpy();
+  const app = makeApp({
+    pool: poolWith(client),
+    notifiers,
+    safeGet: over.safeGet || (async (sql) => (/patient_id FROM orders/.test(sql) ? { patient_id: 'pat-1' } : null)),
+  });
+  try {
+    const res = await fetch(`${app.base}/api/v1/admin/refunds/rf-1/deny`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${mintToken(SUPERADMIN)}` },
+      body: JSON.stringify(body),
+    });
+    return { res, body: await res.json().catch(() => null), calls: client.calls, spy: notifiers };
+  } finally { app.server.close(); }
+}
+
+test('POST /refunds/:id/deny — gate: 401 no token, 403 patient', async () => {
+  const app = makeApp({ pool: poolWith(txClient(denyRefundHandler())) });
+  try {
+    assert.equal((await fetch(`${app.base}/api/v1/admin/refunds/rf-1/deny`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 401);
+    const pt = mintToken({ id: 'p', email: 'p@x.com', role: 'patient', name: 'P' });
+    assert.equal((await fetch(`${app.base}/api/v1/admin/refunds/rf-1/deny`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${pt}` }, body: JSON.stringify({ denial_reason: 'x' }) })).status, 403);
+  } finally { app.server.close(); }
+});
+
+test('POST /refunds/:id/deny — DENIAL_REASON_REQUIRED: missing/empty/>1000 → 400 before any txn', async () => {
+  for (const body of [{}, { denial_reason: '' }, { denial_reason: '   ' }, { denial_reason: 'a'.repeat(1001) }]) {
+    const { res, body: rb, calls } = await denyRefundReq({}, body);
+    assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(body).slice(0, 40)}`);
+    assert.equal(rb.code, 'DENIAL_REASON_REQUIRED');
+    assert.ok(!calls.includes('BEGIN'), 'must not open a txn on invalid input');
+  }
+});
+
+test('POST /refunds/:id/deny — happy: 200, COMMIT, internal+email patient notify', async () => {
+  const { res, body, calls, spy } = await denyRefundReq({}, { denial_reason: 'Outside the refund window' });
+  assert.equal(res.status, 200);
+  assert.equal(body.data.refund.status, 'denied');
+  assert.equal(body.data.refund.denialReason, 'Outside the refund window');
+  assert.equal(body.data.notification, 'queued');
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+
+  assert.equal(spy.calls.queue.length, 1);
+  const n = spy.calls.queue[0];
+  assert.equal(n.template, 'patient_refund_denied');
+  assert.equal(n.toUserId, 'pat-1', 'recipient resolved via the order patient_id, not requested_by');
+  assert.deepEqual(n.channels, ['internal', 'email']);
+  assert.equal(n.dedupe_key, 'refund_denied:rf-1');
+});
+
+test('POST /refunds/:id/deny — af rejects map to codes (404 / 409), rolled back', async () => {
+  const nf = await denyRefundReq({ refund: null });
+  assert.equal(nf.res.status, 404);
+  assert.equal(nf.body.code, 'REFUND_NOT_FOUND');
+  const nd = await denyRefundReq({ refund: { status: 'paid' } });
+  assert.equal(nd.res.status, 409);
+  assert.equal(nd.body.code, 'NOT_DENIABLE');
+  assert.ok(nd.calls.includes('ROLLBACK'));
+  assert.ok(!nd.calls.includes('COMMIT'));
+});
+
+test('POST /refunds/:id/deny — a notifier THROW does NOT roll back the committed denial (200, notification:failed)', async () => {
+  const spy = notifierSpy({ queueMultiChannelNotification: async () => { throw new Error('notify down'); } });
+  const { res, body, calls } = await denyRefundReq({}, { denial_reason: 'x' }, spy);
+  assert.equal(res.status, 200, 'denial still succeeds despite a post-commit notifier failure');
+  assert.equal(body.data.refund.status, 'denied');
+  assert.equal(body.data.notification, 'failed');
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+});
+
+test('POST /refunds/:id/deny — ATOMICITY: a fault at the audit insert rolls back (500, no COMMIT)', async () => {
+  const { res, calls } = await denyRefundReq({ failOn: /INSERT INTO error_logs/ }, { denial_reason: 'x' });
+  assert.equal(res.status, 500);
+  assert.ok(calls.includes('ROLLBACK'));
+  assert.ok(!calls.includes('COMMIT'));
+});
+
 // ─────────── doctor pause / reactivate — route-level gate + validation ───────────
 // The write logic is proven on real Postgres in admin_doctor_pause.test.js.
 // These paths return BEFORE db.connect (gate reject / reason validation), so
