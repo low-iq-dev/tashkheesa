@@ -49,6 +49,7 @@ const { bulkAutoAssign } = require('../../services/admin_bulk_assign');
 const { issueRefund } = require('../../services/admin_refund');
 const { setDoctorPause } = require('../../services/admin_doctor_pause');
 const { setDoctorApproval } = require('../../services/admin_doctor_approve');
+const { setDoctorRejection } = require('../../services/admin_doctor_reject');
 
 // Single-account lock (decision 1): the app authenticates ONLY the Shifa
 // superadmin. Email allowlist is defense-in-depth on top of the role gate.
@@ -1534,6 +1535,65 @@ module.exports = function (db, helpers, deploy, deps) {
       if (err && err.http) return res.fail(err.message, err.http, err.code);
       console.error('[admin/doctor-approve] failed:', err && err.message);
       return res.fail('Approve failed', 500, 'APPROVE_ERROR');
+    } finally {
+      if (client && client.release) client.release();
+    }
+  });
+
+  // ─── POST /doctors/:id/reject (pending → rejected, atomic WRITE) ──────────
+  // Slice 3: flips pending_approval=false, is_active=false, clears approved_at,
+  // stamps rejection_reason; audits (with the reason in context — no
+  // rejected_by/at column exists). THEN fires an INTERNAL-ONLY in-app notice
+  // ('doctor_rejected' has no email/WhatsApp template) post-commit/off-txn, so a
+  // notify failure can't roll back the rejection. rejection_reason is OPTIONAL —
+  // defaults to 'Not approved' (matches the web reject). NOT_PENDING guards a
+  // non-pending doctor (the web omits this; we add it for symmetry with approve).
+  // requireJWT + requireRole('superadmin') inherited from the router-level gate.
+  router.post('/doctors/:id/reject', async (req, res) => {
+    const doctorId = req.params.id;
+    const body = req.body || {};
+    const reason = (typeof body.rejection_reason === 'string' && body.rejection_reason.trim())
+      ? body.rejection_reason.trim()
+      : 'Not approved';
+
+    let client;
+    try {
+      client = await db.connect();
+      const doctor = await setDoctorRejection(client, { doctorId, reason, actorId: req.user.id });
+
+      // Post-commit, best-effort, OFF the txn: the internal-only in-app notice.
+      // safeQueue maps the result to queued/failed; the outer umbrella guarantees
+      // nothing thrown post-commit can break the already-committed rejection. A
+      // fixed dedupe_key per doctor is fine — reject is not a resend.
+      let notification = 'queued';
+      try {
+        const safeQueue = async (opts) => {
+          try {
+            const r = await queueMultiChannelNotification(opts);
+            return (r && r.ok === false) ? 'failed' : 'queued';
+          } catch (e) {
+            console.error('[admin/doctor-reject] notify failed:', opts && opts.template, e && e.message);
+            return 'failed';
+          }
+        };
+        notification = await safeQueue({
+          orderId: null,
+          toUserId: doctorId,
+          channels: ['internal'],
+          template: 'doctor_rejected',
+          dedupe_key: 'doctor_rejected:' + doctorId,
+        });
+      } catch (e) {
+        console.error('[admin/doctor-reject] post-commit notification failed:', e && e.message);
+        notification = 'failed';
+      }
+
+      return res.ok({ doctor, notification });
+    } catch (err) {
+      // setDoctorRejection already rolled back before re-throwing; map known rejects.
+      if (err && err.http) return res.fail(err.message, err.http, err.code);
+      console.error('[admin/doctor-reject] failed:', err && err.message);
+      return res.fail('Reject failed', 500, 'REJECT_ERROR');
     } finally {
       if (client && client.release) client.release();
     }

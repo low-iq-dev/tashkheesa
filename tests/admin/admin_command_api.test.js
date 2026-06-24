@@ -1440,3 +1440,103 @@ test('POST /invite — { channels: "email" } (not an array) → 400 INVALID_CHAN
     assert.equal(app.calls.issue.length, 0);
   } finally { app.server.close(); }
 });
+
+// ─────────── doctor reject (slice 3) — route-level ───────────
+// The IN-TXN write (flags + rejection_reason + audit, NOT_PENDING / NOT_FOUND,
+// atomicity) is proven on real Postgres in admin_doctor_reject.test.js. These
+// run the real setDoctorRejection against a mock txn client to cover the route:
+// the gate, af → code mapping, the optional-reason default/trim, and the
+// POST-COMMIT internal-only notify (channels:['internal'], 'doctor_rejected')
+// with its umbrella — a notifier failure never rolls back the committed reject.
+
+function rejectHandler(over = {}) {
+  const doctor = over.doctor === null ? null : {
+    id: 'doc-1', role: 'doctor', pending_approval: true, ...(over.doctor || {}),
+  };
+  return (sql, params) => {
+    if (/FOR UPDATE/.test(sql)) return { rows: doctor ? [doctor] : [] };
+    if (/^UPDATE users/i.test(sql)) {
+      if (over.failOn && over.failOn.test(sql)) throw new Error('injected failure');
+      // echo the reason param ($2) so the route's default/trim is observable
+      return { rows: [{ id: 'doc-1', is_active: false, pending_approval: false, rejection_reason: params && params[1] }] };
+    }
+    if (/^INSERT/i.test(sql)) {
+      if (over.failOn && over.failOn.test(sql)) throw new Error('injected failure');
+      return { rows: [] };
+    }
+    return { rows: [] };
+  };
+}
+
+async function rejectReq(over = {}, body = {}, spy) {
+  const client = txClient(rejectHandler(over));
+  const notifiers = spy || notifierSpy();
+  const app = makeApp({ pool: poolWith(client), notifiers });
+  try {
+    const res = await fetch(`${app.base}/api/v1/admin/doctors/doc-1/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${mintToken(SUPERADMIN)}` },
+      body: JSON.stringify(body),
+    });
+    return { res, body: await res.json().catch(() => null), calls: client.calls, spy: notifiers };
+  } finally { app.server.close(); }
+}
+
+test('POST /doctors/:id/reject — gate: 401 no token, 403 patient', async () => {
+  const app = makeApp({ pool: poolWith(txClient(rejectHandler())) });
+  try {
+    assert.equal((await fetch(`${app.base}/api/v1/admin/doctors/doc-1/reject`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 401);
+    const pt = mintToken({ id: 'p', email: 'p@x.com', role: 'patient', name: 'P' });
+    assert.equal((await fetch(`${app.base}/api/v1/admin/doctors/doc-1/reject`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${pt}` }, body: '{}' })).status, 403);
+  } finally { app.server.close(); }
+});
+
+test('POST /reject — happy: 200, COMMIT, fires internal-only doctor_rejected notify', async () => {
+  const { res, body, calls, spy } = await rejectReq({}, { rejection_reason: 'Credentials unverifiable' });
+  assert.equal(res.status, 200);
+  assert.equal(body.data.doctor.pendingApproval, false);
+  assert.equal(body.data.doctor.isActive, false);
+  assert.equal(body.data.doctor.rejectionReason, 'Credentials unverifiable');
+  assert.equal(body.data.notification, 'queued');
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+  assert.equal(spy.calls.queue.length, 1);
+  const n = spy.calls.queue[0];
+  assert.equal(n.template, 'doctor_rejected');
+  assert.equal(n.toUserId, 'doc-1');
+  assert.deepEqual(n.channels, ['internal']);
+  assert.equal(n.dedupe_key, 'doctor_rejected:doc-1');
+});
+
+test("POST /reject — optional reason defaults to 'Not approved' (omitted/blank), explicit is trimmed", async () => {
+  assert.equal((await rejectReq({}, {})).body.data.doctor.rejectionReason, 'Not approved');
+  assert.equal((await rejectReq({}, { rejection_reason: '   ' })).body.data.doctor.rejectionReason, 'Not approved');
+  assert.equal((await rejectReq({}, { rejection_reason: '  Bad license  ' })).body.data.doctor.rejectionReason, 'Bad license');
+});
+
+test('POST /reject — rejections map to the right codes (404 / 409), rolled back', async () => {
+  const nf = await rejectReq({ doctor: null });
+  assert.equal(nf.res.status, 404);
+  assert.equal(nf.body.code, 'DOCTOR_NOT_FOUND');
+  const np = await rejectReq({ doctor: { pending_approval: false } });
+  assert.equal(np.res.status, 409);
+  assert.equal(np.body.code, 'NOT_PENDING');
+  assert.ok(np.calls.includes('ROLLBACK'));
+  assert.ok(!np.calls.includes('COMMIT'));
+});
+
+test('POST /reject — a notifier THROW does NOT roll back the committed rejection (200, notification:failed)', async () => {
+  const spy = notifierSpy({ queueMultiChannelNotification: async () => { throw new Error('notify down'); } });
+  const { res, body, calls } = await rejectReq({}, { rejection_reason: 'x' }, spy);
+  assert.equal(res.status, 200, 'rejection still succeeds despite a post-commit notifier failure');
+  assert.equal(body.data.notification, 'failed');
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+});
+
+test('POST /reject — ATOMICITY: a fault at the audit insert rolls back (500, no COMMIT)', async () => {
+  const { res, calls } = await rejectReq({ failOn: /INSERT INTO error_logs/ }, { rejection_reason: 'x' });
+  assert.equal(res.status, 500);
+  assert.ok(calls.includes('ROLLBACK'));
+  assert.ok(!calls.includes('COMMIT'));
+});
