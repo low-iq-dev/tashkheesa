@@ -1114,6 +1114,123 @@ test('POST /refund — ATOMICITY: a fault at the admin-audit insert rolls back (
   assert.ok(calls.some((s) => /INSERT INTO refunds/.test(s)), 'the refunds INSERT was attempted before the failure');
 });
 
+// ─────────── refund APPROVE (slice 4) — route-level ───────────
+// The in-txn write (status/amounts/coherence, FROM-state guards, atomicity) is
+// proven on real Postgres in admin_refund_approve.test.js. These run the real
+// setRefundApproval against a mock txn client to cover the route: the gate,
+// AMOUNT_REQUIRED shallow validation, af→code mapping, and the POST-COMMIT
+// internal+email patient notify (resolved via the ORDER's patient_id, with its
+// safeQueue + umbrella so a notify failure can't roll back the committed approval).
+
+function approveRefundHandler(over = {}) {
+  const refund = over.refund === null ? null : {
+    id: 'rf-1', order_id: 'ord-1', status: 'pending', requested_amount: 600, ...(over.refund || {}),
+  };
+  return (sql, params) => {
+    if (/FOR UPDATE/.test(sql)) return { rows: refund ? [refund] : [] };
+    if (/^UPDATE refunds/i.test(sql)) {
+      if (over.failOn && over.failOn.test(sql)) throw new Error('injected failure');
+      const approved = params && params[1];
+      return { rows: [{ id: 'rf-1', status: 'approved', approved_amount: approved, amount_egp: approved, requested_amount: refund.requested_amount, reviewed_at: new Date('2026-06-24T10:00:00Z'), order_id: 'ord-1' }] };
+    }
+    if (/^INSERT/i.test(sql)) {
+      if (over.failOn && over.failOn.test(sql)) throw new Error('injected failure');
+      return { rows: [] };
+    }
+    return { rows: [] };
+  };
+}
+
+async function approveRefundReq(over = {}, body = { approved_amount: 600 }, spy) {
+  const client = txClient(approveRefundHandler(over));
+  const notifiers = spy || notifierSpy();
+  const app = makeApp({
+    pool: poolWith(client),
+    notifiers,
+    safeGet: over.safeGet || (async (sql) => (/patient_id FROM orders/.test(sql) ? { patient_id: 'pat-1' } : null)),
+  });
+  try {
+    const res = await fetch(`${app.base}/api/v1/admin/refunds/rf-1/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${mintToken(SUPERADMIN)}` },
+      body: JSON.stringify(body),
+    });
+    return { res, body: await res.json().catch(() => null), calls: client.calls, spy: notifiers };
+  } finally { app.server.close(); }
+}
+
+test('POST /refunds/:id/approve — gate: 401 no token, 403 patient', async () => {
+  const app = makeApp({ pool: poolWith(txClient(approveRefundHandler())) });
+  try {
+    assert.equal((await fetch(`${app.base}/api/v1/admin/refunds/rf-1/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 401);
+    const pt = mintToken({ id: 'p', email: 'p@x.com', role: 'patient', name: 'P' });
+    assert.equal((await fetch(`${app.base}/api/v1/admin/refunds/rf-1/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${pt}` }, body: JSON.stringify({ approved_amount: 600 }) })).status, 403);
+  } finally { app.server.close(); }
+});
+
+test('POST /refunds/:id/approve — AMOUNT_REQUIRED: missing/non-numeric → 400 before any txn', async () => {
+  for (const body of [{}, { approved_amount: 'abc' }, { notes: 'x' }]) {
+    const { res, body: rb, calls } = await approveRefundReq({}, body);
+    assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(body)}`);
+    assert.equal(rb.code, 'AMOUNT_REQUIRED');
+    assert.ok(!calls.includes('BEGIN'), 'must not open a txn on invalid input');
+  }
+});
+
+test('POST /refunds/:id/approve — happy: 200, COMMIT, internal+email patient notify', async () => {
+  const { res, body, calls, spy } = await approveRefundReq({}, { approved_amount: 600, notes: 'ok' });
+  assert.equal(res.status, 200);
+  assert.equal(body.data.refund.status, 'approved');
+  assert.equal(body.data.refund.approvedAmount, 600);
+  assert.equal(body.data.refund.amountEgp, 600);
+  assert.equal(body.data.notification, 'queued');
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+
+  assert.equal(spy.calls.queue.length, 1);
+  const n = spy.calls.queue[0];
+  assert.equal(n.template, 'patient_refund_approved');
+  assert.equal(n.toUserId, 'pat-1', 'recipient resolved via the order patient_id, not requested_by');
+  assert.deepEqual(n.channels, ['internal', 'email']);
+  assert.equal(n.dedupe_key, 'refund_approved:rf-1');
+  assert.equal(n.response.approvedAmount, '600.00');
+});
+
+test('POST /refunds/:id/approve — partial: approved<requested flows through (amountEgp=partial)', async () => {
+  const { res, body } = await approveRefundReq({}, { approved_amount: 250 });
+  assert.equal(res.status, 200);
+  assert.equal(body.data.refund.approvedAmount, 250);
+  assert.equal(body.data.refund.amountEgp, 250);
+});
+
+test('POST /refunds/:id/approve — af rejects map to codes (404 / 409), rolled back', async () => {
+  const nf = await approveRefundReq({ refund: null }, { approved_amount: 100 });
+  assert.equal(nf.res.status, 404);
+  assert.equal(nf.body.code, 'REFUND_NOT_FOUND');
+  const na = await approveRefundReq({ refund: { status: 'paid' } }, { approved_amount: 100 });
+  assert.equal(na.res.status, 409);
+  assert.equal(na.body.code, 'NOT_APPROVABLE');
+  assert.ok(na.calls.includes('ROLLBACK'));
+  assert.ok(!na.calls.includes('COMMIT'));
+});
+
+test('POST /refunds/:id/approve — a notifier THROW does NOT roll back the committed approval (200, notification:failed)', async () => {
+  const spy = notifierSpy({ queueMultiChannelNotification: async () => { throw new Error('notify down'); } });
+  const { res, body, calls } = await approveRefundReq({}, { approved_amount: 600 }, spy);
+  assert.equal(res.status, 200, 'approval still succeeds despite a post-commit notifier failure');
+  assert.equal(body.data.refund.status, 'approved');
+  assert.equal(body.data.notification, 'failed');
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+});
+
+test('POST /refunds/:id/approve — ATOMICITY: a fault at the audit insert rolls back (500, no COMMIT)', async () => {
+  const { res, calls } = await approveRefundReq({ failOn: /INSERT INTO error_logs/ }, { approved_amount: 600 });
+  assert.equal(res.status, 500);
+  assert.ok(calls.includes('ROLLBACK'));
+  assert.ok(!calls.includes('COMMIT'));
+});
+
 // ─────────── doctor pause / reactivate — route-level gate + validation ───────────
 // The write logic is proven on real Postgres in admin_doctor_pause.test.js.
 // These paths return BEFORE db.connect (gate reject / reason validation), so

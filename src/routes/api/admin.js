@@ -50,6 +50,7 @@ const { issueRefund } = require('../../services/admin_refund');
 const { setDoctorPause } = require('../../services/admin_doctor_pause');
 const { setDoctorApproval } = require('../../services/admin_doctor_approve');
 const { setDoctorRejection } = require('../../services/admin_doctor_reject');
+const { setRefundApproval } = require('../../services/admin_refund_approve');
 
 // Single-account lock (decision 1): the app authenticates ONLY the Shifa
 // superadmin. Email allowlist is defense-in-depth on top of the role gate.
@@ -1688,6 +1689,75 @@ module.exports = function (db, helpers, deploy, deps) {
       if (err && err.http) return res.fail(err.message, err.http, err.code);
       console.error('[admin/doctor-invite] failed:', err && err.message);
       return res.fail('Invite failed', 500, 'INVITE_ERROR');
+    } finally {
+      if (client && client.release) client.release();
+    }
+  });
+
+  // ─── POST /refunds/:id/approve (refund lifecycle — slice 4, money-path WRITE) ──
+  // Approve a pending refund (supports PARTIAL: operator-supplied approved_amount,
+  // validated in-txn >0 and <= requested). setRefundApproval owns the txn:
+  // SELECT…FOR UPDATE → af guards → UPDATE (status='approved', approved_amount AND
+  // amount_egp = approved [coherence for the money KPIs]) → in-txn order_events +
+  // error_logs audit → COMMIT. THEN fires the internal+email patient notice
+  // OFF-txn/best-effort. The recipient is the ORDER's patient_id (NOT
+  // refunds.requested_by, which is the operator for operator refunds).
+  // requireJWT + requireRole('superadmin') inherited from the router-level gate.
+  router.post('/refunds/:id/approve', async (req, res) => {
+    const refundId = req.params.id;
+    const body = req.body || {};
+    const approvedAmount = Number(body.approved_amount);
+    // Shallow validation only — present + a finite number. Deep checks (>0,
+    // <= requested) run in-txn against the locked row.
+    if (!Number.isFinite(approvedAmount)) {
+      return res.fail('Approved amount required', 400, 'AMOUNT_REQUIRED');
+    }
+    const notes = body.notes != null ? String(body.notes).slice(0, 1000) : '';
+
+    let client;
+    try {
+      client = await db.connect();
+      const refund = await setRefundApproval(client, { refundId, approvedAmount, notes, actorId: req.user.id });
+
+      // Post-commit, off-txn, best-effort: notify the PATIENT (resolved via the
+      // order's patient_id). safeQueue maps to queued/failed; the outer umbrella
+      // guarantees nothing post-commit can unwind the committed approval.
+      let notification = 'queued';
+      try {
+        const safeQueue = async (opts) => {
+          try {
+            const r = await queueMultiChannelNotification(opts);
+            return (r && r.ok === false) ? 'failed' : 'queued';
+          } catch (e) {
+            console.error('[admin/refund-approve] notify failed:', opts && opts.template, e && e.message);
+            return 'failed';
+          }
+        };
+        const ord = await safeGet('SELECT patient_id FROM orders WHERE id = $1', [refund.orderId]);
+        const patientUserId = ord && ord.patient_id ? ord.patient_id : null;
+        notification = await safeQueue({
+          orderId: refund.orderId,
+          toUserId: patientUserId,
+          channels: ['internal', 'email'],
+          template: 'patient_refund_approved',
+          response: {
+            case_id: refund.orderId,
+            caseReference: String(refund.orderId || '').slice(0, 12).toUpperCase(),
+            approvedAmount: Number(refund.approvedAmount).toFixed(2),
+          },
+          dedupe_key: 'refund_approved:' + refundId,
+        });
+      } catch (e) {
+        console.error('[admin/refund-approve] post-commit notification failed:', e && e.message);
+        notification = 'failed';
+      }
+
+      return res.ok({ refund, notification });
+    } catch (err) {
+      // setRefundApproval already rolled back before re-throwing; map known rejects.
+      if (err && err.http) return res.fail(err.message, err.http, err.code);
+      console.error('[admin/refund-approve] failed:', err && err.message);
+      return res.fail('Approve failed', 500, 'REFUND_APPROVE_ERROR');
     } finally {
       if (client && client.release) client.release();
     }
