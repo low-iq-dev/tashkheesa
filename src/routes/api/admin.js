@@ -52,6 +52,7 @@ const { setDoctorApproval } = require('../../services/admin_doctor_approve');
 const { setDoctorRejection } = require('../../services/admin_doctor_reject');
 const { setRefundApproval } = require('../../services/admin_refund_approve');
 const { setRefundDenial } = require('../../services/admin_refund_deny');
+const { setRefundPaid } = require('../../services/admin_refund_mark_paid');
 
 // Single-account lock (decision 1): the app authenticates ONLY the Shifa
 // superadmin. Email allowlist is defense-in-depth on top of the role gate.
@@ -184,6 +185,12 @@ module.exports = function (db, helpers, deploy, deps) {
   // require-fallback is what runs — same pattern as the assign notifiers above.
   const issueDoctorWelcome = assignDeps.issueDoctorWelcome
     || require('../../services/admin_doctor_invite').inviteDoctor;
+  // Slice 6: doctor-earnings clawback at refund mark-paid. Injectable so the
+  // route test can stub it (the real one is DB-only via its own pool); defaults
+  // to the existing earnings_writer.recomputeOnRefund — fired POST-COMMIT,
+  // best-effort. We only CALL it; the clawback policy lives inside that function.
+  const recomputeOnRefund = assignDeps.recomputeOnRefund
+    || require('../../services/earnings_writer').recomputeOnRefund;
 
   // ─── POST /auth/login (public) ─────────────────────────────
   // Generic 401 INVALID_CREDENTIALS for every failure mode — no account
@@ -1824,6 +1831,86 @@ module.exports = function (db, helpers, deploy, deps) {
       if (err && err.http) return res.fail(err.message, err.http, err.code);
       console.error('[admin/refund-deny] failed:', err && err.message);
       return res.fail('Deny failed', 500, 'REFUND_DENY_ERROR');
+    } finally {
+      if (client && client.release) client.release();
+    }
+  });
+
+  // ─── POST /refunds/:id/mark-paid (refund lifecycle — slice 6, RECORDS-ONLY) ────
+  // Records that an InstaPay transfer happened out-of-band — NO payout API call.
+  // setRefundPaid owns the txn: SELECT…FOR UPDATE → af guards → UPDATE
+  // (status='paid', instapay_reference, paid_at, amount_egp = finalAmount,
+  // approved_amount backfilled) → in-txn order_events + audit → COMMIT. THEN,
+  // post-commit/off-txn, each in its own try/catch: (1) the doctor-earnings
+  // clawback (recomputeOnRefund — replicating the web; DB-only, idempotency-
+  // guarded) and (2) the internal+email patient notice. Neither can unwind the
+  // committed paid status. requireJWT + requireRole('superadmin') inherited gate.
+  router.post('/refunds/:id/mark-paid', async (req, res) => {
+    const refundId = req.params.id;
+    const body = req.body || {};
+    const instapayReference = String((body.instapay_reference != null ? body.instapay_reference : '')).trim();
+    // Shallow validation — required, 1–100 chars (mirrors the web's bound).
+    if (instapayReference.length < 1 || instapayReference.length > 100) {
+      return res.fail('InstaPay reference required', 400, 'INSTAPAY_REFERENCE_REQUIRED');
+    }
+
+    let client;
+    try {
+      client = await db.connect();
+      const refund = await setRefundPaid(client, { refundId, instapayReference, actorId: req.user.id });
+
+      // (1) Doctor-earnings clawback — post-commit, off-txn, best-effort. Mirrors
+      //     the web: recomputeOnRefund(orderId, { reason }). DB-only + idempotent,
+      //     so a failure must NOT unwind the committed paid status.
+      let clawback = 'skipped';
+      try {
+        if (refund.reason) {
+          const r = await recomputeOnRefund(refund.orderId, { reason: refund.reason });
+          clawback = r && r.skipped ? 'skipped' : 'applied';
+        }
+      } catch (e) {
+        console.error('[admin/refund-mark-paid] clawback failed:', e && e.message);
+        clawback = 'failed';
+      }
+
+      // (2) Patient notify — post-commit, off-txn, best-effort (own try/catch).
+      let notification = 'queued';
+      try {
+        const safeQueue = async (opts) => {
+          try {
+            const q = await queueMultiChannelNotification(opts);
+            return (q && q.ok === false) ? 'failed' : 'queued';
+          } catch (e) {
+            console.error('[admin/refund-mark-paid] notify failed:', opts && opts.template, e && e.message);
+            return 'failed';
+          }
+        };
+        const ord = await safeGet('SELECT patient_id FROM orders WHERE id = $1', [refund.orderId]);
+        const patientUserId = ord && ord.patient_id ? ord.patient_id : null;
+        notification = await safeQueue({
+          orderId: refund.orderId,
+          toUserId: patientUserId,
+          channels: ['internal', 'email'],
+          template: 'patient_refund_paid',
+          response: {
+            case_id: refund.orderId,
+            caseReference: String(refund.orderId || '').slice(0, 12).toUpperCase(),
+            amount: Number(refund.finalAmount).toFixed(2),
+            instapayReference: refund.instapayReference,
+          },
+          dedupe_key: 'refund_paid:' + refundId,
+        });
+      } catch (e) {
+        console.error('[admin/refund-mark-paid] post-commit notification failed:', e && e.message);
+        notification = 'failed';
+      }
+
+      return res.ok({ refund, notification, clawback });
+    } catch (err) {
+      // setRefundPaid already rolled back before re-throwing; map known rejects.
+      if (err && err.http) return res.fail(err.message, err.http, err.code);
+      console.error('[admin/refund-mark-paid] failed:', err && err.message);
+      return res.fail('Mark-paid failed', 500, 'REFUND_MARK_PAID_ERROR');
     } finally {
       if (client && client.release) client.release();
     }
