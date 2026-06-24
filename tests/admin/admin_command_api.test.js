@@ -1337,6 +1337,136 @@ test('POST /refunds/:id/deny — ATOMICITY: a fault at the audit insert rolls ba
   assert.ok(!calls.includes('COMMIT'));
 });
 
+// ─────────── refund MARK-PAID (slice 6) — route-level ───────────
+// The in-txn write (status/amount finalization, FROM guard, atomicity) is proven
+// on real Postgres in admin_refund_mark_paid.test.js. These run the real
+// setRefundPaid against a mock txn client to cover the route: gate,
+// INSTAPAY_REFERENCE_REQUIRED, af→code mapping, the POST-COMMIT clawback
+// (recomputeOnRefund — STUBBED at the deps boundary) and the internal+email
+// patient notify. A clawback or notify failure must NOT roll back the paid status.
+
+function markPaidRefundHandler(over = {}) {
+  const refund = over.refund === null ? null : {
+    id: 'rf-1', order_id: 'ord-1', status: 'approved', approved_amount: 600, requested_amount: 600, reason: 'operator_refund', ...(over.refund || {}),
+  };
+  return (sql, params) => {
+    if (/FOR UPDATE/.test(sql)) return { rows: refund ? [refund] : [] };
+    if (/^UPDATE refunds/i.test(sql)) {
+      if (over.failOn && over.failOn.test(sql)) throw new Error('injected failure');
+      return { rows: [{ id: 'rf-1', status: 'paid', instapay_reference: params && params[1], paid_at: new Date('2026-06-24T10:00:00Z'), amount_egp: params && params[2], approved_amount: params && params[2], order_id: 'ord-1' }] };
+    }
+    if (/^INSERT/i.test(sql)) {
+      if (over.failOn && over.failOn.test(sql)) throw new Error('injected failure');
+      return { rows: [] };
+    }
+    return { rows: [] };
+  };
+}
+
+async function markPaidRefundReq(over = {}, body = { instapay_reference: 'IPN-12345' }, overrides = {}) {
+  const client = txClient(markPaidRefundHandler(over));
+  const queueCalls = [];
+  const clawCalls = [];
+  const notifiers = {
+    ensureConversation: async () => 'c',
+    notifyCaseAssigned: async () => ({ ok: true }),
+    queueMultiChannelNotification: overrides.queue || (async (opts) => { queueCalls.push(opts); return { ok: true, results: {} }; }),
+    recomputeOnRefund: overrides.recompute || (async (orderId, opts) => { clawCalls.push({ orderId, opts }); return { recomputed: true }; }),
+  };
+  const app = makeApp({
+    pool: poolWith(client),
+    notifiers,
+    safeGet: over.safeGet || (async (sql) => (/patient_id FROM orders/.test(sql) ? { patient_id: 'pat-1' } : null)),
+  });
+  try {
+    const res = await fetch(`${app.base}/api/v1/admin/refunds/rf-1/mark-paid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${mintToken(SUPERADMIN)}` },
+      body: JSON.stringify(body),
+    });
+    return { res, body: await res.json().catch(() => null), calls: client.calls, queueCalls, clawCalls };
+  } finally { app.server.close(); }
+}
+
+test('POST /refunds/:id/mark-paid — gate: 401 no token, 403 patient', async () => {
+  const app = makeApp({ pool: poolWith(txClient(markPaidRefundHandler())) });
+  try {
+    assert.equal((await fetch(`${app.base}/api/v1/admin/refunds/rf-1/mark-paid`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 401);
+    const pt = mintToken({ id: 'p', email: 'p@x.com', role: 'patient', name: 'P' });
+    assert.equal((await fetch(`${app.base}/api/v1/admin/refunds/rf-1/mark-paid`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${pt}` }, body: JSON.stringify({ instapay_reference: 'X' }) })).status, 403);
+  } finally { app.server.close(); }
+});
+
+test('POST /refunds/:id/mark-paid — INSTAPAY_REFERENCE_REQUIRED: missing/empty/>100 → 400 before any txn', async () => {
+  for (const body of [{}, { instapay_reference: '' }, { instapay_reference: '   ' }, { instapay_reference: 'a'.repeat(101) }]) {
+    const { res, body: rb, calls } = await markPaidRefundReq({}, body);
+    assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(body).slice(0, 30)}`);
+    assert.equal(rb.code, 'INSTAPAY_REFERENCE_REQUIRED');
+    assert.ok(!calls.includes('BEGIN'), 'must not open a txn on invalid input');
+  }
+});
+
+test('POST /refunds/:id/mark-paid — happy: 200, COMMIT, clawback applied + internal+email notify', async () => {
+  const { res, body, calls, queueCalls, clawCalls } = await markPaidRefundReq({}, { instapay_reference: 'IPN-12345' });
+  assert.equal(res.status, 200);
+  assert.equal(body.data.refund.status, 'paid');
+  assert.equal(body.data.refund.instapayReference, 'IPN-12345');
+  assert.equal(body.data.notification, 'queued');
+  assert.equal(body.data.clawback, 'applied');
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+
+  // clawback called once with (orderId, { reason }) — mirrors the web exactly
+  assert.equal(clawCalls.length, 1);
+  assert.equal(clawCalls[0].orderId, 'ord-1');
+  assert.equal(clawCalls[0].opts.reason, 'operator_refund');
+
+  assert.equal(queueCalls.length, 1);
+  const n = queueCalls[0];
+  assert.equal(n.template, 'patient_refund_paid');
+  assert.equal(n.toUserId, 'pat-1');
+  assert.deepEqual(n.channels, ['internal', 'email']);
+  assert.equal(n.dedupe_key, 'refund_paid:rf-1');
+});
+
+test('POST /refunds/:id/mark-paid — af rejects map to codes (404 / 409), rolled back', async () => {
+  const nf = await markPaidRefundReq({ refund: null });
+  assert.equal(nf.res.status, 404);
+  assert.equal(nf.body.code, 'REFUND_NOT_FOUND');
+  const np = await markPaidRefundReq({ refund: { status: 'pending' } });
+  assert.equal(np.res.status, 409);
+  assert.equal(np.body.code, 'NOT_PAYABLE');
+  assert.ok(np.calls.includes('ROLLBACK'));
+  assert.ok(!np.calls.includes('COMMIT'));
+});
+
+test('POST /refunds/:id/mark-paid — a CLAWBACK throw does NOT roll back the paid (200, clawback:failed, notify still fires)', async () => {
+  const { res, body, calls, queueCalls } = await markPaidRefundReq({}, { instapay_reference: 'IPN-1' }, { recompute: async () => { throw new Error('earnings down'); } });
+  assert.equal(res.status, 200);
+  assert.equal(body.data.refund.status, 'paid');
+  assert.equal(body.data.clawback, 'failed');
+  assert.equal(body.data.notification, 'queued', 'notify still attempted after a clawback failure');
+  assert.equal(queueCalls.length, 1);
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+});
+
+test('POST /refunds/:id/mark-paid — a NOTIFIER throw does NOT roll back the paid (200, notification:failed)', async () => {
+  const { res, body, calls } = await markPaidRefundReq({}, { instapay_reference: 'IPN-1' }, { queue: async () => { throw new Error('notify down'); } });
+  assert.equal(res.status, 200);
+  assert.equal(body.data.refund.status, 'paid');
+  assert.equal(body.data.notification, 'failed');
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+});
+
+test('POST /refunds/:id/mark-paid — ATOMICITY: a fault at the audit insert rolls back (500, no COMMIT)', async () => {
+  const { res, calls } = await markPaidRefundReq({ failOn: /INSERT INTO error_logs/ }, { instapay_reference: 'IPN-1' });
+  assert.equal(res.status, 500);
+  assert.ok(calls.includes('ROLLBACK'));
+  assert.ok(!calls.includes('COMMIT'));
+});
+
 // ─────────── doctor pause / reactivate — route-level gate + validation ───────────
 // The write logic is proven on real Postgres in admin_doctor_pause.test.js.
 // These paths return BEFORE db.connect (gate reject / reason validation), so
