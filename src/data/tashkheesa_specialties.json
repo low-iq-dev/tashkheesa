@@ -1,0 +1,111 @@
+{
+  "_meta": {
+    "name": "Tashkheesa specialty + sub-specialty source of truth",
+    "version": 2,
+    "notes": "17 specialties (merged from tashkheesa_full_data.csv; Labs split out from Pathology). sub_specialties are SUGGESTIONS/autocomplete only — the form lets doctors free-add anything not listed, and submitted sub_specialties are NOT validated against this list. specialty_id matches users.specialty_id (text, spec-* slug); sub_specialties maps to users.sub_specialties (jsonb array)."
+  },
+  "specialties": [
+    {
+      "id": "spec-cardiology",
+      "label_en": "Cardiology",
+      "label_ar": "أمراض القلب",
+      "sub_specialties": ["Interventional Cardiology", "Electrophysiology", "Heart Failure", "Cardiac Imaging / Echocardiography", "Preventive Cardiology", "Adult Congenital"]
+    },
+    {
+      "id": "spec-dermatology",
+      "label_en": "Dermatology",
+      "label_ar": "الأمراض الجلدية",
+      "sub_specialties": ["Medical Dermatology", "Dermatopathology", "Dermoscopy / Skin Cancer"]
+    },
+    {
+      "id": "spec-ent",
+      "label_en": "ENT (Ear, Nose & Throat)",
+      "label_ar": "الأنف والأذن والحنجرة",
+      "sub_specialties": ["Otology / Audiology", "Rhinology / Sinus", "Head & Neck"]
+    },
+    {
+      "id": "spec-endocrinology",
+      "label_en": "Endocrinology",
+      "label_ar": "الغدد الصماء",
+      "sub_specialties": ["Thyroid Disorders", "Diabetes & Metabolism", "Reproductive / Hormonal"]
+    },
+    {
+      "id": "spec-gastroenterology",
+      "label_en": "Gastroenterology",
+      "label_ar": "الجهاز الهضمي",
+      "sub_specialties": ["Hepatology", "Endoscopy", "Luminal GI / IBD"]
+    },
+    {
+      "id": "spec-general-surgery",
+      "label_en": "General Surgery",
+      "label_ar": "الجراحة العامة",
+      "sub_specialties": ["General Surgery", "Surgical Oncology", "Pre-/Post-operative Assessment"]
+    },
+    {
+      "id": "spec-internal-medicine",
+      "label_en": "Internal Medicine",
+      "label_ar": "الباطنة",
+      "sub_specialties": ["General Internal Medicine", "Chronic Disease Management", "Hospital Medicine"]
+    },
+    {
+      "id": "spec-labs",
+      "label_en": "Laboratory Medicine (Labs)",
+      "label_ar": "معامل وتحاليل",
+      "sub_specialties": ["Clinical Chemistry", "Hematology (CBC / Coagulation)", "Microbiology & Cultures", "Endocrine / Hormone Panels", "Tumor Markers", "Urinalysis & Body Fluids"]
+    },
+    {
+      "id": "spec-neurology",
+      "label_en": "Neurology",
+      "label_ar": "المخ والأعصاب",
+      "sub_specialties": ["Stroke / Neurovascular", "Epilepsy", "Neuroimaging", "Neuromuscular / EMG", "Headache"]
+    },
+    {
+      "id": "spec-oncology",
+      "label_en": "Oncology",
+      "label_ar": "الأورام",
+      "sub_specialties": ["Medical Oncology", "Hematology-Oncology", "Radiation Oncology", "Surgical Oncology"]
+    },
+    {
+      "id": "spec-ophthalmology",
+      "label_en": "Ophthalmology",
+      "label_ar": "طب العيون",
+      "sub_specialties": ["Retina", "Glaucoma", "Anterior Segment / Cornea"]
+    },
+    {
+      "id": "spec-orthopedics",
+      "label_en": "Orthopedics",
+      "label_ar": "العظام",
+      "sub_specialties": ["Spine", "Joint / Sports", "Trauma", "Musculoskeletal Imaging"]
+    },
+    {
+      "id": "spec-pathology",
+      "label_en": "Pathology",
+      "label_ar": "الباثولوجي والأنسجة",
+      "sub_specialties": ["Histopathology", "Cytopathology", "Hematopathology", "Molecular / Genetic", "Immunohistochemistry"]
+    },
+    {
+      "id": "spec-pediatrics",
+      "label_en": "Pediatrics",
+      "label_ar": "طب الأطفال",
+      "sub_specialties": ["General Pediatrics", "Pediatric Imaging", "Growth & Development"]
+    },
+    {
+      "id": "spec-pulmonology",
+      "label_en": "Pulmonology",
+      "label_ar": "الصدر والجهاز التنفسي",
+      "sub_specialties": ["General Pulmonology", "Chest Imaging", "Pulmonary Function"]
+    },
+    {
+      "id": "spec-radiology",
+      "label_en": "Radiology",
+      "label_ar": "الأشعة",
+      "sub_specialties": ["Body Imaging (CT/MRI)", "Neuroradiology", "Musculoskeletal", "Oncologic Imaging", "Cardiac Imaging", "Mammography / Breast", "Ultrasound"]
+    },
+    {
+      "id": "spec-urology",
+      "label_en": "Urology",
+      "label_ar": "المسالك البولية",
+      "sub_specialties": ["General Urology", "Uro-oncology / Prostate", "Stone / Renal"]
+    }
+  ]
+}

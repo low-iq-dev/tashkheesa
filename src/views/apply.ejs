@@ -1,0 +1,181 @@
+<%- include('partials/header', { title: (typeof title !== 'undefined' ? title : 'Apply to Tashkheesa'), layout: 'public', showNav: true }) %>
+<%
+  // Bilingual reference: index.ejs. All copy via tt(key, EN, Egyptian-Arabic).
+  const _isAr = (typeof isAr !== 'undefined') ? isAr : ((typeof lang !== 'undefined' && lang === 'ar'));
+  const _errors = (typeof errors !== 'undefined' && errors) ? errors : {};
+  const _old = (typeof old !== 'undefined' && old) ? old : {};
+  const _specialties = (typeof specialties !== 'undefined' && specialties) ? specialties : [];
+  const _submitted = (typeof submitted !== 'undefined') && submitted;
+
+  function ov(name) { return (_old && _old[name] != null) ? _old[name] : ''; }
+  function hasErr(name) { return !!(_errors && _errors[name]); }
+  // Old sub_specialties may be an array (post-coerce) or the raw textarea string.
+  function subText() {
+    const v = _old ? _old.sub_specialties : null;
+    if (Array.isArray(v)) return v.join('\n');
+    if (typeof _old.sub_specialties_text === 'string') return _old.sub_specialties_text;
+    if (typeof v === 'string') return v;
+    return '';
+  }
+  // Per-field bilingual error messages (keyed by field name; codes from validators/apply.js).
+  function em(name) {
+    switch (name) {
+      case 'full_name': return tt('apply.err.full_name', 'Please enter your full name.', 'اكتب اسمك بالكامل.');
+      case 'full_name_ar': return tt('apply.err.full_name_ar', 'Please shorten this field.', 'اختصر الحقل ده.');
+      case 'email': return tt('apply.err.email', 'Please enter a valid email address.', 'اكتب بريد إلكتروني صحيح.');
+      case 'phone': return tt('apply.err.phone', 'Please enter your phone number.', 'اكتب رقم موبايلك.');
+      case 'specialty_id': return tt('apply.err.specialty', 'Please choose a valid specialty.', 'اختار تخصص صحيح.');
+      case 'specialty_other': return tt('apply.err.specialty_other', 'Please specify your specialty.', 'اكتب تخصصك.');
+      case 'sub_specialties': return tt('apply.err.sub', 'Please check your sub-specialties (max 20, 100 characters each).', 'راجع التخصصات الفرعية (الأقصى ٢٠، وكل واحد لحد ١٠٠ حرف).');
+      case 'cv_url': return tt('apply.err.cv_url', 'Please enter a valid link.', 'اكتب لينك صحيح.');
+      case 'years_experience': return tt('apply.err.years', 'Enter a number between 0 and 80.', 'اكتب رقم بين ٠ و ٨٠.');
+      default: return tt('apply.err.generic', 'Please check this field.', 'راجع الحقل ده.');
+    }
+  }
+%>
+<link rel="stylesheet" href="/css/apply.css" />
+
+<main class="page-shell apply-page" dir="<%= _isAr ? 'rtl' : 'ltr' %>">
+  <div class="page-inner">
+
+    <% if (_submitted) { %>
+      <section class="content-card apply-success" role="status">
+        <div class="apply-success-icon" aria-hidden="true">✓</div>
+        <h1><%= tt('apply.success.title', 'Application received', 'وصلنا طلبك') %></h1>
+        <p><%= tt('apply.success.body', 'Thank you for applying to Tashkheesa. Our team will review your application and contact you by email.', 'شكراً إنك قدّمت في تشخيصة. فريقنا هيراجع طلبك ويتواصل معاك على البريد الإلكتروني.') %></p>
+        <a class="btn btn-primary" href="/"><%= tt('apply.success.home', 'Back to home', 'الرجوع للرئيسية') %></a>
+      </section>
+    <% } else { %>
+
+      <section class="content-card apply-intro">
+        <h1><%= tt('apply.title', 'Apply to join Tashkheesa as a specialist', 'قدّم للانضمام لتشخيصة كأخصائي') %></h1>
+        <p class="subtitle"><%= tt('apply.subtitle', 'Tell us about yourself and your specialty. This is an application — our team reviews every submission before any account is created.', 'عرّفنا بنفسك وبتخصصك. ده طلب انضمام — فريقنا بيراجع كل طلب قبل إنشاء أي حساب.') %></p>
+      </section>
+
+      <% if (hasErr('_global')) { %>
+        <div class="apply-alert apply-alert-error" role="alert">
+          <%= tt('apply.err.server', 'Something went wrong on our side. Please try again in a moment.', 'حصل خطأ من عندنا. حاول تاني بعد شوية.') %>
+        </div>
+      <% } else if (Object.keys(_errors).length > 0) { %>
+        <div class="apply-alert apply-alert-error" role="alert">
+          <%= tt('apply.err.banner', 'Please fix the highlighted fields below.', 'من فضلك صحّح الحقول المعلّمة تحت.') %>
+        </div>
+      <% } %>
+
+      <form class="content-card apply-form" method="POST" action="/apply" novalidate>
+        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+
+        <!-- Honeypot: a real user never sees or fills this. -->
+        <div class="hp-field" aria-hidden="true">
+          <label><%= tt('apply.hp', 'Leave this field empty', 'سيب الحقل ده فاضي') %>
+            <input type="text" name="website" tabindex="-1" autocomplete="off" />
+          </label>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="full_name"><%= tt('apply.full_name', 'Full name', 'الاسم بالكامل') %> <span class="req">*</span></label>
+            <input class="form-input<%= hasErr('full_name') ? ' has-error' : '' %>" type="text" id="full_name" name="full_name" maxlength="120" required value="<%= ov('full_name') %>" />
+            <% if (hasErr('full_name')) { %><p class="field-error"><%= em('full_name') %></p><% } %>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="full_name_ar"><%= tt('apply.full_name_ar', 'Full name (Arabic)', 'الاسم بالعربي') %></label>
+            <input class="form-input<%= hasErr('full_name_ar') ? ' has-error' : '' %>" type="text" id="full_name_ar" name="full_name_ar" maxlength="120" dir="rtl" value="<%= ov('full_name_ar') %>" />
+            <% if (hasErr('full_name_ar')) { %><p class="field-error"><%= em('full_name_ar') %></p><% } %>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="email"><%= tt('apply.email', 'Email', 'البريد الإلكتروني') %> <span class="req">*</span></label>
+            <input class="form-input<%= hasErr('email') ? ' has-error' : '' %>" type="email" id="email" name="email" maxlength="254" required dir="ltr" value="<%= ov('email') %>" />
+            <% if (hasErr('email')) { %><p class="field-error"><%= em('email') %></p><% } %>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="phone"><%= tt('apply.phone', 'Phone (WhatsApp)', 'رقم الموبايل (واتساب)') %> <span class="req">*</span></label>
+            <input class="form-input<%= hasErr('phone') ? ' has-error' : '' %>" type="tel" id="phone" name="phone" maxlength="32" required dir="ltr" value="<%= ov('phone') %>" />
+            <% if (hasErr('phone')) { %><p class="field-error"><%= em('phone') %></p><% } %>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="specialty_id"><%= tt('apply.specialty', 'Primary specialty', 'التخصص الأساسي') %> <span class="req">*</span></label>
+            <select class="form-input<%= hasErr('specialty_id') ? ' has-error' : '' %>" id="specialty_id" name="specialty_id" required>
+              <option value=""><%= tt('apply.specialty.choose', 'Select a specialty…', 'اختار تخصص…') %></option>
+              <% _specialties.forEach(function (sp) { %>
+                <option value="<%= sp.id %>"<%= ov('specialty_id') === sp.id ? ' selected' : '' %>><%= _isAr ? sp.label_ar : sp.label_en %></option>
+              <% }) %>
+              <option value="other"<%= ov('specialty_id') === 'other' ? ' selected' : '' %>><%= tt('apply.specialty.other', 'Other (specify)', 'تخصص تاني (اكتبه)') %></option>
+            </select>
+            <% if (hasErr('specialty_id')) { %><p class="field-error"><%= em('specialty_id') %></p><% } %>
+          </div>
+
+          <div class="form-group" id="specialty_other_group"<%= ov('specialty_id') === 'other' ? '' : ' hidden' %>>
+            <label class="form-label" for="specialty_other"><%= tt('apply.specialty_other', 'Your specialty', 'تخصصك') %></label>
+            <input class="form-input<%= hasErr('specialty_other') ? ' has-error' : '' %>" type="text" id="specialty_other" name="specialty_other" maxlength="160" value="<%= ov('specialty_other') %>" />
+            <% if (hasErr('specialty_other')) { %><p class="field-error"><%= em('specialty_other') %></p><% } %>
+          </div>
+        </div>
+
+        <div class="form-group form-group-full">
+          <label class="form-label" for="sub_specialties_text"><%= tt('apply.sub', 'Sub-specialties', 'التخصصات الفرعية') %></label>
+          <p class="form-help"><%= tt('apply.sub.help', 'Pick from the suggestions, or type your own and press Enter. Anything is welcome — these are not limited to the list.', 'اختار من الاقتراحات، أو اكتب اللي إنت عايزه واضغط Enter. أي حاجة مقبولة — مش لازم تكون في القايمة.') %></p>
+
+          <!-- JS enhancement target (chips + suggestions). Hidden until apply.js wires it.
+               data-* carry localized aria-labels for the JS-injected controls. -->
+          <div id="subspec-tags" class="subspec-tags"
+               data-add-label="<%= tt('apply.sub.add', 'Add a sub-specialty', 'أضف تخصص فرعي') %>"
+               data-remove-label="<%= tt('apply.sub.remove', 'Remove', 'احذف') %>" hidden></div>
+
+          <!-- No-JS fallback: comma/newline separated. Server merges this with the JS chips. -->
+          <textarea class="form-input<%= hasErr('sub_specialties') ? ' has-error' : '' %>" id="sub_specialties_text" name="sub_specialties_text" rows="3" placeholder="<%= tt('apply.sub.placeholder', 'e.g. Interventional Cardiology, Echocardiography', 'مثال: قسطرة قلبية، إيكو') %>"><%= subText() %></textarea>
+          <% if (hasErr('sub_specialties')) { %><p class="field-error"><%= em('sub_specialties') %></p><% } %>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="medical_license_number"><%= tt('apply.license', 'Medical license number', 'رقم ترخيص مزاولة المهنة') %></label>
+            <input class="form-input" type="text" id="medical_license_number" name="medical_license_number" maxlength="60" value="<%= ov('medical_license_number') %>" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="license_country"><%= tt('apply.license_country', 'License country', 'بلد الترخيص') %></label>
+            <input class="form-input" type="text" id="license_country" name="license_country" maxlength="60" value="<%= ov('license_country') %>" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="years_experience"><%= tt('apply.years', 'Years of experience', 'سنين الخبرة') %></label>
+            <input class="form-input<%= hasErr('years_experience') ? ' has-error' : '' %>" type="number" id="years_experience" name="years_experience" min="0" max="80" dir="ltr" value="<%= ov('years_experience') %>" />
+            <% if (hasErr('years_experience')) { %><p class="field-error"><%= em('years_experience') %></p><% } %>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="current_affiliation"><%= tt('apply.affiliation', 'Current hospital / clinic', 'المستشفى أو العيادة الحالية') %></label>
+            <input class="form-input" type="text" id="current_affiliation" name="current_affiliation" maxlength="160" value="<%= ov('current_affiliation') %>" />
+          </div>
+          <div class="form-group form-group-full">
+            <label class="form-label" for="cv_url"><%= tt('apply.cv', 'Link to your CV', 'لينك السيرة الذاتية') %></label>
+            <input class="form-input<%= hasErr('cv_url') ? ' has-error' : '' %>" type="url" id="cv_url" name="cv_url" maxlength="500" dir="ltr" placeholder="https://…" value="<%= ov('cv_url') %>" />
+            <% if (hasErr('cv_url')) { %><p class="field-error"><%= em('cv_url') %></p><% } %>
+          </div>
+          <div class="form-group form-group-full">
+            <label class="form-label" for="bio"><%= tt('apply.bio', 'Short bio', 'نبذة مختصرة') %></label>
+            <textarea class="form-input" id="bio" name="bio" rows="4" maxlength="4000"><%= ov('bio') %></textarea>
+          </div>
+          <div class="form-group form-group-full">
+            <label class="form-label" for="bio_ar"><%= tt('apply.bio_ar', 'Short bio (Arabic)', 'نبذة بالعربي') %></label>
+            <textarea class="form-input" id="bio_ar" name="bio_ar" rows="4" maxlength="4000" dir="rtl"><%= ov('bio_ar') %></textarea>
+          </div>
+        </div>
+
+        <div class="apply-actions">
+          <button class="btn btn-primary" type="submit"><%= tt('apply.submit', 'Submit application', 'إرسال الطلب') %></button>
+          <p class="apply-disclaimer"><%= tt('apply.disclaimer', 'By submitting, you confirm the information is accurate. This is an application, not an account.', 'بإرسالك للطلب، إنت بتأكد إن البيانات صحيحة. ده طلب انضمام، مش حساب.') %></p>
+        </div>
+      </form>
+
+      <!-- Taxonomy for the JS sub-specialty suggestions (data, not executable). -->
+      <script type="application/json" id="apply-taxonomy"><%- JSON.stringify(_specialties).replace(/</g, '\\u003c') %></script>
+      <script src="/js/apply.js" nonce="<%= (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '' %>" defer></script>
+
+    <% } %>
+  </div>
+</main>
+
+<%- include('partials/footer') %>
