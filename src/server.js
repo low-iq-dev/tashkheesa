@@ -227,6 +227,7 @@ var referralRoutes = require('./routes/referrals');
 var campaignRoutes = require('./routes/campaigns');
 var helpRoutes = require('./routes/help');
 var appLandingRoutes = require('./routes/app_landing');
+var applyRoutes = require('./routes/apply'); // public doctor-application form (GET/POST /apply)
 var opsRoutes = require('./routes/ops');
 var instagramRoutes = require('./instagram/routes');
 var { InstagramScheduler } = require('./instagram/scheduler');
@@ -886,6 +887,9 @@ app.use('/', referralRoutes);
 app.use('/', campaignRoutes);
 app.use('/', helpRoutes);
 app.use('/', appLandingRoutes);
+// PUBLIC doctor-application form. No auth gate (public); the POST is CSRF-protected
+// (csrfField in the view) + per-IP rate-limited + honeypot-guarded inside the router.
+app.use('/', applyRoutes({ pool: pool }));
 app.use('/ops', opsRoutes);
 app.use('/api/admin/instagram', requireRole('superadmin'), instagramRoutes);
 
