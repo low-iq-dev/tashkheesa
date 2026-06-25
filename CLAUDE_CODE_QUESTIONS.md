@@ -176,3 +176,47 @@ overrides). This records the disagreements, the decisions taken, and Phase 2/3 f
     `--teal`/`--text`/`--teal-tint`/`--on-teal` directly; add aliases or rename on port.
 17. **Landing hero block left untouched** (`.p-landing`, `.p-hero*`, ~lines 327–387) — flagged
     "out of scope / kept for reference" in the file header; still has warm-clinical literals.
+    (See item 19 — an independent audit re-confirmed this block is **dead/unreferenced**.)
+
+## D. Adoption / verification pass (2026-06-25)
+
+This branch's Phase 0–1 was completed by a prior session and pushed to `origin`. This pass
+**adopted** it (no redo), independently verified it, and added cross-surface screenshots.
+
+18. **⛔ BLOCKER — `npm run smoke` / `npm run dev` cannot run locally.** Local Postgres lacks
+    the Supabase `anon` role, so migration `070` fails on boot and the server refuses to start
+    (`src/db.js` aborts on migration failure). **Per Ziad's explicit instruction this pass made
+    ZERO DB changes** — did not add/seed the `anon` role, did not skip migrations, did not work
+    around the DB inside or outside the repo. Consequence: live smoke + a real `npm run dev`
+    boot could not run for this PR. **Pre-existing infra gap, not introduced by the redesign.**
+    Verified instead via a headless-Chrome static-render fallback (see item 21).
+
+19. **Independent multi-agent audit → adopt-clean.** A 6-dimension adversarial audit of the
+    committed navy diff (`merge-base(main)..HEAD`) ran. **5/6 PASS:** file-scope (no
+    routes/controllers/db/migrations/payment/SLA/cron/auth/pg-boss; `package.json` deps
+    unchanged), token-name preservation (all 83 original names kept; 7 allowed additive), 
+    canonical-value fidelity (radius incl. `--r-2xl 30`, navy alphas `0.13/0.14/0.22`, deeper
+    shadows, `--rpt-green-2 #2f6b4f`), RTL/logical-props + `.num` integrity, report-sheet inert
+    + Sora self-host + warm-originals untouched. **1 finding (medium):** the dead `.p-hero*`
+    block (item 17) still carries warm literals (`#0B6B5F` gradient, `#F8F5EF`/`#E6D7B0` cream).
+    Confirmed **unreferenced by any view** (the live patient landing uses `app-landing__*`), so
+    **no rendered regression**. Left as-is per the brief's sweep rule ("if a rule's intent is
+    unclear, leave it and note it — do not guess"); the right on-dark token is ambiguous (a naive
+    `--on-primary` swap = dark ink on a teal card → broken contrast). **Decision for Ziad:** fold
+    a hero re-token into the Phase 3 landing pass, or request it now.
+
+20. **Observation (pre-existing, view-layer, NOT the redesign):** Arabic *date* strings render
+    in **Eastern-Arabic digits** (e.g. `۲۷ يونيو`) because the views format dates via
+    `toLocaleDateString('ar-EG', …)` (e.g. `fmtDayDate` in `patient_dashboard.ejs`). All other
+    numerals (case IDs, prices, phone, countdown hours) are Western, and the `.num` tabular
+    treatment is untouched (audit-confirmed). This predates Phase 1 and is outside CSS-token
+    scope, but is flagged against the "Western numerals in both languages" constraint — a future
+    view-layer fix (`'ar-EG-u-nu-latn'` or pre-format) would resolve it. Not changed here (a
+    view-logic edit, out of this phase).
+
+21. **Screenshots added:** `docs/redesign/patient-navy/screenshots/phase1-{dashboard,case,profile}-{en,ar}.png`
+    — 3 surfaces × EN/AR, captured via the static-render fallback (real EJS views + the actual
+    committed CSS/fonts, mock locals, headless Chrome at 1180px / 2× DPR). Confirms: navy world
+    end-to-end, raised navy surfaces, bright-teal primary CTA + `--shadow-teal` glow, Sora sans
+    (no serif), RTL fully mirrored in AR, Western numerals (except item 20's locale dates). The
+    prior `phase1-tokens-{en,ar}.png` (dashboard-only) are retained.
