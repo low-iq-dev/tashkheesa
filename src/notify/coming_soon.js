@@ -121,7 +121,7 @@ function confirmationEmail(lead) {
   const greet = name ? ('أهلاً ' + name + '،') : 'أهلاً بيك،';
   const text =
     greet + '\n\n' +
-    'شكراً ليك — سجّلنا اهتمامك بـ تشخيصة، خدمة الرأي الطبي التاني المدعومة من مستشفى الشفاء.\n\n' +
+    'شكراً ليك — سجّلنا اهتمامك بـ تشخيصة، خدمة الرأي الطبي التاني المدعومة من مجموعة مستشفيات شفا.\n\n' +
     'أول ما نطلق هتقدر ترفع ملفاتك الطبية وتاخد تقرير مكتوب من دكتور متخصص في 48 ساعة، وحتى 4 ساعات لو اخترت Urgent.\n\n' +
     'هنبعتلك إيميل أول ما نفتح.\n\n' +
     '— فريق تشخيصة\n\n' +
@@ -132,7 +132,7 @@ function confirmationEmail(lead) {
     '<h1 style="margin:0 0 16px;font-size:22px;color:#0066CC;">تشخيصة</h1>' +
     '<p style="margin:0 0 16px;font-size:16px;">' + escapeHtml(greet) + '</p>' +
     '<p style="margin:0 0 16px;font-size:15px;line-height:1.7;">' +
-    'شكراً ليك — سجّلنا اهتمامك بـ <strong>تشخيصة</strong>، خدمة الرأي الطبي التاني المدعومة من <strong>مستشفى الشفاء</strong>.' +
+    'شكراً ليك — سجّلنا اهتمامك بـ <strong>تشخيصة</strong>، خدمة الرأي الطبي التاني المدعومة من <strong>مجموعة مستشفيات شفا</strong>.' +
     '</p>' +
     '<p style="margin:0 0 16px;font-size:15px;line-height:1.7;">' +
     'أول ما نطلق هتقدر ترفع ملفاتك الطبية وتاخد تقرير مكتوب من دكتور متخصص في <strong>48 ساعة</strong>، وحتى <strong>4 ساعات</strong> لو اخترت Urgent.' +
@@ -183,7 +183,7 @@ function launchEmail(lead) {
   const text =
     greet + '\n\n' +
     'تشخيصة افتتحت رسمياً. تقدر دلوقتي ترفع ملفاتك وتاخد تقرير مكتوب من دكتور متخصص — 48 ساعة قياسي، وحتى 4 ساعات مع Urgent.\n\n' +
-    'بدعم مستشفى الشفاء.\n\n' +
+    'بدعم مجموعة مستشفيات شفا.\n\n' +
     'إبدأ من هنا: ' + portalUrl + '\n\n' +
     '— فريق تشخيصة\n\n' +
     'إلغاء الاشتراك: ' + unsub;
@@ -195,7 +195,7 @@ function launchEmail(lead) {
     '<p style="margin:0 0 16px;font-size:15px;line-height:1.7;">' +
     'تشخيصة افتتحت رسمياً. تقدر دلوقتي ترفع ملفاتك وتاخد تقرير مكتوب من دكتور متخصص — <strong>48 ساعة قياسي</strong>، وحتى <strong>4 ساعات مع Urgent</strong>.' +
     '</p>' +
-    '<p style="margin:0 0 24px;font-size:14px;color:#6B7280;">بدعم مستشفى الشفاء.</p>' +
+    '<p style="margin:0 0 24px;font-size:14px;color:#6B7280;">بدعم مجموعة مستشفيات شفا.</p>' +
     '<p style="margin:0 0 24px;"><a href="' + portalUrl + '" style="display:inline-block;background:#0066CC;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">إبدأ حالتك</a></p>' +
     '<p style="margin:0 0 8px;font-size:14px;color:#6B7280;">— فريق تشخيصة</p>' +
     '<hr style="border:none;border-top:1px solid #E5E7EB;margin:24px 0 12px;">' +
@@ -210,7 +210,7 @@ function confirmationSms(lead) {
   if (lang === 'en') {
     return "Tashkheesa: thanks — we got your interest. We'll text you the moment we open. Backed by Shifa Hospital Group.";
   }
-  return 'تشخيصة: وصلنا اهتمامك. هنبلغك أول ما نطلق. بدعم مستشفى الشفاء.';
+  return 'تشخيصة: وصلنا اهتمامك. هنبلغك أول ما نطلق. بدعم مجموعة مستشفيات شفا.';
 }
 
 function launchSms(lead) {

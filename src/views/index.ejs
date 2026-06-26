@@ -99,7 +99,7 @@
       <div class="nav-links">
         <a href="/services"><%= tt('nav.services', 'Services', 'الخدمات') %></a>
         <a href="/about"><%= tt('nav.about', 'About', 'عن تشخيصة') %></a>
-        <a href="/about"><%= tt('nav.doctors', 'Doctors', 'الدكاترة') %></a>
+        <a href="/specialties"><%= tt('nav.doctors', 'Doctors', 'الدكاترة') %></a>
         <a href="/contact"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a>
         <div class="nav-lang-toggle">
           <a href="/lang/en?next=/" class="lang-btn <%= lang === 'en' ? 'active' : '' %>" id="lang-en" rel="nofollow" lang="en">EN</a>
@@ -329,29 +329,29 @@
             'Backed by a Hospital, Not a Marketplace',
             'وراءنا مستشفى حقيقي، مش مجرد منصة') %></h2>
           <p class="section-subtitle"><%= tt('home.trust.subtitle',
-            'We don\'t list anonymous reviewers. Every opinion carries the name of a Shifa Hospital consultant and the accountability of an accredited institution.',
-            'مفيش مراجعين مجهولين. كل رأي طبي بيحمل اسم استشاري من مستشفى شفا ومسؤولية مؤسسة طبية معتمدة.') %></p>
+            'We don\'t list anonymous reviewers. Every opinion carries the name of a Shifa Hospital Group consultant and the accountability of an accredited institution.',
+            'مفيش مراجعين مجهولين. كل رأي طبي بيحمل اسم استشاري من مجموعة مستشفيات شفا ومسؤولية مؤسسة طبية معتمدة.') %></p>
         </div>
         <div class="testimonials-wrapper">
           <div class="testimonials-track">
             <div class="testimonial-card">
               <div class="testimonial-inner">
                 <blockquote><%= tt('home.trust1.body',
-                  '"Every case on Tashkheesa is reviewed by consultants of Shifa Hospital El Tagamoa — a GAHAR-accredited, 220-bed hospital in New Cairo with Centers of Excellence in Stroke, NICU, and Oncology."',
-                  '"كل حالة على تشخيصة بيراجعها استشاريو مستشفى شفا التجمع — مستشفى معتمد من GAHAR بسعة 220 سرير في القاهرة الجديدة، وعنده مراكز تميّز في السكتة الدماغية وحضانات الأطفال والأورام."') %></blockquote>
+                  '"Every case on Tashkheesa is reviewed by consultants of Shifa Hospital Group — a GAHAR-accredited, 220-bed hospital in New Cairo with Centers of Excellence in Stroke, NICU, and Oncology."',
+                  '"كل حالة على تشخيصة بيراجعها استشاريو مجموعة مستشفيات شفا — مستشفى معتمد من GAHAR بسعة 220 سرير في القاهرة الجديدة، وعنده مراكز تميّز في السكتة الدماغية وحضانات الأطفال والأورام."') %></blockquote>
                 <p class="testimonial-author"><%= tt('home.trust1.author',
                   'A Real Hospital Behind Every Opinion',
                   'مستشفى حقيقي ورا كل رأي طبي') %></p>
                 <p class="testimonial-role"><%= tt('home.trust1.role',
-                  'Shifa Hospital El Tagamoa · New Cairo',
-                  'مستشفى شفا التجمع · القاهرة الجديدة') %></p>
+                  'Shifa Hospital Group · New Cairo',
+                  'مجموعة مستشفيات شفا · القاهرة الجديدة') %></p>
               </div>
             </div>
             <div class="testimonial-card">
               <div class="testimonial-inner">
                 <blockquote><%= tt('home.trust2.body',
-                  '"No anonymous reviewers. Your case is assigned to a named, licensed Shifa consultant in the right specialty — and their name and credentials appear on your report."',
-                  '"مفيش مراجعين مجهولين. حالتك بتتعيّن لاستشاري معتمد بالاسم من شفا في التخصص المناسب — واسمه وبياناته بيظهروا على تقريرك."') %></blockquote>
+                  '"No anonymous reviewers. Your case is assigned to a named, licensed Shifa Hospital Group consultant in the right specialty — and their name and credentials appear on your report."',
+                  '"مفيش مراجعين مجهولين. حالتك بتتعيّن لاستشاري معتمد بالاسم من مجموعة مستشفيات شفا في التخصص المناسب — واسمه وبياناته بيظهروا على تقريرك."') %></blockquote>
                 <p class="testimonial-author"><%= tt('home.trust2.author',
                   'Named, Licensed Consultants',
                   'استشاريين معتمدين بالاسم') %></p>
@@ -390,14 +390,14 @@
           <div class="stat-item reveal stagger-1">
             <div class="stat-number" data-count-to="220" data-count-suffix="">0</div>
             <div class="stat-label"><%= tt('home.stat.beds',
-              'Beds at Shifa Hospital',
-              'سرير في مستشفى شفا') %></div>
+              'Beds at Shifa Hospital Group',
+              'سرير في مجموعة مستشفيات شفا') %></div>
           </div>
           <div class="stat-item reveal stagger-2">
             <div class="stat-number" data-count-to="150" data-count-suffix="+">0</div>
             <div class="stat-label"><%= tt('home.stat.consultants',
-              'Shifa Hospital Consultants',
-              'استشاري في مستشفى شفا') %></div>
+              'Shifa Hospital Group Consultants',
+              'استشاري في مجموعة مستشفيات شفا') %></div>
           </div>
           <div class="stat-item reveal stagger-3">
             <div class="stat-number" data-count-to="16" data-count-suffix="">0</div>

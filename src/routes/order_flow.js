@@ -626,7 +626,7 @@ router.get('/order/:orderId/confirmation', async (req, res, next) => {
     slaType: currentOrder.sla_hours <= 4 ? 'Urgent (4h)'
           : currentOrder.sla_hours === 18 ? 'VIP (18h)' : 'Standard (48h)',
     slaDeadline: currentOrder.sla_hours <= 4 ? '4 hours'
-              : currentOrder.sla_hours === 24 ? '24 hours' : '48 hours',
+              : currentOrder.sla_hours === 18 ? '18 hours' : '48 hours',
     supportEmail: 'info@tashkheesa.com'
   });
   } catch (err) {

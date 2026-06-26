@@ -19,9 +19,7 @@
         <ul class="flow-list">
           <li><strong><%= tt('oc.summary.reason', 'Reason for review:', 'سبب المراجعة:') %></strong> <%= order.reason || '-' %></li>
           <li><strong><%= tt('oc.summary.lang', 'Preferred language:', 'اللغة المفضلة:') %></strong> <%= order.language || tt('oc.lang.english', 'English', 'الإنجليزية') %></li>
-          <li><strong><%= tt('oc.summary.turnaround', 'Turnaround:', 'مدة التسليم:') %></strong> <%= order.sla_hours === 24
-            ? tt('oc.fast_track', 'Fast track (24h)', 'سريع (24 ساعة)')
-            : tt('oc.standard', 'Standard (72h)', 'عادي (72 ساعة)') %></li>
+          <li><strong><%= tt('oc.summary.turnaround', 'Turnaround:', 'مدة التسليم:') %></strong> <%= typeof slaType !== 'undefined' ? slaType : (order.sla_hours + 'h') %></li>
         </ul>
       </div>
 
