@@ -438,7 +438,7 @@ router.post('/order/:orderId/payment', async (req, res, next) => {
   const slaHours = slaChoice === 'urgent' ? 4 : slaChoice === 'vip' ? 18 : 48;
   const urgencyTier = slaChoice === 'urgent' ? 'urgent' : slaChoice === 'vip' ? 'vip' : 'standard';
 
-  // Urgent order cutoff: only 07:00-19:00 Cairo time (UTC+2).
+  // Urgent order cutoff: only 07:00-18:59 Cairo time (DST-aware via Africa/Cairo; UTC+2 winter / UTC+3 summer).
   // Per docs/PAYOUT_AND_URGENCY_POLICY.md §3, do NOT silently reject
   // out-of-window urgent picks — redirect to a choice page that lets
   // the patient pick "wait until 7am" (still Urgent, clock starts at

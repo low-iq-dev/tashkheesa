@@ -56,7 +56,7 @@
 
   <%- include('partials/superadmin/c_card_open', { tight: true }) %>
     <% if (!_orders.length) { %>
-      <%- include('partials/superadmin/c_empty', { title: isAr ? 'لا توجد طلبات محذوفة.' : 'No deleted cases', sub: isAr ? '' : 'Soft-deleted cases will appear here.' }) %>
+      <%- include('partials/superadmin/c_empty', { title: isAr ? 'لا توجد طلبات محذوفة.' : 'No deleted cases', sub: isAr ? 'الطلبات المحذوفة ستظهر هنا.' : 'Soft-deleted cases will appear here.' }) %>
     <% } else { %>
       <%- include('partials/superadmin/c_table_open', { headers: [
             isAr ? 'الرقم المرجعي' : 'Reference',
