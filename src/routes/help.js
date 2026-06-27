@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 
+// Bare /help index → send to the patient guide (avoids a 404 on /help)
+router.get('/help', (req, res) => res.redirect('/help/patient-guide'));
+
 // Patient Guide
 router.get('/help/patient-guide', (req, res) => {
   const lang = (req.query.lang === 'ar' || (req.cookies && req.cookies.lang === 'ar')) ? 'ar' : 'en';

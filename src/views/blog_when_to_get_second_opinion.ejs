@@ -120,7 +120,7 @@
           <p>مع تشخيصة، تقدر تستلم تقرير متخصص مفصل خلال 48 ساعة. من غير غرف انتظار، من غير طوابير، من غير سفر. ارفع ملفاتك واخد قرار من بيتك.</p>
 
           <h3>"غالي"</h3>
-          <p>أسعار تشخيصة بتبدأ من 920 جنيه — جزء بسيط من تكلفة تشخيص خاطئ أو عملية مش ضرورية. مع 12+ تخصص و 107+ خدمة متاحة، في خيار لكل حالة وكل ميزانية.</p>
+          <p>أسعار تشخيصة بتبدأ من 920 جنيه — جزء بسيط من تكلفة تشخيص خاطئ أو عملية مش ضرورية. مع <%= typeof specialtyCount !== 'undefined' ? specialtyCount : 19 %> تخصص و <%= typeof serviceCount !== 'undefined' ? serviceCount : 140 %> خدمة متاحة، في خيار لكل حالة وكل ميزانية.</p>
         </div>
 
         <div class="post-cta">
@@ -174,7 +174,7 @@
           <p>With Tashkheesa, you can receive a specialist's detailed report within 48 hours. No waiting rooms, no appointment queues, no travel. Upload your files and get clarity from your home.</p>
 
           <h3>"It's too expensive"</h3>
-          <p>Tashkheesa's second opinion services start from EGP 920 — a fraction of what an incorrect diagnosis or unnecessary surgery could cost. With 12+ specialties and 107+ services available, there's an option for every condition and budget.</p>
+          <p>Tashkheesa's second opinion services start from EGP 920 — a fraction of what an incorrect diagnosis or unnecessary surgery could cost. With <%= typeof specialtyCount !== 'undefined' ? specialtyCount : 19 %> specialties and <%= typeof serviceCount !== 'undefined' ? serviceCount : 140 %> services available, there's an option for every condition and budget.</p>
         </div>
 
         <div class="post-cta">

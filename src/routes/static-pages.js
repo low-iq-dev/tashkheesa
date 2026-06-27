@@ -7,6 +7,7 @@ var crypto = require('crypto');
 var { v4: uuidv4 } = require('uuid');
 var router = express.Router();
 
+var { getVisibleSpecialtyCount, getVisibleServiceCount } = require('../services/site_stats');
 var comingSoonNotify = require('../notify/coming_soon');
 
 function setupStaticPages(opts) {
@@ -54,6 +55,47 @@ function setupStaticPages(opts) {
   var _servicesCache = { services: null, specialtyNames: null, specialtyNameArMap: null, ts: 0 };
   var SERVICES_CACHE_TTL_MS = 5 * 60 * 1000;
 
+  // ── SEO: robots.txt + sitemap.xml (public, served at root) ──────────────
+  // Origin is env-driven so staging/preview deploys emit their own host.
+  var PUBLIC_ORIGIN = String(process.env.BASE_URL || 'https://tashkheesa.com').replace(/\/+$/, '');
+
+  router.get('/robots.txt', function(req, res) {
+    res.type('text/plain').send(
+      'User-agent: *\n' +
+      'Allow: /\n' +
+      // Authenticated / non-marketing areas (all behind login or API-only).
+      // /portal/ covers patient + doctor + admin portals; /doctor/ is left
+      // crawlable so the public /doctor/signup page is indexed.
+      'Disallow: /portal/\n' +
+      'Disallow: /superadmin/\n' +
+      'Disallow: /admin/\n' +
+      'Disallow: /ops/\n' +
+      'Disallow: /api/\n' +
+      'Disallow: /dashboard\n' +
+      'Disallow: /patient/\n' +
+      'Disallow: /payments/\n' +
+      'Sitemap: ' + PUBLIC_ORIGIN + '/sitemap.xml\n'
+    );
+  });
+
+  router.get('/sitemap.xml', function(req, res) {
+    // PUBLIC marketing pages only — each confirmed to return 200.
+    var paths = [
+      '/', '/services', '/specialties', '/about', '/contact', '/faq',
+      '/privacy', '/terms', '/refund-policy', '/delivery-policy',
+      '/blog', '/blog/how-tashkheesa-works', '/blog/when-to-get-medical-second-opinion',
+      '/apply', '/doctor/signup'
+    ];
+    var urls = paths.map(function(p) {
+      return '  <url><loc>' + PUBLIC_ORIGIN + p + '</loc></url>';
+    }).join('\n');
+    var xml = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+      urls + '\n' +
+      '</urlset>\n';
+    res.type('application/xml').send(xml);
+  });
+
   router.get('/services', async function(req, res) {
     var now = Date.now();
     if (!_servicesCache.services || (now - _servicesCache.ts) >= SERVICES_CACHE_TTL_MS) {
@@ -72,7 +114,8 @@ function setupStaticPages(opts) {
       specialtyNames.sort();
       _servicesCache = { services: services, specialtyNames: specialtyNames, specialtyNameArMap: specialtyNameArMap, ts: now };
     }
-    res.render('services', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', services: _servicesCache.services, specialtyNames: _servicesCache.specialtyNames, specialtyNameArMap: _servicesCache.specialtyNameArMap, title: 'Services & Pricing — Tashkheesa', BUSINESS_INFO: BUSINESS_INFO, description: 'Browse 150+ specialist medical review services with transparent EGP pricing. Radiology, cardiology, oncology, gastroenterology and more.', canonical: '/services' });
+    var serviceCount = await getVisibleServiceCount();
+    res.render('services', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', services: _servicesCache.services, specialtyNames: _servicesCache.specialtyNames, specialtyNameArMap: _servicesCache.specialtyNameArMap, title: 'Services & Pricing — Tashkheesa', BUSINESS_INFO: BUSINESS_INFO, description: 'Browse ' + serviceCount + ' specialist medical review services with transparent EGP pricing. Radiology, cardiology, oncology, gastroenterology and more.', canonical: '/services' });
   });
 
   var LAUNCH_DATE = process.env.LAUNCH_DATE || '';
@@ -106,7 +149,7 @@ function setupStaticPages(opts) {
   router.get('/about', function(req, res) { res.render('about', { title: 'About Us', BUSINESS_INFO: BUSINESS_INFO, description: 'Tashkheesa connects patients with board-certified hospital-based specialists for medical second opinions. Learn about our mission and standards.', canonical: '/about' }); });
   router.get('/contact', function(req, res) { res.render('contact', { title: 'Contact Us', BUSINESS_INFO: BUSINESS_INFO, description: 'Get in touch with Tashkheesa. We respond within 24 hours during business days.', canonical: '/contact' }); });
   router.get('/privacy', function(req, res) { res.render('privacy', { title: 'Privacy Policy', BUSINESS_INFO: BUSINESS_INFO, description: 'How Tashkheesa collects, stores, and protects your personal and medical data.', canonical: '/privacy' }); });
-  router.get('/terms', function(req, res) { res.render('terms', { title: 'Terms of Service', BUSINESS_INFO: BUSINESS_INFO, description: 'Terms and conditions for using Tashkheesa medical second opinion services.', canonical: '/terms' }); });
+  router.get('/terms', async function(req, res) { var specialtyCount = await getVisibleSpecialtyCount(); res.render('terms', { title: 'Terms of Service', BUSINESS_INFO: BUSINESS_INFO, specialtyCount: specialtyCount, description: 'Terms and conditions for using Tashkheesa medical second opinion services.', canonical: '/terms' }); });
   router.get('/refund-policy', function(req, res) { res.render('refund_policy', { title: 'Refund & Cancellation Policy', BUSINESS_INFO: BUSINESS_INFO, description: 'Clear refund and cancellation terms for all Tashkheesa services including video consultations.', canonical: '/refund-policy' }); });
   router.get('/delivery-policy', function(req, res) { res.render('delivery_policy', { title: 'Delivery & Service Policy', BUSINESS_INFO: BUSINESS_INFO, description: 'How Tashkheesa delivers specialist medical reports. Digital delivery within 48 hours.', canonical: '/delivery-policy' }); });
   router.get('/faq', function(req, res) { res.render('faq', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', title: 'FAQ – Frequently Asked Questions', BUSINESS_INFO: BUSINESS_INFO, description: 'Answers to the most common questions about Tashkheesa: how second opinions work, turnaround times, pricing, privacy, and payment options.', canonical: '/faq' }); });
@@ -122,7 +165,7 @@ function setupStaticPages(opts) {
       view: 'blog_when_to_get_second_opinion',
       title: 'When Should You Get a Medical Second Opinion? – Tashkheesa',
       title_ar: 'إمتى تاخد رأي طبي تاني؟ – تشخيصة',
-      description: 'Five signs you need a second opinion, why research shows 1 in 5 diagnoses is incomplete, and how to get one without leaving home.'
+      description: 'Five signs you need a second opinion, why diagnostic uncertainty is more common than people realize, and how to get one without leaving home.'
     },
     'how-tashkheesa-works': {
       view: 'blog_how_tashkheesa_works',
@@ -139,15 +182,19 @@ function setupStaticPages(opts) {
       canonical: '/blog'
     });
   });
-  router.get('/blog/:slug', function(req, res) {
+  router.get('/blog/:slug', async function(req, res) {
     var slug = String((req.params && req.params.slug) || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
     var entry = BLOG_POST_VIEWS[slug];
     if (!entry) {
       return res.status(404).render('404', { title: 'Not Found', BUSINESS_INFO: BUSINESS_INFO, canonical: '/blog' });
     }
     var isAr = !!(res.locals && res.locals.isAr);
+    var specialtyCount = await getVisibleSpecialtyCount();
+    var serviceCount = await getVisibleServiceCount();
     res.render(entry.view, {
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+      specialtyCount: specialtyCount,
+      serviceCount: serviceCount,
       title: isAr && entry.title_ar ? entry.title_ar : entry.title,
       BUSINESS_INFO: BUSINESS_INFO,
       description: entry.description,

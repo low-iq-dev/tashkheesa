@@ -101,7 +101,7 @@
             <div class="step-num">2</div>
             <div class="step-content">
               <h3>متخصص معتمد بيراجع حالتك</h3>
-              <p>حالتك بتتحول لمتخصص معتمد في تخصص حالتك بالذات. سواء كان قلب، أعصاب، أورام، أو أي تخصص من 12+ تخصص متاحين، الدكتور المراجع بيفحص كل حاجة بالتفصيل — أشعتك، تحاليلك، تاريخك الطبي، وخطة علاجك الحالية.</p>
+              <p>حالتك بتتحول لمتخصص معتمد في تخصص حالتك بالذات. سواء كان قلب، أعصاب، أورام، أو أي تخصص من <%= typeof specialtyCount !== 'undefined' ? specialtyCount : 19 %> تخصص متاح، الدكتور المراجع بيفحص كل حاجة بالتفصيل — أشعتك، تحاليلك، تاريخك الطبي، وخطة علاجك الحالية.</p>
             </div>
           </div>
 
@@ -124,7 +124,7 @@
           </ul>
 
           <h2>كم بيكلف؟</h2>
-          <p>أسعار تشخيصة بتبدأ <strong>من 920 جنيه مصري</strong> حسب التخصص. مع 12+ تخصص و 107+ خدمة متاحة، في خيار لكل حالة وكل ميزانية. بنرحب بالمرضى الدوليين — Paymob بيتعامل مع تحويل العملة تلقائياً، فبتدفع بعملتك المحلية.</p>
+          <p>أسعار تشخيصة بتبدأ <strong>من 920 جنيه مصري</strong> حسب التخصص. مع <%= typeof specialtyCount !== 'undefined' ? specialtyCount : 19 %> تخصص و <%= typeof serviceCount !== 'undefined' ? serviceCount : 140 %> خدمة متاحة، في خيار لكل حالة وكل ميزانية. بنرحب بالمرضى الدوليين — Paymob بيتعامل مع تحويل العملة تلقائياً، فبتدفع بعملتك المحلية.</p>
           <p>فكر في الموضوع كده: تكلفة الرأي التاني جزء بسيط من تكلفة تشخيص خاطئ، عملية مش ضرورية، أو خطة علاج غلط — مالياً وصحياً.</p>
 
           <h2>مين يقدر يستخدم تشخيصة؟</h2>
@@ -157,7 +157,7 @@
             <div class="step-num">2</div>
             <div class="step-content">
               <h3>A Specialist Reviews Your Case</h3>
-              <p>Your case is assigned to a board-certified specialist in your condition's specific field. Whether it's cardiology, neurology, oncology, or any of our 12+ specialties, the reviewing doctor examines everything thoroughly — your imaging, lab work, clinical history, and current treatment plan.</p>
+              <p>Your case is assigned to a board-certified specialist in your condition's specific field. Whether it's cardiology, neurology, oncology, or any of our <%= typeof specialtyCount !== 'undefined' ? specialtyCount : 19 %> specialties, the reviewing doctor examines everything thoroughly — your imaging, lab work, clinical history, and current treatment plan.</p>
             </div>
           </div>
 
@@ -180,7 +180,7 @@
           </ul>
 
           <h2>How Much Does It Cost?</h2>
-          <p>Tashkheesa's services start <strong>from EGP 920</strong> depending on the specialty. With 12+ specialties and 107+ services available, there's an option for every condition and budget. We welcome international patients — Paymob handles currency conversion automatically so you pay in your local currency.</p>
+          <p>Tashkheesa's services start <strong>from EGP 920</strong> depending on the specialty. With <%= typeof specialtyCount !== 'undefined' ? specialtyCount : 19 %> specialties and <%= typeof serviceCount !== 'undefined' ? serviceCount : 140 %> services available, there's an option for every condition and budget. We welcome international patients — Paymob handles currency conversion automatically so you pay in your local currency.</p>
           <p>Consider this: the cost of a second opinion is a fraction of what an incorrect diagnosis, unnecessary surgery, or wrong treatment plan could cost you — both financially and in terms of your health.</p>
 
           <h2>Who Can Use Tashkheesa?</h2>

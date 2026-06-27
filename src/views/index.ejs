@@ -400,7 +400,7 @@
               'استشاري في مجموعة مستشفيات شفا') %></div>
           </div>
           <div class="stat-item reveal stagger-3">
-            <div class="stat-number" data-count-to="16" data-count-suffix="">0</div>
+            <div class="stat-number" data-count-to="<%= typeof specialtyCount !== 'undefined' ? specialtyCount : 19 %>" data-count-suffix="">0</div>
             <div class="stat-label"><%= tt('home.stat.specialties',
               'Specialties on Tashkheesa',
               'تخصص طبي على تشخيصة') %></div>

@@ -702,15 +702,16 @@ var homepageLocals = {
   currency: 'EGP'
 };
 
-function renderHomepage(req, res) {
-  return res.render('index', homepageLocals);
+async function renderHomepage(req, res) {
+  var specialtyCount = await require('./services/site_stats').getVisibleSpecialtyCount();
+  return res.render('index', Object.assign({}, homepageLocals, { specialtyCount: specialtyCount }));
 }
 
 app.get('/index.html', function(req, res) { return res.redirect('/'); });
 app.get('/site', function(req, res) { return res.redirect('/'); });
 app.get('/site/', function(req, res) { return res.redirect('/'); });
 
-app.get('/', function(req, res) {
+app.get('/', async function(req, res) {
   if (!req.user) return renderHomepage(req, res);
   switch (req.user.role) {
     case 'patient': return res.redirect('/dashboard');

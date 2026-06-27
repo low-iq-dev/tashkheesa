@@ -478,7 +478,7 @@
             </div>
             <div class="service-sla"><%= (service.sla_hours && service.sla_hours <= 24)
               ? tt('svc.sla.24', '24-hour', '24 ساعة')
-              : tt('svc.sla.72', '72-hour', '72 ساعة') %></div>
+              : tt('svc.sla.standard', '48-hour', '48 ساعة') %></div>
           </div>
         </a>
         <% }); %>
@@ -491,8 +491,8 @@
             ? ('+' + rest.length + ' خدمة تانية متاحة')
             : ('+' + rest.length + ' more services available') %></span>
           <span class="specialty-cta-hint"><%= __isAr
-            ? ('احجز أي مراجعة ' + specDisplayName(specName) + ' — التقرير بيوصل في خلال 72 ساعة')
-            : ('Book any ' + specDisplayName(specName) + ' review — report delivered within 72 hours') %></span>
+            ? ('احجز أي مراجعة ' + specDisplayName(specName) + ' — التقرير بيوصل في خلال 48 ساعة')
+            : ('Book any ' + specDisplayName(specName) + ' review — report delivered within 48 hours') %></span>
         </div>
         <a href="<%= submitUrl %>?specialty=<%= encodeURIComponent(specName) %>" class="specialty-cta-btn">
           <%= __isAr

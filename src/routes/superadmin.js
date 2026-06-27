@@ -333,15 +333,6 @@ async function markAllSuperadminNotificationsRead(userId, userEmail = '') {
   return { ok: false, reason: 'no_read_mechanism' };
 }
 
-// Phase 1 design-system preview. Owner-only. Removed before final merge.
-// Exercises every superadmin partial + component with hardcoded data.
-router.get('/superadmin/__preview', requireSuperadmin, async (req, res) => {
-  return res.render('superadmin__preview', {
-    user: req.user,
-    cspNonce: (res.locals && res.locals.cspNonce) || ''
-  });
-});
-
 router.get('/superadmin/alerts', requireSuperadmin, async (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
