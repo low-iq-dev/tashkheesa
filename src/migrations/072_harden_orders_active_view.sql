@@ -23,7 +23,19 @@
 -- ============================================================================
 
 ALTER VIEW public.orders_active SET (security_invoker = true);
-REVOKE SELECT ON public.orders_active FROM anon, authenticated;
+-- Guarded: anon/authenticated are Supabase-managed roles that exist in prod but
+-- NOT in a local/dev Postgres. Run the REVOKE per-role only where the role exists,
+-- so a fresh local DB can boot. In prod both roles exist and both REVOKEs run,
+-- preserving the defense-in-depth layer described above.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    EXECUTE 'REVOKE SELECT ON public.orders_active FROM anon';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    EXECUTE 'REVOKE SELECT ON public.orders_active FROM authenticated';
+  END IF;
+END $$;
 
 -- Post-check (run separately):
 --   SET ROLE anon; SELECT count(*) FROM public.orders_active;  -- EXPECT 0 rows or permission denied
