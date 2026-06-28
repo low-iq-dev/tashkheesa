@@ -19,9 +19,12 @@
  *      { skipped: 'no_uplift_to_refund' }.
  *
  * Paymob actual-money refund is NOT wired here — Ziad's track lands
- * that separately.  This module records the local intent (refunds row)
+ * that separately.  This module records the refund as an OWED obligation
+ * (refunds row, status='auto_approved' = system-approved, awaiting payout)
  * and zeroes the uplift on the order so earnings displays read the
- * standard-tier amount.
+ * standard-tier amount.  The money is sent out-of-band via InstaPay and an
+ * operator marks the row 'paid' afterwards; this module never claims the
+ * money has already moved.
  */
 
 'use strict';
@@ -62,24 +65,35 @@ async function issueBreachRefund(orderId) {
   }
 
   var refundId = randomUUID();
-  // Theme 7b Phase 1: explicit status='paid' on insert. Migration 048
-  // adds the workflow columns to refunds; system-generated SLA-breach
-  // rows are paid-on-write semantically (the urgency uplift is zeroed
-  // on the order at the same moment, which is the system's notion of
-  // "the refund happened"). New columns paid_at/approved_amount/
-  // requested_amount stay NULL on new system rows by design — the
-  // patient-initiated workflow populates them; system rows have only
-  // ever cared about the (id, order_id, amount_egp, reason, status)
-  // identity. Backfill at migration 048 step (b) handles pre-Phase-1
-  // rows.
+  // B3 fix: an SLA-breach refund is an obligation the SYSTEM has decided is
+  // owed (the deadline objectively passed), but NO money has moved yet — there
+  // is no Paymob/InstaPay refund API wired (see TODO below). Writing it as
+  // 'paid' was a lie: it told the dashboards (and, via copy, the patient) the
+  // money was sent when it was not.
+  //
+  // Correct state = 'auto_approved': the workflow state for "system-approved,
+  // awaiting payout". It lands in the superadmin "Awaiting payment" queue
+  // (routes/superadmin.js + routes/api/admin.js) and an operator finalizes it
+  // via the existing mark-paid action (admin_refund_mark_paid.setRefundPaid)
+  // once the InstaPay transfer actually happens — at which point status flips
+  // to 'paid', paid_at is set, and instapay_reference records the transfer.
+  //
+  // We populate requested_amount AND approved_amount = uplift so:
+  //   (a) mark-paid can compute finalAmount (it does approved ?? requested;
+  //       both NULL would throw NO_AMOUNT and the refund could never be paid),
+  //   (b) the refundsOwed / refundedMTD KPIs read the right figure.
+  // requested_by='system' attributes the row (the queue LEFT JOINs on it).
+  // paid_at stays NULL by design — money has NOT been sent.
   await execute(
     `INSERT INTO refunds
-       (id, order_id, amount_egp, reason, refunded_at, refunded_by, paymob_refund_id, notes, status)
-     VALUES ($1, $2, $3, 'sla_breach', NOW(), 'system', NULL, $4, 'paid')`,
+       (id, order_id, amount_egp, reason, refunded_at, refunded_by, requested_by,
+        requested_amount, approved_amount, paymob_refund_id, notes, status)
+     VALUES ($1, $2, $3, 'sla_breach', NOW(), 'system', 'system',
+             $3, $3, NULL, $4, 'auto_approved')`,
     [
       refundId, orderId, uplift,
       'Auto-refund: SLA deadline passed without case completion (tier ' +
-        (order.urgency_tier || 'unknown') + ')'
+        (order.urgency_tier || 'unknown') + '). Awaiting InstaPay payout.'
     ]
   );
 

@@ -129,7 +129,14 @@ if (!fs.existsSync(MIG)) {
   } catch (e) { t.fail('no CHECK constraint', e); }
 }
 
-// ── 7. services/sla_breach.js writer specifies status='paid' explicitly ─
+// ── 7. services/sla_breach.js writer: B3 — system breach refunds are written
+//      as 'auto_approved' (system-approved, AWAITING PAYOUT), never 'paid'.
+//      No money has moved at write time (no Paymob/InstaPay refund API is
+//      wired), so claiming 'paid' was a lie. An operator marks the row 'paid'
+//      after the InstaPay transfer via admin_refund_mark_paid. The writer must
+//      also populate requested_amount/approved_amount, or mark-paid's
+//      finalAmount (approved ?? requested) is null and the refund can never be
+//      paid out (NO_AMOUNT).
 try {
   const SLA = path.join(__dirname, '..', '..', 'src', 'services', 'sla_breach.js');
   const slaSrc = fs.readFileSync(SLA, 'utf8');
@@ -139,8 +146,11 @@ try {
   const INSERT_RE = /INSERT\s+INTO\s+refunds[\s\S]+?VALUES[\s\S]+?\)\s*`/i;
   const m = slaSrc.match(INSERT_RE);
   if (!m) throw new Error('INSERT INTO refunds not found in services/sla_breach.js');
-  if (!/'paid'/.test(m[0])) {
-    throw new Error('services/sla_breach.js INSERT does not specify status=\'paid\' explicitly — pre-Phase-1 default would land system rows at \'pending\'');
+  if (!/'auto_approved'/.test(m[0])) {
+    throw new Error('services/sla_breach.js INSERT does not write status=\'auto_approved\' — B3: a system breach refund is owed-but-unpaid, it must land in the awaiting-payment queue, not claim money was sent');
+  }
+  if (/\bstatus[\s\S]*'paid'/.test(m[0]) || /'paid'[\s\S]*\bstatus/.test(m[0])) {
+    throw new Error('services/sla_breach.js INSERT still writes status=\'paid\' — B3 regression: no money moves at breach time, do not claim paid');
   }
   // Confirm `status` is in the column list (the substring `status` could
   // appear in the values too — check the COLUMN list specifically).
@@ -149,5 +159,9 @@ try {
   if (!cm || !/\bstatus\b/.test(cm[1])) {
     throw new Error('services/sla_breach.js INSERT does not include `status` in the column list');
   }
-  t.pass('services/sla_breach.js INSERT explicitly writes status=\'paid\' (system-generated rows)');
-} catch (e) { t.fail('sla_breach status=\'paid\'', e); }
+  // B3: the payout amount must be carried so mark-paid can finalize it.
+  if (!/\brequested_amount\b/.test(cm[1]) || !/\bapproved_amount\b/.test(cm[1])) {
+    throw new Error('services/sla_breach.js INSERT does not populate requested_amount + approved_amount — mark-paid finalAmount (approved ?? requested) would be null → NO_AMOUNT, refund unpayable');
+  }
+  t.pass('services/sla_breach.js INSERT writes status=\'auto_approved\' + requested/approved amounts (B3: owed-but-unpaid, payable via mark-paid)');
+} catch (e) { t.fail('sla_breach status=\'auto_approved\' (B3)', e); }
