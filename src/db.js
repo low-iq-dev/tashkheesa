@@ -63,7 +63,7 @@ async function runDataFixups() {
   // NOTE: spec-dermatology, spec-endocrinology, spec-gastroenterology, spec-ophthalmology,
   // spec-orthopedics, spec-pulmonology, spec-urology now have pricing via sync_pricing_v2.js
   var unpricedSpecialties = [
-    'spec-ent', 'spec-general-surgery', 'spec-internal-medicine', 'spec-pediatrics'
+    'spec-ent', 'spec-general-surgery', 'spec-pediatrics'
   ];
   var ph = unpricedSpecialties.map(function(_, idx) { return '$' + (idx + 1); }).join(', ');
   await pool.query(

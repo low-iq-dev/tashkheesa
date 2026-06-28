@@ -27,6 +27,8 @@ async function eligibleDoctorsFor(opts) {
     "SELECT id, name FROM users " +
     "WHERE role = 'doctor' " +
     "  AND COALESCE(is_active, true) = true " +
+    "  AND COALESCE(is_paused, false) = false " +
+    "  AND COALESCE(pending_approval, false) = false " +
     "  AND specialty_id = $1 " +
     "  AND COALESCE(sla_tiers_supported, '[\"standard\"]'::jsonb) @> $2::jsonb " +
     "ORDER BY name ASC",
@@ -129,7 +131,7 @@ async function autoAssignDoctor(orderId) {
     // Distinguish "no doctor for specialty" from "tier filter eliminated the pool".
     // The latter is a routing/under-capacity signal ops needs to see.
     var specialtyPool = await queryOne(
-      "SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND COALESCE(is_active, true) = true AND specialty_id = $1",
+      "SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND COALESCE(is_active, true) = true AND COALESCE(is_paused, false) = false AND COALESCE(pending_approval, false) = false AND specialty_id = $1",
       [order.specialty_id]
     );
     var specialtyCount = specialtyPool ? Number(specialtyPool.c || 0) : 0;
