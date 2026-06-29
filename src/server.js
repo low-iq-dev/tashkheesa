@@ -1117,6 +1117,30 @@ _dbReady.then(async function() {
   try { await scheduleAiCanary(); } catch (e) {
     logMajor('AI canary schedule failed: ' + e.message);
   }
+  // Worker dead-man's-switch — UNGATED on purpose. Mounted OUTSIDE the
+  // SLA_MODE==='primary' block below so it survives the exact failure mode it
+  // watches for: flipping SLA_MODE off kills BOTH case_sla_worker and
+  // acceptance_watcher at once, and the watchdog must still run to report that.
+  // Reads agent_heartbeats age, classifies via admin_health.workerLiveness
+  // (12-min / 6-min budgets), and on a worker going 'down' writes a durable
+  // error_logs row (category='worker_down'), flips the admin_settings banner
+  // flag, and best-effort fires sendCriticalAlert. Every 2 min (matches the
+  // tighter acceptance_watcher cadence). Self-isolating: never throws.
+  try {
+    var runWorkerWatchdogSweep = require('./services/worker_watchdog').runWorkerWatchdogSweep;
+    var wdBoot = setTimeout(function () {
+      runWorkerWatchdogSweep(pool).catch(function () {});
+    }, 90 * 1000);
+    if (wdBoot && wdBoot.unref) wdBoot.unref();
+    var wdInterval = setInterval(function () {
+      runWorkerWatchdogSweep(pool).catch(function () {});
+    }, 2 * 60 * 1000);
+    if (wdInterval && wdInterval.unref) wdInterval.unref();
+    intervalIds.push(wdInterval);
+    logMajor('Worker watchdog registered (every 2 min, UNGATED — independent of SLA_MODE)');
+  } catch (wdErr) {
+    logMajor('Worker watchdog registration failed: ' + wdErr.message);
+  }
   if (CONFIG.SLA_MODE === 'primary') {
     logMajor('SLA MODE: primary (single writer enabled)');
     // startSlaWorker() disabled — consolidated on case_sla_worker.js
