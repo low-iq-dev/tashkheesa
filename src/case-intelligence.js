@@ -5,11 +5,18 @@ var fs = require('fs');
 var path = require('path');
 var crypto = require('crypto');
 var Anthropic = require('@anthropic-ai/sdk');
-var pdfParse = require('pdf-parse');
+var { PDFParse } = require('pdf-parse'); // pdf-parse v2: class API, not a callable
 var { queryOne, queryAll, execute } = require('./pg');
 var { major: logMajor, fatal: logFatal } = require('./logger');
 var { modelSonnet } = require('./config/anthropic');
 var { recordAiHealth } = require('./services/ai_health');
+var os = require('os');
+// Storage read primitive for remote (R2) files. Required at call time so a
+// missing R2 config never blocks module load / boot.
+function _getFileBuffer(key) {
+  var storage = require('./storage');
+  return storage.getFileBuffer(key);
+}
 
 var UPLOAD_ROOT = path.resolve(__dirname, '..', 'uploads');
 
@@ -35,6 +42,114 @@ var EXTRACTION_USER_PROMPT =
   '   If a field is not explicitly mentioned, set it to null. Do NOT infer.\n\n' +
   'Return ONLY valid JSON. No markdown, no explanation, no commentary.\n\n' +
   '--- DOCUMENT TEXT ---\n';
+
+// ---------------------------------------------------------------------------
+// Bridge + remote-fetch (M11)
+// ---------------------------------------------------------------------------
+// The patient upload flow stores files in order_additional_files / order_files
+// (as R2 keys, legacy http(s) URLs, or Uploadcare UUIDs) — NOT in case_files.
+// The pipeline reads case_files, so without this bridge it finds zero files and
+// silently produces nothing. bridgeOrderFilesToCaseFiles mirrors those rows
+// into case_files (idempotent), storing the remote reference in storage_path.
+// materializeToLocal then resolves a storage_path to a readable local file:
+// local disk if present, else http(s) fetch, else R2 key fetch -> temp file.
+
+function _looksLikeHttpUrl(s) {
+  return typeof s === 'string' && /^https?:\/\//i.test(s);
+}
+
+async function bridgeOrderFilesToCaseFiles(caseId) {
+  // Pull every stored file reference for this order from both legacy tables.
+  // order_additional_files: file_key (R2) OR file_url (legacy URL), label.
+  // order_files: url, filename, mime_type, size, uploadcare_uuid.
+  var refs = [];
+
+  var addl = await queryAll(
+    "SELECT id, file_key, file_url, label FROM order_additional_files WHERE order_id = $1",
+    [caseId]
+  ).catch(function () { return []; });
+  for (var a = 0; a < addl.length; a++) {
+    var r = addl[a];
+    var ref = r.file_key || r.file_url;            // R2 key preferred, else URL
+    if (!ref) continue;
+    refs.push({ storage_path: ref, filename: r.label || _basenameFromRef(ref) });
+  }
+
+  var ofiles = await queryAll(
+    "SELECT id, url, filename, mime_type, size, uploadcare_uuid FROM order_files WHERE order_id = $1",
+    [caseId]
+  ).catch(function () { return []; });
+  for (var o = 0; o < ofiles.length; o++) {
+    var of = ofiles[o];
+    var oref = of.url || of.uploadcare_uuid;
+    if (!oref) continue;
+    refs.push({
+      storage_path: oref,
+      filename: of.filename || _basenameFromRef(oref),
+      file_size_bytes: of.size || null,
+      mime_type: of.mime_type || null
+    });
+  }
+
+  var bridged = 0;
+  for (var i = 0; i < refs.length; i++) {
+    var item = refs[i];
+    // Idempotent: skip if a case_files row already references this storage_path.
+    var exists = await queryOne(
+      'SELECT id FROM case_files WHERE case_id = $1 AND storage_path = $2 LIMIT 1',
+      [caseId, item.storage_path]
+    );
+    if (exists) continue;
+    var det = detectFileType(item.filename);
+    await execute(
+      'INSERT INTO case_files (id, case_id, filename, file_type, storage_path, uploaded_at, is_valid, file_size_bytes, mime_type, processing_status) ' +
+      'VALUES ($1, $2, $3, $4, $5, NOW(), true, $6, $7, $8)',
+      [crypto.randomUUID(), caseId, item.filename, det.type, item.storage_path,
+       item.file_size_bytes || null, item.mime_type || det.mime, 'pending']
+    );
+    bridged++;
+  }
+  if (bridged > 0) {
+    logMajor('[case-intelligence] Bridged ' + bridged + ' file(s) from order_* tables into case_files for ' + caseId);
+  }
+  return bridged;
+}
+
+function _basenameFromRef(ref) {
+  try {
+    var clean = String(ref).split('?')[0];
+    var base = clean.substring(clean.lastIndexOf('/') + 1);
+    return base || 'file';
+  } catch (_) { return 'file'; }
+}
+
+// Resolve a case_files.storage_path to a locally-readable path.
+// Returns { path, isTemp }. Caller must unlink path when isTemp === true.
+async function materializeToLocal(storagePath) {
+  // 1) Absolute local path that exists (dev / already-on-disk).
+  if (storagePath && path.isAbsolute(storagePath) && fs.existsSync(storagePath)) {
+    return { path: storagePath, isTemp: false };
+  }
+  // 2) Relative path under UPLOAD_ROOT that exists (legacy local uploads).
+  if (storagePath && !_looksLikeHttpUrl(storagePath)) {
+    var underRoot = path.join(UPLOAD_ROOT, storagePath);
+    if (fs.existsSync(underRoot)) return { path: underRoot, isTemp: false };
+  }
+  // 3) Remote: fetch bytes to a temp file.
+  var buf;
+  if (_looksLikeHttpUrl(storagePath)) {
+    var resp = await fetch(storagePath);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status + ' fetching ' + storagePath);
+    buf = Buffer.from(await resp.arrayBuffer());
+  } else {
+    // Treat as R2 key.
+    buf = await _getFileBuffer(storagePath);
+  }
+  var ext = path.extname(_basenameFromRef(storagePath)) || '';
+  var tmp = path.join(os.tmpdir(), 'ci_' + crypto.randomUUID() + ext);
+  fs.writeFileSync(tmp, buf);
+  return { path: tmp, isTemp: true };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -110,7 +225,7 @@ function sleep(ms) {
 // 1. processUploadedFile
 // ---------------------------------------------------------------------------
 
-async function processUploadedFile(caseId, filePath, originalFilename) {
+async function processUploadedFile(caseId, filePath, originalFilename, knownFileId) {
   var detected = detectFileType(originalFilename);
   var fileType = detected.type;
   var mime = detected.mime;
@@ -134,24 +249,36 @@ async function processUploadedFile(caseId, filePath, originalFilename) {
     }
   }
 
-  // Find or create the case_files row for this file
-  var fileRow = await queryOne(
-    'SELECT id FROM case_files WHERE case_id = $1 AND storage_path = $2 LIMIT 1',
-    [caseId, filePath]
-  );
-
-  if (!fileRow) {
-    var fileId = crypto.randomUUID();
-    await execute(
-      'INSERT INTO case_files (id, case_id, filename, file_type, storage_path, uploaded_at, is_valid, file_size_bytes, mime_type, processing_status) VALUES ($1, $2, $3, $4, $5, NOW(), true, $6, $7, $8)',
-      [fileId, caseId, originalFilename, fileType, filePath, fileSize, mime, 'pending']
-    );
-    fileRow = { id: fileId };
-  } else {
+  // Resolve the case_files row. When called from processCaseIntelligence the
+  // row already exists (bridged or pre-existing) and its storage_path holds the
+  // REMOTE reference, not this local temp path — so we use the known id and must
+  // NOT find-or-create by filePath (that would insert a duplicate row).
+  var fileRow;
+  if (knownFileId) {
+    fileRow = { id: knownFileId };
     await execute(
       'UPDATE case_files SET file_size_bytes = $1, mime_type = $2, processing_status = $3 WHERE id = $4',
-      [fileSize, mime, 'pending', fileRow.id]
+      [fileSize, mime, 'pending', knownFileId]
     );
+  } else {
+    // Legacy direct-call path: find-or-create by storage_path.
+    fileRow = await queryOne(
+      'SELECT id FROM case_files WHERE case_id = $1 AND storage_path = $2 LIMIT 1',
+      [caseId, filePath]
+    );
+    if (!fileRow) {
+      var fileId = crypto.randomUUID();
+      await execute(
+        'INSERT INTO case_files (id, case_id, filename, file_type, storage_path, uploaded_at, is_valid, file_size_bytes, mime_type, processing_status) VALUES ($1, $2, $3, $4, $5, NOW(), true, $6, $7, $8)',
+        [fileId, caseId, originalFilename, fileType, filePath, fileSize, mime, 'pending']
+      );
+      fileRow = { id: fileId };
+    } else {
+      await execute(
+        'UPDATE case_files SET file_size_bytes = $1, mime_type = $2, processing_status = $3 WHERE id = $4',
+        [fileSize, mime, 'pending', fileRow.id]
+      );
+    }
   }
 
   // --- LARGE FILE CHECK ---
@@ -170,9 +297,13 @@ async function processUploadedFile(caseId, filePath, originalFilename) {
   if (fileType === 'pdf') {
     try {
       var pdfBuffer = fs.readFileSync(filePath);
-      var pdfData = await pdfParse(pdfBuffer);
+      // pdf-parse v2: instantiate PDFParse({data}) and call getText().
+      // Returns { pages, text, total }; map total -> page count.
+      var _pdfParser = new PDFParse({ data: pdfBuffer });
+      var pdfData = await _pdfParser.getText();
+      try { if (typeof _pdfParser.destroy === 'function') await _pdfParser.destroy(); } catch (_) {}
       var rawText = (pdfData.text || '').trim();
-      var pageCount = (pdfData.numpages || 0);
+      var pageCount = (pdfData.total || pdfData.numpages || 0);
 
       // --- ARABIC / GARBAGE OCR CHECK ---
       if (isGarbageText(rawText, pageCount)) {
@@ -478,32 +609,49 @@ async function processCaseIntelligence(caseId) {
       [caseId]
     );
 
+    // M11: bridge files stored in order_additional_files / order_files into
+    // case_files first, so uploads from the patient flow are actually visible
+    // to the pipeline (they previously were not, so nothing was ever processed).
+    await bridgeOrderFilesToCaseFiles(caseId);
+
     // Get all unprocessed files for this case
     var files = await queryAll(
       "SELECT id, storage_path, filename, file_size_bytes FROM case_files WHERE case_id = $1 AND (processing_status = 'pending' OR processing_status IS NULL)",
       [caseId]
     );
 
+    if (!files || files.length === 0) {
+      // Not an error if the order genuinely has no files — but log it so a
+      // BROKEN bridge (files exist in order_* but none here) is visible rather
+      // than silently reported as success.
+      logMajor('[case-intelligence] No pending case_files for ' + caseId + ' — nothing to process');
+    }
+
     var startTime = Date.now();
 
     for (var i = 0; i < files.length; i++) {
       var f = files[i];
-      var filePath = f.storage_path;
-
-      // Resolve relative paths against upload root
-      if (filePath && !path.isAbsolute(filePath)) {
-        filePath = path.join(UPLOAD_ROOT, filePath);
-      }
-
-      if (!filePath || !fs.existsSync(filePath)) {
+      var materialized = null;
+      try {
+        // Resolve storage_path (R2 key / http URL / local path) to a readable
+        // local file, downloading remote files to a temp path when needed.
+        materialized = await materializeToLocal(f.storage_path);
+      } catch (fetchErr) {
         await execute(
-          "UPDATE case_files SET processing_status = 'failed', processing_error = 'File not found on disk' WHERE id = $1",
-          [f.id]
+          "UPDATE case_files SET processing_status = 'failed', processing_error = $1, processed_at = NOW() WHERE id = $2",
+          ['Could not retrieve file for processing: ' + (fetchErr && fetchErr.message ? fetchErr.message : String(fetchErr)), f.id]
         );
         continue;
       }
 
-      await processUploadedFile(caseId, filePath, f.filename);
+      try {
+        await processUploadedFile(caseId, materialized.path, f.filename, f.id);
+      } finally {
+        // Clean up any temp file we downloaded.
+        if (materialized && materialized.isTemp) {
+          try { fs.unlinkSync(materialized.path); } catch (_) {}
+        }
+      }
     }
 
     // Re-run structuring for any files that have text but no structured data

@@ -77,6 +77,29 @@ async function getSignedDownloadUrl(key, expiresIn = 3600, options = {}) {
 }
 
 /**
+ * Fetch a file's raw bytes from R2 directly into a Buffer.
+ * Used by the case-intelligence pipeline, which needs the actual file
+ * contents (not a presigned URL) to extract text. Reuses the module's
+ * existing s3 client + bucket.
+ * @param {string} key - R2 storage key (e.g. 'uploads/<uuid>.pdf')
+ * @returns {Promise<Buffer>} The file contents.
+ */
+async function getFileBuffer(key) {
+  const res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+  // @aws-sdk v3: res.Body is a stream with transformToByteArray() in Node.
+  if (res.Body && typeof res.Body.transformToByteArray === 'function') {
+    const bytes = await res.Body.transformToByteArray();
+    return Buffer.from(bytes);
+  }
+  // Fallback: collect stream chunks.
+  const chunks = [];
+  for await (const chunk of res.Body) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
  * Delete a file from R2.
  * @param {string} key - R2 storage key
  */
@@ -84,7 +107,7 @@ async function deleteFile(key) {
   await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
 }
 
-module.exports = { uploadFile, getSignedDownloadUrl, deleteFile };
+module.exports = { uploadFile, getSignedDownloadUrl, getFileBuffer, deleteFile };
 
 // Verify R2 connection on startup. Logs but never throws — server boot must not depend on R2.
 if (process.env.R2_ENDPOINT && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY && BUCKET) {
