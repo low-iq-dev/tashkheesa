@@ -1,9 +1,98 @@
-<%- include('partials/header', { title: "Delivery & Service Policy", layout: "public", showNav: true }) %>
+<%- include('partials/header', { title: title, layout: "public", showNav: true }) %>
 <% const biz = (typeof BUSINESS_INFO !== 'undefined' && BUSINESS_INFO) ? BUSINESS_INFO : {}; %>
+<% const __isAr = !!(typeof isAr !== 'undefined' && isAr); %>
 
 <main class="page-shell">
   <div class="page-inner">
     <section class="content-card legal-page">
+<% if (__isAr) { %>
+      <h1>سياسة التسليم والخدمة</h1>
+      <p class="subtitle">كيف تصلك خدماتنا الطبية الرقمية.</p>
+      <p class="legal-updated">آخر تحديث: فبراير 2026</p>
+
+      <p>تشخيصة منصة رقمية للآراء الطبية الثانية. تُسلَّم جميع الخدمات إلكترونيًا عبر بوابتنا الآمنة، ولا تتضمن الخدمة أي منتجات مادية أو شحن.</p>
+
+      <h2>كيف يصلك تقريرك</h2>
+      <ol>
+        <li><strong>الرفع</strong> — ترفع ملفاتك الطبية (أشعة، تحاليل، مستندات) عبر بوابتنا الآمنة.</li>
+        <li><strong>التعيين</strong> — يُعيَّن لحالتك طبيب استشاري متخصص في المجال المطلوب.</li>
+        <li><strong>المراجعة</strong> — يراجع الطبيب ملفاتك ويُعِدّ تقريرًا مكتوبًا مفصلًا.</li>
+        <li><strong>التسليم</strong> — يُسلَّم تقريرك إلى بوابتك على تشخيصة ويصلك إشعار بذلك.</li>
+        <li><strong>التنزيل</strong> — يمكنك الاطلاع على تقريرك وتنزيله بصيغة PDF من بوابتك في أي وقت.</li>
+      </ol>
+
+      <h2>مدد التسليم</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>نوع الخدمة</th>
+            <th>مدة التسليم</th>
+            <th>الأثر على السعر</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>القياسية</td>
+            <td>خلال 48 ساعة</td>
+            <td>السعر الأساسي</td>
+          </tr>
+          <tr>
+            <td>VIP</td>
+            <td>خلال 18 ساعة</td>
+            <td>رسوم إضافية</td>
+          </tr>
+          <tr>
+            <td>العاجلة</td>
+            <td>خلال 4 ساعات</td>
+            <td>رسوم إضافية</td>
+          </tr>
+          <tr>
+            <td>استشارة فيديو</td>
+            <td>موعد مُجدوَل</td>
+            <td>حجز مستقل</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>تبدأ مدة التسليم عند:</p>
+      <ul>
+        <li>تأكيد الدفع، <strong>و</strong></li>
+        <li>اكتمال رفع جميع الملفات الطبية المطلوبة.</li>
+      </ul>
+
+      <h2>ماذا تتضمن الخدمة</h2>
+      <p>يشمل تقرير الطبيب الاستشاري:</p>
+      <ul>
+        <li>ملخص بيانات المريض</li>
+        <li>مراجعة الملفات الطبية المقدَّمة</li>
+        <li>النتائج والملاحظات السريرية</li>
+        <li>التقييم والتشخيص التفريقي (حيثما ينطبق)</li>
+        <li>التوصيات بالخطوات التالية</li>
+        <li>بيانات اعتماد الطبيب الاستشاري وتوقيعه</li>
+      </ul>
+
+      <h2>الوصول إلى تقاريرك</h2>
+      <ul>
+        <li>تبقى تقاريرك متاحة في بوابتك دون حد زمني.</li>
+        <li>يمكنك تنزيل التقارير بصيغة PDF في أي وقت.</li>
+        <li>يمكنك مشاركة التقارير مع طبيبك المعالج.</li>
+        <li>التقارير سرّية ولا يطّلع عليها سواك والطبيب المراجع لحالتك.</li>
+      </ul>
+
+      <h2>توفر الخدمة</h2>
+      <ul>
+        <li>يتاح تقديم الحالات على تشخيصة على مدار الساعة طوال أيام الأسبوع.</li>
+        <li>تُعالَج مراجعات الأطباء خلال ساعات العمل (<%= biz.businessHours_ar || 'الأحد – الخميس: 9:00 صباحاً – 5:00 مساءً (بتوقيت القاهرة)' %>).</li>
+        <li>الحالات المقدَّمة خارج ساعات العمل تبدأ معالجتها في يوم العمل التالي.</li>
+        <li>تخضع المراجعات VIP (خلال 18 ساعة) والعاجلة (خلال 4 ساعات) لتوفر الأطباء الاستشاريين.</li>
+      </ul>
+
+      <h2>التواصل</h2>
+      <p>لأي استفسار عن التسليم: <a href="mailto:<%= biz.email || 'info@tashkheesa.com' %>"><%= biz.email || 'info@tashkheesa.com' %></a></p>
+
+      <h2>اللغة المعتمدة</h2>
+      <p>حُرِّرت هذه الصفحة باللغتين العربية والإنجليزية. وفي حال وجود أي تعارض بين النصّين، يُعتَدّ بالنص العربي.</p>
+<% } else { %>
       <h1>Delivery & Service Policy</h1>
       <p class="subtitle">How our digital medical services are delivered to you.</p>
       <p class="legal-updated">Last updated: February 2026</p>
@@ -87,6 +176,10 @@
 
       <h2>Contact</h2>
       <p>For delivery questions: <a href="mailto:<%= biz.email || 'info@tashkheesa.com' %>"><%= biz.email || 'info@tashkheesa.com' %></a></p>
+
+      <h2>Prevailing Language</h2>
+      <p>This page is provided in both Arabic and English. In the event of any inconsistency between the two texts, the Arabic text shall prevail.</p>
+<% } %>
     </section>
   </div>
 </main>
