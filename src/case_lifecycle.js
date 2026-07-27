@@ -1525,17 +1525,12 @@ async function markSlaBreach(caseId) {
     breached_at: nowIso()
   });
 
-    // Auto-reassign on SLA breach
-  const previousDoctorId = existing.doctor_id || null;
-  const nextDoctorId = await pickNextAvailableDoctor({ excludeDoctorId: previousDoctorId });
-
-  if (nextDoctorId) {
-    await reassignCase(caseId, nextDoctorId, { reason: 'sla_breach_auto' });
-    await logCaseEvent(caseId, 'AUTO_REASSIGNED_ON_SLA_BREACH', {
-      from: previousDoctorId,
-      to: nextDoctorId
-    });
-  }
+  // B11 (launch audit): reassignment is owned by the SLA sweep's handleBreach
+  // (case_sla_worker.js), which selects via findAlternateDoctor —
+  // specialty-matched and active/approved/unpaused-filtered. The old inline
+  // pickNextAvailableDoctor reassign here ignored all of those and then the
+  // sweep reassigned AGAIN, causing double reassignment and notifications to
+  // ineligible doctors. Removed so the sweep is the single reassignment owner.
 
   await logCaseEvent(caseId, 'SLA_BREACHED');
 

@@ -1,18 +1,21 @@
 // tests/core/theme8-notification-worker-skip-locked.test.js
 //
-// Theme 8 Phase 4-D regression guard — notification_worker SELECT must
-// include `FOR UPDATE SKIP LOCKED` (deferred from Theme 6 sub-issue D
-// per OQ-5). ORDER BY at ASC must stay for FIFO.
+// notification_worker claim-query regression guard.
 //
-// Forensic context: single-instance Render deploy makes SKIP LOCKED a
-// no-op today (no contention). It activates the moment a second
-// instance spins up — scale-out test, accidental dual deploy, manual
-// one-off worker. Without SKIP LOCKED, two workers would both grab
-// the same rows under the FOR UPDATE clause; without the clause, they
-// could even dispatch duplicate notifications.
+// HISTORY: this file originally pinned a plain
+//   `SELECT * FROM notifications ... FOR UPDATE SKIP LOCKED`
+// fetch. Launch-audit finding B10 established that that SELECT ran in
+// autocommit — the row lock was released the instant the statement
+// returned, so `FOR UPDATE SKIP LOCKED` protected nothing and a slow
+// provider (overlapping 30s ticks) could dispatch the same row twice.
 //
-// Pairs with Theme 6 sub-issue A's SLA_MODE=primary worker gating —
-// SKIP LOCKED is defense-in-depth if that gate ever fails.
+// The fix replaces the SELECT with an ATOMIC CLAIM: a single
+//   `UPDATE notifications SET status='sending' WHERE id IN (SELECT ...
+//    FOR UPDATE SKIP LOCKED) RETURNING *`
+// that flips queued/retry rows to 'sending' and returns them, so no
+// concurrent tick/instance can grab the same row. A crashed worker's
+// orphaned 'sending' rows (lease expired) are re-queued at the top of
+// each run. This test now guards THAT behavior.
 
 'use strict';
 
@@ -26,7 +29,7 @@ const t = global._testRunner || {
 };
 const fileTag = path.basename(__filename, '.test.js');
 
-console.log('\n🔒 Theme 8 Phase 4-D — notification_worker SELECT uses FOR UPDATE SKIP LOCKED\n');
+console.log('\n🔒 notification_worker uses an atomic claim (UPDATE…RETURNING) + SKIP LOCKED\n');
 
 const NOTIFY_WORKER = path.join(__dirname, '..', '..', 'src', 'notification_worker.js');
 let raw = '';
@@ -38,51 +41,74 @@ function assert(cond, label, detail) {
   else      t.fail(fileTag + ': ' + label, new Error(detail || 'assertion failed'));
 }
 
-// 1. The SELECT clause includes FOR UPDATE SKIP LOCKED.
+// 1. The file still uses FOR UPDATE SKIP LOCKED (scale-out safety).
 assert(
   /FOR\s+UPDATE\s+SKIP\s+LOCKED/i.test(raw),
-  "notification_worker SELECT contains FOR UPDATE SKIP LOCKED",
+  "notification_worker contains FOR UPDATE SKIP LOCKED",
   "missing FOR UPDATE SKIP LOCKED — required to safely scale to >1 worker instance"
 );
 
 // 2. ORDER BY at ASC is preserved (FIFO).
 assert(
   /ORDER\s+BY\s+at\s+ASC/i.test(raw),
-  "notification_worker SELECT preserves ORDER BY at ASC (FIFO)",
+  "notification_worker preserves ORDER BY at ASC (FIFO)",
   "ORDER BY at ASC removed — FIFO regression"
 );
 
-// 3. SKIP LOCKED is INSIDE the same SELECT that has ORDER BY at ASC and
-//    the queued/retry filter. Catches a future refactor that moves SKIP
-//    LOCKED to a different query.
+// 3. The row fetch is an ATOMIC CLAIM: `UPDATE notifications SET status='sending'
+//    ... RETURNING`. A plain SELECT would not protect against duplicate dispatch.
+const claimRe = /UPDATE\s+notifications\s+SET\s+status\s*=\s*'sending'[\s\S]*?RETURNING\s*\*/i;
+const claimMatch = raw.match(claimRe);
+const claimBlock = claimMatch ? claimMatch[0] : '';
+assert(
+  !!claimBlock,
+  "row fetch is an atomic claim: UPDATE notifications SET status='sending' ... RETURNING *",
+  "no `UPDATE notifications SET status='sending' ... RETURNING *` block found — a plain SELECT does not protect against duplicate sends"
+);
+
+// 4. The claim block carries all three clauses together (SKIP LOCKED, FIFO,
+//    queued/retry filter) — catches a refactor that splits them apart.
+assert(
+  /WHERE\s+status\s+IN\s*\(\s*'queued',\s*'retry'\s*\)/i.test(claimBlock),
+  "claim filters status IN ('queued','retry')",
+  "expected status filter inside the claim; block=" + claimBlock.slice(0, 160)
+);
+assert(
+  /FOR\s+UPDATE\s+SKIP\s+LOCKED/i.test(claimBlock),
+  "SKIP LOCKED is INSIDE the claim query (not a different query)",
+  "SKIP LOCKED appeared elsewhere in file but not in the claim query"
+);
+assert(
+  /ORDER\s+BY\s+at\s+ASC/i.test(claimBlock),
+  "ORDER BY at ASC is INSIDE the claim query",
+  "ORDER BY at ASC appeared elsewhere but not in the claim query"
+);
+
+// 5. SKIP LOCKED must come AFTER LIMIT (Postgres clause order).
 {
-  // Find the SELECT * FROM notifications block, capture up to the next
-  // semicolon or backtick close, and assert all three clauses live
-  // together.
-  const selectRe = /SELECT\s+\*\s+FROM\s+notifications[\s\S]*?(?:;|`)/i;
-  const m = raw.match(selectRe);
-  const block = m ? m[0] : '';
-  assert(
-    /WHERE\s+status\s+IN\s*\(\s*'queued',\s*'retry'\s*\)/i.test(block),
-    "notification_worker SELECT filters status IN ('queued','retry')",
-    "expected status filter; block=" + block.slice(0, 120)
-  );
-  assert(
-    /FOR\s+UPDATE\s+SKIP\s+LOCKED/i.test(block),
-    "SKIP LOCKED is INSIDE the queued/retry SELECT (not a different query)",
-    "SKIP LOCKED appeared elsewhere in file but not in the main fetch query"
-  );
-  assert(
-    /ORDER\s+BY\s+at\s+ASC/i.test(block),
-    "ORDER BY at ASC is INSIDE the queued/retry SELECT",
-    "ORDER BY at ASC appeared elsewhere but not in the main fetch query"
-  );
-  // SKIP LOCKED must come AFTER LIMIT (Postgres syntax requirement).
-  const limitIdx = block.search(/LIMIT\s+\$2/i);
-  const lockIdx = block.search(/FOR\s+UPDATE\s+SKIP\s+LOCKED/i);
+  const limitIdx = claimBlock.search(/LIMIT\s+\$3/i);
+  const lockIdx = claimBlock.search(/FOR\s+UPDATE\s+SKIP\s+LOCKED/i);
   assert(
     limitIdx !== -1 && lockIdx !== -1 && lockIdx > limitIdx,
-    "FOR UPDATE SKIP LOCKED comes AFTER LIMIT $2 (Postgres clause order)",
+    "FOR UPDATE SKIP LOCKED comes AFTER LIMIT $3 (Postgres clause order)",
     "limitIdx=" + limitIdx + ", lockIdx=" + lockIdx
   );
 }
+
+// 6. Crashed-worker recovery: orphaned 'sending' rows are re-queued so a
+//    process death mid-dispatch never loses a notification forever.
+assert(
+  /UPDATE\s+notifications\s+SET\s+status\s*=\s*'queued'[\s\S]{0,160}WHERE\s+status\s*=\s*'sending'/i.test(raw),
+  "recovers orphaned 'sending' rows back to 'queued' (crash recovery)",
+  "expected an `UPDATE notifications SET status='queued' ... WHERE status='sending'` recovery statement"
+);
+
+// 7. Re-entrancy guard: a module-level `running` flag prevents overlapping
+//    ticks (double-send under a slow provider), reset in a finally.
+assert(
+  /\blet\s+running\s*=\s*false\b/.test(raw) &&
+  /if\s*\(\s*running\s*\)\s*return\s*;/.test(raw) &&
+  /finally\s*\{[\s\S]*?running\s*=\s*false/.test(raw),
+  "has a module-level `running` re-entrancy guard reset in a finally",
+  "expected `let running = false`, an `if (running) return;` guard, and `running = false` in a finally"
+);

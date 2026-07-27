@@ -6,9 +6,10 @@ const verbose = MODE === 'development'
   ? (...args) => console.log(`[${MODE}]`, ...args)
   : () => {};
 
-const major = MODE === 'production'
-  ? () => {}
-  : (...args) => console.log(`[${MODE}]`, ...args);
+// F2 (launch audit): logMajor must emit in production too. It is low-volume
+// (PG pool errors, pg-boss start failures, R2 failures, SLA sweep summaries),
+// and silencing it in prod was blinding operators to exactly those signals.
+const major = (...args) => console.log(`[${MODE}]`, ...args);
 
 // Theme 8 Phase 4-A — logFatal now routes Error args to error_logs.
 //

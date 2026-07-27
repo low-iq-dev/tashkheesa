@@ -12,6 +12,15 @@ const { emitNotificationDropped } = require('./notify');
 const MAX_RETRIES = parseInt(process.env.NOTIFICATION_MAX_RETRIES || '3', 10);
 const DRY_RUN = String(process.env.NOTIFICATION_DRY_RUN || 'false').toLowerCase() === 'true';
 
+// B10 (launch audit): re-entrancy guard + claim-lease window. The 30s
+// setInterval in server.js has no overlap protection; a slow email/WhatsApp
+// provider makes ticks overlap and double-send. `running` mirrors
+// src/workers/acceptance_watcher.js. A claimed ('sending') row whose lease
+// (STUCK_SENDING_LEASE_MS) has expired is treated as orphaned by a crashed
+// worker and re-queued.
+let running = false;
+const STUCK_SENDING_LEASE_MS = 10 * 60 * 1000; // 10 minutes
+
 // P1-NOTIF-4: doctor names in the users table are stored already-prefixed
 // (per src/create_test_doctor.js seed data — "Dr. Ahmed Hassan"). Email
 // templates also prepend "Dr. " (e.g. doctor-welcome.hbs:7, sla-warning.hbs:7,
@@ -315,25 +324,57 @@ async function processWhatsApp(notification, user, order) {
  * @param {number} limit - Max notifications to process per run
  */
 async function runNotificationWorker(limit = 50) {
+  // B10 (launch audit): skip this tick if a prior tick is still running, so a
+  // slow provider can't cause overlapping ticks to double-send. Mirrors
+  // src/workers/acceptance_watcher.js. `running` is reset in the finally below.
+  if (running) return;
+  running = true;
+  try {
   const nowIso = new Date().toISOString();
+  const leaseExpiryIso = new Date(Date.now() + STUCK_SENDING_LEASE_MS).toISOString();
   let notifications = [];
 
+  // B10 (launch audit): recover rows a crashed worker left stuck in 'sending'
+  // past their claim lease, so they get re-dispatched instead of lost forever.
   try {
-    // Theme 8 Phase 4-D — `FOR UPDATE SKIP LOCKED` (OQ-5 deferred from
-    // Theme 6 sub-issue D commit `3d6f05f`). Single-instance Render
-    // deploy: no-op (no contention possible). Activates if a second
-    // instance is ever spun up (scale-out test, accidental dual deploy,
-    // manual one-off worker). Pairs with Theme 6 sub-issue A's
-    // SLA_MODE=primary gating — SKIP LOCKED is defense-in-depth if the
-    // primary-only gate ever fails. ORDER BY at ASC stays for FIFO.
+    await execute(
+      `UPDATE notifications
+          SET status = 'queued', retry_after = NULL
+        WHERE status = 'sending'
+          AND (retry_after IS NULL OR retry_after <= $1)`,
+      [nowIso]
+    );
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'notification_worker.recover_stuck_sending',
+      category: 'notification_worker',
+      workerPhase: 'interval'
+    });
+    console.error('[notify-worker] failed to recover stuck sending rows', err);
+  }
+
+  try {
+    // B10 (launch audit): CLAIM rows atomically — flip queued/retry -> 'sending'
+    // and RETURN them — so a concurrent tick or instance can never grab the same
+    // row. The previous plain `SELECT ... FOR UPDATE SKIP LOCKED` ran in
+    // autocommit and released the row lock immediately, protecting nothing
+    // against duplicate dispatch. retry_after doubles as the claim-lease expiry
+    // for 'sending' rows (recovered above) — disjoint from its queued/retry
+    // backoff use since the statuses never overlap. ORDER BY at ASC keeps FIFO;
+    // FOR UPDATE SKIP LOCKED must follow LIMIT (Postgres clause order).
     notifications = await queryAll(
-      `SELECT * FROM notifications
-       WHERE status IN ('queued', 'retry')
-         AND (retry_after IS NULL OR retry_after <= $1)
-       ORDER BY at ASC
-       LIMIT $2
-       FOR UPDATE SKIP LOCKED`,
-      [nowIso, limit]
+      `UPDATE notifications
+          SET status = 'sending', retry_after = $1
+        WHERE id IN (
+          SELECT id FROM notifications
+           WHERE status IN ('queued', 'retry')
+             AND (retry_after IS NULL OR retry_after <= $2)
+           ORDER BY at ASC
+           LIMIT $3
+           FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *`,
+      [leaseExpiryIso, nowIso, limit]
     );
   } catch (err) {
     logErrorToDb(err, {
@@ -486,6 +527,12 @@ async function runNotificationWorker(limit = 50) {
         n.id
       ]);
     }
+  }
+  } finally {
+    // B10 (launch audit): always release the re-entrancy guard — even on the
+    // early returns above or an unexpected throw — so a single bad tick can
+    // never wedge the worker permanently.
+    running = false;
   }
 }
 

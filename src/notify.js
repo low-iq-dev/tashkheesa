@@ -1,7 +1,7 @@
 // src/notify.js
 
 const { randomUUID } = require('crypto');
-const { queryOne, execute } = require('./pg');
+const { queryOne, queryAll, execute } = require('./pg');
 const { logErrorToDb } = require('./logger');
 const { sendWhatsApp } = require('./notify/whatsapp');
 const { getNotificationTitles } = require('./notify/notification_titles');
@@ -321,16 +321,33 @@ async function queueNotification({
   }
 
   if (normalizedDedupeKey) {
-    const exists = await queryOne(`
-      SELECT 1 FROM notifications
-      WHERE dedupe_key = $1
-        AND channel = $2
-        AND to_user_id = $3
-      LIMIT 1
-    `, [normalizedDedupeKey, channel, uid]);
+    // queueNotification is documented as "never throws" and is invoked
+    // fire-and-forget from many callers. A transient DB error on this dedupe
+    // read must NOT reject — an unhandled rejection would trip server.js's
+    // process.exit(1) guard. Degrade to "skip dedupe, proceed": a possible
+    // duplicate is far cheaper than a crash.
+    try {
+      const exists = await queryOne(`
+        SELECT 1 FROM notifications
+        WHERE dedupe_key = $1
+          AND channel = $2
+          AND to_user_id = $3
+        LIMIT 1
+      `, [normalizedDedupeKey, channel, uid]);
 
-    if (exists) {
-      return { ok: true, skipped: 'deduped', dedupe_key: normalizedDedupeKey };
+      if (exists) {
+        return { ok: true, skipped: 'deduped', dedupe_key: normalizedDedupeKey };
+      }
+    } catch (err) {
+      logErrorToDb(err, {
+        context: 'queueNotification.dedupe_check',
+        category: 'notification_queue_failure',
+        orderId,
+        toUserId: uid,
+        channel,
+        template
+      });
+      console.error('[notify] queueNotification dedupe check failed; proceeding without dedupe', err && err.message ? err.message : err);
     }
   }
 

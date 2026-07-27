@@ -70,11 +70,12 @@ async function getStatus(id) {
   return row ? String(row.status) : null;
 }
 
-// markSlaBreach transitions to SLA_BREACH and then auto-reassigns to
-// ASSIGNED if any doctor is available — so checking final status is
-// flaky in environments with eligible doctors. The durable signal is
-// breached_at, which is set during the breach transition and never
-// cleared by subsequent reassignment.
+// markSlaBreach transitions to SLA_BREACH and no longer reassigns inline
+// (B11 launch-audit fix — reassignment is owned by the SLA sweep's
+// handleBreach). Final status can still be moved by a subsequent sweep in
+// environments with eligible doctors, so the durable signal we assert on is
+// breached_at, which is set during the breach transition and never cleared
+// by any later reassignment.
 async function wasBreached(id) {
   const row = await queryOne('SELECT breached_at FROM orders WHERE id = $1', [id]);
   return Boolean(row && row.breached_at);

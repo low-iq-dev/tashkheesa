@@ -327,7 +327,7 @@ async function handleBreach(candidate) {
   if (!nextDoctor) {
     // Move the case out of an active doctor workload bucket to prevent repeated retry spam.
     try {
-      reassignCase(candidate.case_id, null, { reason: 'sla_breach_no_doctor_available' });
+      await reassignCase(candidate.case_id, null, { reason: 'sla_breach_no_doctor_available' });
     } catch (e) {}
     logNoAlternateDoctor({ candidate, selection, trigger: 'sla_breach' });
     logCaseEvent(candidate.case_id, 'CASE_REASSIGNMENT_FAILED', {
@@ -340,7 +340,7 @@ async function handleBreach(candidate) {
     });
     return 1;
   }
-  reassignCase(candidate.case_id, nextDoctor.id, { reason: 'sla_breach' });
+  await reassignCase(candidate.case_id, nextDoctor.id, { reason: 'sla_breach' });
   logCaseEvent(candidate.case_id, 'DOCTOR_NOTIFIED', {
     doctorId: nextDoctor.id,
     reason: 'sla_breach'
@@ -384,7 +384,7 @@ async function handleDoctorTimeout(candidate) {
   if (!nextDoctor) {
     // Move the case out of ASSIGNED so this worker does not retry and spam events.
     try {
-      reassignCase(candidate.case_id, null, { reason: 'doctor_timeout_no_doctor_available' });
+      await reassignCase(candidate.case_id, null, { reason: 'doctor_timeout_no_doctor_available' });
     } catch (e) {}
     logNoAlternateDoctor({ candidate, selection, trigger: 'doctor_timeout' });
     logCaseEvent(candidate.case_id, 'CASE_REASSIGNMENT_FAILED', {
@@ -397,7 +397,7 @@ async function handleDoctorTimeout(candidate) {
     });
     return 1;
   }
-  reassignCase(candidate.case_id, nextDoctor.id, { reason: 'doctor_timeout' });
+  await reassignCase(candidate.case_id, nextDoctor.id, { reason: 'doctor_timeout' });
   logCaseEvent(candidate.case_id, 'DOCTOR_NOTIFIED', {
     doctorId: nextDoctor.id,
     reason: 'doctor_timeout'
