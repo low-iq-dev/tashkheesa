@@ -28,8 +28,8 @@
         'Submit your scans, lab results, or reports so a specialist can begin reviewing your order.',
         'ابعت أشعتك أو تحاليلك أو تقاريرك عشان الدكتور المتخصص يبدأ يراجع حالتك.') %></p>
       <p class="flow-note"><%= tt('ou.hero.note',
-        'Secure upload · Specialist review · 72h standard · 24h fast track',
-        'رفع آمن · مراجعة من دكتور متخصص · 72 ساعة عادي · 24 ساعة سريع') %></p>
+        'Secure upload · Specialist review · 48h standard · as fast as 4h Urgent',
+        'رفع آمن · مراجعة من دكتور متخصص · 48 ساعة قياسي · وأسرع خيار 4 ساعات عاجل') %></p>
     </div>
 
     <form method="post" action="/order/<%= sessionToken %>/review" enctype="multipart/form-data">
@@ -143,8 +143,8 @@
                   'Standard · 48 hours',
                   'عادي · 48 ساعة') %></option>
                 <option value="priority" <%= (form.urgency === 'priority') ? 'selected' : '' %>><%= tt('ou.urgency.priority',
-                  'Priority · 24 hours',
-                  'أولوية · 24 ساعة') %></option>
+                  'VIP · 18 hours',
+                  'VIP · 18 ساعة') %></option>
               </select>
               <p class="flow-note"><%= tt('ou.urgency.hint',
                 'Priority cases are fast-tracked and monitored more aggressively.',

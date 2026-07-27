@@ -65,6 +65,24 @@ function getOrderIdFromReq(req) {
   return String(req.params.orderId);
 }
 
+// Launch audit §2: the legacy /order/* checkout chain was mounted with NO auth,
+// so it was anonymously reachable (IDOR + anonymous user-creation on POST
+// /order/:id/review). The current intake flow is the /patient/new-case wizard;
+// these routes are the older checkout. Gate the chain behind a logged-in patient
+// who owns the order — closing the anonymous surface WITHOUT touching the
+// pricing/urgency logic the payments batch relies on.
+const { requireRole } = require('../middleware');
+async function ensureOrderOwner(req, res, next) {
+  try {
+    const order = await getOrder(String((req.params && req.params.orderId) || ''));
+    if (!order) return res.status(404).send('Order not found');
+    if (order.patient_id && String(order.patient_id) !== String(req.user.id)) {
+      return res.status(403).send('Forbidden');
+    }
+    next();
+  } catch (e) { return next(e); }
+}
+
 // File upload middleware (memory storage — see src/middleware/upload.js).
 // File contents are pushed to Cloudflare R2 in attachFileToOrder() below.
 
@@ -111,11 +129,12 @@ async function upsertCaseContext(orderId, { reason_for_review, language, urgency
   );
 }
 
-// PRE-LAUNCH: Redirect /order/start to Coming Soon page
+// Launch audit §2: the legacy anonymous checkout entry point is retired. No
+// current CTA links here (all intake CTAs point at /patient/new-case) and its
+// real create-draft body has been commented out for ages — 301 to the current
+// intake flow so a stale bookmark lands in the right place.
 router.get('/order/start', (req, res) => {
-  return res.render('coming_soon', {
-    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
-  });
+  return res.redirect(301, '/patient/new-case');
 });
 
 /* ORIGINAL ORDER START — uncomment when ready to launch
@@ -130,7 +149,7 @@ router.get('/order/start', (req, res) => {
 });
 */
 
-router.get('/order/:orderId/upload', async (req, res) => {
+router.get('/order/:orderId/upload', requireRole('patient'), ensureOrderOwner, async (req, res) => {
   const orderId = String(req.params.orderId);
   const order = await getOrder(orderId);
   if (!order) return res.status(404).send('Order not found');
@@ -164,7 +183,7 @@ router.get('/order/:orderId/upload', async (req, res) => {
   });
 });
 
-router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files'), async (req, res, next) => {
+router.post('/order/:orderId/review', requireRole('patient'), ensureOrderOwner, aiProcessingLimiter, upload.array('files'), async (req, res, next) => {
   try {
   const orderId = String(req.params.orderId);
   const order = await getOrder(orderId);
@@ -421,7 +440,7 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
   }
 });
 
-router.post('/order/:orderId/payment', async (req, res, next) => {
+router.post('/order/:orderId/payment', requireRole('patient'), ensureOrderOwner, async (req, res, next) => {
   try {
   const orderId = String(req.params.orderId);
   if (!req.body.sla_choice) return res.status(400).send('SLA choice is required');
@@ -497,7 +516,7 @@ function _nextSevenAmCairoUtc() {
   return _urgencyWindow.nextSevenAmCairoUtc();
 }
 
-router.get('/order/:orderId/urgency-conflict', async (req, res, next) => {
+router.get('/order/:orderId/urgency-conflict', requireRole('patient'), ensureOrderOwner, async (req, res, next) => {
   try {
     const orderId = String(req.params.orderId);
     const order = await getOrder(orderId);
@@ -529,7 +548,7 @@ router.get('/order/:orderId/urgency-conflict', async (req, res, next) => {
   }
 });
 
-router.post('/order/:orderId/urgency-resolve', async (req, res, next) => {
+router.post('/order/:orderId/urgency-resolve', requireRole('patient'), ensureOrderOwner, async (req, res, next) => {
   try {
     const orderId = String(req.params.orderId);
     const choice = String(req.body.choice || '');
@@ -577,7 +596,7 @@ router.post('/order/:orderId/urgency-resolve', async (req, res, next) => {
   }
 });
 
-router.get('/order/:orderId/confirmation', async (req, res, next) => {
+router.get('/order/:orderId/confirmation', requireRole('patient'), ensureOrderOwner, async (req, res, next) => {
   try {
   const orderId = String(req.params.orderId);
   const order = await getOrder(orderId);

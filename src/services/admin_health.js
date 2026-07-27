@@ -15,8 +15,13 @@
 // 5 min, acceptance_watcher every 2 min). A worker that hasn't pinged within
 // its budget is reported "not alive".
 const WORKER_SPECS = [
-  { key: 'case_sla_worker', staleSeconds: 12 * 60 },   // sla-sweep
-  { key: 'acceptance_watcher', staleSeconds: 6 * 60 },
+  { key: 'case_sla_worker', staleSeconds: 12 * 60 },   // sla-sweep, pings ~5 min
+  { key: 'acceptance_watcher', staleSeconds: 6 * 60 }, // pings ~2 min
+  // F5 (launch audit): the watchdog previously monitored only 2 of 4 workers.
+  // These two also heartbeat via pingOps() with these exact agent_name strings
+  // (notification_worker.js, video_scheduler.js). ~2-3x-interval staleness budget:
+  { key: 'notification_worker', staleSeconds: 3 * 60 }, // pings ~30 s
+  { key: 'video_scheduler', staleSeconds: 4 * 60 },     // pings ~1 min
 ];
 
 /**

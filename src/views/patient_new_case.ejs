@@ -390,7 +390,7 @@
     const __recServicePrice = __recService
       ? (String(__recService.currency || 'EGP').toUpperCase() + ' ' + Math.round(Number(__recService.base_price) || 0).toLocaleString('en-GB'))
       : '';
-    const __recServiceSlaHours = (__recService && __recService.sla_hours) ? Number(__recService.sla_hours) : 72;
+    const __recServiceSlaHours = (__recService && __recService.sla_hours) ? Number(__recService.sla_hours) : 48;
   %>
   <% if (step3Err === 'needs_specialty') { %>
     <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
@@ -612,7 +612,7 @@
                   style="text-align:start;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid <%= sel ? 'var(--primary)' : 'var(--rule)' %>;background:<%= sel ? 'var(--primary-light)' : '#fff' %>;border-radius:12px;padding:14px 16px;">
             <div>
               <div style="font-size:14px;font-weight:600;color:var(--ink);"><%= sv.name %></div>
-              <div style="font-size:11.5px;color:var(--muted);margin-top:3px;"><%= tt('Standard ' + (sv.sla_hours || 72) + 'h turnaround', 'Standard ' + (sv.sla_hours || 72) + 'h turnaround', 'تسليم خلال ' + (sv.sla_hours || 72) + ' ساعة قياسي') %></div>
+              <div style="font-size:11.5px;color:var(--muted);margin-top:3px;"><%= tt('Standard ' + (sv.sla_hours || 48) + 'h turnaround', 'Standard ' + (sv.sla_hours || 48) + 'h turnaround', 'تسليم خلال ' + (sv.sla_hours || 48) + ' ساعة قياسي') %></div>
             </div>
             <div class="p-num" style="font-size:14px;font-weight:600;color:var(--accent-dark);"><%= priceLabel %></div>
           </button>
@@ -685,7 +685,7 @@
     <%# Embed services data for client-side filtering when patient picks a specialty. %>
     <script<%- __nonceAttr %>>
       (function() {
-        var allServices = <%- JSON.stringify(__services.map(function(sv) { return { id: sv.id, specialty_id: sv.specialty_id, name: sv.name, base_price: Number(sv.base_price) || 0, currency: sv.currency || 'EGP', sla_hours: sv.sla_hours || 72 }; })) %>;
+        var allServices = <%- JSON.stringify(__services.map(function(sv) { return { id: sv.id, specialty_id: sv.specialty_id, name: sv.name, base_price: Number(sv.base_price) || 0, currency: sv.currency || 'EGP', sla_hours: sv.sla_hours || 48 }; })) %>;
         var specialtyInput = document.getElementById('step3-specialty-id');
         var serviceInput = document.getElementById('step3-service-id');
         var servicesCard = document.getElementById('step3-services-card');
