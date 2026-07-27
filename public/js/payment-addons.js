@@ -1,5 +1,10 @@
 document.addEventListener('DOMContentLoaded', function() {
-  var portalGrid = document.querySelector('.portal-grid');
+  // The pay page carries the add-on price data-attributes on `.p-pay-cols`
+  // (patient_payment_required.ejs). The legacy `.portal-grid` selector matched
+  // nothing there, so add-on prices read as 0 and the displayed total never
+  // moved when a box was ticked — while the server now charges base + add-ons.
+  // Match `.p-pay-cols` so the DISPLAYED total equals what is CHARGED.
+  var portalGrid = document.querySelector('.p-pay-cols') || document.querySelector('.portal-grid');
   var videoPrice = portalGrid ? parseFloat(portalGrid.getAttribute('data-video-price') || '0') : 0;
   var slaPrice = portalGrid ? parseFloat(portalGrid.getAttribute('data-sla-price') || '0') : 0;
   var prescriptionPrice = portalGrid ? parseFloat(portalGrid.getAttribute('data-prescription-price') || '0') : 0;
@@ -97,19 +102,20 @@ document.addEventListener('DOMContentLoaded', function() {
       .then(function(data) {
         if (refResult) refResult.style.display = 'block';
         if (data.ok) {
+          // The server discounts ONLY the base fee (referrals.js), so the
+          // charged total is new_price + add-ons. Keep basePrice at the ORIGINAL
+          // base and let updatePrice() subtract the discount exactly once via the
+          // discount row → displayed total === charged total. Do NOT also set
+          // basePrice = new_price: new_price already has the discount baked in,
+          // so combined with the row subtraction it would deduct the discount
+          // twice and show LESS than Paymob actually charges.
           referralDiscount = data.discount_amount || 0;
-          basePrice = data.new_price;
           if (refResult) {
             refResult.style.color = '#065f46';
             refResult.textContent = (data.reward_type === 'discount' ? data.reward_value + '% ' : '') + 'discount applied!';
           }
           refInput.readOnly = true;
           refBtn.style.display = 'none';
-          // Update base price display
-          var basePriceEl = document.getElementById('breakdown-base');
-          if (basePriceEl) basePriceEl.textContent = data.new_price;
-          var basePriceEl2 = document.getElementById('base-price');
-          if (basePriceEl2) basePriceEl2.textContent = data.new_price;
           updatePrice();
         } else {
           if (refResult) {

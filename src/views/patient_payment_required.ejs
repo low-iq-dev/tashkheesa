@@ -69,6 +69,13 @@
   // affordance instead of submitting a value that the route silently drops.
   const __videoEnabled = (typeof videoEnabled !== 'undefined') ? !!videoEnabled : true;
   const hasPrescriptionAddon = (typeof prescriptionPrice !== 'undefined' && prescriptionPrice > 0);
+  // B1 (launch audit): the 24-hour SLA is NOT a chargeable add-on. It was
+  // removed as an add-on (migration 019b) and is now an urgency tier
+  // (urgency_tier / sla_hours) already baked into orders.price — so it must
+  // never render as a separate, uncharged add-on line. Defined here alongside
+  // the other add-on flags so the summary block's hasSlaAddon guard further
+  // down can never throw a ReferenceError and 500 the page.
+  const hasSlaAddon = false;
   const hasAddons = hasVideoAddon || hasPrescriptionAddon;
   const currencyCode = (typeof currency === 'string' && currency) ? currency : (__order.locked_currency || __order.currency || 'EGP');
   const basePrice = (__order && __order.locked_price != null) ? __order.locked_price
@@ -437,6 +444,16 @@
       var origText = btn.textContent;
       btn.disabled = true;
       btn.textContent = L.preparing;
+      // B6 (launch audit): send the CURRENT add-on selection so the server
+      // prices it and includes it in the intention amount. The server re-prices
+      // from the DB and ignores anything not actually offered — these booleans
+      // only say "selected", never the price.
+      var videoCb = document.getElementById('addon_video_consultation');
+      var rxCb = document.getElementById('addon_prescription');
+      var addons = {
+        video_consultation: !!(videoCb && videoCb.checked && !videoCb.disabled),
+        prescription: !!(rxCb && rxCb.checked)
+      };
       try {
         var res = await fetch('/payments/paymob/create-intention', {
           method: 'POST',
@@ -445,7 +462,7 @@
             'Content-Type': 'application/json',
             'x-csrf-token': csrfToken
           },
-          body: JSON.stringify({ orderId: orderId })
+          body: JSON.stringify({ orderId: orderId, addons: addons })
         });
         var data = null;
         try { data = await res.json(); } catch (_) {}

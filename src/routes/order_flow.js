@@ -465,10 +465,14 @@ router.post('/order/:orderId/payment', async (req, res, next) => {
     newTotalPrice = pricing.totalPrice;
   }
 
+  // F3 (launch audit): price changed → invalidate any existing Paymob
+  // intention/link so the next /pay visit mints a fresh intention at the new
+  // price (old amount-locked link can no longer settle at the stale amount).
   await execute(
     `UPDATE orders
      SET sla_hours = $1, urgency_flag = $2, urgency_tier = $3,
-         price = $4, urgency_uplift_amount = $5, updated_at = NOW()
+         price = $4, urgency_uplift_amount = $5,
+         paymob_intention_id = NULL, payment_link = NULL, updated_at = NOW()
      WHERE id = $6`,
     [slaHours, slaHours <= 24, urgencyTier, newTotalPrice, upliftAmount, orderId]
   );
@@ -541,10 +545,12 @@ router.post('/order/:orderId/urgency-resolve', async (req, res, next) => {
       const pricing = computeOrderPricing({ basePrice, urgencyTier: 'urgent', servicesRow: servicesRow || {} });
       const sevenAm = _nextSevenAmCairoUtc();
       const slaDeadline = new Date(sevenAm.getTime() + 4 * 60 * 60 * 1000);
+      // F3 (launch audit): price changed → invalidate the stale intention/link.
       await execute(
         `UPDATE orders
          SET sla_hours = 4, urgency_flag = true, urgency_tier = 'urgent',
              price = $1, urgency_uplift_amount = $2, sla_deadline = $3,
+             paymob_intention_id = NULL, payment_link = NULL,
              updated_at = NOW()
          WHERE id = $4`,
         [pricing.totalPrice, pricing.upliftAmount, slaDeadline.toISOString(), orderId]
@@ -552,10 +558,12 @@ router.post('/order/:orderId/urgency-resolve', async (req, res, next) => {
     } else if (choice === 'downgrade_vip') {
       // Branch B — VIP tier (1.3× / 18h SLA), processed immediately.
       const pricing = computeOrderPricing({ basePrice, urgencyTier: 'vip', servicesRow: servicesRow || {} });
+      // F3 (launch audit): price changed → invalidate the stale intention/link.
       await execute(
         `UPDATE orders
          SET sla_hours = 18, urgency_flag = true, urgency_tier = 'vip',
-             price = $1, urgency_uplift_amount = $2, updated_at = NOW()
+             price = $1, urgency_uplift_amount = $2,
+             paymob_intention_id = NULL, payment_link = NULL, updated_at = NOW()
          WHERE id = $3`,
         [pricing.totalPrice, pricing.upliftAmount, orderId]
       );

@@ -117,7 +117,7 @@ function buildSignedPayload(orderId, opts) {
   const success = status === 'success';
   const obj = {
     id: txnId,
-    amount_cents: 50000,
+    amount_cents: (opts.amountCents != null ? opts.amountCents : 50000),
     created_at: new Date().toISOString(),
     currency: 'EGP',
     error_occured: false,
@@ -164,10 +164,12 @@ async function postWebhook(payload, hmac) {
 
     const ORDER_OK    = PREFIX + 'order-ok';
     const ORDER_REPLAY = PREFIX + 'order-replay';
+    const ORDER_MISMATCH = PREFIX + 'order-mismatch';
     const PATIENT     = PREFIX + 'patient';
 
     await seedOrder(ORDER_OK, PATIENT);
     await seedOrder(ORDER_REPLAY, PATIENT);
+    await seedOrder(ORDER_MISMATCH, PATIENT); // price=500 → owed 50000 cents
 
     try { await bootServer(); }
     catch (e) { t.skip('paymob-webhook', 'server boot failed: ' + e.message); return; }
@@ -246,6 +248,35 @@ async function postWebhook(payload, hmac) {
 
       t.pass('per-txn-id idempotency: pre-existing event_id → 200 idempotent, no duplicate row, no order mutation');
     } catch (e) { t.fail('replay idempotency', e); }
+
+    // ── Test 4: amount mismatch → order stays UNPAID + amount_mismatch event ─
+    // Audit B5: a HMAC-valid success whose amount_cents != owed (base price +
+    // add-ons) must NOT mark the order paid. The handler returns early (before
+    // markCasePaid), so this exercises no deep chain / no pool contention.
+    try {
+      // Order owes 50000 cents (price=500). Send a success for only 30000.
+      const sig = buildSignedPayload(ORDER_MISMATCH, { status: 'success', amountCents: 30000 });
+      const r = await postWebhook(sig.obj, sig.hmac);
+      assert.strictEqual(r.status, 200, 'mismatch must still ack 200 (so Paymob stops retrying)');
+      assert.strictEqual(r.body && r.body.amount_mismatch, true, 'response flags amount_mismatch:true');
+
+      const ord = await queryOne(`SELECT payment_status FROM orders WHERE id = $1`, [ORDER_MISMATCH]);
+      assert.notStrictEqual(ord.payment_status, 'paid', 'mismatched order must be left UNPAID');
+
+      const ev = await queryOne(
+        `SELECT payload_json FROM payment_events
+          WHERE order_id = $1 AND event_type = 'amount_mismatch'
+          ORDER BY received_at DESC LIMIT 1`,
+        [ORDER_MISMATCH]
+      );
+      assert.ok(ev, "an 'amount_mismatch' payment_events row was written");
+      const payload = (ev.payload_json && typeof ev.payload_json === 'object')
+        ? ev.payload_json : JSON.parse(ev.payload_json || '{}');
+      assert.strictEqual(Number(payload.owed_cents), 50000, 'event records owed_cents=50000');
+      assert.strictEqual(Number(payload.paid_cents), 30000, 'event records paid_cents=30000');
+
+      t.pass('amount mismatch: order stays unpaid + amount_mismatch event with both amounts');
+    } catch (e) { t.fail('amount mismatch', e); }
 
   } finally {
     try { await shutdownServer(); } catch (_) {}

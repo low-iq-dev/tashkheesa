@@ -186,8 +186,13 @@ router.post('/api/referral/apply', requireRole('patient'), async function(req, r
       return res.json({ ok: false, error: 'Referral code has reached its usage limit' });
     }
 
+    // F3 (launch audit): price changed → invalidate any existing Paymob
+    // intention/link. Nulling both forces the next /pay visit to mint a fresh
+    // intention at the NEW price; the old amount-locked checkout link can no
+    // longer be paid (which the webhook would otherwise mark paid at the old
+    // amount, or reject via the B5 amount check).
     await execute(
-      'UPDATE orders SET referral_code = $1, referral_discount = $2, price = $3 WHERE id = $4',
+      'UPDATE orders SET referral_code = $1, referral_discount = $2, price = $3, paymob_intention_id = NULL, payment_link = NULL WHERE id = $4',
       [code, discountAmount, newPrice, orderId]
     );
 

@@ -155,8 +155,13 @@ try {
 try {
   const src = read(ROUTE_PAY);
   // The addon branch must check isVideoEnabled() and log a skip event when the flag is off.
-  if (!/addon_video_consultation/.test(src)) {
-    throw new Error('src/routes/payments.js no longer references addon_video_consultation — has the addon branch been removed?');
+  // B6 (launch audit): the video add-on branch is now gated on the PERSISTED
+  // selection (order.addons_json via parseSelectedAddons → selectedAddons.video_consultation)
+  // instead of the dead `addon_video_consultation` query param that never
+  // reached the server-to-server webhook. The isVideoEnabled() kill-switch and
+  // the skip-log below are unchanged.
+  if (!/selectedAddons\.video_consultation/.test(src)) {
+    throw new Error('src/routes/payments.js no longer gates the video add-on branch on selectedAddons.video_consultation — has the addon branch been removed?');
   }
   if (!/isVideoEnabled\s*\(\s*\)/.test(src)) {
     throw new Error('src/routes/payments.js does not call isVideoEnabled() — addon branch is unguarded.');

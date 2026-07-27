@@ -2892,8 +2892,16 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
   );
   const prescriptionPrice = prescriptionRow ? prescriptionRow.tashkheesa_price : 0;
 
-  // If payment link is missing OR is only the internal fallback, we can't send them to an external checkout yet.
-  if (!rawPaymentLink || isInternalFallback) {
+  // B6 (launch audit): when the service offers add-ons, always route through the
+  // create-intention button — it prices the CURRENT add-on selection server-side
+  // and mints a fresh intention. A persisted external checkout link is locked to
+  // a stale amount and cannot carry the selection, so add-ons would go
+  // displayed-but-never-charged. Forcing paymentUrl=null renders the button flow.
+  const serviceHasAddons = (Number(videoConsultationPrice) > 0) || (Number(prescriptionPrice) > 0);
+
+  // If payment link is missing OR is only the internal fallback OR the service
+  // has add-ons, we render the create-intention button instead of an external link.
+  if (!rawPaymentLink || isInternalFallback || serviceHasAddons) {
     return res.render('patient_payment_required', {
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       user: req.user,

@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { queryOne, queryAll, execute } = require('../pg');
 const { logOrderEvent } = require('../audit');
-const { queueNotification, queueMultiChannelNotification } = require('../notify');
+const { queueNotification, queueMultiChannelNotification, notifyAdmins } = require('../notify');
 const { verifyPaymobHmac } = require('../paymob-hmac');
 const { markCasePaid } = require('../case_lifecycle');
 const { logErrorToDb } = require('../logger');
@@ -10,6 +10,7 @@ const { requireRole } = require('../middleware');
 const paymobService = require('../services/paymob');
 const { sendCriticalAlert } = require('../critical-alert');
 const { getAddon, safeDualWrite } = require('../services/addons/registry');
+const { owedCentsForOrder, parseSelectedAddons } = require('../services/order_pricing');
 
 const router = express.Router();
 
@@ -23,6 +24,20 @@ function normalizeStatus(input) {
   if (['fail', 'failed', 'error'].includes(s)) return 'failed';
   if (['cancel', 'cancelled', 'canceled'].includes(s)) return 'cancelled';
   return null;
+}
+
+// Resolve a per-currency add-on price from a JSON price map, mirroring the pay
+// page's resolvePriceFromJson (src/routes/patient.js) so the DISPLAYED price and
+// the CHARGED price come from the same source.
+function resolveAddonJsonPrice(jsonStr, currency, fallback) {
+  if (!jsonStr || jsonStr === '{}') return fallback || 0;
+  try {
+    const p = (typeof jsonStr === 'string') ? JSON.parse(jsonStr) : jsonStr;
+    const c = (currency || 'EGP').toUpperCase();
+    if (p[c] !== undefined && p[c] !== null) return Number(p[c]);
+    if (p.EGP !== undefined) return Number(p.EGP);
+    return fallback || 0;
+  } catch (_) { return fallback || 0; }
 }
 
 // Canonical payment URL boundary: all reminders, dashboards, and views must use this helper; no other code should synthesize payment links.
@@ -69,7 +84,7 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
     // the legacy locked_price/locked_currency columns added via
     // migrate_mobile_api.js are not used here to avoid env-specific drift.
     const order = await queryOne(
-      `SELECT id, patient_id, payment_status, price, currency, paymob_intention_id
+      `SELECT id, patient_id, payment_status, price, currency, paymob_intention_id, service_id
          FROM orders_active
         WHERE id = $1 AND patient_id = $2`,
       [orderId, req.user.id]
@@ -91,6 +106,53 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
       // via Paymob's currency-conversion (per existing P1-PUB copy).
       return res.status(400).json({ ok: false, error: 'unsupported_currency' });
     }
+
+    // ── B6 (launch audit): ADD-ONS ARE CHARGED ────────────────────────────
+    // The intention amount MUST include selected add-ons, priced from the DB
+    // (never the client). Persist the selection on the order BEFORE creating
+    // the intention so the webhook fulfills — and verifies the amount against —
+    // exactly what was charged. An unknown/unpriced/disabled add-on defaults to
+    // not-selected (client can never inflate or fabricate a line).
+    const reqAddons = (req.body && req.body.addons && typeof req.body.addons === 'object') ? req.body.addons : {};
+    const wantVideo = !!reqAddons.video_consultation;
+    const wantRx = !!reqAddons.prescription;
+    let videoPrice = 0;
+    let rxPrice = 0;
+    if (wantVideo || wantRx) {
+      const svc = order.service_id
+        ? await queryOne('SELECT video_consultation_prices_json, video_consultation_price FROM services WHERE id = $1', [order.service_id])
+        : null;
+      if (wantVideo && svc) {
+        const { isVideoEnabled } = require('../video_helpers');
+        if (isVideoEnabled()) {
+          videoPrice = resolveAddonJsonPrice(svc.video_consultation_prices_json, currency, Number(svc.video_consultation_price) || 0);
+        }
+      }
+      if (wantRx) {
+        const rxRow = await queryOne(
+          "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = $1 LIMIT 1",
+          [currency]
+        );
+        rxPrice = rxRow ? Number(rxRow.tashkheesa_price) || 0 : 0;
+      }
+    }
+    const selVideo = wantVideo && videoPrice > 0;
+    const selRx = wantRx && rxPrice > 0;
+    const addonsJson = JSON.stringify({
+      video_consultation: selVideo,
+      video_consultation_price: selVideo ? videoPrice : 0,
+      prescription: selRx,
+      prescription_price: selRx ? rxPrice : 0
+    });
+    await execute(
+      `UPDATE orders
+         SET addons_json = $1, video_consultation_selected = $2, video_consultation_price = $3
+       WHERE id = $4`,
+      [addonsJson, selVideo, selVideo ? videoPrice : 0, order.id]
+    );
+    // Charge = base + selected add-ons, via the SAME helper the webhook uses to
+    // verify — so intention and verification can never drift (audit B5/B6).
+    const amountCents = owedCentsForOrder({ price: order.price, addons_json: addonsJson });
 
     // Pull patient PII for billing_data. The PII gate inside
     // paymobService.createIntention catches missing/malformed fields
@@ -114,7 +176,7 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
     try {
       result = await paymobService.createIntention({
         orderId: order.id,
-        amountCents: Math.round(amount * 100),
+        amountCents: amountCents,
         currency: currency,
         patient: {
           name: patient.name,
@@ -169,7 +231,7 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
           'pe-' + crypto.randomUUID(),
           order.id,
           result.intentionId,
-          JSON.stringify({ amountCents: Math.round(amount * 100), currency: currency })
+          JSON.stringify({ amountCents: amountCents, currency: currency })
         ]
       );
     } catch (auditErr) {
@@ -361,6 +423,66 @@ router.post('/callback', async (req, res, next) => {
     return res.json({ ok: true });
   }
 
+  // ── B5 (launch audit): AMOUNT VERIFICATION ─────────────────────────────
+  // Never mark an order paid unless Paymob charged EXACTLY what we asked for
+  // (base price + persisted add-ons — see services/order_pricing). On mismatch:
+  // leave the order UNPAID, record an 'amount_mismatch' payment_event, alert
+  // admins, and still ack 200 so Paymob stops retrying. Manual review decides
+  // whether to honor or refund. Skipped when already paid — a mismatched replay
+  // must never "unpay" a legitimately-paid order.
+  if (!alreadyPaid) {
+    const owedCents = owedCentsForOrder(order);
+    const paidCents = Number(txnBody.amount_cents);
+    if (!Number.isFinite(paidCents) || paidCents !== owedCents) {
+      // Record WITHOUT paymob_transaction_id so we don't collide with the
+      // per-txn idempotency row already inserted above (that unique id is
+      // taken); the txn id travels in the payload for triage.
+      try {
+        await execute(
+          `INSERT INTO payment_events (id, order_id, paymob_intention_id, event_type, payload_json, hmac_verified, received_at)
+           VALUES ($1, $2, $3, 'amount_mismatch', $4, true, NOW())`,
+          [
+            'pe-' + crypto.randomUUID(),
+            orderId,
+            paymobIntentionId,
+            JSON.stringify({
+              owed_cents: owedCents,
+              paid_cents: Number.isFinite(paidCents) ? paidCents : null,
+              currency: txnBody.currency || null,
+              paymob_transaction_id: paymobTxnId
+            })
+          ]
+        );
+      } catch (auditErr) {
+        logErrorToDb(auditErr, { context: 'payment_callback_amount_mismatch_audit', orderId });
+      }
+      logOrderEvent({
+        orderId,
+        label: 'Payment amount mismatch — order left UNPAID for manual review',
+        meta: JSON.stringify({ owed_cents: owedCents, paid_cents: Number.isFinite(paidCents) ? paidCents : null }),
+        actorRole: 'system'
+      });
+      try {
+        await notifyAdmins({
+          template: 'payment_amount_mismatch',
+          payload: {
+            order_id: orderId,
+            owed_cents: owedCents,
+            paid_cents: Number.isFinite(paidCents) ? paidCents : null,
+            paymob_transaction_id: paymobTxnId
+          },
+          dedupeKey: 'amount_mismatch:' + orderId + ':' + (paymobTxnId || 'no-txn'),
+          orderId,
+          channel: 'internal'
+        });
+      } catch (notifyErr) {
+        console.error('[callback] amount_mismatch notifyAdmins failed:', notifyErr && notifyErr.message);
+      }
+      // Ack 200 (Paymob stops retrying); order stays UNPAID — no markCasePaid.
+      return res.json({ ok: true, amount_mismatch: true });
+    }
+  }
+
   // Atomic idempotency guard: only one webhook wins the race.
   // P1-PAY-1 commit 4 also writes paymob_transaction_id + hmac_verified_at
   // here so the orders row carries the WINNING transaction id (not the
@@ -490,10 +612,16 @@ router.post('/callback', async (req, res, next) => {
     );
   } catch (_) {}
 
-  // === AUTO-CREATE APPOINTMENT IF VIDEO CONSULTATION ADD-ON SELECTED ===
-  const addonVideoConsultation = req.query?.addon_video_consultation || req.body?.addon_video_consultation;
+  // === FULFILL SELECTED ADD-ONS FROM PERSISTED ORDER STATE ===
+  // B6 (launch audit): fulfillment is driven by the add-on selection persisted
+  // on the order at intention time (order_pricing.parseSelectedAddons reads
+  // orders.addons_json / video_consultation_selected), NOT by addon_* query
+  // params — those never reach this server-to-server webhook, so the old
+  // req.query branches were dead and add-ons went un-fulfilled (and, before
+  // create-intention priced them in, uncharged).
+  const selectedAddons = parseSelectedAddons(order);
 
-  if (addonVideoConsultation === '1' || addonVideoConsultation === 1) {
+  if (selectedAddons.video_consultation) {
     // Theme 9 Sub-issue C: kill-switch gate. If the video flag is off,
     // skip the addon work entirely — the case payment itself still
     // proceeds. The wizard EJS should also hide the checkbox so the
@@ -570,10 +698,8 @@ router.post('/callback', async (req, res, next) => {
   // See docs/architecture/addon_service_abstraction.md §0 and §1.2.
   // Removed as part of Phase 3 dual-write wiring.
 
-  // === PRESCRIPTION SERVICE ADD-ON ===
-  const addonPrescription = req.query?.addon_prescription || req.body?.addon_prescription;
-
-  if (addonPrescription === '1' || addonPrescription === 1) {
+  // === PRESCRIPTION SERVICE ADD-ON (from persisted selection, see above) ===
+  if (selectedAddons.prescription) {
     try {
       const rxCurrency = order.locked_currency || 'EGP';
       const rxRow = await queryOne(
