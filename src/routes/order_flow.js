@@ -644,8 +644,18 @@ router.get('/api/cases/:id/intelligence', requireAuth(), async function(req, res
   try {
     var caseId = String(req.params.id);
 
-    var caseRow = await queryOne('SELECT id, intelligence_status FROM orders_active WHERE id = $1', [caseId]);
+    var caseRow = await queryOne('SELECT id, patient_id, doctor_id, intelligence_status FROM orders_active WHERE id = $1', [caseId]);
     if (!caseRow) return res.status(404).json({ error: 'Case not found' });
+
+    // Ownership: only the case's patient, the assigned doctor, or an admin
+    // may read extracted clinical data (lab_values / patient_info / files).
+    var user = req.user;
+    var isStaff = user && (user.role === 'admin' || user.role === 'superadmin');
+    var isPatientOwner = user && caseRow.patient_id && String(caseRow.patient_id) === String(user.id);
+    var isAssignedDoctor = user && caseRow.doctor_id && String(caseRow.doctor_id) === String(user.id);
+    if (!isStaff && !isPatientOwner && !isAssignedDoctor) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
 
     var status = (caseRow && caseRow.intelligence_status) || 'none';
 

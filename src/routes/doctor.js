@@ -3137,6 +3137,10 @@ router.post('/portal/doctor/profile/signature/remove', requireDoctor, async func
 
 router.get('/portal/doctor/profile/signature/:id', requireDoctor, async function(req, res) {
   try {
+    // A doctor may only fetch their own signature image.
+    if (String(req.params.id) !== String(req.user.id)) {
+      return res.status(403).type('text/plain').send('Forbidden');
+    }
     var row = await queryOne('SELECT signature_url FROM users WHERE id = $1 AND role = $2', [req.params.id, 'doctor']);
     var key = row && row.signature_url;
     if (!key) return res.status(404).type('text/plain').send('Not found');
@@ -4531,6 +4535,13 @@ async function handlePortalDoctorGenerateReport(req, res) {
     const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
     if (!order) {
       return res.status(404).send('Case not found');
+    }
+
+    // A report may only be submitted by the doctor the case is assigned to.
+    // Reject unassigned (null doctor_id) cases too, so the completion path can
+    // never claim an unowned case via COALESCE(doctor_id, ...).
+    if (String(order.doctor_id || '') !== String(doctorId)) {
+      return res.status(403).send('Forbidden');
     }
 
     // If already completed / locked, redirect back

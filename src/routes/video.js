@@ -999,6 +999,11 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
     return res.status(404).json({ ok: false, error: 'Appointment not found' });
   }
 
+  // Only a participant doctor (or a superadmin) may mark this appointment no-show.
+  if (req.user.role !== 'superadmin' && !ensureParticipant(appointment, req.user.id)) {
+    return res.status(403).json({ ok: false, error: 'Forbidden' });
+  }
+
   if (!['confirmed', 'started'].includes(appointment.status)) {
     return res.status(400).json({ ok: false, error: 'Cannot mark no-show for this appointment' });
   }
