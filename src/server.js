@@ -170,6 +170,41 @@ bootCheck({ ROOT: ROOT, MODE: MODE });
     process.exit(1);
   }
 
+  // ── Launch-switch VALUE checks (staging/production only) ────────────────
+  // The tiers above validate PRESENCE. These validate that the launch switches
+  // carry the RIGHT VALUE — otherwise the app boots "healthy" while silently
+  // simulating payments or dropping every notification (launch-readiness §2).
+  if (!isDev) {
+    // FATAL: non-live payment mode. Unset/anything-but-'live' = stub, i.e.
+    // patients get SIMULATED payment success without being charged. Staging
+    // opts out explicitly via ALLOW_NON_LIVE_PAYMENTS=1.
+    var allowNonLivePayments = String(process.env.ALLOW_NON_LIVE_PAYMENTS || '').trim() === '1';
+    var paymentMode = String(process.env.PAYMENT_MODE || '').trim().toLowerCase();
+    var paymobMode = String(process.env.PAYMOB_MODE || '').trim().toLowerCase();
+    if (!allowNonLivePayments && (paymentMode !== 'live' || paymobMode !== 'live')) {
+      logFatal(
+        'FATAL: non-live payment mode in ' + mode + ' — PAYMENT_MODE=' +
+        (paymentMode || 'unset') + ', PAYMOB_MODE=' + (paymobMode || 'unset') +
+        '. Patients would receive SIMULATED payment success without being charged. ' +
+        'Set PAYMENT_MODE=live AND PAYMOB_MODE=live on Render, or set ' +
+        'ALLOW_NON_LIVE_PAYMENTS=1 to explicitly allow stubbed payments (staging only).'
+      );
+      process.exit(1);
+    }
+
+    // WARN loudly: notification delivery switches. Unset/false ⇒ every email /
+    // WhatsApp send is marked 'skipped' with no error — a silent day-one "no
+    // patient ever gets notified" failure. Warn so ops flips them at launch.
+    [['EMAIL_ENABLED', 'email'], ['WHATSAPP_ENABLED', 'WhatsApp']].forEach(function(pair) {
+      var v = String(process.env[pair[0]] || '').trim().toLowerCase();
+      if (v !== 'true') {
+        console.warn('⚠️  ' + pair[0] + '=' + (v || 'unset') + ' in ' + mode +
+          ' — all ' + pair[1] + ' sends will be silently marked "skipped". ' +
+          'Set ' + pair[0] + '=true on Render to actually deliver.');
+      }
+    });
+  }
+
   logVerbose('All required env vars present: ' + alwaysRequired.concat(Object.keys(prodRequired)).join(', '));
 })();
 

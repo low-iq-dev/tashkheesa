@@ -84,12 +84,17 @@ npm run verify
 ```
 
 ### DB rollback (only if data is corrupted)
-Stop server first. Then:
+Prod is **Postgres** (not SQLite). Stop the server first, take a fresh safety
+dump, then restore the chosen backup:
 ```bash
-ls -lt backups | head
-cp backups/<backup-file>.db data/portal.db
+npm run backup:db      # safety dump of current state → backups/portal-<ts>.dump
+npm run backups:list   # find the backup file to restore
+pg_restore --clean --if-exists --no-owner -d "$DATABASE_URL" backups/<backup-file>.dump
 npm run verify
 ```
+> The legacy `cp backups/<file>.db data/portal.db` / `npm run rollback:db` SQLite
+> flow no longer applies — there is no SQLite file in prod. `npm run rollback:db`
+> now prints this same guidance and exits without touching anything.
 
 ---
 

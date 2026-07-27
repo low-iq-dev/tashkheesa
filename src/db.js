@@ -56,20 +56,18 @@ async function migrate() {
 // (not suitable for .sql files because they depend on conditional JS logic)
 // ---------------------------------------------------------------------------
 async function runDataFixups() {
-  // Normalize order statuses to lowercase
+  // Normalize order statuses to lowercase.
+  // KEPT as an every-boot fixup (not converted to a one-shot migration): this
+  // is an ongoing INVARIANT, not a one-time config change. If any code path or
+  // legacy row ever carries a mixed-case status, this heals it on the next boot;
+  // a one-shot migration would let future drift persist. It is idempotent and
+  // touches only the rows that are actually non-lowercase.
   await pool.query("UPDATE orders SET status = LOWER(status) WHERE status IS NOT NULL AND status != LOWER(status)");
 
-  // Hide specialties that have no pricing configured (legacy ones without services)
-  // NOTE: spec-dermatology, spec-endocrinology, spec-gastroenterology, spec-ophthalmology,
-  // spec-orthopedics, spec-pulmonology, spec-urology now have pricing via sync_pricing_v2.js
-  var unpricedSpecialties = [
-    'spec-ent', 'spec-general-surgery', 'spec-pediatrics'
-  ];
-  var ph = unpricedSpecialties.map(function(_, idx) { return '$' + (idx + 1); }).join(', ');
-  await pool.query(
-    'UPDATE specialties SET is_visible = false WHERE id IN (' + ph + ') AND is_visible != false',
-    unpricedSpecialties
-  );
+  // The unpriced-specialty hide (spec-ent, spec-general-surgery, spec-pediatrics)
+  // that used to run here on EVERY boot was moved to a one-shot migration
+  // (074_hide_unpriced_specialties.sql). Re-hiding on every deploy clobbered any
+  // operator re-enable — same bug class as the Internal Medicine incident.
 }
 
 // ---------------------------------------------------------------------------
