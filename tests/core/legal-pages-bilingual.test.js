@@ -1,7 +1,7 @@
 'use strict';
 // tests/core/legal-pages-bilingual.test.js
 //
-// Renders the three legal pages (refund, terms, delivery) in BOTH language
+// Renders the four legal pages (refund, terms, delivery, privacy) in BOTH language
 // modes and asserts each renders without error and shows the right-language
 // copy — plus the prevailing-language clause in both, and that dynamic values
 // (specialtyCount, BUSINESS_INFO) interpolate rather than being hardcoded.
@@ -20,7 +20,7 @@ const t = global._testRunner || {
 };
 const fileTag = path.basename(__filename, '.test.js');
 
-console.log('\n📜 legal pages are bilingual (refund / terms / delivery)\n');
+console.log('\n📜 legal pages are bilingual (refund / terms / delivery / privacy)\n');
 
 const ROOT = path.join(__dirname, '..', '..');
 const VIEWS = path.join(ROOT, 'src', 'views');
@@ -65,7 +65,8 @@ function render(view, isAr) {
 const PAGES = [
   { view: 'refund_policy.ejs',   enKnown: 'Refund & Cancellation Policy', arKnown: 'سياسة الاسترداد والإلغاء' },
   { view: 'terms.ejs',           enKnown: 'Terms of Service',             arKnown: 'شروط الخدمة' },
-  { view: 'delivery_policy.ejs', enKnown: 'Delivery & Service Policy',    arKnown: 'سياسة التسليم والخدمة' }
+  { view: 'delivery_policy.ejs', enKnown: 'Delivery & Service Policy',    arKnown: 'سياسة التسليم والخدمة' },
+  { view: 'privacy.ejs',         enKnown: 'Privacy Policy',               arKnown: 'سياسة الخصوصية' }
 ];
 
 // Prevailing-language clause — must appear in BOTH renderings (its OWN language).
