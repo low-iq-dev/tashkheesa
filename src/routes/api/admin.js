@@ -53,6 +53,7 @@ const { setDoctorRejection } = require('../../services/admin_doctor_reject');
 const { setRefundApproval } = require('../../services/admin_refund_approve');
 const { setRefundDenial } = require('../../services/admin_refund_deny');
 const { setRefundPaid } = require('../../services/admin_refund_mark_paid');
+const { reviewPaymentEvent } = require('../../services/payment_event_review');
 
 // Single-account lock (decision 1): the app authenticates ONLY the Shifa
 // superadmin. Email allowlist is defense-in-depth on top of the role gate.
@@ -1911,6 +1912,104 @@ module.exports = function (db, helpers, deploy, deps) {
       if (err && err.http) return res.fail(err.message, err.http, err.code);
       console.error('[admin/refund-mark-paid] failed:', err && err.message);
       return res.fail('Mark-paid failed', 500, 'REFUND_MARK_PAID_ERROR');
+    } finally {
+      if (client && client.release) client.release();
+    }
+  });
+
+  // ─── GET /payment-events?type=amount_mismatch (amount-mismatch triage) ──────
+  // Read-only queue behind the Payments-tab "Mismatches" section. A mismatch =
+  // Paymob reported a paid amount != owed; the webhook (b1a20b7) parks the order
+  // UNPAID and writes an amount_mismatch payment_events row. owed/paid/currency/
+  // txn live inside payload_json — the paymob_transaction_id COLUMN is left NULL
+  // for these rows by design (see payments.js), so we read the txn from the
+  // payload and never join on the column. reviewed{} comes from the
+  // payment_event_reviews overlay (migration 075). requireJWT +
+  // requireRole('superadmin') inherited from the router-level gate.
+  router.get('/payment-events', async (req, res) => {
+    const type = String((req.query && req.query.type) || 'amount_mismatch').toLowerCase();
+    // Only the mismatch triage type is exposed here — other event types can
+    // carry raw gateway payloads we don't want to surface through this queue.
+    if (type !== 'amount_mismatch') {
+      return res.fail("type must be 'amount_mismatch'", 400, 'BAD_REQUEST');
+    }
+    try {
+      const rows = await safeAll(
+        `SELECT pe.id, pe.order_id, pe.received_at, pe.payload_json,
+                o.reference_id, o.payment_status, (o.deleted_at IS NOT NULL) AS order_deleted,
+                u.name AS patient_name, u.phone AS patient_phone, u.email AS patient_email,
+                rev.reviewed_by, rev.reviewed_at AS review_reviewed_at, rev.note AS review_note
+           FROM payment_events pe
+           -- include-deleted-ok: mismatches on soft-deleted orders MUST stay
+           -- visible for accounting, so this LEFT JOINs orders, not orders_active.
+           LEFT JOIN orders o ON o.id = pe.order_id
+           LEFT JOIN users u ON u.id = o.patient_id
+           LEFT JOIN payment_event_reviews rev ON rev.payment_event_id = pe.id
+          WHERE pe.event_type = $1
+          ORDER BY pe.received_at DESC`,
+        [type]
+      );
+
+      const asInt = (v) => (v == null ? null : Number(v));
+      const parsePayload = (p) => {
+        if (p && typeof p === 'object') return p;
+        try { return JSON.parse(p || '{}'); } catch (_) { return {}; }
+      };
+
+      const events = (rows || []).map((r) => {
+        const p = parsePayload(r.payload_json);
+        const hasPatient = !!(r.patient_name || r.patient_phone || r.patient_email);
+        const isReviewed = !!(r.reviewed_by || r.review_reviewed_at || r.review_note);
+        return {
+          id: r.id,
+          orderId: r.order_id || null,
+          orderReference: r.reference_id || null,
+          orderPaymentStatus: r.payment_status || null,
+          orderDeleted: !!r.order_deleted,
+          receivedAt: toIso(r.received_at),
+          owedCents: asInt(p.owed_cents),
+          paidCents: asInt(p.paid_cents),
+          currency: p.currency || null,
+          paymobTransactionId: p.paymob_transaction_id || null,
+          patient: hasPatient
+            ? { name: r.patient_name || null, phone: r.patient_phone || null, email: r.patient_email || null }
+            : null,
+          reviewed: isReviewed
+            ? { by: r.reviewed_by || null, at: toIso(r.review_reviewed_at), note: r.review_note || null }
+            : null,
+        };
+      });
+
+      const unreviewed = events.filter((e) => !e.reviewed).length;
+      return res.ok({ events, counts: { total: events.length, unreviewed } });
+    } catch (err) {
+      console.error('[admin/payment-events] failed:', err && err.message);
+      return res.fail('Failed to load payment events', 500, 'PAYMENT_EVENTS_ERROR');
+    }
+  });
+
+  // ─── POST /payment-events/:id/review (mark an amount_mismatch reviewed) ─────
+  // Marks a payment_event reviewed with an optional note. UPSERT on the overlay
+  // (re-review updates note + reviewed_at in place). No status machine and no
+  // resolution workflow — resolution actions happen via deep-link to the case.
+  // reviewPaymentEvent owns the txn (BEGIN → 404 guard → UPSERT → in-txn
+  // order_events + error_logs audit → COMMIT). requireJWT +
+  // requireRole('superadmin') inherited from the router-level gate.
+  router.post('/payment-events/:id/review', async (req, res) => {
+    const paymentEventId = req.params.id;
+    const body = req.body || {};
+    const note = body.note != null ? String(body.note) : null;
+
+    let client;
+    try {
+      client = await db.connect();
+      const review = await reviewPaymentEvent(client, { paymentEventId, note, actorId: req.user.id });
+      return res.ok({ review });
+    } catch (err) {
+      // reviewPaymentEvent already rolled back before re-throwing; map known rejects.
+      if (err && err.http) return res.fail(err.message, err.http, err.code);
+      console.error('[admin/payment-event-review] failed:', err && err.message);
+      return res.fail('Review failed', 500, 'REVIEW_ERROR');
     } finally {
       if (client && client.release) client.release();
     }
