@@ -2015,6 +2015,32 @@ module.exports = function (db, helpers, deploy, deps) {
     }
   });
 
+  // ─── POST /push-token (register THIS superadmin's Expo push token) ───────────
+  // The Command app calls this after obtaining an Expo push token so that
+  // watchdog-triggered worker-down pushes (middleware/push.notifySuperadmins)
+  // can reach the device. Reuses users.push_token — the SAME column the patient
+  // path writes — for the authenticated superadmin's own row (req.user.id).
+  // Validation mirrors the patient route in routes/api/profile.js (trim +
+  // notEmpty + Expo format), but this is superadmin-gated and does NOT touch
+  // that patient route. requireJWT + requireRole('superadmin') inherited gate.
+  router.post('/push-token', async (req, res) => {
+    const token = req.body && typeof req.body.token === 'string' ? req.body.token.trim() : '';
+    if (!token) {
+      return res.fail('Push token required', 400, 'INVALID_PUSH_TOKEN');
+    }
+    // Validate Expo push token format (same check as the patient route + core send).
+    if (!token.startsWith('ExponentPushToken[') && !token.startsWith('ExpoPushToken[')) {
+      return res.fail('Invalid push token format', 400, 'INVALID_PUSH_TOKEN');
+    }
+    try {
+      await safeRun('UPDATE users SET push_token = $1 WHERE id = $2', [token, req.user.id]);
+      return res.ok({ message: 'Push token registered' });
+    } catch (err) {
+      console.error('[admin/push-token] failed:', err && err.message);
+      return res.fail('Failed to register push token', 500, 'PUSH_TOKEN_ERROR');
+    }
+  });
+
   return router;
 };
 

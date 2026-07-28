@@ -16,7 +16,69 @@
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 /**
+ * Role-agnostic core: send ONE Expo push to an already-resolved (userId, token).
+ *
+ * This is the raw Expo send extracted verbatim from sendPushNotification so the
+ * patient path AND notifySuperadmins share a single implementation of token-
+ * format validation, the exp.host call, and DeviceNotRegistered cleanup. It has
+ * NO try/catch of its own — the caller owns error handling (sendPushNotification
+ * wraps it exactly as before), so behaviour for existing patient consumers is
+ * unchanged. Never returns a value.
+ *
+ * @param {Object} db - Database instance (better-sqlite3 or pg)
+ * @param {string} userId - User whose token this is (for cleanup + log context)
+ * @param {string} pushToken - the Expo token to send to
+ * @param {Object} notification - { title, body, data? }
+ */
+async function _sendExpoPush(db, userId, pushToken, { title, body, data = {} }) {
+  // Validate Expo push token format
+  if (!pushToken.startsWith('ExponentPushToken[') && !pushToken.startsWith('ExpoPushToken[')) {
+    console.warn(`[push] Invalid push token for user ${userId}`);
+    return;
+  }
+
+  const message = {
+    to: pushToken,
+    title,
+    body,
+    data,
+    sound: 'default',
+    priority: 'high',
+  };
+
+  const response = await fetch(EXPO_PUSH_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify([message]),
+  });
+
+  const result = await response.json();
+
+  if (result.data?.[0]?.status === 'error') {
+    console.error(`[push] Failed for user ${userId}:`, result.data[0].message);
+
+    // If the token is invalid, remove it
+    if (result.data[0].details?.error === 'DeviceNotRegistered') {
+      if (db.prepare) {
+        db.prepare('UPDATE users SET push_token = NULL WHERE id = ?').run(userId);
+      } else {
+        await db.query('UPDATE users SET push_token = NULL WHERE id = $1', [userId]);
+      }
+      console.log(`[push] Removed invalid token for user ${userId}`);
+    }
+  }
+}
+
+/**
  * Send a push notification to a user.
+ *
+ * Behaviour is unchanged from before the _sendExpoPush extraction: look up the
+ * user's push_token, no-op if absent, else send via the shared core, swallowing
+ * any error with the same log line. Signature is byte-compatible — live patient
+ * consumers (routes/api/conversations.js → notifyNewMessage) are unaffected.
  *
  * @param {Object} db - Database instance (better-sqlite3 or pg)
  * @param {string} userId - User ID to notify
@@ -41,47 +103,48 @@ async function sendPushNotification(db, userId, { title, body, data = {} }) {
 
     if (!pushToken) return;
 
-    // Validate Expo push token format
-    if (!pushToken.startsWith('ExponentPushToken[') && !pushToken.startsWith('ExpoPushToken[')) {
-      console.warn(`[push] Invalid push token for user ${userId}`);
-      return;
+    await _sendExpoPush(db, userId, pushToken, { title, body, data });
+  } catch (err) {
+    console.error(`[push] Error sending to user ${userId}:`, err.message);
+  }
+}
+
+/**
+ * Notify every superadmin device.
+ *
+ * Looks up users.push_token for role='superadmin' rows (reusing the SAME column
+ * the patient path uses) and sends each via the shared core. Swallow-and-log at
+ * BOTH levels: a single bad recipient never stops the rest, and a lookup failure
+ * (DB down, unexpected schema, no superadmin registered) never throws. Callers
+ * such as the worker watchdog must never break because a push failed.
+ *
+ * @param {Object} db - pg Pool / better-sqlite3 handle (same shape as sendPushNotification)
+ * @param {Object} notification - { title, body, data? }
+ */
+async function notifySuperadmins(db, { title, body, data = {} }) {
+  try {
+    let rows;
+    if (db.prepare) {
+      // SQLite (better-sqlite3)
+      rows = db.prepare("SELECT id, push_token FROM users WHERE role = 'superadmin' AND push_token IS NOT NULL").all();
+    } else {
+      // PostgreSQL
+      const result = await db.query("SELECT id, push_token FROM users WHERE role = 'superadmin' AND push_token IS NOT NULL");
+      rows = result.rows;
     }
 
-    const message = {
-      to: pushToken,
-      title,
-      body,
-      data,
-      sound: 'default',
-      priority: 'high',
-    };
-
-    const response = await fetch(EXPO_PUSH_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify([message]),
-    });
-
-    const result = await response.json();
-
-    if (result.data?.[0]?.status === 'error') {
-      console.error(`[push] Failed for user ${userId}:`, result.data[0].message);
-
-      // If the token is invalid, remove it
-      if (result.data[0].details?.error === 'DeviceNotRegistered') {
-        if (db.prepare) {
-          db.prepare('UPDATE users SET push_token = NULL WHERE id = ?').run(userId);
-        } else {
-          await db.query('UPDATE users SET push_token = NULL WHERE id = $1', [userId]);
-        }
-        console.log(`[push] Removed invalid token for user ${userId}`);
+    for (const row of (rows || [])) {
+      if (!row || !row.push_token) continue;
+      try {
+        await _sendExpoPush(db, row.id, row.push_token, { title, body, data });
+      } catch (err) {
+        // One bad recipient must not abort the rest.
+        console.error(`[push] Error notifying superadmin ${row.id}:`, err.message);
       }
     }
   } catch (err) {
-    console.error(`[push] Error sending to user ${userId}:`, err.message);
+    // Lookup / unexpected failure must never break the caller.
+    console.error('[push] notifySuperadmins failed:', err.message);
   }
 }
 
@@ -133,4 +196,5 @@ module.exports = {
   notifyCaseUpdate,
   notifyNewMessage,
   notifyPaymentConfirmed,
+  notifySuperadmins,
 };
