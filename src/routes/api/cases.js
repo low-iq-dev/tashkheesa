@@ -387,8 +387,8 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       status: created.status,
       serviceName: created.serviceName,
       specialtyName: created.specialtyName,
-      price,
-      currency,
+      price: created.display_price != null ? created.display_price : created.price,
+      currency: created.display_currency || created.currency,
       slaDeadline,
       createdAt: created.created_at,
     });
