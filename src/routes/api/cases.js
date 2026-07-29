@@ -61,7 +61,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         o.doctor_id as "doctorId", o.service_id as "serviceId",
         o.status, o.clinical_question as "clinicalQuestion",
         o.base_price as price, o.currency,
-        o.sla_deadline as "slaDeadline", o.created_at as "createdAt",
+        o.deadline_at as "slaDeadline", o.created_at as "createdAt",
         o.completed_at as "completedAt",
         s.name as "serviceName", sp.name as "specialtyName",
         s.specialty_id as "specialtyId",
@@ -101,7 +101,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         o.doctor_id as "doctorId", o.service_id as "serviceId",
         o.status, o.clinical_question as "clinicalQuestion",
         o.base_price as price, o.currency,
-        o.sla_deadline as "slaDeadline", o.created_at as "createdAt",
+        o.deadline_at as "slaDeadline", o.created_at as "createdAt",
         o.completed_at as "completedAt", o.urgency_flag as "urgent",
         s.name as "serviceName", sp.name as "specialtyName",
         s.specialty_id as "specialtyId",
@@ -393,7 +393,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       specialtyName: created.specialtyName,
       price: created.display_price != null ? created.display_price : created.price,
       currency: created.display_currency || created.currency,
-      slaDeadline,
+      slaDeadline: created.deadline_at || null,
       createdAt: created.created_at,
     });
   });
