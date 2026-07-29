@@ -1,18 +1,23 @@
 'use strict';
 // ─────────────────────────────────────────────────────────────────────────────
-// LAUNCH MARKET GATE — Egypt only.
+// LAUNCH MARKET GATE — 9 markets live (Egypt + GCC + GB/US).
 //
-// ⚠️ KNOWN-BROKEN PRICING: 241 active service_regional_prices rows for GB/US/AE
-// have doctor_commission > tashkheesa_price — we would COLLECT LESS THAN WE PAY
-// THE DOCTOR. SA has no active priced rows. These markets are DEFERRED, NOT
-// cancelled: their pricing data is PRESERVED but made unreachable at checkout.
+// RESOLVED 2026-07-29: the old negative-margin block (241 GB/US/AE rows where
+// doctor_commission > tashkheesa_price) no longer applies. Under the ALWAYS-
+// CHARGE-EGP model the card is ALWAYS charged in EGP (the local price is
+// converted to EGP once at order creation via src/fx.js), and the doctor fee is a
+// flat 20% OF THE EGP CHARGE (NOT the local doctor_commission column), so the
+// platform margin is structurally positive (80%) in every market. The 8
+// international markets were repriced 2026-07-29.
 //
-// DO NOT widen LAUNCH_MARKETS to re-enable a market until those rows are
-// repriced (collect >= doctor fee). Widening this Set is the ONLY switch needed
-// to re-enable a market end-to-end — every country gate in the app reads here.
+// coerceCountry still clamps to EG for callers that must stay EG-scoped; the
+// pricing DISPLAY country is resolved separately (patient.js getDisplayCountryCode /
+// the write sites' local lookup) so the real market drives display_price while
+// the charge stays EGP. Widening this Set opens the isLaunchMarket signup /
+// pricing-activation gates for the 9 markets.
 // See docs/superpowers/specs/2026-06-08-egypt-only-market-gate-design.md.
 // ─────────────────────────────────────────────────────────────────────────────
-const LAUNCH_MARKETS = new Set(['EG']); // DEFERRED: SA, AE, GB, US, KW, QA, BH, OM
+const LAUNCH_MARKETS = new Set(['EG', 'SA', 'AE', 'GB', 'US', 'KW', 'QA', 'BH', 'OM']);
 
 function isLaunchMarket(code) {
   return LAUNCH_MARKETS.has(String(code || '').trim().toUpperCase());

@@ -77,14 +77,28 @@
   // down can never throw a ReferenceError and 500 the page.
   const hasSlaAddon = false;
   const hasAddons = hasVideoAddon || hasPrescriptionAddon;
-  const currencyCode = (typeof currency === 'string' && currency) ? currency : (__order.locked_currency || __order.currency || 'EGP');
-  const basePrice = (__order && __order.locked_price != null) ? __order.locked_price
+  // Local-prominent: the render passes `price`/`currency` as the LOCAL figures for
+  // an international order (EGP for domestic). Display them prominently; the CHARGE
+  // is the EGP order.price, surfaced reactively in the disclosure below.
+  const currencyCode = (typeof currency === 'string' && currency) ? currency : (__order.currency || 'EGP');
+  const basePrice = (typeof price !== 'undefined' && price != null && price !== '') ? Number(price)
     : ((__order && __order.price != null) ? __order.price : 0);
   const serviceName = __order.service_name || __order.serviceName || '';
   const specialtyName = __isAr
     ? (__order.specialty_name_ar || __order.specialtyNameAr || __order.specialty_name || __order.specialtyName || '')
     : (__order.specialty_name || __order.specialtyName || '');
   const refDigits = String(__order.id || '').slice(0, 8).toUpperCase();
+  // Local-prominent + EGP disclosure. For an international order the prominent
+  // price above/below is LOCAL; the card is charged the EGP order.price. __egp*
+  // are the EGP charge figures that feed the reactive "billed in EGP (≈ X)"
+  // disclosure. Domestic (EG) orders have display_* NULL → __isIntlPrice false →
+  // the disclosure is inert and the page renders exactly as before.
+  const __displayCurrency = (__order && __order.display_currency) ? String(__order.display_currency).toUpperCase() : null;
+  const __isIntlPrice = (__order && __order.display_price != null) && !!__displayCurrency && __displayCurrency !== 'EGP';
+  const __egpBase = (typeof egpChargePrice !== 'undefined' && egpChargePrice != null) ? Number(egpChargePrice) : ((__order && __order.price != null) ? Number(__order.price) : 0);
+  const __videoEgp = (typeof videoConsultationPriceEgp !== 'undefined') ? (Number(videoConsultationPriceEgp) || 0) : 0;
+  const __slaEgp = (typeof sla24hrPriceEgp !== 'undefined') ? (Number(sla24hrPriceEgp) || 0) : 0;
+  const __rxEgp = (typeof prescriptionPriceEgp !== 'undefined') ? (Number(prescriptionPriceEgp) || 0) : 0;
 %>
 <%- include('partials/patient/head', {
   active: 'cases',
@@ -119,6 +133,11 @@
      data-base-price="<%= basePrice %>"
      data-currency="<%= currencyCode %>"
      data-order-id="<%= __order.id || '' %>"
+     data-intl="<%= __isIntlPrice ? '1' : '0' %>"
+     data-base-price-egp="<%= Math.round(__egpBase) %>"
+     data-video-price-egp="<%= __videoEgp %>"
+     data-sla-price-egp="<%= __slaEgp %>"
+     data-prescription-price-egp="<%= __rxEgp %>"
      style="display:grid;grid-template-columns:<%= hasAddons ? '1fr 380px' : '1fr 340px' %>;gap:18px;align-items:start;">
 
   <!-- ── LEFT COLUMN ─────────────────────────────────────────────── -->
@@ -156,6 +175,11 @@
           <div style="font-size:14px;color:var(--ink);font-weight:600;margin-top:4px;">
             <span id="base-price"><%= basePrice %></span> <%= currencyCode %>
           </div>
+          <% if (__isIntlPrice) { %>
+          <div id="egp-charge-note" style="font-size:11px;color:var(--muted);font-weight:600;margin-top:3px;">
+            <%= tt("You'll be billed in EGP", "You'll be billed in EGP", 'يُحصَّل بالجنيه المصري') %> (≈ <span id="egp-charge-amount" dir="ltr"><%= Math.round(__egpBase).toLocaleString('en-GB') %></span> EGP) — <%= tt('your bank converts at checkout', 'your bank converts at checkout', 'يحوّله بنكك عند الدفع') %>
+          </div>
+          <% } %>
         </div>
         <div>
           <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">

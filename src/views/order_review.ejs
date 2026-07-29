@@ -183,6 +183,15 @@
                     <strong><%= isAr ? 'الإجمالي' : 'Total' %></strong>
                     <strong style="font-variant-numeric:tabular-nums; color:var(--v2-ink, #0F1E2D);"><%= _money(__totalAmount) %> <%= __cur %></strong>
                   </li>
+                  <%# Always-charge-EGP: for an international order the figures above
+                      are LOCAL (display only); the card is billed the EGP equivalent.
+                      chargeDisclosure is the pre-built "billed in EGP (≈ X)" string
+                      (null for domestic EG orders → nothing renders). %>
+                  <% if (typeof chargeDisclosure === 'string' && chargeDisclosure) { %>
+                    <li style="padding:8px 0 0; font-size:0.8em; color:var(--v2-muted, #6B7A8A); line-height:1.5;">
+                      <%= chargeDisclosure %>
+                    </li>
+                  <% } %>
                 </ul>
               </div>
             <% } %>

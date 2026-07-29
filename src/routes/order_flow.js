@@ -15,6 +15,8 @@ var { rateLimit } = require('express-rate-limit');
 const upload = require('../middleware/upload');
 const { uploadFile } = require('../storage');
 const { computeOrderPricing } = require('../services/urgency_pricing');
+// Always-charge-EGP local-price display (read-only over the stored EGP charge).
+const { isIntlOrder, chargeDisclosure } = require('../utils/money_display');
 
 // PHASE 2.5 (resolved): order_files.url is an R2 storage key, NOT a viewable URL.
 // The /files/:fileId route in src/server.js auth-gates access and 302-redirects
@@ -400,10 +402,21 @@ router.post('/order/:orderId/review', requireRole('patient'), ensureOrderOwner, 
   let __basePrice = 0;
   let __pricing = null;
   let __currency = 'EGP';
+  let __chargeNote = null; // ALWAYS-CHARGE-EGP disclosure ("billed in EGP ≈ X"); null for domestic
   try {
     const orderForPricing = await getOrder(orderId);
-    __basePrice = Number(orderForPricing && orderForPricing.base_price) || 0;
-    __currency = (orderForPricing && orderForPricing.currency) || 'EGP';
+    // ALWAYS-CHARGE-EGP: orders.price/base_price/currency are ALWAYS EGP (the
+    // charge). For an international order display_price/display_currency carry the
+    // LOCAL figures FOR SHOW — render the breakdown in the LOCAL currency (local
+    // base × the same urgency multiplier) and disclose the EGP charge underneath.
+    // A domestic (EG) order has display_* NULL → breakdown stays EGP, no disclosure.
+    const __isIntl = isIntlOrder(orderForPricing);
+    __basePrice = __isIntl
+      ? (Number(orderForPricing.display_price) || 0)
+      : (Number(orderForPricing && orderForPricing.base_price) || 0);
+    __currency = __isIntl
+      ? String(orderForPricing.display_currency).toUpperCase()
+      : ((orderForPricing && orderForPricing.currency) || 'EGP');
     const servicesRow = serviceId
       ? await queryOne('SELECT vip_multiplier, urgent_multiplier FROM services WHERE id = $1', [serviceId])
       : null;
@@ -412,6 +425,8 @@ router.post('/order/:orderId/review', requireRole('patient'), ensureOrderOwner, 
       urgencyTier: urgencyTier,
       servicesRow: servicesRow || {}
     });
+    const __uiLang = (res.locals && res.locals.lang === 'ar') ? 'ar' : 'en';
+    __chargeNote = __isIntl ? chargeDisclosure(orderForPricing, __uiLang) : null;
   } catch (pricingErr) {
     // Best-effort: if we can't compute, the template falls back to
     // displaying just the base price and total, no breakdown panel.
@@ -432,7 +447,8 @@ router.post('/order/:orderId/review', requireRole('patient'), ensureOrderOwner, 
     aiWarnings: aiWarnings,
     pricing: __pricing,
     basePrice: __basePrice,
-    currency: __currency
+    currency: __currency,
+    chargeDisclosure: __chargeNote
   });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });

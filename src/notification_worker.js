@@ -8,6 +8,9 @@ const { sendWhatsApp } = require('./notify/whatsapp');
 const { getNotificationTitles } = require('./notify/notification_titles');
 const { getWhatsAppTemplate } = require('./notify/whatsappTemplateMap');
 const { emitNotificationDropped } = require('./notify');
+// Always-charge-EGP receipt figures (read-only over the stored EGP charge).
+const { isIntlOrder, primaryPrice, egpCharge } = require('./utils/money_display');
+const { formatMoney } = require('./utils/formatNumber');
 
 const MAX_RETRIES = parseInt(process.env.NOTIFICATION_MAX_RETRIES || '3', 10);
 const DRY_RUN = String(process.env.NOTIFICATION_DRY_RUN || 'false').toLowerCase() === 'true';
@@ -170,6 +173,36 @@ async function processEmail(notification, user, order) {
   const paymentUrlResolved = data.paymentUrl || data.payment_url
     || (order ? (order.payment_link || order.payment_url) : '')
     || '';
+  // ALWAYS-CHARGE-EGP receipt figures for the payment-success email. The receipt
+  // shows the price the patient sees — LOCAL for an international order
+  // (display_price/display_currency), EGP for a domestic one — plus an "billed in
+  // EGP" line for intl. Derived from the order row here because hbs has no
+  // res.locals; centralised so every send path (webhook / stub mark-paid /
+  // superadmin) renders identical figures. Caller-provided values still win.
+  let receiptAmount = data.amount;
+  let receiptCurrency = data.currency;
+  let receiptEgpCharge = data.egpCharge || null;
+  if (emailTemplate === 'payment-success' && order) {
+    if (isIntlOrder(order)) {
+      // display_price is the UN-multiplied LOCAL BASE; the urgency-tier multiplier
+      // lives in price/base_price (both EGP). The receipt must state the local
+      // TOTAL the patient actually paid = base × (price / base_price), matching
+      // wizard Step 5 + order_review. Using display_price raw would understate a
+      // VIP/urgent order and contradict the "Billed in EGP" line below.
+      const egpBase = Number(order.base_price) || 0;
+      const mult = egpBase > 0 ? (Number(order.price) / egpBase) : 1;
+      const localTotal = Math.round((Number(order.display_price) || 0) * mult);
+      if (receiptAmount == null) receiptAmount = localTotal.toLocaleString('en-GB', { maximumFractionDigits: 0 });
+      if (receiptCurrency == null) receiptCurrency = String(order.display_currency || 'EGP').toUpperCase();
+      if (receiptEgpCharge == null) receiptEgpCharge = formatMoney(egpCharge(order), 'EGP'); // e.g. "EGP 21,432"
+    } else {
+      // Domestic — orders.price is already the EGP total; no EGP disclosure needed.
+      const pp = primaryPrice(order);
+      if (receiptAmount == null) receiptAmount = Number(pp.amount).toLocaleString('en-GB', { maximumFractionDigits: 0 });
+      if (receiptCurrency == null) receiptCurrency = pp.currency;
+    }
+  }
+
   const templateData = {
     ...data,
     patientName: data.patientName || user.name || 'Patient',
@@ -185,6 +218,11 @@ async function processEmail(notification, user, order) {
     caseUrl: data.caseUrl || (order ? `${process.env.APP_URL || 'https://tashkheesa.com'}/portal/doctor/case/${order.id}` : ''),
     reportUrl: data.reportUrl || (order ? `${process.env.APP_URL || 'https://tashkheesa.com'}/portal/case/${order.id}/report` : ''),
     appUrl: process.env.APP_URL || 'https://tashkheesa.com',
+    // Always-charge-EGP receipt fields (payment-success only; undefined elsewhere
+    // → {{#if amount}} stays false in other templates).
+    amount: receiptAmount,
+    currency: receiptCurrency,
+    egpCharge: receiptEgpCharge,
   };
 
   // Subject derivation moved AFTER templateData so subjects can interpolate

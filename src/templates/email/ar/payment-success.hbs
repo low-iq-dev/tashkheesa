@@ -25,7 +25,13 @@
         {{#if amount}}
         <tr>
           <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">المبلغ:</td>
-          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#276749;">{{amount}} {{currency}}</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#276749;">{{currency}} {{amount}}</td>
+        </tr>
+        {{/if}}
+        {{#if egpCharge}}
+        <tr>
+          <td style="padding:6px 0;font-size:13px;color:#718096;width:140px;">المبلغ بالجنيه المصري:</td>
+          <td style="padding:6px 0;font-size:13px;color:#4a5568;">{{egpCharge}} <span style="color:#a0aec0;">— يحوّله بنكك عند الدفع</span></td>
         </tr>
         {{/if}}
       </table>

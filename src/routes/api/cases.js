@@ -8,6 +8,7 @@
 const router = require('express').Router();
 const { randomUUID } = require('crypto');
 const { coerceCountry } = require('../../launch-market');
+const { egpChargeFromLocal } = require('../../fx');
 // Lazy-load express-validator — top-level require takes ~120s and starves DB pool on boot.
 let _ev;
 function ev() { if (!_ev) _ev = require('express-validator'); return _ev; }
@@ -233,14 +234,22 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       return res.fail('Invalid service', 400, 'INVALID_SERVICE');
     }
 
-    // Get regional price if available
+    // ALWAYS-CHARGE-EGP: look up the patient's LOCAL market price (real country,
+    // NOT clamped), then convert to the EGP charge base. The card is charged in
+    // EGP (currency pinned 'EGP' below); display_* hold the local figures for show.
+    const displayCountry = String(country || 'EG').trim().toUpperCase() || 'EG';
     const regionalPrice = await safeGet(
       "SELECT tashkheesa_price, currency FROM service_regional_prices WHERE service_id = $1 AND country_code = $2 AND COALESCE(status, 'active') = 'active'",
-      [serviceId, coerceCountry(country)]
+      [serviceId, displayCountry]
     );
-
-    const price = regionalPrice?.tashkheesa_price || service.base_price;
-    const currency = regionalPrice?.currency || service.currency || 'EGP';
+    const localBase = regionalPrice?.tashkheesa_price != null ? regionalPrice.tashkheesa_price : service.base_price;
+    const localCurrency = regionalPrice?.currency || service.currency || 'EGP';
+    let charge;
+    try {
+      charge = egpChargeFromLocal(localBase, localCurrency);
+    } catch (fxErr) {
+      return res.fail('Unsupported currency for this market', 400, 'UNSUPPORTED_CURRENCY');
+    }
 
     // Generate case
     const orderId = randomUUID();
@@ -261,12 +270,14 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       INSERT INTO orders (
         id, reference_id, patient_id, service_id, status,
         clinical_question, medical_history, country,
-        base_price, currency, sla_deadline, sla_hours, urgency_flag, urgency_tier, created_at
-      ) VALUES ($1, $2, $3, $4, 'submitted', $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+        base_price, price, currency, doctor_fee, display_price, display_currency,
+        sla_deadline, sla_hours, urgency_flag, urgency_tier, created_at
+      ) VALUES ($1, $2, $3, $4, 'submitted', $5, $6, $7, $8, $9, 'EGP', $10, $11, $12, $13, $14, $15, $16, NOW())
     `, [
       orderId, refNumber, req.user.id, serviceId,
-      clinicalQuestion, medicalHistory || null, coerceCountry(country),
-      price, currency, slaDeadline, slaHours, urgencyFlag, urgencyTier
+      clinicalQuestion, medicalHistory || null, displayCountry,
+      charge.egpBase, charge.egpBase, charge.doctorFeeEgp, charge.displayPrice, charge.displayCurrency,
+      slaDeadline, slaHours, urgencyFlag, urgencyTier
     ]);
 
     // Insert files. Tag images for async AI quality check; non-images are skipped.

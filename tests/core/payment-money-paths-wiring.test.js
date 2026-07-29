@@ -123,9 +123,17 @@ const payAddons = read('public/js/payment-addons.js');
 assert(!/basePrice\s*=\s*data\.new_price/.test(payAddons),
   'referral apply does NOT reassign basePrice to the already-discounted new_price',
   'basePrice = data.new_price would subtract the discount twice → displayed total < charged total');
-assert(/total\s*-\s*referralDiscount/.test(payAddons),
-  'the referral discount is subtracted exactly once (via the discount row)',
+// Subtracted exactly once. Always-charge-EGP: the server returns discount_amount
+// in EGP, so the LOCAL total subtracts `localDiscount` (the EGP→local equivalent;
+// === referralDiscount for domestic) and the EGP disclosure subtracts
+// referralDiscount directly. Still one subtraction on each lane, derived from the
+// server's referralDiscount — no double-subtract.
+assert(/total\s*-\s*localDiscount/.test(payAddons) && /localDiscount\s*=[^;]*referralDiscount/.test(payAddons),
+  'the referral discount is subtracted exactly once (localDiscount derived from referralDiscount, EGP→local for intl)',
   'referral discount subtraction pattern changed');
+assert(/egpTotal\s*-\s*referralDiscount/.test(payAddons),
+  'the EGP disclosure is also reduced by the referral discount (no overstated ≈ EGP)',
+  'referral EGP-disclosure reduction missing');
 assert(/querySelector\('\.p-pay-cols'\)/.test(payAddons),
   'add-on prices are read from .p-pay-cols so the displayed total tracks add-ons',
   'selector still targets the non-existent .portal-grid → add-on prices read as 0, total never moves');

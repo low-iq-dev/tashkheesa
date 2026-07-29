@@ -1067,6 +1067,13 @@
               </div>
             </label>
           <% }); %>
+          <% if (__pricing.showSecondary) { %>
+            <%# Always-charge-EGP: tiers above show the LOCAL price with the ≈ EGP
+                charge beside each. One line clarifies the card is billed in EGP. %>
+            <div style="font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.5;padding:0 2px;">
+              <%= tt('Prices shown in ' + __pricing.localCurrency + '. Your card is billed the equivalent in EGP (shown as ≈) — your bank converts at checkout.', 'Prices shown in ' + __pricing.localCurrency + '. Your card is billed the equivalent in EGP (shown as ≈) — your bank converts at checkout.', 'الأسعار معروضة بعملة ' + __pricing.localCurrency + '. تُحصَّل بطاقتك المبلغ المكافئ بالجنيه المصري (الموضّح بعلامة ≈) — يحوّله بنكك عند الدفع.') %>
+            </div>
+          <% } %>
         </div>
       </div>
 
@@ -1108,24 +1115,30 @@
       const n = Math.round(Number(amt) || 0);
       return String(cur || 'EGP').toUpperCase() + ' ' + n.toLocaleString('en-GB', { maximumFractionDigits: 0 });
     };
-    // Source-of-truth: orders row persisted by Step 4. The wizard
-    // catalog (__pricing) is used only for currency / serviceName /
-    // showSecondary metadata — never for the displayed total.
+    // Source-of-truth: the orders row persisted by Step 4. price/base_price are
+    // ALWAYS EGP (the charge); display_price/display_currency carry the LOCAL
+    // figures FOR SHOW (NULL for domestic EG). Show the LOCAL total prominently
+    // for an international order and disclose the EGP charge underneath; a domestic
+    // order shows the EGP total and no disclosure (renders exactly as before).
     const __tier = (__draft && __draft.urgency_tier) ? String(__draft.urgency_tier).toLowerCase() : '';
-    const __basePrice = Number(__draft && __draft.base_price) || 0;
+    const __basePrice = Number(__draft && __draft.base_price) || 0;      // EGP base
     const __upliftAmount = Number(__draft && __draft.urgency_uplift_amount) || 0;
-    const __totalPrice = Number(__draft && __draft.price) || (__basePrice + __upliftAmount);
+    const __egpCharge = Number(__draft && __draft.price) || (__basePrice + __upliftAmount); // EGP billed
+    const __totalPrice = __egpCharge; // guard alias — "is there a price to pay?"
     const __slaHours = Number(__draft && __draft.sla_hours) || 0;
     const __isStandard = __tier === 'standard';
-    const __localCurrency = (__pricing && __pricing.localCurrency) || 'EGP';
-    const __showSecondary = !!(__pricing && __pricing.showSecondary);
-    // Approximate EGP secondary lane: scale base + uplift by the ratio
-    // of EGP-base to local-base (both available on __pricing.base when
-    // present). Falls back to 1:1 when __pricing is missing.
-    const __egpRatio = (__pricing && __pricing.base && Number(__pricing.base.local) > 0)
-      ? (Number(__pricing.base.egp) / Number(__pricing.base.local))
-      : 1;
-    const __totalEgp = __totalPrice * __egpRatio;
+    // Local-prominent display (read-only over the EGP charge; never mutates it).
+    const __isIntlOrder = (typeof isIntlOrder === 'function') && isIntlOrder(__draft);
+    // The tier multiplier already baked into the EGP charge (price / base). Apply
+    // the SAME multiplier to the local base so the shown local total tracks the
+    // urgency tier the patient picked — matching the ≈ EGP charge exactly.
+    const __multiplier = __basePrice > 0 ? (__egpCharge / __basePrice) : 1;
+    const __localBase = Number(__draft && __draft.display_price) || 0;
+    const __displayCurrency = __isIntlOrder ? String(__draft.display_currency || 'EGP').toUpperCase() : 'EGP';
+    const __displayTotal = __isIntlOrder ? Math.round(__localBase * __multiplier) : __egpCharge;
+    // "You'll be billed in EGP (≈ EGP X) — your bank converts at checkout." null for
+    // domestic. lang is already bound into res.locals.chargeDisclosure via middleware.
+    const __chargeNote = (__isIntlOrder && typeof chargeDisclosure === 'function') ? chargeDisclosure(__draft) : null;
     const __tierLabel = __isStandard
       ? tt('Standard 48h', 'Standard 48h', 'قياسي 48 ساعة')
       : __tier === 'vip'
@@ -1168,11 +1181,11 @@
                 </div>
                 <div style="text-align:end;">
                   <div class="p-num" style="font-family:var(--font-display);font-size:34px;font-weight:500;color:var(--accent-dark);letter-spacing:-0.005em;line-height:1;">
-                    <%= fmtMoney2(__totalPrice, __localCurrency) %>
+                    <%= fmtMoney2(__displayTotal, __displayCurrency) %>
                   </div>
-                  <% if (__showSecondary) { %>
-                    <div class="p-num" style="font-size:12px;color:var(--muted);margin-top:4px;">
-                      ≈ <%= fmtMoney2(__totalEgp, 'EGP') %>
+                  <% if (__chargeNote) { %>
+                    <div class="p-num" style="font-size:12px;color:var(--muted);margin-top:4px;line-height:1.4;">
+                      <%= __chargeNote %>
                     </div>
                   <% } %>
                 </div>

@@ -11,6 +11,10 @@ const { logOrderEvent } = require('../audit');
 var { enqueueCaseIntelligence } = require('../job_queue');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 const { buildWizardPricing, buildStep4Persistence } = require('../services/wizard_pricing');
+// Always-charge-EGP: convert a local catalog price to the EGP charge base + the
+// display fields + the flat 20% doctor fee. Single source of truth for the
+// invariant across every order-creation write site. See src/fx.js.
+const { egpChargeFromLocal } = require('../fx');
 const { isUrgentWindowOpen, nextSevenAmCairoUtc } = require('../services/urgency_window');
 const { modelHaiku } = require('../config/anthropic');
 const { getThresholds } = require('../services/admin_settings');
@@ -862,6 +866,30 @@ function getUserCountryCode(req) {
   }
 }
 
+// Display country — the patient's REAL market, NOT clamped to a launch market.
+// Used ONLY to pick which service_regional_prices row is SHOWN and then converted
+// to the EGP charge via fx.egpChargeFromLocal. The charge stays EGP regardless
+// (currency is pinned 'EGP' + the local price is FX-converted at every write
+// site), so decoupling the display market from the charge is safe. Mirrors
+// getUserCountryCode's source order MINUS the coerceCountry clamp; falls back EG.
+function getDisplayCountryCode(req) {
+  try {
+    const fromUser = normalizeCountryCode(req && req.user && (req.user.country_code || req.user.country));
+    if (fromUser) return fromUser;
+
+    const headerCountry = normalizeCountryCode(req && req.headers && (req.headers['cf-ipcountry'] || req.headers['x-vercel-ip-country'] || req.headers['x-country']));
+    if (headerCountry) return headerCountry;
+
+    const ip = getRequestIp(req);
+    const fromGeo = normalizeCountryCode(lookupCountryFromIp(ip));
+    if (fromGeo) return fromGeo;
+
+    return 'EG';
+  } catch (_) {
+    return 'EG';
+  }
+}
+
 async function servicesVisibleClause(alias) {
   // tolerate older/newer DB schemas
   if (!(await ensureServicesVisibilityColumn())) return '1=1';
@@ -1218,6 +1246,7 @@ async function loadOwnedDraft(orderId, patientId) {
             o.clinical_question, o.medical_history, o.current_medications,
             o.specialty_id, o.service_id, o.sla_hours, o.urgency_tier,
             o.base_price, o.urgency_uplift_amount, o.price, o.urgency_flag,
+            o.display_price, o.display_currency,
             o.notes, o.created_at, o.updated_at,
             s.name AS specialty_name, s.name_ar AS specialty_name_ar, sv.name AS service_name
      FROM orders_active o
@@ -1252,8 +1281,14 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
   const explicitId = (req.query && req.query.id) ? String(req.query.id) : '';
   const explicitStep = Number(req.query && req.query.step) || 0;
 
-  // Helper: resolve the country/currency context (for Step 5 pricing later).
-  const countryCode = getUserCountryCode(req);
+  // Helper: resolve the country/currency context (for Step 4/5 pricing later).
+  // ALWAYS-CHARGE-EGP: use the DISPLAY country (real market, NOT clamped to a
+  // launch market) so the LOCAL prices SHOWN in the wizard (Step-3 service grid,
+  // Step-4 tiers, Step-5 total) match what the Step-4 POST persists into
+  // display_price/display_currency. The charge itself always stays EGP (each
+  // write site FX-converts + pins currency 'EGP'). getUserCountryCode would clamp
+  // to EG and show EGP prices that then mismatch the stored intl display fields.
+  const countryCode = getDisplayCountryCode(req);
   const countryCurrency = getCountryCurrency(countryCode);
 
   // Resolve draft + step.
@@ -1405,24 +1440,26 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
                         WHERE sv.id = $2 AND ${visibleClause}`,
           [countryCode, draft.service_id]
         );
-        const egpPrice = await safeGet(
-          () => `SELECT sv.base_price, sv.currency,
-                        COALESCE(cp.tashkheesa_price, sv.base_price) AS tashkheesa_price,
-                        COALESCE(cp.currency, sv.currency, 'EGP') AS local_currency
-                 FROM services sv
-                 LEFT JOIN service_regional_prices cp
-                   ON cp.service_id = sv.id
-                  AND cp.country_code = 'EG'
-                  AND COALESCE(cp.status, 'active') = 'active'
-                 WHERE sv.id = $1`,
-          [draft.service_id]
-        );
-
         const localCurrency = String((localPrice && localPrice.currency) || countryCurrency || 'EGP').toUpperCase();
+        // ALWAYS-CHARGE-EGP: the EGP secondary lane must be the ACTUAL EGP charge
+        // — the local base FX-converted ONCE, exactly as POST /step4 persists it
+        // via egpChargeFromLocal — NOT a separate Egypt-catalog price. This keeps
+        // the "≈ EGP" shown at Steps 4/5 byte-equal to the orders.price the patient
+        // is billed. EG orders: localCurrency 'EGP' → identity → egpBase === localBase
+        // and showSecondary is false, so the EG wizard renders exactly as before.
+        const localBaseNum = Number(localPrice && localPrice.base_price) || 0;
+        let egpBaseForDisplay;
+        try {
+          egpBaseForDisplay = egpChargeFromLocal(localBaseNum, localCurrency).egpBase;
+        } catch (_) {
+          // Unsupported currency (non-launch market) — the charge side refuses it
+          // separately; fall back to 1:1 so the wizard still renders a number.
+          egpBaseForDisplay = localBaseNum;
+        }
         pricing = buildWizardPricing({
           serviceName: localPrice ? localPrice.name : '',
-          localBase: Number(localPrice && localPrice.base_price) || 0,
-          egpBase: Number(egpPrice && egpPrice.tashkheesa_price) || 0,
+          localBase: localBaseNum,
+          egpBase: egpBaseForDisplay,
           localCurrency,
           vipMultiplier: localPrice && localPrice.vip_multiplier,
           urgentMultiplier: localPrice && localPrice.urgent_multiplier
@@ -1942,7 +1979,7 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
   // Look up the service catalog snapshot for this order's region.
   // Multipliers come straight from the services row — per-service
   // overrides win over platform defaults inside computeOrderPricing.
-  const countryCode = getUserCountryCode(req);
+  const countryCode = getDisplayCountryCode(req);
   const visibleClause = await servicesVisibleClause('sv');
   const service = await safeGet(
     () => `SELECT sv.id, sv.vip_multiplier, sv.urgent_multiplier,
@@ -1959,7 +1996,29 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
     return res.redirect('/patient/new-case?step=3&id=' + encodeURIComponent(orderId) + '&err=invalid_service');
   }
 
-  const persist = buildStep4Persistence({ tier, serviceRow: service });
+  // ALWAYS-CHARGE-EGP: the cp-join gives the patient's LOCAL price + currency.
+  // Convert it to the EGP charge base ONCE here, then run the urgency-pricing math
+  // in EGP (buildStep4Persistence) exactly as the EG path does. orders.currency is
+  // pinned 'EGP'; doctor_fee = 20% of the EGP charge; display_* carry the local
+  // figures FOR SHOW. For EG the conversion is identity and display_* are NULL →
+  // price/currency/uplift byte-identical to before (doctor_fee, previously never
+  // set on the wizard path, is now correctly 20% of the EGP charge).
+  let charge;
+  try {
+    charge = egpChargeFromLocal(service.base_price, service.currency);
+  } catch (fxErr) {
+    logErrorToDb(fxErr, { context: 'patient.wizard_step4_fx', orderId, userId: patientId, category: 'patient_case' });
+    return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=unsupported_currency');
+  }
+
+  const persist = buildStep4Persistence({
+    tier,
+    serviceRow: {
+      base_price: charge.egpBase,             // EGP — every downstream money field is EGP
+      vip_multiplier: service.vip_multiplier,
+      urgent_multiplier: service.urgent_multiplier
+    }
+  });
   if (!persist.ok) {
     return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=' + persist.error);
   }
@@ -1971,16 +2030,23 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
          base_price = $3,
          urgency_uplift_amount = $4,
          price = $5,
-         urgency_flag = $6,
+         currency = 'EGP',
+         doctor_fee = $6,
+         display_price = $7,
+         display_currency = $8,
+         urgency_flag = $9,
          draft_step = GREATEST(COALESCE(draft_step, 0), 4),
-         updated_at = $7
-     WHERE id = $8 AND patient_id = $9 AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
+         updated_at = $10
+     WHERE id = $11 AND patient_id = $12 AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
     [
       persist.tier,
       persist.slaHours,
       persist.basePrice,
       persist.upliftAmount,
       persist.totalPrice,
+      charge.doctorFeeEgp,
+      charge.displayPrice,
+      charge.displayCurrency,
       persist.urgencyFlag,
       new Date().toISOString(),
       orderId,
@@ -2360,7 +2426,7 @@ router.get('/patient/new-case/:id/files.json', requireRole('patient'), async (re
 // Create new case (UploadCare)
 router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
   const patientId = req.user.id;
-  const countryCode = getUserCountryCode(req);
+  const countryCode = getDisplayCountryCode(req);   // real market → local price; charge stays EGP via egpChargeFromLocal
   const countryCurrency = getCountryCurrency(countryCode);
   const { specialty_id, service_id, notes, file_urls, sla_type } = req.body || {};
 
@@ -2461,8 +2527,20 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
     slaHours != null
       ? new Date(new Date(nowIso).getTime() + Number(slaHours) * 60 * 60 * 1000).toISOString()
       : null;
-  const price = service.base_price != null ? service.base_price : 0;
-  const doctorFee = service.doctor_fee != null ? service.doctor_fee : 0;
+  // ALWAYS-CHARGE-EGP: convert the local catalog price to the EGP charge base +
+  // display fields + 20% doctor fee. currency is pinned 'EGP'; display_* carry the
+  // local figures (NULL for EG → byte-identical). Same invariant helper as step4.
+  let charge;
+  try {
+    charge = egpChargeFromLocal(service.base_price != null ? service.base_price : 0, service.currency);
+  } catch (fxErr) {
+    logErrorToDb(fxErr, { context: 'patient.new_case_single_fx', userId: patientId, category: 'patient_case' });
+    return res.status(400).json({ ok: false, error: 'unsupported_currency' });
+  }
+  const price = charge.egpBase;
+  const doctorFee = charge.doctorFeeEgp;
+  const displayPrice = charge.displayPrice;
+  const displayCurrency = charge.displayCurrency;
 
   try {
     await withTransaction(async (client) => {
@@ -2475,6 +2553,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
           breached_at, reassigned_count, report_url, notes,
           uploads_locked, additional_files_requested, payment_status, payment_method,
           payment_reference, payment_link, updated_at,
+          currency, display_price, display_currency,
           country_code
         ) VALUES (
           $1, $2, NULL, $3, $4, $5, $6,
@@ -2482,6 +2561,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
           NULL, 0, NULL, $11,
           false, false, 'unpaid', NULL,
           NULL, $12, $9,
+          'EGP', $14, $15,
           $13
         )`
         : `INSERT INTO orders (
@@ -2489,21 +2569,24 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
           price, doctor_fee, created_at, accepted_at, deadline_at, completed_at,
           breached_at, reassigned_count, report_url, notes,
           uploads_locked, additional_files_requested, payment_status, payment_method,
-          payment_reference, payment_link, updated_at
+          payment_reference, payment_link, updated_at,
+          currency, display_price, display_currency
         ) VALUES (
           $1, $2, NULL, $3, $4, $5, $6,
           $7, $8, $9, NULL, $10, NULL,
           NULL, 0, NULL, $11,
           false, false, 'unpaid', NULL,
-          NULL, $12, $9
+          NULL, $12, $9,
+          'EGP', $13, $14
         )`;
 
       const insertParams = ordersHasCountry
         ? [orderId, patientId, specialty_id, service_id, slaHours, dbStatusFor('SUBMITTED', 'new'),
            price, doctorFee, nowIso, deadlineAt, notes || null, service.payment_link || fallbackPaymentLink,
-           countryCode]
+           countryCode, displayPrice, displayCurrency]
         : [orderId, patientId, specialty_id, service_id, slaHours, dbStatusFor('SUBMITTED', 'new'),
-           price, doctorFee, nowIso, deadlineAt, notes || null, service.payment_link || fallbackPaymentLink];
+           price, doctorFee, nowIso, deadlineAt, notes || null, service.payment_link || fallbackPaymentLink,
+           displayPrice, displayCurrency];
 
       await client.query(insertSql, insertParams);
 
@@ -2551,6 +2634,13 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
 
 // Create order (patient)
 router.post('/patient/orders', requireRole('patient'), async (req, res) => {
+  // DEAD ROUTE — 410 Gone. This legacy single-shot creator writes phantom columns
+  // (locked_price / locked_currency / price_snapshot_json / country_code) that DO
+  // NOT EXIST on the orders table, so its INSERT throws on every call. Superseded
+  // by the multi-step wizard (/patient/new-case/step1..5). Guarded (not deleted)
+  // so the always-charge-EGP model never has to reason about a broken write path;
+  // 0 prod orders originate here.
+  return res.status(410).json({ ok: false, error: 'gone', message: 'Retired endpoint — use the case wizard.' });
   // PRE-LAUNCH: Block order creation
   if (isPreLaunch()) {
     return res.redirect('/coming-soon');
@@ -2825,10 +2915,12 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
     `SELECT o.id,
             o.payment_status,
             o.payment_link,
-            NULL::numeric AS locked_price,
-            NULL::text AS locked_currency,
+            o.display_price,
+            o.display_currency,
+            o.currency,
             o.service_id,
             o.price,
+            o.base_price,
             sv.name AS service_name,
             sp.name AS specialty_name,
             sp.name_ar AS specialty_name_ar
@@ -2861,7 +2953,10 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
   const service = await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id]);
   const countryCode = getUserCountryCode(req);
   const countryCurrency = getCountryCurrency(countryCode);
-  const addonCurrency = order.locked_currency || countryCurrency || 'EGP';
+  // ALWAYS-CHARGE-EGP: add-ons are CHARGED in EGP (payments.js resolves them at
+  // order.currency='EGP'), so price + display them in EGP too — never the local
+  // currency — or the pay page would show a total that doesn't match the charge.
+  const addonCurrency = 'EGP';
 
   function resolvePriceFromJson(jsonStr, cur, fallback) {
     if (!jsonStr || jsonStr === '{}') return fallback || 0;
@@ -2874,78 +2969,93 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
     } catch (_) { return fallback || 0; }
   }
 
-  const videoConsultationPrice = resolvePriceFromJson(
-    service?.video_consultation_prices_json,
-    addonCurrency,
-    service?.video_consultation_price || 0
-  );
-  const sla24hrPrice = resolvePriceFromJson(
-    service?.sla_24hr_prices_json,
-    addonCurrency,
-    service?.sla_24hr_price || 100
-  );
-
-  // Look up prescription add-on price from service_regional_prices
-  const prescriptionRow = await queryOne(
+  // EGP add-on prices — what the server CHARGES (create-intention resolves add-ons
+  // at order.currency='EGP'). These drive the flow decision + the EGP disclosure.
+  const videoPriceEgp = resolvePriceFromJson(service?.video_consultation_prices_json, 'EGP', service?.video_consultation_price || 0);
+  const slaPriceEgp = resolvePriceFromJson(service?.sla_24hr_prices_json, 'EGP', service?.sla_24hr_price || 100);
+  const prescriptionRowEgp = await queryOne(
     "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = $1 LIMIT 1",
-    [addonCurrency]
+    ['EGP']
   );
-  const prescriptionPrice = prescriptionRow ? prescriptionRow.tashkheesa_price : 0;
+  const prescriptionPriceEgp = prescriptionRowEgp ? prescriptionRowEgp.tashkheesa_price : 0;
+
+  // LOCAL add-on prices — DISPLAY ONLY, for an international order (display_currency).
+  // Domestic orders reuse the EGP figures (local === EGP), so the page is unchanged.
+  const displayCcy = order.display_currency ? String(order.display_currency).toUpperCase() : 'EGP';
+  const isIntlOrderRow = order.display_price != null && displayCcy !== 'EGP';
+  let videoPriceLocal = videoPriceEgp, slaPriceLocal = slaPriceEgp, prescriptionPriceLocal = prescriptionPriceEgp;
+  if (isIntlOrderRow) {
+    videoPriceLocal = resolvePriceFromJson(service?.video_consultation_prices_json, displayCcy, videoPriceEgp);
+    slaPriceLocal = resolvePriceFromJson(service?.sla_24hr_prices_json, displayCcy, slaPriceEgp);
+    const prescriptionRowLocal = await queryOne(
+      "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = $1 LIMIT 1",
+      [displayCcy]
+    );
+    prescriptionPriceLocal = prescriptionRowLocal ? prescriptionRowLocal.tashkheesa_price : prescriptionPriceEgp;
+  }
+
+  // What the view DISPLAYS (prominent): local for intl, EGP for domestic.
+  const videoConsultationPrice = videoPriceLocal;
+  const sla24hrPrice = slaPriceLocal;
+  const prescriptionPrice = prescriptionPriceLocal;
 
   // B6 (launch audit): when the service offers add-ons, always route through the
   // create-intention button — it prices the CURRENT add-on selection server-side
-  // and mints a fresh intention. A persisted external checkout link is locked to
-  // a stale amount and cannot carry the selection, so add-ons would go
-  // displayed-but-never-charged. Forcing paymentUrl=null renders the button flow.
-  const serviceHasAddons = (Number(videoConsultationPrice) > 0) || (Number(prescriptionPrice) > 0);
+  // and mints a fresh intention. Decide on the EGP (charge) figures.
+  const serviceHasAddons = (Number(videoPriceEgp) > 0) || (Number(prescriptionPriceEgp) > 0);
 
-  // If payment link is missing OR is only the internal fallback OR the service
-  // has add-ons, we render the create-intention button instead of an external link.
-  if (!rawPaymentLink || isInternalFallback || serviceHasAddons) {
-    return res.render('patient_payment_required', {
-      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
-      user: req.user,
-      order: {
-        ...order,
-        display_price: order && order.locked_price != null ? order.locked_price : null,
-        display_currency: order && order.locked_currency ? order.locked_currency : null,
-      },
-      lang,
-      isAr,
-      paymentLink: null,
-      paymentUrl: null,
-      price: order?.locked_price || order?.price || 0,
-      currency: order?.locked_currency || order?.currency || 'EGP',
-      videoConsultationPrice,
-      sla24hrPrice,
-      prescriptionPrice,
-      videoEnabled,
-      serviceDetails: service,
-      error: null,
-    });
-  }
+  // ALWAYS-CHARGE-EGP: display_price is the UN-multiplied local base; the urgency
+  // tier multiplier lives in price/base_price (both EGP). Show the local TOTAL the
+  // card is billed = base × (price / base_price), matching wizard Step 5 +
+  // order_review — NOT raw display_price, which understates a VIP/urgent order and
+  // contradicts the ≈ EGP disclosure. Standard tier → multiplier 1 (unchanged).
+  const __egpBaseRow = Number(order && order.base_price) || 0;
+  const __tierMult = __egpBaseRow > 0 ? (Number(order.price) / __egpBaseRow) : 1;
+  const localPromptPrice = isIntlOrderRow
+    ? Math.round((Number(order.display_price) || 0) * __tierMult)
+    : (order?.price || 0);
 
-  return res.render('patient_payment_required', {
+  // Shared payload. price/currency are LOCAL-PROMINENT for intl (display only);
+  // the CHARGE is always the EGP order.price (egpChargePrice) — the pay button
+  // create-intention re-prices server-side in EGP regardless of what is shown.
+  const payRenderCommon = {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
     order: {
       ...order,
-      display_price: order && order.locked_price != null ? order.locked_price : null,
-      display_currency: order && order.locked_currency ? order.locked_currency : null,
+      display_price: order && order.display_price != null ? order.display_price : null,
+      display_currency: order && order.display_currency ? order.display_currency : null,
     },
     lang,
     isAr,
-    paymentUrl: rawPaymentLink,
-    paymentLink: copyLink,
-    price: order?.locked_price || order?.price || 0,
-    currency: order?.locked_currency || order?.currency || 'EGP',
+    price: localPromptPrice,
+    currency: isIntlOrderRow ? displayCcy : (order?.currency || 'EGP'),
+    // EGP charge + EGP add-on prices — feed the reactive "billed in EGP (≈ X)" disclosure.
+    egpChargePrice: order?.price || 0,
+    videoConsultationPriceEgp: videoPriceEgp,
+    sla24hrPriceEgp: slaPriceEgp,
+    prescriptionPriceEgp: prescriptionPriceEgp,
     videoConsultationPrice,
     sla24hrPrice,
     prescriptionPrice,
     videoEnabled,
     serviceDetails: service,
     error: null,
-  });
+  };
+
+  // If payment link is missing OR is only the internal fallback OR the service
+  // has add-ons, we render the create-intention button instead of an external link.
+  if (!rawPaymentLink || isInternalFallback || serviceHasAddons) {
+    return res.render('patient_payment_required', Object.assign({}, payRenderCommon, {
+      paymentLink: null,
+      paymentUrl: null,
+    }));
+  }
+
+  return res.render('patient_payment_required', Object.assign({}, payRenderCommon, {
+    paymentUrl: rawPaymentLink,
+    paymentLink: copyLink,
+  }));
 });
 
 // loadReportContentForPatient — moved to src/helpers/load-report-content.js.
