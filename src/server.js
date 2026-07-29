@@ -1008,6 +1008,20 @@ function patientLangLocals(req, res) {
   return { lang: lang, isAr: String(lang).toLowerCase() === 'ar', user: req.user || {} };
 }
 
+// Apple Pay domain verification. Serves the association file Paymob provides once
+// Apple Pay is provisioned; inert (404 'not configured') until that file exists.
+// The real file is NOT committed — it comes from Paymob later (see src/static/.gitkeep).
+// Registered before the 404 handler so it isn't swallowed by the catch-all.
+app.get('/.well-known/apple-developer-merchantid-domain-association', function (req, res) {
+  var filePath = path.join(__dirname, 'static', 'apple-developer-merchantid-domain-association');
+  try {
+    var data = fs.readFileSync(filePath, 'utf8');
+    return res.type('text/plain').send(data);
+  } catch (_) {
+    return res.status(404).type('text/plain').send('not configured');
+  }
+});
+
 // 404 handler
 app.use(function(req, res) {
   var requestId = req.requestId;

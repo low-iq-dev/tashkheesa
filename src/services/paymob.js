@@ -1,6 +1,7 @@
 // src/services/paymob.js
 //
-// Paymob Unified Intention API client. Card-only.
+// Paymob Unified Intention API client. Card, plus OPTIONAL Apple Pay
+// (gated on PAYMOB_APPLEPAY_INTEGRATION_ID; inert until Paymob provisions it).
 //
 // API surface:
 //   POST https://accept.paymob.com/v1/intention/
@@ -155,6 +156,9 @@ async function _paymobFetch(path, opts) {
  * @param {Array}  [args.items]          Optional override of the default single-line item
  * @returns {Promise<{ intentionId, clientSecret, checkoutUrl }>}
  */
+// Apple Pay config warning is emitted at most once per process (env is static).
+let _applePayConfigWarned = false;
+
 async function createIntention(args) {
   _assertTestMode();
 
@@ -183,6 +187,28 @@ async function createIntention(args) {
     e.code = 'PAYMOB_CONFIG_MISSING';
     throw e;
   }
+
+  // OPTIONAL Apple Pay — completely inert until Paymob provisions an Apple Pay
+  // integration ID via PAYMOB_APPLEPAY_INTEGRATION_ID. Card is ALWAYS first.
+  //   unset / empty        → [cardIntegrationId]  (byte-identical to before)
+  //   valid positive int   → [cardIntegrationId, applePayId]
+  //   set but invalid      → ignored + logged once; card-only (never throws)
+  const paymentMethods = [cardIntegrationId];
+  const applePayRaw = process.env.PAYMOB_APPLEPAY_INTEGRATION_ID;
+  if (applePayRaw != null && String(applePayRaw).trim() !== '') {
+    const applePayId = parseInt(String(applePayRaw).trim(), 10);
+    if (Number.isInteger(applePayId) && applePayId > 0) {
+      paymentMethods.push(applePayId);
+    } else if (!_applePayConfigWarned) {
+      _applePayConfigWarned = true;
+      try {
+        logErrorToDb(
+          new Error('PAYMOB_APPLEPAY_INTEGRATION_ID set but invalid (expected positive integer): ' + String(applePayRaw)),
+          { context: 'paymob.applepay_config' }
+        );
+      } catch (_) { /* never let a config-warning failure break checkout */ }
+    }
+  }
   const publicKey = process.env.PAYMOB_PUBLIC_KEY;
   if (!publicKey) {
     const e = new Error('PAYMOB_PUBLIC_KEY not set');
@@ -201,7 +227,7 @@ async function createIntention(args) {
   const body = {
     amount: args.amountCents,
     currency: currency,
-    payment_methods: [cardIntegrationId],
+    payment_methods: paymentMethods,
     special_reference: args.orderId,
     notification_url: notificationUrl,
     redirection_url: args.redirectionUrl,

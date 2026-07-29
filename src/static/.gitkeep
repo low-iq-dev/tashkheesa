@@ -1,0 +1,6 @@
+# Placeholder so src/static/ exists in git.
+# The Apple Pay domain-association file
+# (apple-developer-merchantid-domain-association) is served from here by
+# server.js but is NOT committed — Paymob provides it when Apple Pay is
+# provisioned. Until then GET /.well-known/apple-developer-merchantid-domain-association
+# returns 404 'not configured'.

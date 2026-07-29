@@ -256,4 +256,58 @@ try {
       } else { t.fail('timeout mapping', e); }
     } finally { global.AbortController = OrigAC; }
   } finally { restoreFetch(); }
+
+  // ── Apple Pay: valid PAYMOB_APPLEPAY_INTEGRATION_ID → [card, applepay] ──
+  // Additive + gated. Card is ALWAYS first. (The env var being UNSET is proven
+  // byte-identical by the happy-path above: payment_methods === [12345].)
+  process.env.PAYMOB_APPLEPAY_INTEGRATION_ID = '67890';
+  let apCap = null;
+  setMockFetch(function (url, opts) {
+    apCap = { url: url, opts: opts };
+    return jsonResponse(200, { id: 'int_ap_1', client_secret: 'cs_ap_1', payment_keys: [], intention_detail: {} });
+  });
+  try {
+    await paymob.createIntention({
+      orderId: 'order-ap-1', amountCents: 50000, currency: 'EGP',
+      patient: VALID_PATIENT, redirectionUrl: REDIRECTION
+    });
+    assert.deepStrictEqual(JSON.parse(apCap.opts.body).payment_methods, [12345, 67890]);
+    t.pass('Apple Pay: valid integration id → payment_methods = [card, applepay] (card first)');
+  } catch (e) { t.fail('Apple Pay valid config', e); }
+  finally { restoreFetch(); delete process.env.PAYMOB_APPLEPAY_INTEGRATION_ID; }
+
+  // ── Apple Pay: invalid id → ignored, card-only, never throws ──
+  process.env.PAYMOB_APPLEPAY_INTEGRATION_ID = 'not-a-number';
+  let apCap2 = null;
+  setMockFetch(function (url, opts) {
+    apCap2 = { url: url, opts: opts };
+    return jsonResponse(200, { id: 'int_ap_2', client_secret: 'cs_ap_2', payment_keys: [], intention_detail: {} });
+  });
+  try {
+    const r = await paymob.createIntention({
+      orderId: 'order-ap-2', amountCents: 50000, currency: 'EGP',
+      patient: VALID_PATIENT, redirectionUrl: REDIRECTION
+    });
+    assert.deepStrictEqual(JSON.parse(apCap2.opts.body).payment_methods, [12345]);
+    assert.strictEqual(r.intentionId, 'int_ap_2');
+    t.pass('Apple Pay: invalid integration id → ignored, card-only, no throw');
+  } catch (e) { t.fail('Apple Pay invalid config', e); }
+  finally { restoreFetch(); delete process.env.PAYMOB_APPLEPAY_INTEGRATION_ID; }
+
+  // ── Apple Pay: UNSET → byte-identical card-only (explicit re-assert) ──
+  delete process.env.PAYMOB_APPLEPAY_INTEGRATION_ID;
+  let apCap3 = null;
+  setMockFetch(function (url, opts) {
+    apCap3 = { url: url, opts: opts };
+    return jsonResponse(200, { id: 'int_ap_3', client_secret: 'cs_ap_3', payment_keys: [], intention_detail: {} });
+  });
+  try {
+    await paymob.createIntention({
+      orderId: 'order-ap-3', amountCents: 50000, currency: 'EGP',
+      patient: VALID_PATIENT, redirectionUrl: REDIRECTION
+    });
+    assert.deepStrictEqual(JSON.parse(apCap3.opts.body).payment_methods, [12345]);
+    t.pass('Apple Pay: env unset → payment_methods = [card] (byte-identical to before)');
+  } catch (e) { t.fail('Apple Pay unset config', e); }
+  finally { restoreFetch(); }
 })();
