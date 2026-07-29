@@ -22,6 +22,10 @@ const { isUrgentWindowOpen } = require('../../services/urgency_window');
 // worker when the file was uploaded directly to R2 (instead of the legacy
 // Uploadcare CDN path). See POST /cases handler below.
 const { getSignedDownloadUrl } = require('../../storage');
+// Mobile checkout: mint the Paymob link server-side inside GET /cases/:id/payment
+// (the app never calls the web POST /payments/paymob/create-intention route).
+const { ensurePaymentLinkForOrder } = require('../../services/paymob_intention');
+const { logErrorToDb } = require('../../logger');
 
 module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
@@ -445,6 +449,38 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       'SELECT payment_status as status, COALESCE(total_price_with_addons, price) as amount, currency, payment_link as "paymentLink", payment_method as method, paid_at as "paidAt" FROM orders_active WHERE id = $1',
       [caseData.id]
     );
+
+    // MOBILE checkout: the app only READS this endpoint — it never calls the WEB
+    // POST /payments/paymob/create-intention. So a fresh unpaid order has a NULL
+    // payment_link and the app shows "Payment link unavailable". Mint the Paymob
+    // intention here (idempotently — reuses an existing link) so the app receives
+    // a checkoutUrl. ADDITIVE: the proven web POST route is untouched. A mint
+    // failure must NOT turn this read endpoint into a 500 — on ANY error we log
+    // and leave paymentLink null (app shows unavailable; the patient can retry).
+    if (payment && String(payment.status || '').toLowerCase() !== 'paid' && !payment.paymentLink) {
+      try {
+        const proto = req.secure ? 'https'
+          : (req.headers['x-forwarded-proto'] || req.protocol || 'https');
+        const host = req.headers['x-forwarded-host'] || req.get('host');
+        const redirectionUrl = proto + '://' + host + '/portal/patient/payment-return';
+        const minted = await ensurePaymentLinkForOrder({
+          orderId: caseData.id,
+          patientId: req.user.id,
+          redirectionUrl: redirectionUrl
+        });
+        if (minted && minted.checkoutUrl) {
+          payment.paymentLink = minted.checkoutUrl;
+        }
+      } catch (mintErr) {
+        logErrorToDb(mintErr, {
+          context: 'mobile_pay_mint',
+          orderId: caseData.id,
+          userId: req.user && req.user.id,
+          requestId: req.requestId
+        });
+        // Leave payment.paymentLink null — endpoint still returns 200.
+      }
+    }
 
     return res.ok(payment || { status: 'pending' });
   });
