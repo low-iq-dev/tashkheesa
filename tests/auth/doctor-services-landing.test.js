@@ -102,16 +102,20 @@ const { resolveDoctorLanding, shouldLandOnServices } = require('../../src/servic
     t.pass('shouldLandOnServices predicate matches landing decision');
   } catch (e) { t.fail('shouldLandOnServices predicate', e); }
 
-  // 6. Wiring guard: auth.js POST /set-password and /magic-login must call the
-  //    shared helper (not a hardcoded getHomeByRole for doctors). Cheap source
-  //    assertion — the full HTTP redirect is exercised by the doctor-services
-  //    integration test that boots the app (see the services-route slice).
+  // 6. Wiring guard: POST /set-password must call the shared landing helper (not a
+  //    hardcoded getHomeByRole for doctors). NOTE: Task 26 (magic-login backdoor
+  //    fix) removed the /magic-login landing branch — a password-holding doctor is
+  //    now bounced to /login (never auto-logged-in), so magic-login no longer calls
+  //    resolveDoctorLanding at all. The doctor's first-login services landing is
+  //    owned entirely by POST /set-password, the only path that can reach it with a
+  //    freshly-set password. Cheap source assertion — the full HTTP redirect is
+  //    exercised by the doctor-services integration test that boots the app.
   try {
     const fs = require('fs');
     const src = fs.readFileSync(require.resolve('../../src/routes/auth.js'), 'utf8');
     assert.ok(/require\(['"]\.\.\/services\/doctor_landing['"]\)/.test(src), 'auth.js imports doctor_landing');
     const calls = (src.match(/resolveDoctorLanding\(user\)/g) || []).length;
-    assert.ok(calls >= 2, 'resolveDoctorLanding(user) called in both /set-password and /magic-login (got ' + calls + ')');
-    t.pass('auth.js wires resolveDoctorLanding into both first-login redirect paths');
+    assert.ok(calls >= 1, 'resolveDoctorLanding(user) wired into the POST /set-password first-login redirect (got ' + calls + ')');
+    t.pass('auth.js wires resolveDoctorLanding into the /set-password first-login redirect');
   } catch (e) { t.fail('auth.js wiring guard', e); }
 })().catch(function (err) { t.fail('harness crashed', err); });

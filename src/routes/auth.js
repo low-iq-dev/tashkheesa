@@ -506,12 +506,23 @@ router.get('/magic-login/:token', async (req, res) => {
   }
 
   const nowIso = new Date().toISOString();
+  // Single-use: burn the token unconditionally BEFORE any branch, so a leaked
+  // welcome link can't be replayed even down the password-holder reject path.
   await execute(
     `UPDATE password_reset_tokens
      SET used_at = $1
      WHERE token = $2`,
     [nowIso, token]
   );
+
+  // Package 2 CRITICAL (Task 26 — backdoor): a magic/welcome token is a
+  // first-time-setup credential. If the user has ALREADY set a password, an old
+  // unused token must NOT silently establish a session (password-free login).
+  // Check password_hash BEFORE the session cookie is set and bounce to normal
+  // /login. The token is already burned above, so the leaked link is dead.
+  if (user.password_hash) {
+    return res.redirect('/login');
+  }
 
   const sessionToken = signUserToken(user);
   res.cookie(SESSION_COOKIE, sessionToken, {
@@ -523,15 +534,11 @@ router.get('/magic-login/:token', async (req, res) => {
   });
   setLangCookie(res, user.lang || getReqLang(req));
 
-  if (!user.password_hash) {
-    return res.redirect('/set-password');
-  }
-
-  // §4.7 first-login landing (magic-link path for password-holding doctors).
-  const doctorLanding = await resolveDoctorLanding(user);
-  if (doctorLanding) return res.redirect(doctorLanding);
-
-  return res.redirect(getHomeByRole(user.role));
+  // Only passwordless users reach here → always the first-time set-password step.
+  // A password-holding doctor's §4.7 services-landing is handled by POST
+  // /set-password when they first onboard; magic-login never lands a
+  // password-holder now (they are bounced to /login above).
+  return res.redirect('/set-password');
 });
 
 async function findValidToken(token) {
