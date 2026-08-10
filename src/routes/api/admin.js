@@ -45,7 +45,6 @@ const {
   capFor,
   acceptByIso,
 } = require('./_assign_helpers');
-const { eligibleDoctorClause } = require('../../services/doctor_eligibility');
 const { bulkAutoAssign } = require('../../services/admin_bulk_assign');
 const { issueRefund } = require('../../services/admin_refund');
 const { setDoctorPause } = require('../../services/admin_doctor_pause');
