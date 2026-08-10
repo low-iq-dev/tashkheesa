@@ -20,6 +20,7 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
+const { resyncComingSoon } = require('./services_coming_soon_sync');
 
 // Throw-to-reject: carries an HTTP status + machine code out of the txn to the
 // route, which maps err.http/err.code → res.fail (same as admin_refund.js).
@@ -86,6 +87,13 @@ async function setDoctorPause(client, opts) {
         JSON.stringify({ action, target: doctorId, reason: paused ? reason : null }),
       ]
     );
+
+    // Recompute services.coming_soon inside this txn (design §4.3). Pause/
+    // reactivate toggles is_paused, NOT is_active, so the formula (keyed on
+    // is_active) changes 0 rows here — a safe no-op that keeps every is_active
+    // call site symmetric and future-proofs a reactivate that ever flips
+    // is_active. Atomic with the flag write.
+    await resyncComingSoon(client);
 
     await client.query('COMMIT');
 

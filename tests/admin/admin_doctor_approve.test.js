@@ -165,6 +165,27 @@ test('approve a non-doctor (role=patient) → DOCTOR_NOT_FOUND, row unchanged', 
   assert.equal(row.is_active, false);
 });
 
+// ── re-sync wiring: approving a doctor (is_active false→true) recomputes
+//    coming_soon for the services they're mapped to (design §4.3 call site) ──
+test('approve recomputes coming_soon for the doctor\'s services', async () => {
+  const id = await mkDoctor({ pending: true });          // is_active starts false
+  const svc = 'svc-' + SUFFIX + '-appr';
+  await q(
+    `INSERT INTO services (id, name, is_visible, coming_soon, base_price, doctor_fee, sla_hours)
+       VALUES ($1, 'Approve Svc', true, true, 500, 100, 48)`, [svc]
+  );
+  await q(
+    `INSERT INTO doctor_services (doctor_id, service_id) VALUES ($1, $2)`,
+    [id, svc]
+  );
+  // Pre: doctor inactive → service is coming_soon.
+  await run({ doctorId: id });                            // approve → is_active=true
+  const after = (await q(`SELECT coming_soon FROM services WHERE id = $1`, [svc])).rows[0].coming_soon;
+  assert.equal(after, false, 'service became bookable once its doctor is active');
+  await q(`DELETE FROM doctor_services WHERE doctor_id = $1`, [id]);
+  await q(`DELETE FROM services WHERE id = $1`, [svc]);
+});
+
 // ─────────────────────────── atomicity proof ───────────────────────────
 
 test('atomicity: failure on the audit insert rolls back the approve', async () => {

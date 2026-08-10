@@ -174,6 +174,27 @@ test('pause a non-doctor (role=patient) → DOCTOR_NOT_FOUND, row unchanged', as
   assert.equal(row.is_paused, false, 'patient row untouched');
 });
 
+// ── re-sync wiring: pause toggles is_paused (NOT is_active), so the §4.3
+//    recompute is a 0-change no-op — a paused doctor still counts as supply.
+//    Asserting it does NOT spuriously flip a bookable service to coming_soon. ──
+test('pause does not change coming_soon (is_paused is not supply-removing)', async () => {
+  const id = await mkDoctor({ paused: false });          // active, unpaused
+  const svc = 'svc-' + SUFFIX + '-pause';
+  await q(
+    `INSERT INTO services (id, name, is_visible, coming_soon, base_price, doctor_fee, sla_hours)
+       VALUES ($1, 'Pause Svc', true, false, 500, 100, 48)`, [svc]
+  );
+  await q(
+    `INSERT INTO doctor_services (doctor_id, service_id) VALUES ($1, $2)`,
+    [id, svc]
+  );
+  await run({ doctorId: id, paused: true, reason: 'manual: resync noop' });
+  const after = (await q(`SELECT coming_soon FROM services WHERE id = $1`, [svc])).rows[0].coming_soon;
+  assert.equal(after, false, 'pausing a doctor leaves their service bookable');
+  await q(`DELETE FROM doctor_services WHERE doctor_id = $1`, [id]);
+  await q(`DELETE FROM services WHERE id = $1`, [svc]);
+});
+
 // ─────────────────────────── atomicity proof ───────────────────────────
 
 test('atomicity: failure on the audit insert rolls back the flag write', async () => {

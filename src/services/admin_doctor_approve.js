@@ -19,6 +19,7 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
+const { resyncComingSoon } = require('./services_coming_soon_sync');
 
 // Throw-to-reject: carries an HTTP status + machine code out of the txn to the
 // route, which maps err.http/err.code → res.fail (same as admin_doctor_pause.js).
@@ -78,6 +79,11 @@ async function setDoctorApproval(client, opts) {
         JSON.stringify({ action: 'approved_doctor', target: doctorId }),
       ]
     );
+
+    // Activating a doctor changes supply: recompute services.coming_soon for
+    // every service (design §4.3), inside this txn so it is atomic with the
+    // is_active flip and rolls back with it on any later failure.
+    await resyncComingSoon(client);
 
     await client.query('COMMIT');
 
