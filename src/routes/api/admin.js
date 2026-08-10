@@ -24,6 +24,7 @@
 
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
 const {
   requireJWT,
   requireRole,
@@ -161,6 +162,16 @@ function fileKind(mime, name) {
 
 // /assign helpers (doctorSupportsTier, capFor, acceptByIso) now live in
 // ./_assign_helpers.js — imported at the top.
+
+// Package 2 (Task 28): per-IP limiter for the Command-API doctor invite. It is
+// already superadmin-gated (requireJWT + requireRole below), so this is
+// defense-in-depth — caps runaway/scripted (re)sends. Module-level so it's a
+// single shared instance (one in-memory store) across the router's lifetime.
+const inviteIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 10, validate: false,
+  standardHeaders: true, legacyHeaders: false,
+  message: { ok: false, error: 'too_many_requests' },
+});
 
 module.exports = function (db, helpers, deploy, deps) {
   const { safeGet, safeAll, safeRun } = helpers;
@@ -1630,7 +1641,7 @@ module.exports = function (db, helpers, deploy, deps) {
   // first-invite AND resend — the app warns before a resend, the backend always
   // (re)sends. Deliberately decoupled from /approve, which stays SILENT (slice
   // 2a). requireJWT + requireRole('superadmin') inherited from the router gate.
-  router.post('/doctors/:id/invite', async (req, res) => {
+  router.post('/doctors/:id/invite', inviteIpLimiter, async (req, res) => {
     const doctorId = req.params.id;
 
     // Channel selection (optional). 'internal' (the in-app bell / notification

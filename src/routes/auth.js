@@ -340,6 +340,16 @@ const otpVerifyCap = rateLimit({
   standardHeaders: false, legacyHeaders: false,
   keyGenerator: otpPhoneKey, message: otpRlMsg,
 });
+// Package 2 (Task 28): per-IP limiter for the ANONYMOUS token-redemption routes
+// (magic-login, reset-password, set-password). Same otp-door pattern
+// (validate:false because the trust-proxy req.ip shape varies at the Render
+// edge). 30/15min is generous for a human clicking an email link but caps
+// welcome/reset-token brute-force. One instance shared across the routes, so the
+// per-IP budget spans the whole redemption surface.
+const welcomeTokenIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 30, validate: false,
+  standardHeaders: true, legacyHeaders: false, message: otpRlMsg,
+});
 
 // POST /login/otp/request — send a code via Twilio Verify.
 // Anti-enumeration: ALWAYS returns { ok: true }, regardless of whether the
@@ -490,7 +500,7 @@ router.post('/forgot-password', async (req, res) => {
 // new doctor magic-link flow + the existing admin-create-doctor
 // reset-link flow at superadmin.js:2017+ both render "invalid token"
 // for any doctor user.
-router.get('/magic-login/:token', async (req, res) => {
+router.get('/magic-login/:token', welcomeTokenIpLimiter, async (req, res) => {
   setLangCookie(res, getReqLang(req));
   const token = req.params.token;
   const tokenRow = await findValidToken(token);
@@ -558,7 +568,7 @@ async function findValidToken(token) {
 // ============================================
 // GET /set-password
 // ============================================
-router.get('/set-password', async (req, res) => {
+router.get('/set-password', welcomeTokenIpLimiter, async (req, res) => {
   const c = authCopy(req);
   const lang = c.isAr ? 'ar' : 'en';
   setLangCookie(res, lang);
@@ -575,7 +585,7 @@ router.get('/set-password', async (req, res) => {
 // ============================================
 // POST /set-password
 // ============================================
-router.post('/set-password', async (req, res) => {
+router.post('/set-password', welcomeTokenIpLimiter, async (req, res) => {
   const c = authCopy(req);
   const lang = c.isAr ? 'ar' : 'en';
   setLangCookie(res, lang);
@@ -631,7 +641,7 @@ router.post('/set-password', async (req, res) => {
 // ============================================
 // GET /reset-password/:token
 // ============================================
-router.get('/reset-password/:token', async (req, res) => {
+router.get('/reset-password/:token', welcomeTokenIpLimiter, async (req, res) => {
   setLangCookie(res, getReqLang(req));
   const token = req.params.token;
   const tokenRow = await findValidToken(token);
@@ -651,7 +661,7 @@ router.get('/reset-password/:token', async (req, res) => {
 // ============================================
 // POST /reset-password/:token
 // ============================================
-router.post('/reset-password/:token', async (req, res) => {
+router.post('/reset-password/:token', welcomeTokenIpLimiter, async (req, res) => {
   setLangCookie(res, getReqLang(req));
   const token = req.params.token;
   const tokenRow = await findValidToken(token);
