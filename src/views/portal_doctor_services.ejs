@@ -1,16 +1,105 @@
-<%# portal_doctor_services.ejs — PLACEHOLDER (Task 22 will replace this with the full UI) %>
-<%# Receives: portalFrame, portalRole, portalActive, user, lang, isAr, groups, isEmpty, subSpecialties, specialtyName, specialtyNameAr, nextPath, canonicalUrl, error, warning, confirmEmpty %>
-<!DOCTYPE html>
-<html lang="<%= isAr ? 'ar' : 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
-<head>
-  <meta charset="UTF-8">
-  <title><%= isAr ? 'خدماتي' : 'My Services' %></title>
-</head>
-<body>
-<% if (isEmpty) { %>
-  <p>Services for your specialty are being finalised — you will be notified when they are ready.</p>
-<% } else { %>
-  <p>Service catalog loaded: <%= groups.length %> group(s).</p>
+<%- include('partials/header', { title: (typeof isAr !== 'undefined' && isAr) ? 'خدماتي' : 'My Services', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'services', portalNext: '/portal/doctor/services' }) %>
+<%
+  var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
+  var _groups = Array.isArray(typeof groups !== 'undefined' ? groups : []) ? groups : [];
+  var _isEmpty = (typeof isEmpty !== 'undefined') ? !!isEmpty : (_groups.length === 0);
+  var _subs = Array.isArray(typeof subSpecialties !== 'undefined' ? subSpecialties : []) ? subSpecialties : [];
+  var _specName = (_isAr && typeof specialtyNameAr !== 'undefined' && specialtyNameAr) ? specialtyNameAr
+                : (typeof specialtyName !== 'undefined' && specialtyName) ? specialtyName : '';
+  var _error = (typeof error !== 'undefined' && error) ? String(error) : '';
+  var _warning = (typeof warning !== 'undefined' && warning) ? String(warning) : '';
+  var _success = (typeof success !== 'undefined' && success) ? String(success) : '';
+  function _money(n) {
+    var v = Number(n);
+    if (!Number.isFinite(v)) return '';
+    return v.toLocaleString(_isAr ? 'ar-EG' : 'en-US');
+  }
+  function _groupHeading(g) {
+    if (_isAr && g.specialtyNameAr) return g.specialtyNameAr;
+    return g.specialtyName || (_isAr ? 'خدمات' : 'Services');
+  }
+%>
+<%- include('partials/doctor/topbar', {
+  isAr: _isAr,
+  topbarTitle: tt('My Services', 'My Services', 'خدماتي'),
+  topbarSub: tt('Confirm the services you accept', 'Confirm the services you accept', 'أكد الخدمات التي تقبلها'),
+  topbarShowSearch: false
+}) %>
+
+<% if (_error) { %>
+  <div class="v2-card" style="border-color:#c0392b;margin-block-end:12px;"><div class="v2-card__body" style="color:#c0392b;"><%= _error %></div></div>
 <% } %>
-</body>
-</html>
+<% if (_warning) { %>
+  <div class="v2-card" style="border-color:var(--v2-brass, #b8860b);margin-block-end:12px;"><div class="v2-card__body"><%= _warning %></div></div>
+<% } %>
+<% if (_success) { %>
+  <div class="v2-card" style="border-color:var(--v2-brand);margin-block-end:12px;"><div class="v2-card__body" style="color:var(--v2-brand-dk, #0b6b5f);"><%= _success %></div></div>
+<% } %>
+
+<% if (_isEmpty) { %>
+  <div class="v2-card">
+    <div class="v2-card__body--flush">
+      <div class="v2-empty">
+        <div class="v2-empty__title"><%= tt('Your services are being finalised', 'Your services are being finalised', 'يتم تجهيز خدماتك') %></div>
+        <div class="v2-empty__msg"><%= tt("The services for your specialty are being set up. You'll be notified when they're ready.", "The services for your specialty are being set up. You'll be notified when they're ready.", 'يتم إعداد خدمات تخصصك حالياً. سيتم إشعارك عند جاهزيتها.') %></div>
+        <div class="v2-empty__actions">
+          <a class="v2-btn v2-btn--secondary" href="/portal/doctor/today"><%= tt('Back to Today', 'Back to Today', 'عُد إلى اليوم') %></a>
+        </div>
+      </div>
+    </div>
+  </div>
+<% } else { %>
+  <% if (_subs.length) { %>
+  <div class="v2-card" style="margin-block-end:12px;">
+    <div class="v2-card__body">
+      <div style="font-size:12px;color:var(--v2-muted);margin-block-end:6px;"><%= tt('Your sub-specialties', 'Your sub-specialties', 'تخصصاتك الدقيقة') %><% if (_specName) { %> · <%= _specName %><% } %></div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        <% _subs.forEach(function(s){ %><span class="v2-chip v2-chip--neutral"><%= s %></span><% }); %>
+      </div>
+    </div>
+  </div>
+  <% } %>
+
+  <form method="post" action="/portal/doctor/services">
+    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+    <% _groups.forEach(function(g){ %>
+      <div class="v2-card" style="margin-block-end:12px;">
+        <div class="v2-card__header">
+          <div class="v2-card__title"><%= _groupHeading(g) %></div>
+        </div>
+        <div class="v2-card__body v2-card__body--flush">
+          <% (g.services || []).forEach(function(s){ %>
+            <label class="v2-check-row">
+              <input type="checkbox" class="v2-check-row__box" name="service_ids" value="<%= s.id %>" <%= s.ticked ? 'checked' : '' %> />
+              <span class="v2-check-row__main">
+                <span class="v2-check-row__name"><%= s.name %><% if (s.is_visible === false) { %> <span class="v2-chip v2-chip--neutral"><%= tt('Coming Soon', 'Coming Soon', 'قريبًا') %></span><% } %></span>
+                <span class="v2-check-row__meta">
+                  <span data-numeric><%= tt('You earn', 'You earn', 'تكسب') %> <%= _money(s.doctor_fee) %> <%= _isAr ? 'ج.م' : 'EGP' %></span>
+                  <% if (s.sla_hours) { %> · <span data-numeric><%= _money(s.sla_hours) %><%= _isAr ? ' س' : 'h' %> SLA</span><% } %>
+                </span>
+              </span>
+            </label>
+          <% }); %>
+        </div>
+      </div>
+    <% }); %>
+
+    <div class="v2-card" style="margin-block-end:12px;">
+      <div class="v2-card__body">
+        <label class="v2-check-row v2-check-row--plain">
+          <input type="checkbox" class="v2-check-row__box" name="confirm_empty" value="1" <%= (typeof confirmEmpty !== 'undefined' && confirmEmpty) ? 'checked' : '' %> />
+          <span class="v2-check-row__main">
+            <span class="v2-check-row__name"><%= tt('I accept no services right now', 'I accept no services right now', 'لا أقبل أي خدمة حالياً') %></span>
+            <span class="v2-check-row__meta"><%= tt('Only needed if you leave every box unticked', 'Only needed if you leave every box unticked', 'مطلوب فقط إذا تركت كل الخانات فارغة') %></span>
+          </span>
+        </label>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-block-end:24px;">
+      <button type="submit" class="v2-btn v2-btn--primary"><%= tt('Save services', 'Save services', 'حفظ الخدمات') %></button>
+    </div>
+  </form>
+<% } %>
+
+<%- include('partials/footer') %>
