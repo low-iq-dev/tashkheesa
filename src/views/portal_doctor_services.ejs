@@ -1,0 +1,16 @@
+<%# portal_doctor_services.ejs — PLACEHOLDER (Task 22 will replace this with the full UI) %>
+<%# Receives: portalFrame, portalRole, portalActive, user, lang, isAr, groups, isEmpty, subSpecialties, specialtyName, specialtyNameAr, nextPath, canonicalUrl, error, warning, confirmEmpty %>
+<!DOCTYPE html>
+<html lang="<%= isAr ? 'ar' : 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
+<head>
+  <meta charset="UTF-8">
+  <title><%= isAr ? 'خدماتي' : 'My Services' %></title>
+</head>
+<body>
+<% if (isEmpty) { %>
+  <p>Services for your specialty are being finalised — you will be notified when they are ready.</p>
+<% } else { %>
+  <p>Service catalog loaded: <%= groups.length %> group(s).</p>
+<% } %>
+</body>
+</html>

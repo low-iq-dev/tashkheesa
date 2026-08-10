@@ -20,6 +20,7 @@ const dbStatusValuesFor = caseLifecycle.dbStatusValuesFor;
 // action is implemented directly against the `orders` table to support human-friendly case IDs.
 const { generateMedicalReportPdf } = require('../report-generator');
 const { computeDoctorEarnings } = require('../services/earnings_calc');
+const { loadDoctorServiceCatalog } = require('../services/doctor_service_catalog');
 const { assertRenderableView } = require('../renderGuard');
 const uploadMw = require('../middleware/upload');
 const storage = require('../storage');
@@ -904,6 +905,68 @@ router.get('/portal/doctor/cases', requireDoctor, async (req, res) => {
     completedTotal,
     allTotal,
     activeCount: activeTotal // for the sidebar count badge
+  });
+});
+
+// ── My Services ─────────────────────────────────────────────────────────────
+// Doctor confirms which services they accept. Their doctor_services rows are
+// treated as unconfirmed defaults (pre-ticked). Service list = the UNION of
+// (a) visible services in their own specialty + (b) every service they already
+// hold a row for (cross-specialty). Empty-union doctors see a "finalising"
+// note and are NOT marked onboarding_complete (see POST handler / spec §4.1).
+router.get('/portal/doctor/services', requireDoctor, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  const specialtyId = req.user && req.user.specialty_id ? String(req.user.specialty_id) : '';
+
+  // Context: the doctor's own specialty name (for the primary heading) + their
+  // sub_specialties chips. Resilient to schema drift / missing rows.
+  let specialtyName = '';
+  let specialtyNameAr = null;
+  let subSpecialties = [];
+  try {
+    const ctx = await queryOne(
+      `SELECT u.sub_specialties AS sub_specialties,
+              sp.name AS specialty_name, sp.name_ar AS specialty_name_ar
+         FROM users u
+         LEFT JOIN specialties sp ON sp.id = u.specialty_id
+        WHERE u.id = $1`,
+      [doctorId]
+    );
+    if (ctx) {
+      specialtyName = ctx.specialty_name || '';
+      specialtyNameAr = ctx.specialty_name_ar || null;
+      let ss = ctx.sub_specialties;
+      if (typeof ss === 'string') { try { ss = JSON.parse(ss); } catch (_) { ss = []; } }
+      subSpecialties = Array.isArray(ss) ? ss.filter((x) => typeof x === 'string' && x) : [];
+    }
+  } catch (_) { /* context is best-effort; the list still renders */ }
+
+  const catalog = await withTransaction((client) =>
+    loadDoctorServiceCatalog(client, { doctorId, specialtyId })
+  );
+
+  assertRenderableView('portal_doctor_services');
+  return res.render('portal_doctor_services', {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'services',
+    brand: 'Tashkheesa',
+    title: isAr ? 'خدماتي' : 'My Services',
+    user: req.user,
+    lang,
+    isAr,
+    nextPath: '/portal/doctor/services',
+    canonicalUrl: '/portal/doctor/services',
+    groups: Array.isArray(catalog.groups) ? catalog.groups : [],
+    isEmpty: !!catalog.isEmpty,
+    subSpecialties,
+    specialtyName,
+    specialtyNameAr,
+    error: null,
+    warning: null,
+    confirmEmpty: false
   });
 });
 
