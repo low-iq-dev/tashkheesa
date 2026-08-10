@@ -235,23 +235,48 @@ case's `service_id` into any site that currently carries only `specialty_id`.
   empty-union doctors land on the dashboard. One-time redirect, not a persistent
   guard → no loops. Keep `first_login_at` stamping as-is.
 
-#### 4.8 Migration `078` — reconcile the 6 prod migrations (§2.1)
-- Reproduce all six as idempotent repo migration(s), in chronological order, each
-  safe to re-run on prod boot (server refuses to boot on failure):
-  - **Schema:** `coming_soon` col+comment+resync+partial-index (verbatim, already
-    idempotent); RLS-enable on `_bak_services_20260729` / `_bak_srp_20260729` wrapped
-    in `to_regclass(...) IS NOT NULL` guards.
-  - **Data:** the two `INSERT … NOT EXISTS` mapping migrations + the two application
-    status `UPDATE`s (already idempotent); **`promote_16_applicants` MUST gain
-    `ON CONFLICT DO NOTHING`** (its prod copy has none).
-- **OPEN DECISION (see §11):** whether the 4 *data* migrations (esp. `promote_16`
-  with 16 doctors' emails/phones/licence numbers) are codified verbatim into git, or
-  the reconciliation is **schema-only + data documented by reference**. Default =
-  schema-only + documented, pending confirmation, because committing that PII is
-  effectively permanent.
-- Header comment cross-references the `supabase_migrations` versions so the drift is
-  documented. Column-verify via `information_schema` + BEGIN…ROLLBACK dry-run before
-  push. Next number is **078**.
+#### 4.8 Migration `078` — reconcile the 6 prod migrations, **schema-only** (§2.1)
+RESOLVED (§11): 078 codifies **only the schema changes**; the 4 data migrations are
+**documented by reference, not replayed** (PDPL — 16 doctors' emails/phones/licence
+numbers must not enter permanent git history; re-running data INSERTs on every fresh
+`migrate()` is an unnecessary footgun).
+
+078 contains:
+- `ALTER TABLE public.services ADD COLUMN IF NOT EXISTS coming_soon boolean NOT NULL
+  DEFAULT false` + the `COMMENT ON COLUMN` + the `is_active`-keyed resync `UPDATE` +
+  `CREATE INDEX IF NOT EXISTS idx_services_coming_soon ON public.services (coming_soon)
+  WHERE is_visible` (verbatim from the prod migration; already idempotent).
+- RLS-enable on `_bak_services_20260729` and `_bak_srp_20260729`, each guarded by
+  `to_regclass('public._bak_…') IS NOT NULL` (tables may not exist locally).
+- A **header comment** recording the 4 data migrations by `version`, `name`, and a
+  one-line purpose, marked *"applied to prod via MCP 2026-08-10, NOT replayed — prod
+  is source of truth."*
+
+Column-verify via `information_schema` + BEGIN…ROLLBACK dry-run before push (expect a
+0-change no-op on prod). Next number is **078**.
+
+#### 4.9 Synthetic local-dev / test seed (NOT a migration)
+Schema-only 078 leaves local dev with zero doctors, so the regression tests have
+nothing to run against. Add a **separate, clearly non-production seed** (a script /
+fixture under e.g. `scripts/dev/seed_my_services_fixtures.js` or a test fixture — **not
+a numbered migration**, so it can never run against prod) using **synthetic data only**
+(obviously-fake names, `@example.com` emails, fake licence numbers). It must cover the
+four shapes:
+1. **Cross-specialty doctor** — specialty with 0 visible services but N mappings in
+   *other* specialties (the Medhat/Ghoneim shape the union rule exists for). Exercises:
+   screen shows N items, save-with-no-changes preserves all N, doctor becomes assignable.
+2. **Empty-union doctor** — specialty with 0 visible services AND 0 mappings (the
+   Hossam/Gharib/Pediatrics shape). Exercises: escape hatch fires, no redirect loop,
+   `onboarding_complete` stays false, doctor stays out of the assignment pool.
+3. **Normal doctor** — specialty with N visible services, all mapped (Cardiology/
+   Urology/Radiology shape). Exercises: pre-tick reflects rows; untick flips a service
+   to `coming_soon`.
+4. **Last-doctor-standing** — a service with exactly one mapped doctor, so unticking
+   flips `coming_soon = true` and the order guard then rejects a purchase of it.
+
+Note the local-boot constraint (migration 070 needs a Supabase `anon` role absent
+locally): the seed + these tests run against a **prod-schema clone / hermetic harness**
+that skips 070, not a raw local boot (see the plan for the harness).
 
 ### Package 2 — Welcome-token hardening + bulk invite
 
@@ -371,10 +396,8 @@ Prefer prod-schema-clone / hermetic tests; prod write **dry-runs** via Supabase 
 
 ---
 
-## 11. Open decision for plan-review
-**Migration 078 data-reconciliation depth (§4.8):** codify the 4 *data* migrations
-(incl. `promote_16` with 16 doctors' emails/phones/licence numbers) verbatim into
-git with added `ON CONFLICT DO NOTHING`, **or** reconcile **schema-only** (coming_soon
-+ RLS) and document the data migrations by reference (versions/names/purpose) without
-putting PII in git history. Default pending confirmation = **schema-only + documented**
-(committing the PII is effectively permanent under the repo's no-history-purge policy).
+## 11. Resolved decisions
+**Migration 078 data-reconciliation depth (§4.8): RESOLVED → schema-only +
+documented.** The 4 data migrations are recorded by reference, not replayed (PDPL /
+no PII in git history / no data re-run footgun). A synthetic non-production seed
+(§4.9) backs local dev + the regression tests.
