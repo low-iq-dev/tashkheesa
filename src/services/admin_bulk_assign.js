@@ -71,7 +71,7 @@ async function bulkAutoAssign(client, opts) {
     // the most time-critical cases. Deterministic → dry-run recap == real run.
     const { rows: cases } = await client.query(
       `SELECT id, reference_id, doctor_id, status, payment_status, paid_at,
-              specialty_id, urgency_tier, sla_hours, assignment_status,
+              specialty_id, service_id, urgency_tier, sla_hours, assignment_status,
               deadline_at, created_at
          FROM orders
         WHERE id = ANY($1::text[]) AND deleted_at IS NULL
@@ -101,15 +101,18 @@ async function bulkAutoAssign(client, opts) {
         continue;
       }
 
-      // ── doctor pool for the specialty (cached; projected load seeded once) ──
-      let pool = poolCache.get(c.specialty_id);
+      // ── doctor pool for the specialty (cached per specialty+service; projected load seeded once) ──
+      // Cache key includes service_id because offers_service is bound to the case's service.
+      const poolKey = c.specialty_id + '|' + (c.service_id || '');
+      let pool = poolCache.get(poolKey);
       if (!pool) {
         pool = (await client.query(
-          `SELECT id, name, is_active, is_paused, max_active_cases, max_active_cases_urgent, sla_tiers_supported
+          `SELECT id, name, is_active, is_paused, onboarding_complete, max_active_cases, max_active_cases_urgent, sla_tiers_supported,
+                  EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = users.id AND ds.service_id = $2) AS offers_service
              FROM users WHERE role = 'doctor' AND specialty_id = $1`,
-          [c.specialty_id]
+          [c.specialty_id, c.service_id]
         )).rows;
-        poolCache.set(c.specialty_id, pool);
+        poolCache.set(poolKey, pool);
         for (const d of pool) {
           if (!projected.has(d.id)) {
             const load = Number((await client.query(
@@ -126,9 +129,15 @@ async function bulkAutoAssign(client, opts) {
       // ── pick least projected-load eligible doctor (tie → tier-support, name) ──
       let best = null;
       let sawAvailable = false;       // active && !paused
+      let sawOnboarded = false;       // active && !paused && onboarding_complete
+      let sawOffersService = false;   // …&& holds the doctor_services row for this case's service
       for (const d of pool) {
         if (!d.is_active || d.is_paused) continue;
         sawAvailable = true;
+        if (!d.onboarding_complete) continue;             // §4.6 onboarding gate
+        sawOnboarded = true;
+        if (!d.offers_service) continue;                  // §4.6 service-level matching
+        sawOffersService = true;
         const cap = capFor(d, c.urgency_tier);
         const load = projected.get(d.id) || 0;
         if (cap !== 0 && load >= cap) continue;   // at capacity (cap 0 = uncapped)
@@ -144,6 +153,8 @@ async function bulkAutoAssign(client, opts) {
       if (!best) {
         const reason = pool.length === 0 ? 'no_doctor_for_specialty'
           : !sawAvailable ? 'no_available_doctor'
+          : !sawOnboarded ? 'doctor_not_onboarded'
+          : !sawOffersService ? 'no_doctor_offers_service'
           : 'all_doctors_at_capacity';
         skipped.push({ caseId: c.id, reference: ref, reason });
         continue;
