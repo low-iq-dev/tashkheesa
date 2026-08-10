@@ -3715,7 +3715,16 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, async (req, re
     return res.redirect(`/superadmin/orders/${orderId}`);
   }
 
-  const newDoctor = await queryOne("SELECT id, name FROM users WHERE id = $1 AND role = 'doctor' AND is_active = true", [newDoctorId]);
+  const newDoctor = await queryOne(
+    `SELECT id, name FROM users u
+      WHERE u.id = $1
+        AND u.role = 'doctor'
+        AND COALESCE(u.is_active, true) = true
+        AND COALESCE(u.is_paused, false) = false
+        AND COALESCE(u.onboarding_complete, false) = true
+        AND EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = u.id AND ds.service_id = $2)`,
+    [newDoctorId, order.service_id]
+  );
   if (!newDoctor) {
     return res.redirect(`/superadmin/orders/${orderId}`);
   }
