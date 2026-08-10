@@ -2004,7 +2004,7 @@ router.post('/superadmin/orders', requireSuperadmin, async (req, res) => {
   const selectedDoctor = doctor_id
     ? await queryOne("SELECT id, name, email, phone FROM users WHERE id = $1 AND role = 'doctor'", [doctor_id])
     : null;
-  const autoDoctor = !doctor_id ? pickDoctorForOrder({ specialtyId: specialty_id }) : null;
+  const autoDoctor = !doctor_id ? await pickDoctorForOrder({ specialtyId: specialty_id, serviceId: service_id }) : null;
   const chosenDoctor = selectedDoctor || autoDoctor;
   const status = chosenDoctor ? 'accepted' : 'new';
   const acceptedAt = chosenDoctor ? createdAt : null;
@@ -3502,7 +3502,7 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
     const doctorId = fresh && fresh.doctor_id ? String(fresh.doctor_id) : '';
     const pay = fresh && fresh.payment_status ? String(fresh.payment_status).toLowerCase() : '';
     if (!doctorId && pay === 'paid') {
-      const picked = await pickDoctorForOrder(fresh);
+      const picked = await pickDoctorForOrder({ specialtyId: fresh.specialty_id, serviceId: fresh.service_id });
       const pickedId = picked && picked.id ? String(picked.id) : (picked ? String(picked) : '');
       if (pickedId) {
         await execute(

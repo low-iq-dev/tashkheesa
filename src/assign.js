@@ -1,17 +1,27 @@
 const { queryAll, queryOne } = require('./pg');
 
-async function pickDoctorForOrder({ specialtyId }) {
+async function pickDoctorForOrder({ specialtyId, serviceId }) {
   if (!specialtyId) return null;
+
+  // §4.6: onboarding gate + service-level matching. When serviceId is missing
+  // (legacy caller), fall back to specialty-only so we never hard-fail routing.
+  const serviceClause = serviceId
+    ? `AND COALESCE(u.onboarding_complete, false) = true
+         AND EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = u.id AND ds.service_id = $2)`
+    : '';
+  const params = serviceId ? [specialtyId, serviceId] : [specialtyId];
 
   // Eligible doctors by specialty
   const doctors = await queryAll(
-    `SELECT id, name, email
-     FROM users
-     WHERE role = 'doctor'
-       AND is_active = true
-       AND specialty_id = $1
-     ORDER BY name ASC`,
-    [specialtyId]
+    `SELECT u.id, u.name, u.email
+     FROM users u
+     WHERE u.role = 'doctor'
+       AND u.is_active = true
+       AND COALESCE(u.is_paused, false) = false
+       AND u.specialty_id = $1
+       ${serviceClause}
+     ORDER BY u.name ASC`,
+    params
   );
 
   if (!doctors || !doctors.length) return null;
