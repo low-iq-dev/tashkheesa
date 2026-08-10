@@ -41,14 +41,27 @@ const uid = (p) => p + '-' + SUFFIX + '-' + (seq++);
 // reject. `invited:true` pre-stamps welcome_email_last_sent_at (the "already
 // invited" signal) so the resend path can be exercised. users only requires
 // `id` (everything else defaulted).
-async function mkDoctor({ active = true, role = 'doctor', invited = false, name = 'Dr. Sarah Test', lang = 'en' } = {}) {
+async function mkDoctor({ active = true, role = 'doctor', invited = false, name = 'Dr. Sarah Test', lang = 'en', nameAr = null, specialtyId = null } = {}) {
   const id = uid('doc');
   await q(
-    `INSERT INTO users (id, role, is_active, pending_approval, name, lang, welcome_email_last_sent_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [id, role, active, !active, name, lang, invited ? '2026-01-01T00:00:00.000Z' : null]
+    `INSERT INTO users (id, role, is_active, pending_approval, name, name_ar, specialty_id, lang, welcome_email_last_sent_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [id, role, active, !active, name, nameAr, specialtyId, lang, invited ? '2026-01-01T00:00:00.000Z' : null]
   );
   return id;
+}
+
+// A throwaway specialty row so the invite SELECT's LEFT JOIN has something to
+// hit. Without this the join's matched path is never exercised and the ON
+// clause could be wrong (or the aliases dropped) with every test still green.
+// specialties.name carries a UNIQUE constraint and the local DB is seeded with
+// the real catalog, so both labels are suffixed to stay collision-free.
+async function mkSpecialty({ name = 'Cardiology', nameAr = 'أمراض القلب' } = {}) {
+  const id = uid('spec');
+  const uniqueName = `${name} ${SUFFIX}`;
+  const uniqueNameAr = `${nameAr} ${SUFFIX}`;
+  await q(`INSERT INTO specialties (id, name, name_ar) VALUES ($1, $2, $3)`, [id, uniqueName, uniqueNameAr]);
+  return { id, name: uniqueName, nameAr: uniqueNameAr };
 }
 
 async function getDoctor(id) {
@@ -121,7 +134,45 @@ test.after(async () => {
   await q(`DELETE FROM password_reset_tokens WHERE user_id LIKE $1`, ['doc-' + SUFFIX + '-%']);
   await q(`DELETE FROM error_logs WHERE user_id = $1`, [ACTOR]);
   await q(`DELETE FROM users WHERE id LIKE $1`, ['doc-' + SUFFIX + '-%']);
+  await q(`DELETE FROM specialties WHERE id LIKE $1`, ['spec-' + SUFFIX + '-%']);
   await pool.end();
+});
+
+// ───────────── v5 welcome payload: name_ar + specialties JOIN ─────────────
+// These exercise the MATCHED side of the invite SELECT's LEFT JOIN and the
+// name_ar column added for the v5 template. Without them the ON clause could
+// be wrong, or either alias dropped, and the suite would still be green while
+// every invite email lost its specialty line and Arabic salutation.
+
+test('v5 payload: name_ar + joined specialty reach the welcome payload', async () => {
+  const spec = await mkSpecialty({ name: 'Cardiology', nameAr: 'أمراض القلب' });
+  const id = await mkDoctor({ name: 'Dr. Heba Samy', nameAr: 'د. هبة سامي', specialtyId: spec.id });
+  const p = (await run({ doctorId: id })).welcomePayload;
+
+  assert.equal(p.nameAr, 'هبة سامي', 'name_ar selected and "د." stripped');
+  assert.equal(p.specialtyEn, spec.name, 'specialties.name via the LEFT JOIN');
+  assert.equal(p.specialtyAr, spec.nameAr, 'specialties.name_ar via the LEFT JOIN');
+  assert.notEqual(p.specialtyEn, p.specialtyAr, 'the two aliases are distinct columns, not the same one twice');
+  assert.equal(p.firstName, 'Heba', 'English first name unchanged');
+});
+
+test('v5 payload: NULL name_ar falls back to users.name (also Dr.-stripped)', async () => {
+  const spec = await mkSpecialty({ name: 'OB/GYN', nameAr: 'النساء والتوليد' });
+  const id = await mkDoctor({ name: 'Dr. Taher Abulaban', nameAr: null, specialtyId: spec.id });
+  const p = (await run({ doctorId: id })).welcomePayload;
+
+  assert.equal(p.nameAr, 'Taher Abulaban', 'falls back to name, prefix stripped — never blank');
+  assert.equal(p.specialtyEn, spec.name);
+});
+
+test('v5 payload: NULL specialty_id still invites (LEFT not INNER join) with empty specialty', async () => {
+  const id = await mkDoctor({ name: 'Dr. No Specialty', specialtyId: null });
+  const p = (await run({ doctorId: id })).welcomePayload;
+
+  assert.equal(p.specialtyAr, '', 'falsy so the template hides the AR clause');
+  assert.equal(p.specialtyEn, '', 'falsy so the template hides the EN clause');
+  assert.equal(p.nameAr, 'No Specialty', 'salutation still populated');
+  assert.ok(p.password_setup_link, 'invite still succeeded — row was not dropped by the join');
 });
 
 // ─────────────────────────── invite happy ───────────────────────────

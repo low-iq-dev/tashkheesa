@@ -17,10 +17,23 @@
 // 7-day magic-login validity. Mirrors superadmin.js WELCOME_EXPIRY_HOURS.
 const WELCOME_EXPIRY_HOURS = 168;
 
+// Strip an English "Dr." or Arabic "د." prefix. Mirrors superadmin.js:3181 and
+// openclawTemplates.js stripDr(). Doctor names are frequently stored
+// already-prefixed ("Dr. Ahmed Hassan"), and the template hardcodes both
+// "د. {{nameAr}}" and "Dr. {{firstName}}" — without this the greeting doubles
+// up ("د. Dr. Ahmed Hassan"). Idempotent on an unprefixed name.
+const DR_PREFIX_RE = /^\s*(?:Dr\.?|د\.?)\s+/i;
+function stripDrPrefix(raw) {
+  return String(raw == null ? '' : raw).trim().replace(DR_PREFIX_RE, '').trim();
+}
+
 /**
  * Build the welcome-notification payload. Pure: no side effects.
- * @param {{ doctor: { name?: string|null, lang?: string|null }, token: string|null, baseUrl: string|null }} args
- * @returns {{ doctorName: string, firstName: string, magicLinkUrl: string|null,
+ * @param {{ doctor: { name?: string|null, name_ar?: string|null, lang?: string|null,
+ *   specialty_name?: string|null, specialty_name_ar?: string|null },
+ *   token: string|null, baseUrl: string|null }} args
+ * @returns {{ doctorName: string, firstName: string, nameAr: string,
+ *   specialtyAr: string, specialtyEn: string, magicLinkUrl: string|null,
  *   password_setup_link: string|null, portalUrl: string|null, expiryDays: number, lang: string }}
  */
 function buildDoctorWelcomePayload({ doctor, token, baseUrl } = {}) {
@@ -37,13 +50,35 @@ function buildDoctorWelcomePayload({ doctor, token, baseUrl } = {}) {
   // Strip an English "Dr." or Arabic "د." prefix, take the first whitespace
   // token; fall back to the localized "Doctor" label. Mirrors
   // superadmin.js:3175-3178 (and openclawTemplates.js stripDr()).
-  const rawName = String(d.name || '').trim();
-  const stripped = rawName.replace(/^\s*(?:Dr\.?|د\.?)\s+/i, '').trim();
+  const stripped = stripDrPrefix(d.name);
   const firstName = stripped.split(/\s+/)[0] || (lang === 'ar' ? 'الطبيب' : 'Doctor');
+
+  // FULL (not first-token) Arabic name for the template's "د. {{nameAr}}،"
+  // greeting. users.name_ar is nullable — 1 of the 29 active doctors has none —
+  // so fall back to users.name rather than leaving a gap in the salutation.
+  // The fallback is a Latin-script name inside an Arabic line; that is
+  // deliberate and still reads correctly next to the "د." title. Both sources
+  // get the same Dr./د. strip so a stored prefix can't double up. The final
+  // 'الطبيب' fallback is unreachable today (0 active doctors lack `name`).
+  const nameAr = stripDrPrefix(d.name_ar) || stripped || 'الطبيب';
+
+  // Specialty labels, gated in the template by {{#if specialtyAr/specialtyEn}}
+  // so a doctor with no specialty simply loses the clause instead of rendering
+  // "as a  consultant". Empty string (not null) keeps the {{#if}} falsy and the
+  // {{...}} output blank if the guard were ever removed. Cross-language
+  // fallback: specialties.name / name_ar are both nullable, so a half-seeded
+  // row still labels both blocks rather than dropping one silently.
+  const specName = String(d.specialty_name || '').trim();
+  const specNameAr = String(d.specialty_name_ar || '').trim();
+  const specialtyAr = specNameAr || specName;
+  const specialtyEn = specName || specNameAr;
 
   return {
     doctorName: d.name || (lang === 'ar' ? 'الطبيب' : 'Doctor'),
     firstName,
+    nameAr,
+    specialtyAr,
+    specialtyEn,
     magicLinkUrl,
     // Ziad-locked bilingual welcome copy references {{password_setup_link}};
     // expose it as an alias of magicLinkUrl so the template renders with no

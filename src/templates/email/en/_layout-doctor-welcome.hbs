@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="{{lang}}" dir="{{dir}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{appName}}</title>
+<!--[if mso]><style>table,td,h1,p,a{font-family:Georgia,serif!important}</style><![endif]-->
+{{!-- Doctor-welcome chrome (v5). Selected per-template via TEMPLATE_LAYOUTS in
+      services/emailService.js. The shared _layout.hbs is untouched and still
+      wraps every other email. Deliberately gradient-free: Outlook's Word engine
+      drops CSS gradients entirely, which would leave bare white bands.
+      Keep this file identical to ar/_layout-doctor-welcome.hbs except the
+      html attributes and the title.
+
+      This is a Handlebars comment, not an HTML one, so it is stripped at
+      compile time and these internal notes never reach the recipient.
+      Never write comment delimiters or mustache braces in this block: a
+      nested closing delimiter ends the comment early and dumps the rest
+      of this text into the sent email. --}}
+<style>
+@media only screen and (max-width:600px){
+  .c{width:100%!important;max-width:100%!important}
+  .p{padding:30px 24px!important}
+  .op{padding:18px 10px!important}
+}
+</style>
+</head>
+<body style="margin:0;padding:0;background:#F2EFE8;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">حسابك على تشخيصة جاهز — خطوة واحدة للتفعيل · Your account is ready</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F2EFE8;">
+<tr><td align="center" class="op" style="padding:36px 16px;">
+
+<!-- HEADER -->
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" class="c" style="max-width:600px;width:100%;">
+<tr><td align="center" style="padding:6px 0 24px;">
+  <div style="font:400 30px/1.2 Georgia,'Times New Roman',serif;color:#0B6B5F;letter-spacing:1px;">تشخيصة</div>
+  <div style="font:400 15px/1.4 Georgia,'Times New Roman',serif;color:#0B6B5F;letter-spacing:3px;padding-top:6px;">TASHKHEESA</div>
+  <table role="presentation" cellpadding="0" cellspacing="0" style="margin:14px auto 0;"><tr>
+    <td style="width:54px;height:2px;background:#B38B3E;font-size:0;line-height:0;">&nbsp;</td>
+  </tr></table>
+  <div style="font:400 13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#7A736A;padding-top:12px;">
+    بدعم من مجموعة مستشفيات شفا
+  </div>
+</td></tr>
+</table>
+
+<!-- CARD -->
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" class="c" style="max-width:600px;width:100%;background:#FFFFFF;border:1px solid #E3DED2;border-radius:12px;">
+<tr><td class="p" style="padding:40px 44px;">
+{{{body}}}
+</td></tr>
+</table>
+
+<!-- FOOTER -->
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" class="c" style="max-width:600px;width:100%;">
+<tr><td align="center" style="padding:26px 0;">
+  <p style="margin:0 0 7px;font:400 12px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#9A9287;">
+    تشخيصة &nbsp;·&nbsp; مجموعة مستشفيات شفا &nbsp;·&nbsp; القاهرة
+  </p>
+  <p style="margin:0;font:400 12px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#9A9287;">
+    <a href="https://tashkheesa.com" style="color:#0B6B5F;text-decoration:none;">tashkheesa.com</a>
+  </p>
+</td></tr>
+</table>
+
+</td></tr>
+</table>
+</body>
+</html>

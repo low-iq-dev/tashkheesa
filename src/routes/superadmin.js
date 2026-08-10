@@ -3128,6 +3128,20 @@ router.get('/superadmin/doctors/:id', requireSuperadmin, async (req, res) => {
   res.render('superadmin_doctor_detail', { user: req.user, doctor, pendingDoctorsCount, query: req.query });
 });
 
+// Doctor row + specialty labels, for the two routes that feed
+// _issueDoctorWelcomePayload. The v5 doctor-welcome template greets with
+// "د. {{nameAr}}" and names the specialty in both languages, so the payload
+// needs users.name_ar (already in SELECT *) plus specialties.name/name_ar
+// (which SELECT * cannot reach — hence the LEFT JOIN). `u.*` keeps every
+// existing consumer of this row working; the two aliases are purely additive.
+// LEFT (not INNER) JOIN: users.specialty_id is nullable and one doctor has none
+// — an inner join would silently drop them from approve/resend entirely.
+const DOCTOR_WITH_SPECIALTY_SQL = `
+  SELECT u.*, sp.name AS specialty_name, sp.name_ar AS specialty_name_ar
+    FROM users u
+    LEFT JOIN specialties sp ON sp.id = u.specialty_id
+   WHERE u.id = $1 AND u.role = 'doctor'`;
+
 // P1-NOTIF-5: helper used by both /approve and /resend-welcome to issue a
 // 7-day magic-login token + queue the doctor-welcome email. Returns a
 // payload object suitable for queueMultiChannelNotification.response.
@@ -3182,9 +3196,22 @@ async function _issueDoctorWelcomePayload(doctor, req) {
   const firstName = stripped.split(/\s+/)[0]
     || (lang === 'ar' ? 'الطبيب' : 'Doctor');
 
+  // v5 doctor-welcome additions — kept a verbatim mirror of
+  // services/doctor_welcome_payload.js (see its comments for the rationale on
+  // the Dr./د. strip, the name_ar→name fallback and the specialty guards).
+  const nameAr = String(doctor.name_ar || '').trim()
+    .replace(/^\s*(?:Dr\.?|د\.?)\s+/i, '').trim()
+    || stripped
+    || 'الطبيب';
+  const specName = String(doctor.specialty_name || '').trim();
+  const specNameAr = String(doctor.specialty_name_ar || '').trim();
+
   return {
     doctorName: doctor.name || (lang === 'ar' ? 'الطبيب' : 'Doctor'),
     firstName,
+    nameAr,
+    specialtyAr: specNameAr || specName,
+    specialtyEn: specName || specNameAr,
     magicLinkUrl,
     // #66/Ziad-locked: Ziad's bilingual welcome copy references
     // {{password_setup_link}}; expose as an alias of magicLinkUrl so the
@@ -3197,7 +3224,7 @@ async function _issueDoctorWelcomePayload(doctor, req) {
 
 router.post('/superadmin/doctors/:id/approve', requireSuperadmin, async (req, res) => {
   const doctorId = req.params.id;
-  const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [doctorId]);
+  const doctor = await queryOne(DOCTOR_WITH_SPECIALTY_SQL, [doctorId]);
   if (!doctor) return res.redirect('/superadmin/doctors');
   const nowIso = new Date().toISOString();
   await execute(
@@ -3259,7 +3286,7 @@ router.post('/superadmin/doctors/:id/approve', requireSuperadmin, async (req, re
 // marks them used on first redemption — collision-safe). Audit-logged.
 router.post('/superadmin/doctors/:id/resend-welcome', requireSuperadmin, async (req, res) => {
   const doctorId = req.params.id;
-  const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [doctorId]);
+  const doctor = await queryOne(DOCTOR_WITH_SPECIALTY_SQL, [doctorId]);
   if (!doctor) return res.redirect('/superadmin/doctors');
   if (doctor.pending_approval) {
     // Approval not yet complete — admin should approve first; resend has no
