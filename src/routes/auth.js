@@ -11,6 +11,7 @@ const { isLaunchMarket } = require('../launch-market');
 const rateLimit = require('express-rate-limit');
 const { sendOtpViaTwilio, verifyOtpCode } = require('../services/twilio_verify');
 const { validatePhoneE164 } = require('../validators/phone');
+const { resolveDoctorLanding } = require('../services/doctor_landing');
 require('dotenv').config();
 
 const NODE_ENV = String(process.env.NODE_ENV || '').toLowerCase();
@@ -526,6 +527,10 @@ router.get('/magic-login/:token', async (req, res) => {
     return res.redirect('/set-password');
   }
 
+  // §4.7 first-login landing (magic-link path for password-holding doctors).
+  const doctorLanding = await resolveDoctorLanding(user);
+  if (doctorLanding) return res.redirect(doctorLanding);
+
   return res.redirect(getHomeByRole(user.role));
 });
 
@@ -605,6 +610,13 @@ router.post('/set-password', async (req, res) => {
       [nowIso, user.id]
     );
   });
+
+  // §4.7 first-login landing: steer a not-yet-onboarded doctor with a non-empty
+  // service union to /portal/doctor/services; empty-union doctors and everyone
+  // else fall through to their normal home. One-time (driven by DB state, no
+  // persistent guard) — a doctor who has confirmed services no longer matches.
+  const doctorLanding = await resolveDoctorLanding(user);
+  if (doctorLanding) return res.redirect(doctorLanding);
 
   return res.redirect(getHomeByRole(user.role));
 });
