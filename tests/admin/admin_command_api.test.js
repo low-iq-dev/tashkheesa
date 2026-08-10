@@ -630,12 +630,12 @@ test('GET /admin/cases/:id → assignment + signed report present when assigned 
 
 const CAND_STUBS = {
   safeGet: async (sql) => (/FROM orders_active o LEFT JOIN specialties/.test(sql)
-    ? { id: 'ord-1', specialty_id: 'spec-cardiology', urgency_tier: 'urgent', doctor_id: null, specialty: 'Cardiology' }
+    ? { id: 'ord-1', specialty_id: 'spec-cardiology', service_id: 'svc-ecg', urgency_tier: 'urgent', doctor_id: null, specialty: 'Cardiology' }
     : null),
   safeAll: async () => ([
-    { id: 'doc-a', name: 'Dr A', is_active: true, is_paused: false, specialty_id: 'spec-cardiology', specialty: 'Cardiology', max_active_cases: 5, max_active_cases_urgent: 8, sla_tiers_supported: ['standard', 'urgent'], load: 2 },
-    { id: 'doc-b', name: 'Dr B', is_active: false, is_paused: false, specialty_id: 'spec-cardiology', specialty: 'Cardiology', max_active_cases: 5, max_active_cases_urgent: 8, sla_tiers_supported: ['standard'], load: 0 },
-    { id: 'doc-c', name: 'Dr C', is_active: true, is_paused: false, specialty_id: 'spec-cardiology', specialty: 'Cardiology', max_active_cases: 5, max_active_cases_urgent: 8, sla_tiers_supported: ['standard', 'urgent'], load: 8 },
+    { id: 'doc-a', name: 'Dr A', is_active: true, is_paused: false, onboarding_complete: true, specialty_id: 'spec-cardiology', specialty: 'Cardiology', max_active_cases: 5, max_active_cases_urgent: 8, sla_tiers_supported: ['standard', 'urgent'], offers_service: true, load: 2 },
+    { id: 'doc-b', name: 'Dr B', is_active: false, is_paused: false, onboarding_complete: true, specialty_id: 'spec-cardiology', specialty: 'Cardiology', max_active_cases: 5, max_active_cases_urgent: 8, sla_tiers_supported: ['standard'], offers_service: true, load: 0 },
+    { id: 'doc-c', name: 'Dr C', is_active: true, is_paused: false, onboarding_complete: true, specialty_id: 'spec-cardiology', specialty: 'Cardiology', max_active_cases: 5, max_active_cases_urgent: 8, sla_tiers_supported: ['standard', 'urgent'], offers_service: true, load: 8 },
   ]),
 };
 
@@ -682,16 +682,19 @@ function poolWith(client) { return { totalCount: 1, idleCount: 1, waitingCount: 
 function assignHandler(over = {}) {
   const order = over.order === null ? null : {
     id: 'ord-1', doctor_id: null, status: 'paid', payment_status: 'paid', paid_at: new Date(),
-    specialty_id: 'spec-cardiology', urgency_tier: 'standard', sla_hours: 48, ...(over.order || {}),
+    specialty_id: 'spec-cardiology', service_id: 'svc-ecg', urgency_tier: 'standard', sla_hours: 48, ...(over.order || {}),
   };
   const doctor = over.doctor === null ? null : {
-    id: 'doc-1', name: 'Dr X', role: 'doctor', is_active: true, is_paused: false,
+    id: 'doc-1', name: 'Dr X', role: 'doctor', is_active: true, is_paused: false, onboarding_complete: true,
     specialty_id: 'spec-cardiology', max_active_cases: 5, max_active_cases_urgent: 8, ...(over.doctor || {}),
   };
   const load = over.load != null ? over.load : 2;
+  // By default the doctor offers the case's service (svc-ecg). Override via over.offersService=false.
+  const offersService = over.offersService !== false;
   return (sql) => {
     if (/FOR UPDATE/.test(sql)) return { rows: order ? [order] : [] };
     if (/FROM users WHERE id = \$1/.test(sql)) return { rows: doctor ? [doctor] : [] };
+    if (/FROM doctor_services WHERE doctor_id/.test(sql)) return { rows: offersService ? [{ 1: 1 }] : [] };
     if (/COUNT\(\*\) AS c FROM orders WHERE doctor_id/.test(sql)) return { rows: [{ c: load }] };
     if (/^(UPDATE|INSERT)/i.test(sql)) { if (over.failOn && over.failOn.test(sql)) throw new Error('injected failure'); return { rows: [] }; }
     return { rows: [] };

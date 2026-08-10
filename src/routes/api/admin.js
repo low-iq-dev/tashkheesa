@@ -45,6 +45,7 @@ const {
   capFor,
   acceptByIso,
 } = require('./_assign_helpers');
+const { eligibleDoctorClause } = require('../../services/doctor_eligibility');
 const { bulkAutoAssign } = require('../../services/admin_bulk_assign');
 const { issueRefund } = require('../../services/admin_refund');
 const { setDoctorPause } = require('../../services/admin_doctor_pause');
@@ -885,7 +886,7 @@ module.exports = function (db, helpers, deploy, deps) {
   router.get('/cases/:id/candidates', async (req, res) => {
     try {
       const c = await safeGet(
-        `SELECT o.id, o.specialty_id, o.urgency_tier, o.doctor_id, COALESCE(sp.name,'—') AS specialty
+        `SELECT o.id, o.specialty_id, o.service_id, o.urgency_tier, o.doctor_id, COALESCE(sp.name,'—') AS specialty
            FROM orders_active o LEFT JOIN specialties sp ON sp.id = o.specialty_id WHERE o.id = $1`,
         [req.params.id]
       );
@@ -893,13 +894,14 @@ module.exports = function (db, helpers, deploy, deps) {
 
       const docs = c.specialty_id
         ? await safeAll(
-            `SELECT u.id, u.name, u.is_active, u.is_paused, u.specialty_id, COALESCE(sp.name,'—') AS specialty,
+            `SELECT u.id, u.name, u.is_active, u.is_paused, u.onboarding_complete, u.specialty_id, COALESCE(sp.name,'—') AS specialty,
                     u.max_active_cases, u.max_active_cases_urgent, u.sla_tiers_supported,
+                    EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = u.id AND ds.service_id = $2) AS offers_service,
                     (SELECT COUNT(*) FROM orders_active o WHERE o.doctor_id = u.id
                        AND LOWER(COALESCE(o.status,'')) NOT IN ('completed','cancelled','expired_unpaid','refunded')) AS load
                FROM users u LEFT JOIN specialties sp ON sp.id = u.specialty_id
               WHERE u.role = 'doctor' AND u.specialty_id = $1 ORDER BY u.name ASC`,
-            [c.specialty_id]
+            [c.specialty_id, c.service_id]
           )
         : [];
 
@@ -910,6 +912,8 @@ module.exports = function (db, helpers, deploy, deps) {
           const atCapacity = cap > 0 && load >= cap;
           const active = !!d.is_active;
           const paused = !!d.is_paused;
+          const onboarded = !!d.onboarding_complete;
+          const offersService = !!d.offers_service;
           return {
             id: d.id,
             name: d.name,
@@ -917,11 +921,13 @@ module.exports = function (db, helpers, deploy, deps) {
             specialtyMatch: true,
             active,
             paused,
+            onboarded,
+            offersService,
             load,
             cap,
             atCapacity,
             supportsTier: doctorSupportsTier(d.sla_tiers_supported, c.urgency_tier),
-            eligible: active && !paused && !atCapacity && d.id !== c.doctor_id,
+            eligible: active && !paused && onboarded && offersService && !atCapacity && d.id !== c.doctor_id,
           };
         })
         .sort((a, b) => (a.eligible === b.eligible ? a.load - b.load : a.eligible ? -1 : 1));
@@ -1070,7 +1076,7 @@ module.exports = function (db, helpers, deploy, deps) {
       await client.query('BEGIN');
 
       const o = (await client.query(
-        `SELECT id, doctor_id, status, payment_status, paid_at, specialty_id, urgency_tier, sla_hours
+        `SELECT id, doctor_id, status, payment_status, paid_at, specialty_id, service_id, urgency_tier, sla_hours
            FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
         [id]
       )).rows[0];
@@ -1087,7 +1093,7 @@ module.exports = function (db, helpers, deploy, deps) {
       if (isReassign && o.doctor_id === doctorId) af('Case is already assigned to this doctor', 409, 'ALREADY_ASSIGNED_TO_DOCTOR');
 
       const d = (await client.query(
-        `SELECT id, name, role, is_active, is_paused, specialty_id, max_active_cases, max_active_cases_urgent
+        `SELECT id, name, role, is_active, is_paused, onboarding_complete, specialty_id, max_active_cases, max_active_cases_urgent
            FROM users WHERE id = $1`,
         [doctorId]
       )).rows[0];
@@ -1095,6 +1101,12 @@ module.exports = function (db, helpers, deploy, deps) {
       if (!d.is_active) af('Doctor is inactive', 409, 'DOCTOR_INACTIVE');
       if (d.is_paused) af('Doctor is paused', 409, 'DOCTOR_PAUSED');
       if (d.specialty_id !== o.specialty_id) af("Doctor's specialty does not match the case", 409, 'SPECIALTY_MISMATCH');
+      if (!d.onboarding_complete) af('Doctor has not completed onboarding', 409, 'DOCTOR_ONBOARDING_INCOMPLETE');
+      const offersService = !!(await client.query(
+        `SELECT 1 FROM doctor_services WHERE doctor_id = $1 AND service_id = $2 LIMIT 1`,
+        [doctorId, o.service_id]
+      )).rows[0];
+      if (!offersService) af('Doctor does not offer this service', 409, 'DOCTOR_SERVICE_NOT_OFFERED');
 
       const cap = capFor(d, o.urgency_tier);
       const load = Number((await client.query(
