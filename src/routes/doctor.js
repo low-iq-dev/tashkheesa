@@ -22,6 +22,7 @@ const { generateMedicalReportPdf } = require('../report-generator');
 const { computeDoctorEarnings } = require('../services/earnings_calc');
 const { loadDoctorServiceCatalog, diffServiceSelection } = require('../services/doctor_service_catalog');
 const { resyncComingSoon } = require('../services/services_coming_soon_sync');
+const { shouldLandOnServices } = require('../services/doctor_landing');
 const { assertRenderableView } = require('../renderGuard');
 const uploadMw = require('../middleware/upload');
 const storage = require('../storage');
@@ -1268,8 +1269,28 @@ router.use(async (req, res, next) => {
   return next();
 });
 
+// §4.7 soft-nudge banner flag — computed ONCE per doctor request (not per page,
+// no N+1). Fetches the DB users row (JWT req.user does NOT carry
+// onboarding_complete) and reuses the shared shouldLandOnServices predicate.
+// Best-effort: any failure leaves the banner off rather than breaking the page.
+async function _computeServicesBannerFlag(req, res) {
+  res.locals.doctorServicesBanner = false;
+  try {
+    if (!req.user || String(req.user.role).toLowerCase() !== 'doctor' || !req.user.id) return;
+    const row = await queryOne(
+      'SELECT id, role, specialty_id, onboarding_complete FROM users WHERE id = $1',
+      [String(req.user.id)]
+    );
+    if (!row) return;
+    res.locals.doctorServicesBanner = await shouldLandOnServices(row);
+  } catch (_) {
+    res.locals.doctorServicesBanner = false;
+  }
+}
+
 // Doctor alert badge count middleware (only for doctor routes)
 router.use(['/portal/doctor', '/doctor'], requireDoctor, async (req, res, next) => {
+  await _computeServicesBannerFlag(req, res);
   try {
     const uid = (req.user && req.user.id) ? String(req.user.id) : '';
     const uemail = (req.user && req.user.email) ? String(req.user.email).trim() : '';
@@ -4888,3 +4909,4 @@ async function handlePortalDoctorGenerateReport(req, res) {
   }
 }
 module.exports = router;
+module.exports._computeServicesBannerFlag = _computeServicesBannerFlag;
