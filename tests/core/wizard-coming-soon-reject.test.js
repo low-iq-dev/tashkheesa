@@ -36,15 +36,37 @@ try {
   t.pass('both wizard service lookups call servicesBookableClause (found ' + bookableCalls + ')');
 } catch (e) { t.fail('wizard-coming-soon-reject: bookable clause present', e); }
 
-// Neither step3 nor step4 order-blocking lookup may still use the old
-// visibility-only clause inside a `WHERE sv.id = $` guard.
+// Neither step3 nor step4 POST handler body may use the old visibility-only
+// clause in a `WHERE sv.id = $` guard.  We scope the check to each handler
+// body only (from its `router.post(…)` line up to — but not including — the
+// next `router.post(` boundary) so dead or unrelated code elsewhere cannot
+// force false positives or require unnecessary churn.
 try {
-  // Match the two literal SELECT fragments we are replacing.
-  const stillVisibleOnly =
-    /WHERE sv\.id = \$1 AND \$\{visibleClause\}/.test(src) ||
-    /WHERE sv\.id = \$2 AND \$\{visibleClause\}/.test(src);
-  if (stillVisibleOnly) {
-    throw new Error('A wizard service lookup still uses ${visibleClause} — must be the bookable clause.');
+  // Extract the step3 POST handler body.
+  const step3Start = src.indexOf("router.post('/patient/new-case/step3'");
+  const step3End   = src.indexOf("router.post('/patient/new-case/step4'", step3Start + 1);
+  const step3Body  = step3Start !== -1 && step3End !== -1
+    ? src.slice(step3Start, step3End)
+    : '';
+
+  // Extract the step4 POST handler body (up to the next router.post boundary).
+  const step4Start = src.indexOf("router.post('/patient/new-case/step4'");
+  const step4End   = src.indexOf("router.post('/patient/new-case/step4/urgency-resolve'", step4Start + 1);
+  const step4Body  = step4Start !== -1 && step4End !== -1
+    ? src.slice(step4Start, step4End)
+    : '';
+
+  if (!step3Body || !step4Body) {
+    throw new Error('Could not locate step3/step4 POST handler bodies — route anchors may have changed.');
   }
-  t.pass('no wizard service lookup uses the visibility-only clause');
-} catch (e) { t.fail('wizard-coming-soon-reject: no visibility-only lookup', e); }
+
+  const visibleOnlyPattern = /WHERE sv\.id = \$\d AND \$\{visibleClause\}/;
+  const step3StillVisible  = visibleOnlyPattern.test(step3Body);
+  const step4StillVisible  = visibleOnlyPattern.test(step4Body);
+
+  if (step3StillVisible || step4StillVisible) {
+    const who = [step3StillVisible && 'step3', step4StillVisible && 'step4'].filter(Boolean).join(' and ');
+    throw new Error(who + ' service lookup(s) still use ${visibleClause} — must be the bookable clause.');
+  }
+  t.pass('neither step3 nor step4 POST handler uses the visibility-only clause');
+} catch (e) { t.fail('wizard-coming-soon-reject: no visibility-only lookup in step3/step4', e); }

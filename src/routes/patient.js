@@ -2682,8 +2682,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
   } = req.body || {};
 
   const specialties = await queryAll('SELECT id, name, name_ar FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
-  // Coming Soon guard (§4.5): dead route but consistent with bookable clause.
-  const bookableClauseLegacy = servicesBookableClause('sv');
+  const visibleClause = await servicesVisibleClause('sv');
   const services = await safeAll(
     (slaExpr) =>
       `SELECT sv.id, sv.specialty_id, sv.name,
@@ -2700,7 +2699,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
          ON cp.service_id = sv.id
         AND cp.country_code = $1
         AND COALESCE(cp.status, 'active') = 'active'
-       WHERE ${bookableClauseLegacy}
+       WHERE ${visibleClause}
        ORDER BY sp.name ASC, sv.name ASC`,
     [countryCode]
   );
@@ -2718,7 +2717,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
          ON cp.service_id = sv.id
         AND cp.country_code = $1
         AND COALESCE(cp.status, 'active') = 'active'
-       WHERE sv.id = $2 AND ${bookableClauseLegacy}`,
+       WHERE sv.id = $2 AND ${visibleClause}`,
     [countryCode, service_id]
   );
 
