@@ -52,6 +52,7 @@ function stubLocals(overrides) {
       services: [{
         id:          'x1',
         name:        'Echo',
+        base_price:  500,
         doctor_fee:  200,
         sla_hours:   48,
         is_visible:  true,
@@ -59,6 +60,7 @@ function stubLocals(overrides) {
       }, {
         id:          'x2',
         name:        'Stress Test',
+        base_price:  900,
         doctor_fee:  350,
         sla_hours:   24,
         is_visible:  false,  // coming-soon chip
@@ -167,6 +169,13 @@ function renderStubbed(locals, cb) {
       }
       t.pass(fileTag + ': (a) isEmpty note absent in normal fixture');
     } catch (e) { t.fail(fileTag + ': (a) isEmpty note absent', e); }
+
+    // --- base_price shown in service row ---
+    try {
+      if (!/Patient pays/.test(html)) throw new Error('"Patient pays" label missing');
+      if (!/500/.test(html)) throw new Error('base_price 500 missing from service row');
+      t.pass(fileTag + ': (a) base_price "Patient pays" visible in service row');
+    } catch (e) { t.fail(fileTag + ': (a) base_price in service row', e); }
   });
 })();
 
@@ -230,5 +239,17 @@ function renderStubbed(locals, cb) {
       if (!/تكسب/.test(html)) throw new Error('"تكسب" label missing in AR fixture');
       t.pass(fileTag + ': (d) AR fixture shows Arabic "تكسب" label');
     } catch (e) { t.fail(fileTag + ': (d) AR fixture', e); }
+  });
+})();
+
+// ── Test (e): success banner renders when success local is passed ─────
+(function testSuccess() {
+  var locals = stubLocals({ success: 'Services saved successfully.' });
+  renderStubbed(locals, function (err, html) {
+    try {
+      if (err) throw new Error('RENDER FAIL: ' + err.message);
+      if (!/Services saved successfully\./.test(html)) throw new Error('success banner text not rendered');
+      t.pass(fileTag + ': (e) success banner renders when success local is set');
+    } catch (e) { t.fail(fileTag + ': (e) success banner', e); }
   });
 })();

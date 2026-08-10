@@ -967,7 +967,8 @@ router.get('/portal/doctor/services', requireDoctor, async (req, res) => {
     specialtyNameAr,
     error: null,
     warning: null,
-    confirmEmpty: false
+    confirmEmpty: false,
+    success: req.query.success || null
   });
 });
 

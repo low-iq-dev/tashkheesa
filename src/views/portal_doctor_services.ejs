@@ -74,7 +74,7 @@
               <span class="v2-check-row__main">
                 <span class="v2-check-row__name"><%= s.name %><% if (s.is_visible === false) { %> <span class="v2-chip v2-chip--neutral"><%= tt('Coming Soon', 'Coming Soon', 'قريبًا') %></span><% } %></span>
                 <span class="v2-check-row__meta">
-                  <span data-numeric><%= tt('You earn', 'You earn', 'تكسب') %> <%= _money(s.doctor_fee) %> <%= _isAr ? 'ج.م' : 'EGP' %></span>
+                  <% if (s.base_price) { %><span data-numeric><%= tt('Patient pays', 'Patient pays', 'يدفع المريض') %> <%= _money(s.base_price) %> <%= _isAr ? 'ج.م' : 'EGP' %></span> · <% } %><span data-numeric><%= tt('You earn', 'You earn', 'تكسب') %> <%= _money(s.doctor_fee) %> <%= _isAr ? 'ج.م' : 'EGP' %></span>
                   <% if (s.sla_hours) { %> · <span data-numeric><%= _money(s.sla_hours) %><%= _isAr ? ' س' : 'h' %> SLA</span><% } %>
                 </span>
               </span>
