@@ -897,6 +897,17 @@ async function servicesVisibleClause(alias) {
   return `COALESCE(${col}, true) = true`;
 }
 
+// Bookable = visible AND not coming_soon. Unlike servicesVisibleClause (async,
+// tolerates a missing is_visible column), this is a pure synchronous string
+// builder per the shared contract — the coming_soon column is NOT NULL DEFAULT
+// false in prod (migration 078), so COALESCE keeps it safe on any older clone.
+// Callers inline it in a WHERE clause alongside their own predicates.
+function servicesBookableClause(alias) {
+  const vis  = alias ? `${alias}.is_visible`  : 'is_visible';
+  const soon = alias ? `${alias}.coming_soon` : 'coming_soon';
+  return `COALESCE(${vis},true)=true AND COALESCE(${soon},false)=false`;
+}
+
 // --- safe schema helpers ---
 function _forceSchema(tableName, columnName, value) {
   const key = `${tableName}.${columnName}`;
@@ -4088,3 +4099,4 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
 router.__test_mapAiQualityToIsValid = mapAiQualityToIsValid;
 
 module.exports = router;
+module.exports.servicesBookableClause = servicesBookableClause;
