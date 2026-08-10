@@ -2961,6 +2961,11 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
   const resetToken = randomUUID();
   const tokenNow = new Date();
   const tokenExpiresAt = new Date(tokenNow.getTime() + WELCOME_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+  // Remint invalidation (Package 2): burn prior unused tokens before minting.
+  await execute(
+    `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+    [newDoctorId]
+  );
   await execute(
     `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
      VALUES ($1, $2, $3, $4, NULL, $5)`,
@@ -3152,6 +3157,11 @@ async function _issueDoctorWelcomePayload(doctor, req) {
   const token = randomUUID();
   const nowIso = new Date().toISOString();
   const expiresAt = new Date(Date.now() + WELCOME_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+  // Remint invalidation (Package 2): burn prior unused tokens before minting.
+  await execute(
+    `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+    [doctor.id]
+  );
   await execute(
     `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
      VALUES ($1, $2, $3, $4, NULL, $5)`,
@@ -3974,6 +3984,11 @@ router.get('/superadmin/debug/reset-link/:userId', requireSuperadmin, async (req
   const token = uuidv4();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + RESET_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+  // Remint invalidation (Package 2): burn prior unused tokens before minting.
+  await execute(
+    `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+    [user.id]
+  );
   await execute(
     `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
      VALUES ($1, $2, $3, $4, NULL, $5)`,

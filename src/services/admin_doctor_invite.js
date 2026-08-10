@@ -76,6 +76,15 @@ async function inviteDoctor(client, opts) {
     // (3) issue a fresh 7-day magic-login token. Columns/expiry match the web
     //     helper exactly (id, user_id, token, expires_at, used_at, created_at).
     //     Explicit ::int cast on the interval multiplier (Tier-A typing).
+    // Remint invalidation (Package 2): burn any prior UNUSED token for this
+    // doctor before minting — SAME txn, after the FOR UPDATE lock, so it is
+    // serialized against concurrent invites and rolls back atomically with the
+    // INSERT. This is the guarantee T30's bulk loop relies on (one live token
+    // per doctor even across post-cooldown re-invites).
+    await client.query(
+      `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+      [doctorId]
+    );
     const token = randomUUID();
     await client.query(
       `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)

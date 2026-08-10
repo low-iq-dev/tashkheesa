@@ -157,6 +157,12 @@ async function createMagicLoginToken(userId) {
   const token = randomUUID();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + MAGIC_LINK_EXPIRY_MINUTES * 60 * 1000).toISOString();
+  // Remint invalidation (Package 2): burn any prior UNUSED token for this user
+  // before minting a fresh one, so an old magic link can't still be redeemed.
+  await execute(
+    `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+    [userId]
+  );
   await execute(
     `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
      VALUES ($1, $2, $3, $4, NULL, $5)`,
@@ -446,6 +452,12 @@ router.post('/forgot-password', async (req, res) => {
     const token = randomUUID();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + RESET_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+    // Remint invalidation (Package 2): a new reset link invalidates the prior
+    // unused one, so an intercepted earlier link can't still be redeemed.
+    await execute(
+      `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+      [user.id]
+    );
     await execute(
       `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
        VALUES ($1, $2, $3, $4, NULL, $5)`,

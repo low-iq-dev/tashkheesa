@@ -323,6 +323,13 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
     const resetToken = randomUUID();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + RESET_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+    // Remint invalidation (Package 2): a new reset link invalidates the prior
+    // unused one for this user, so an intercepted earlier link can't still be
+    // redeemed (shared token space with the portal /reset-password route).
+    await safeRun(
+      `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+      [user.id]
+    );
     await safeRun(
       `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
        VALUES ($1, $2, $3, $4, NULL, $5)`,
