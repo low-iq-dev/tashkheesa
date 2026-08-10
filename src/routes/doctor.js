@@ -20,7 +20,8 @@ const dbStatusValuesFor = caseLifecycle.dbStatusValuesFor;
 // action is implemented directly against the `orders` table to support human-friendly case IDs.
 const { generateMedicalReportPdf } = require('../report-generator');
 const { computeDoctorEarnings } = require('../services/earnings_calc');
-const { loadDoctorServiceCatalog } = require('../services/doctor_service_catalog');
+const { loadDoctorServiceCatalog, diffServiceSelection } = require('../services/doctor_service_catalog');
+const { resyncComingSoon } = require('../services/services_coming_soon_sync');
 const { assertRenderableView } = require('../renderGuard');
 const uploadMw = require('../middleware/upload');
 const storage = require('../storage');
@@ -968,6 +969,123 @@ router.get('/portal/doctor/services', requireDoctor, async (req, res) => {
     warning: null,
     confirmEmpty: false
   });
+});
+
+// POST My Services — diff-save the doctor's confirmed services.
+// Server recomputes the allowed union from the DB (never trusts the client).
+// Zero ticked requires an explicit confirm_empty. On any explicit save we set
+// onboarding_complete=true; on save we also re-sync services.coming_soon.
+router.post('/portal/doctor/services', requireDoctor, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  const specialtyId = req.user && req.user.specialty_id ? String(req.user.specialty_id) : '';
+
+  // Body: service_ids can be an array, a single string, or absent.
+  let ticked = req.body ? req.body.service_ids : undefined;
+  if (ticked == null) ticked = [];
+  else if (!Array.isArray(ticked)) ticked = [ticked];
+  ticked = ticked.map((x) => String(x)).filter(Boolean);
+  const confirmEmpty = String(req.body && req.body.confirm_empty || '') === '1';
+
+  async function rerender(opts) {
+    let specialtyName = '', specialtyNameAr = null, subSpecialties = [];
+    try {
+      const ctx = await queryOne(
+        `SELECT u.sub_specialties AS sub_specialties, sp.name AS specialty_name, sp.name_ar AS specialty_name_ar
+           FROM users u LEFT JOIN specialties sp ON sp.id = u.specialty_id WHERE u.id = $1`,
+        [doctorId]
+      );
+      if (ctx) {
+        specialtyName = ctx.specialty_name || '';
+        specialtyNameAr = ctx.specialty_name_ar || null;
+        let ss = ctx.sub_specialties;
+        if (typeof ss === 'string') { try { ss = JSON.parse(ss); } catch (_) { ss = []; } }
+        subSpecialties = Array.isArray(ss) ? ss.filter((x) => typeof x === 'string' && x) : [];
+      }
+    } catch (_) {}
+    const cat = await withTransaction((client) =>
+      loadDoctorServiceCatalog(client, { doctorId, specialtyId })
+    );
+    // Reflect the doctor's just-submitted ticks so re-render shows their intent.
+    const tickedSet = new Set(ticked);
+    for (const g of cat.groups) for (const s of g.services) s.ticked = tickedSet.has(s.id);
+    if (opts.status) res.status(opts.status);
+    return res.render('portal_doctor_services', {
+      portalFrame: true, portalRole: 'doctor', portalActive: 'services', brand: 'Tashkheesa',
+      title: isAr ? 'خدماتي' : 'My Services', user: req.user, lang, isAr,
+      nextPath: '/portal/doctor/services', canonicalUrl: '/portal/doctor/services',
+      groups: cat.groups, isEmpty: !!cat.isEmpty, subSpecialties, specialtyName, specialtyNameAr,
+      error: opts.error || null, warning: opts.warning || null, confirmEmpty
+    });
+  }
+
+  try {
+    const result = await withTransaction(async (client) => {
+      const cat = await loadDoctorServiceCatalog(client, { doctorId, specialtyId });
+      const held = (await client.query('SELECT service_id FROM doctor_services WHERE doctor_id = $1', [doctorId]))
+        .rows.map((r) => String(r.service_id));
+      const diff = diffServiceSelection(cat.allowedIds, held, ticked);
+
+      if (diff.rejected.length) {
+        // DOCTOR_SERVICE_NOT_OFFERED — a ticked id is outside the allowed union.
+        const err = new Error('DOCTOR_SERVICE_NOT_OFFERED');
+        err.kind = 'rejected';
+        throw err;
+      }
+      if (!ticked.length && !confirmEmpty) {
+        const err = new Error('ZERO_NO_CONFIRM');
+        err.kind = 'zero';
+        throw err;
+      }
+
+      for (const id of diff.toInsert) {
+        await client.query(
+          'INSERT INTO doctor_services (doctor_id, service_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [doctorId, id]
+        );
+      }
+      if (diff.toDelete.length) {
+        await client.query(
+          'DELETE FROM doctor_services WHERE doctor_id = $1 AND service_id = ANY($2)',
+          [doctorId, diff.toDelete]
+        );
+      }
+      // Any explicit save (incl. confirmed-empty) marks onboarding complete.
+      await client.query('UPDATE users SET onboarding_complete = true WHERE id = $1', [doctorId]);
+      // Re-sync coming_soon in the SAME txn (contract: resyncComingSoon(client)).
+      await resyncComingSoon(client);
+      return true;
+    });
+    if (result) {
+      return res.redirect('/portal/doctor/services?success=' +
+        encodeURIComponent(isAr ? 'تم حفظ خدماتك' : 'Your services were saved'));
+    }
+  } catch (err) {
+    if (err && err.kind === 'rejected') {
+      return rerender({
+        status: 400,
+        error: isAr ? 'خدمة غير مسموح بها في قائمتك.' : 'One of the selected services is not available to you.'
+      });
+    }
+    if (err && err.kind === 'zero') {
+      return rerender({
+        status: 400,
+        warning: isAr
+          ? 'لم تحدد أي خدمة. أكد أنك لا تقبل أي خدمة حالياً للحفظ.'
+          : 'You selected no services. Confirm you accept none right now to save.'
+      });
+    }
+    logErrorToDb(err, {
+      context: 'doctor.services_save', requestId: req.requestId, userId: req.user?.id,
+      url: req.originalUrl, method: req.method, category: 'doctor_case'
+    });
+    console.error('[doctor-services] save error for user ' + doctorId + ':', err && err.message ? err.message : err);
+    return rerender({
+      status: 500,
+      error: isAr ? 'تعذَّر حفظ خدماتك. يرجى المحاولة مرة أخرى.' : 'Could not save your services. Please try again.'
+    });
+  }
 });
 
 // P1-DOC-1 (2026-05-05): the doctor messages experience already lives at

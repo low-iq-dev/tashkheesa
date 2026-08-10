@@ -96,4 +96,21 @@ async function loadDoctorServiceCatalog(client, { doctorId, specialtyId }) {
   return { groups, allowedIds, isEmpty: allowedIds.size === 0 };
 }
 
-module.exports = { loadDoctorServiceCatalog };
+// Pure diff for the save handler. `allowedIds` is the union Set from
+// loadDoctorServiceCatalog; `currentIds`/`tickedIds` are string arrays.
+// Only rows INSIDE the allowed union are ever inserted or deleted — out-of-union
+// held rows (e.g. legacy) are left untouched. Ticked ids outside the union are
+// collected in `rejected` (the route rejects the whole save).
+function diffServiceSelection(allowedIds, currentIds, tickedIds) {
+  const allowed = allowedIds instanceof Set ? allowedIds : new Set(allowedIds || []);
+  const current = new Set((currentIds || []).map(String));
+  const tickedRaw = (tickedIds || []).map(String);
+  const rejected = [...new Set(tickedRaw.filter((id) => !allowed.has(id)))];
+  const ticked = new Set(tickedRaw.filter((id) => allowed.has(id)));
+  const toInsert = [...ticked].filter((id) => !current.has(id));
+  // Delete = allowed-union rows the doctor currently holds but did NOT tick.
+  const toDelete = [...allowed].filter((id) => current.has(id) && !ticked.has(id));
+  return { toInsert, toDelete, rejected };
+}
+
+module.exports = { loadDoctorServiceCatalog, diffServiceSelection };
