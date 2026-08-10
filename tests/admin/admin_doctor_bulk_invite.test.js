@@ -6,7 +6,8 @@
 // the route's post-commit concern, exercised here via the onInvited callback):
 //   - selects role='doctor' AND is_active=true AND password_hash IS NULL only
 //   - two password-less active doctors each get exactly ONE live (unused) token
-//   - a password-HOLDER is excluded (password_hash IS NULL), no token
+//   - a password-HOLDER (password_hash NOT NULL) is excluded — the cohort filter
+//     requires password_hash IS NULL — so no token is minted for them
 //   - an INACTIVE password-less doctor is excluded (is_active), no token
 //   - re-running within the cooldown does NOT double-send (skipped → still 1 token)
 //   - returns { sent, skipped, failed } with matching id arrays
@@ -120,4 +121,23 @@ test('bulk: re-running within cooldown does not double-send (skipped → still o
   assert.equal(second.skipped, 1, 'the freshly-invited doctor is now cooldown-skipped');
   assert.deepEqual(second.skippedIds, [a]);
   assert.equal(await liveTokenCount(a), 1, 'still exactly one live token (no double-mint)');
+});
+
+// ─── route wiring (T31, structural) ────────────────────────────────────────────
+// The HTTP path is superadmin-gated (needs a live session), and driving the real
+// route would bulk-invite EVERY passwordless active doctor on the shared local DB
+// (unscoped by design) — fragile to assert on. So the route's LOGIC is proven by
+// the two service tests above (idPrefix-isolated), and here we assert the WIRING:
+// the route is mounted, superadmin-gated, delegates to the bulk service, returns
+// the tally, and fires a per-doctor dedupe'd notification. Runtime mount + gating
+// is additionally smoke-checked at verification time (POST without a session → 302).
+test('route: POST /superadmin/doctors/bulk-welcome-passwordless is wired, gated, and returns the tally', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const src = fs.readFileSync(path.join(__dirname, '../../src/routes/superadmin.js'), 'utf8');
+  assert.match(src, /router\.post\(\s*['"]\/superadmin\/doctors\/bulk-welcome-passwordless['"]\s*,\s*requireSuperadmin/,
+    'route registered and superadmin-gated');
+  assert.match(src, /bulkWelcomePasswordlessDoctors/, 'route delegates to the bulk service');
+  assert.match(src, /res\.json\(\s*\{\s*sent[\s\S]*skipped[\s\S]*failed/, 'route returns { sent, skipped, failed }');
+  assert.match(src, /dedupe_key:\s*['"`]doctor_bulk_welcome:/, 'notifications carry a per-doctor dedupe key');
 });

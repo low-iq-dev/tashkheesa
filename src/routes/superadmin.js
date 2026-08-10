@@ -1,6 +1,6 @@
 // src/routes/superadmin.js
 const express = require('express');
-const { queryOne, queryAll, execute, withTransaction } = require('../pg');
+const { pool, queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { logErrorToDb } = require('../logger');
 const { resyncComingSoon } = require('../services/services_coming_soon_sync');
 const { randomUUID } = require('crypto');
@@ -21,6 +21,7 @@ const caseLifecycle = require('../case_lifecycle');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
 const emailService = require('../services/emailService');
 const { logAdminAudit } = require('../services/admin_audit');
+const { bulkWelcomePasswordlessDoctors } = require('../services/admin_doctor_bulk_invite');
 const adminSettings = require('../services/admin_settings');
 const superadminDashboard = require('../services/superadmin_dashboard');
 const { getAiHealth } = require('../services/ai_health');
@@ -3337,6 +3338,77 @@ router.post('/superadmin/doctors/:id/resend-welcome', requireSuperadmin, async (
   }
 
   return res.redirect(`/superadmin/doctors/${doctorId}?resend=${resendOk ? 'ok' : 'failed'}`);
+});
+
+// Package 2 (T29/T31) — reusable BULK welcome-to-passwordless. Invites every
+// password-less ACTIVE doctor (role='doctor' AND is_active=true AND password_hash
+// IS NULL) so the never-logged-in cohort can set a password and confirm services.
+// Delegates to bulkWelcomePasswordlessDoctors: one txn/doctor via inviteDoctor
+// (token mint + remint-burn + welcome stamp + audit), skips password-holders and
+// anyone still inside the welcome cooldown, IDEMPOTENT (remint-DELETE → one live
+// token; cooldown skips a same-batch re-run → no double send). Notifications fire
+// POST-COMMIT per doctor with a per-doctor dedupe key. MUST SHIP IN THE SAME
+// RELEASE AS THE ASSIGNMENT GATE (spec §9): the gate makes every
+// onboarding_complete=false doctor unassignable, so without a way to send invites
+// the whole roster is stranded. (Send-side per-IP limiter is deferred — T28
+// send-side half.) requireSuperadmin mirrors the other /superadmin/doctors/* actions.
+router.post('/superadmin/doctors/bulk-welcome-passwordless', requireSuperadmin, async (req, res) => {
+  logAdminAudit({ req, action: 'bulk_welcome_passwordless_doctors', target: '/superadmin/doctors' });
+
+  // baseUrl the same way _issueDoctorWelcomePayload resolves it (env first,
+  // request headers fallback) so the magic links are absolute. A null baseUrl
+  // still yields a valid (link-less) payload — never throws.
+  let baseUrl = String(process.env.BASE_URL || process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  if (!baseUrl) {
+    try {
+      const protoRaw = (req.get('x-forwarded-proto') || req.protocol || 'http');
+      const proto = String(protoRaw).split(',')[0].trim() || 'http';
+      const host = req.get('x-forwarded-host') || req.get('host');
+      baseUrl = host ? `${proto}://${host}` : '';
+    } catch (_) { baseUrl = ''; }
+  }
+
+  const client = await pool.connect();
+  try {
+    // The bulk service reuses `client` only for the read-side SELECT; each
+    // inviteDoctor runs on its own fresh pool client (own txn). Notifications
+    // fire post-commit via onInvited — per-doctor dedupe_key with a timestamp so
+    // the worker (which dedupes permanently) never drops a legitimately re-sent
+    // invite in a later batch, and a same-batch duplicate is impossible (each
+    // doctor appears once in the cohort).
+    const result = await bulkWelcomePasswordlessDoctors(client, {
+      actorId: req.user && req.user.id,
+      baseUrl: baseUrl || null,
+      onInvited: (doctorId, welcomePayload) => {
+        try {
+          queueMultiChannelNotification({
+            orderId: null,
+            toUserId: doctorId,
+            channels: ['internal', 'email', 'whatsapp'],
+            template: 'doctor_approved',
+            response: welcomePayload,
+            dedupe_key: 'doctor_bulk_welcome:' + doctorId + ':' + Date.now(),
+          });
+        } catch (e) {
+          console.error('[bulk-welcome] notify failed:', doctorId, e && e.message ? e.message : e);
+        }
+      },
+    });
+    return res.json({ sent: result.sent, skipped: result.skipped, failed: result.failed });
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.doctors_bulk_welcome_passwordless',
+      requestId: req.requestId,
+      userId: req.user && req.user.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_auth',
+    });
+    console.error('[bulk-welcome] batch failed:', err && err.message ? err.message : err);
+    return res.status(500).json({ error: 'Bulk welcome failed' });
+  } finally {
+    client.release();
+  }
 });
 
 router.post('/superadmin/doctors/:id/reject', requireSuperadmin, async (req, res) => {
