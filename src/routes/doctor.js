@@ -115,6 +115,14 @@ function stripPricingFields(order) {
 
 const requireDoctor = requireRole('doctor');
 
+// §4.7 soft-nudge banner — early middleware so all doctor GET handlers can see the flag.
+// _computeServicesBannerFlag is hoisted (function declaration), so calling it here is safe.
+// Best-effort: errors are swallowed, banner stays off rather than breaking any page.
+router.use(async (req, res, next) => {
+  try { await _computeServicesBannerFlag(req, res); } catch (_) { /* banner is best-effort; never break the page */ }
+  next();
+});
+
 // Pending approval holding page — accessible without full doctor session
 router.get('/doctor/pending-approval', (req, res) => {
   const lang = res.locals.lang || 'en';
@@ -1276,6 +1284,8 @@ router.use(async (req, res, next) => {
 async function _computeServicesBannerFlag(req, res) {
   res.locals.doctorServicesBanner = false;
   try {
+    // Self-referential guard: never show "go to services" banner on the services page itself.
+    if (req.originalUrl && req.originalUrl.startsWith('/portal/doctor/services')) { return; }
     if (!req.user || String(req.user.role).toLowerCase() !== 'doctor' || !req.user.id) return;
     const row = await queryOne(
       'SELECT id, role, specialty_id, onboarding_complete FROM users WHERE id = $1',
@@ -1290,7 +1300,6 @@ async function _computeServicesBannerFlag(req, res) {
 
 // Doctor alert badge count middleware (only for doctor routes)
 router.use(['/portal/doctor', '/doctor'], requireDoctor, async (req, res, next) => {
-  await _computeServicesBannerFlag(req, res);
   try {
     const uid = (req.user && req.user.id) ? String(req.user.id) : '';
     const uemail = (req.user && req.user.email) ? String(req.user.email).trim() : '';

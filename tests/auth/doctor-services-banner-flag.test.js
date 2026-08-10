@@ -101,4 +101,27 @@ function mkRes() { return { locals: {} }; }
     assert.strictEqual(res.locals.doctorServicesBanner, false, 'error path → banner false, no throw');
     t.pass('banner-flag error is swallowed → false (best-effort, never breaks page)');
   } catch (e) { t.fail('banner flag error swallowed', e); }
+
+  // 5. Self-referential guard: /portal/doctor/services → banner OFF regardless
+  try {
+    stubUserRow = { id: 'doc-e', role: 'doctor', specialty_id: 'spec-card', onboarding_complete: false };
+    stubCatalog = { isEmpty: false };
+    const req = { user: { id: 'doc-e', role: 'doctor' }, method: 'GET', originalUrl: '/portal/doctor/services' };
+    const res = mkRes();
+    await compute(req, res);
+    assert.strictEqual(res.locals.doctorServicesBanner, false, 'no banner on services page itself');
+    t.pass('self-ref guard: /portal/doctor/services → doctorServicesBanner=false');
+  } catch (e) { t.fail('self-ref guard', e); }
+
+  // 6. Source-level registration-order assertion: banner middleware appears BEFORE first router.get
+  try {
+    const src = require('fs').readFileSync(require.resolve('../../src/routes/doctor.js'), 'utf8');
+    const bannerUseIdx = src.indexOf('_computeServicesBannerFlag(req, res)');
+    const firstRouterGetIdx = src.indexOf("router.get('");
+    assert.ok(bannerUseIdx > 0, 'banner middleware registration found in source');
+    assert.ok(firstRouterGetIdx > 0, 'first router.get found in source');
+    assert.ok(bannerUseIdx < firstRouterGetIdx,
+      `banner router.use (char ${bannerUseIdx}) must appear before first router.get (char ${firstRouterGetIdx})`);
+    t.pass('registration order: _computeServicesBannerFlag router.use is before first router.get');
+  } catch (e) { t.fail('registration order check', e); }
 })().catch(function (err) { t.fail('harness crashed', err); });
