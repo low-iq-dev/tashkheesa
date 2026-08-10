@@ -306,6 +306,27 @@
 @media (max-width: 480px) {
   .featured-grid { grid-template-columns: 1fr; }
 }
+/* Coming Soon — public catalogue (NOT the doctor-portal .v2-chip--soon, which
+   is scoped to body.doctor-theme.portal-v2 and unstyled here). */
+.service-card--soon {
+  cursor: default;
+  opacity: 0.9;
+}
+.service-card--soon:hover {
+  border-color: #e5e7eb;
+  transform: none;
+  box-shadow: none;
+  background: #f9fafb;
+}
+.service-soon-badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #8E6C2C;
+  background: #FAF1DD;
+  border-radius: 10px;
+  padding: 5px 10px;
+}
 </style>
 
 <main class="page-shell">
@@ -426,6 +447,15 @@
         'أكتر مراجعات مطلوبة من الدكاترة بتاعتنا — مختارة على أساس تأثيرها السريري ونتيجتها على المريض') %></p>
       <div class="featured-grid">
         <% featuredServices.forEach(function(s) { %>
+        <% if (s.coming_soon) { %>
+        <div class="featured-card service-card--soon" role="link" aria-disabled="true" tabindex="-1">
+          <div class="fc-specialty"><%= __isAr && s.specialty_name_ar ? s.specialty_name_ar : s.specialty_name %></div>
+          <div class="fc-name"><%= s.name %></div>
+          <div class="fc-price">
+            <span class="service-soon-badge"><%= tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %></span>
+          </div>
+        </div>
+        <% } else { %>
         <a href="<%= submitUrl %>?service_id=<%= s.id %>" class="featured-card">
           <div class="fc-specialty"><%= __isAr && s.specialty_name_ar ? s.specialty_name_ar : s.specialty_name %></div>
           <div class="fc-name"><%= s.name %></div>
@@ -434,6 +464,7 @@
             <span> <%= tt('svc.per_report', '/ report', '/ تقرير') %></span>
           </div>
         </a>
+        <% } %>
         <% }); %>
       </div>
     </div>
@@ -467,6 +498,20 @@
 
       <div class="services-grid">
         <% preview.forEach(function(service) { %>
+        <% if (service.coming_soon) { %>
+        <div class="service-card service-card--soon" role="link" aria-disabled="true" tabindex="-1">
+          <h3><%= service.name %></h3>
+          <p><%= service.description || tt('svc.default_desc',
+            'Board-certified specialist review with detailed written report in English and Arabic.',
+            'مراجعة من دكتور متخصص معتمد بتقرير مكتوب مفصل بالإنجليزي والعربي.') %></p>
+          <div class="service-meta">
+            <span class="service-soon-badge"><%= tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %></span>
+            <div class="service-sla"><%= (service.sla_hours && service.sla_hours <= 24)
+              ? tt('svc.sla.24', '24-hour', '24 ساعة')
+              : tt('svc.sla.standard', '48-hour', '48 ساعة') %></div>
+          </div>
+        </div>
+        <% } else { %>
         <a href="<%= submitUrl %>?service_id=<%= service.id %>" class="service-card">
           <h3><%= service.name %></h3>
           <p><%= service.description || tt('svc.default_desc',
@@ -481,6 +526,7 @@
               : tt('svc.sla.standard', '48-hour', '48 ساعة') %></div>
           </div>
         </a>
+        <% } %>
         <% }); %>
       </div>
 
