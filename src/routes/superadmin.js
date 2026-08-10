@@ -2,6 +2,7 @@
 const express = require('express');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { logErrorToDb } = require('../logger');
+const { resyncComingSoon } = require('../services/services_coming_soon_sync');
 const { randomUUID } = require('crypto');
 const { requireRole } = require('../middleware');
 const { isLaunchMarket } = require('../launch-market');
@@ -3082,6 +3083,13 @@ router.post('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) 
   } catch (_) {
     // no-op
   }
+  // Edit can flip is_active AND rewrite doctor_services → both change supply.
+  // Recompute coming_soon after the mapping rewrite (§4.3), best-effort.
+  try {
+    await resyncComingSoon();
+  } catch (e) {
+    logErrorToDb(e, { context: 'superadmin.doctor_edit_resync', userId: req.user?.id, url: req.originalUrl, method: req.method, category: 'superadmin_auth' });
+  }
   return res.redirect('/superadmin/doctors');
 });
 
@@ -3093,6 +3101,12 @@ router.post('/superadmin/doctors/:id/toggle', requireSuperadmin, async (req, res
      WHERE id = $1 AND role = 'doctor'`,
     [doctorId]
   );
+  // Toggling is_active changes supply → recompute coming_soon (§4.3), best-effort.
+  try {
+    await resyncComingSoon();
+  } catch (e) {
+    logErrorToDb(e, { context: 'superadmin.doctor_toggle_resync', userId: req.user?.id, url: req.originalUrl, method: req.method, category: 'superadmin_auth' });
+  }
   return res.redirect('/superadmin/doctors');
 });
 
@@ -3196,6 +3210,14 @@ router.post('/superadmin/doctors/:id/approve', requireSuperadmin, async (req, re
     [nowIso, doctorId]
   );
 
+  // Approving flips is_active → recompute services.coming_soon (design §4.3).
+  // Post-commit + best-effort: a re-sync failure must not break approval.
+  try {
+    await resyncComingSoon();
+  } catch (e) {
+    logErrorToDb(e, { context: 'superadmin.doctor_approve_resync', userId: req.user?.id, url: req.originalUrl, method: req.method, category: 'superadmin_auth' });
+  }
+
   // P1-NOTIF-5: audit the approval action durably, BEFORE the (async) email
   // queue. Approval state is committed in the UPDATE above; logging the
   // action is independent of email-send success.
@@ -3294,6 +3316,14 @@ router.post('/superadmin/doctors/:id/reject', requireSuperadmin, async (req, res
      WHERE id = $2 AND role = 'doctor'`,
     [rejection_reason || 'Not approved', doctorId]
   );
+
+  // Rejecting deactivates the doctor (is_active→false) → recompute coming_soon
+  // so a service losing its last active doctor is flagged (§4.3), best-effort.
+  try {
+    await resyncComingSoon();
+  } catch (e) {
+    logErrorToDb(e, { context: 'superadmin.doctor_reject_resync', userId: req.user?.id, url: req.originalUrl, method: req.method, category: 'superadmin_auth' });
+  }
 
   queueNotification({
     orderId: null,
