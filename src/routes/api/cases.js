@@ -232,10 +232,19 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     const urgencyFlag = tier !== 'standard';
     const urgencyTier = tier;
 
-    // Validate service exists
+    // Validate service exists AND is bookable. The mobile path historically
+    // checked NEITHER is_visible NOR coming_soon (spec §4.5) — a stale app
+    // screen or a direct POST could mint an order for a service with no active
+    // doctor. coming_soon is NOT NULL DEFAULT false in prod; COALESCE keeps the
+    // guard safe on any older clone lacking the column defaults.
     const service = await safeGet('SELECT * FROM services WHERE id = $1', [serviceId]);
     if (!service) {
       return res.fail('Invalid service', 400, 'INVALID_SERVICE');
+    }
+    const isVisible = service.is_visible == null ? true : !!service.is_visible;
+    const isComingSoon = service.coming_soon == null ? false : !!service.coming_soon;
+    if (!isVisible || isComingSoon) {
+      return res.fail('This service is not available for booking', 400, 'SERVICE_NOT_BOOKABLE');
     }
 
     // ALWAYS-CHARGE-EGP: look up the patient's LOCAL market price (real country,
