@@ -22,6 +22,7 @@ const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, 
 const emailService = require('../services/emailService');
 const { logAdminAudit } = require('../services/admin_audit');
 const { bulkWelcomePasswordlessDoctors } = require('../services/admin_doctor_bulk_invite');
+const { WELCOME_EXPIRY_HOURS } = require('../services/doctor_welcome_payload');
 const adminSettings = require('../services/admin_settings');
 const superadminDashboard = require('../services/superadmin_dashboard');
 const { getAiHealth } = require('../services/ai_health');
@@ -54,7 +55,8 @@ const RESET_EXPIRY_HOURS = 2;     // forgot-password / manual reset — user is 
 // P1-NOTIF-5: doctor approval + admin-created doctor first-time setup —
 // recipient is passive (didn't request the email), may not check inbox
 // for days. 7 days matches industry-standard onboarding email expiry.
-const WELCOME_EXPIRY_HOURS = 168;
+// WELCOME_EXPIRY_HOURS is single-sourced from ../services/doctor_welcome_payload
+// (imported at the top — Task 25); do NOT redeclare it here.
 
 // Defaults for alerts badge on superadmin pages.
 router.use((req, res, next) => {

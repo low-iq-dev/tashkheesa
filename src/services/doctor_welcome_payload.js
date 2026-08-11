@@ -14,7 +14,8 @@
 
 'use strict';
 
-// 7-day magic-login validity. Mirrors superadmin.js WELCOME_EXPIRY_HOURS.
+// 7-day magic-login validity. SINGLE SOURCE (Task 25): superadmin.js and
+// admin_doctor_invite.js import this constant — do not redeclare it elsewhere.
 const WELCOME_EXPIRY_HOURS = 168;
 
 // Strip an English "Dr." or Arabic "د." prefix. Mirrors superadmin.js:3181 and
