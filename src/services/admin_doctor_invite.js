@@ -48,9 +48,22 @@ async function inviteDoctor(client, opts) {
   try {
     // (1) lock the row; must exist and be a doctor (re-read in-txn, never trust
     //     the caller). FOR UPDATE serializes two operators on the same doctor.
+    //     name_ar + the specialties LEFT JOIN feed the v5 welcome template's
+    //     "د. {{nameAr}}" greeting and {{specialtyAr}}/{{specialtyEn}} clauses.
+    //     FOR UPDATE OF u is REQUIRED, not stylistic: a bare FOR UPDATE over an
+    //     outer join is a hard Postgres error ("FOR UPDATE cannot be applied to
+    //     the nullable side of an outer join"), verified against prod. Scoping
+    //     the lock to `u` also keeps the intent right — we serialize the doctor
+    //     row, never the shared specialties row.
     const u = (await client.query(
-      `SELECT id, role, is_active, name, lang, welcome_email_last_sent_at
-         FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT u.id, u.role, u.is_active, u.name, u.name_ar, u.lang,
+              u.welcome_email_last_sent_at,
+              sp.name    AS specialty_name,
+              sp.name_ar AS specialty_name_ar
+         FROM users u
+         LEFT JOIN specialties sp ON sp.id = u.specialty_id
+        WHERE u.id = $1
+        FOR UPDATE OF u`,
       [doctorId]
     )).rows[0];
     if (!u || u.role !== 'doctor') throw af('Doctor not found', 404, 'DOCTOR_NOT_FOUND');
@@ -63,6 +76,15 @@ async function inviteDoctor(client, opts) {
     // (3) issue a fresh 7-day magic-login token. Columns/expiry match the web
     //     helper exactly (id, user_id, token, expires_at, used_at, created_at).
     //     Explicit ::int cast on the interval multiplier (Tier-A typing).
+    // Remint invalidation (Package 2): burn any prior UNUSED token for this
+    // doctor before minting — SAME txn, after the FOR UPDATE lock, so it is
+    // serialized against concurrent invites and rolls back atomically with the
+    // INSERT. This is the guarantee T30's bulk loop relies on (one live token
+    // per doctor even across post-cooldown re-invites).
+    await client.query(
+      `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+      [doctorId]
+    );
     const token = randomUUID();
     await client.query(
       `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)

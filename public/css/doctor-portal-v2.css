@@ -964,6 +964,46 @@ body.v2-auth .v2-field__hint {
 }
 
 /* ═══════════════════════════════════════
+   Checkbox rows (My Services confirm list)
+   ═══════════════════════════════════════ */
+body.doctor-theme.portal-v2 .v2-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-block: 12px;
+  padding-inline: 16px;
+  border-block-end: 1px solid var(--v2-rule);
+  cursor: pointer;
+  transition: background var(--v2-t-fast) var(--v2-ease);
+}
+body.doctor-theme.portal-v2 .v2-check-row:last-child { border-block-end: none; }
+body.doctor-theme.portal-v2 .v2-check-row:hover { background: var(--v2-brand-lt); }
+body.doctor-theme.portal-v2 .v2-check-row--plain { cursor: default; }
+body.doctor-theme.portal-v2 .v2-check-row__box {
+  inline-size: 18px;
+  block-size: 18px;
+  margin-block-start: 2px;
+  accent-color: var(--v2-brand);
+  flex-shrink: 0;
+}
+body.doctor-theme.portal-v2 .v2-check-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+body.doctor-theme.portal-v2 .v2-check-row__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--v2-ink);
+}
+body.doctor-theme.portal-v2 .v2-check-row__meta {
+  font-size: 12px;
+  color: var(--v2-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ═══════════════════════════════════════
    Empty state
    ═══════════════════════════════════════ */
 body.doctor-theme.portal-v2 .v2-empty {

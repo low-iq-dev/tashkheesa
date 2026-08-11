@@ -1,142 +1,147 @@
-<!-- Doctor Welcome — bilingual founder-signed onboarding email
-     Same body shipped in en/ AND ar/ paths (option (a)) so the
-     template is language-agnostic at send time; user.lang only
-     picks which file the loader reads first.
-     Variables: firstName, password_setup_link, expiryDays. -->
+{{!-- Doctor Welcome — bilingual founder-signed onboarding email (v5).
+      Same body shipped in en/ AND ar/ paths (option (a)) so the
+      template is language-agnostic at send time; user.lang only
+      picks which file the loader reads first.
 
-<!-- ── العربية ───────────────────────────────────────────────── -->
-<div dir="rtl" style="text-align:right;font-family:'Cormorant Garamond','Amiri',Georgia,serif;">
-  <h2 style="margin:0 0 18px 0;font-size:22px;font-weight:600;color:#0B6B5F;font-family:'Cormorant Garamond','Amiri',Georgia,serif;">
-    أهلاً بك في تشخيصة
-  </h2>
+      This is a BODY PARTIAL — renderEmail() wraps it in
+      _layout-doctor-welcome.hbs (registered in TEMPLATE_LAYOUTS,
+      services/emailService.js), which supplies the document shell,
+      masthead and footer. Do NOT reintroduce those tags here.
 
-  <p style="margin:0 0 16px 0;font-size:16px;line-height:1.8;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    د. {{firstName}}،
-  </p>
+      Variables: nameAr, firstName, specialtyAr, specialtyEn,
+                 password_setup_link, expiryDays.
+      Both CTAs deliberately share ONE password_setup_link —
+      per-language activation URLs are a separate task.
 
-  <p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    أهلاً بك في تشخيصة، أول منصة في مصر للحصول على رأي طبي ثاني من استشاريين متخصصين.
-  </p>
+      This is a Handlebars comment, not an HTML one, so it is stripped at
+      compile time and never reaches the recipient. Never write comment
+      delimiters or mustache braces in this block: a nested closing
+      delimiter ends the comment early and dumps the rest of this text
+      into the sent email. --}}
 
-  <p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    حسابك على البورتال جاهز للاستخدام. يكفي تفعيل كلمة السر للدخول:
-  </p>
+<!-- ================= ARABIC ================= -->
+<div dir="rtl" style="text-align:right;">
 
-  {{#if password_setup_link}}
-  <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;">
-    <tr>
-      <td style="background-color:#0B6B5F;border-radius:8px;">
-        <a href="{{{password_setup_link}}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#F8F5EF;text-decoration:none;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-          👉 تفعيل الحساب
-        </a>
-      </td>
-    </tr>
-  </table>
-  <p style="margin:0 0 24px 0;font-size:13px;line-height:1.7;color:#6B7280;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    (الرابط صالح لمدة {{expiryDays}} أيام)
-  </p>
-  {{/if}}
+<h1 style="margin:0 0 22px;font:400 24px/1.5 Georgia,'Times New Roman',serif;color:#0B6B5F;">
+  أهلاً بك في تشخيصة
+</h1>
 
-  <p style="margin:0 0 12px 0;font-size:15px;line-height:1.8;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    بعد التفعيل، هتدخل على حسابك وتقدر:
-  </p>
+<p style="margin:0 0 18px;font:400 16px/1.95 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#2E2B26;">
+  د. {{nameAr}}،
+</p>
 
-  <ul style="margin:0 0 20px 0;padding-inline-start:20px;font-size:15px;line-height:1.9;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    <li>تستعرض الحالات المتاحة في تخصصك</li>
-    <li>تكتب التقارير وترفعها بسهولة</li>
-    <li>تتابع أرباحك وجدول الحالات</li>
-    <li>تعدّل بياناتك الشخصية والشهادات</li>
-  </ul>
+<p style="margin:0 0 18px;font:400 15px/1.95 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#2E2B26;">
+  يسعدنا انضمامك{{#if specialtyAr}} كاستشاري <strong style="color:#0B6B5F;font-weight:600;">{{specialtyAr}}</strong>{{/if}} في تشخيصة — خدمة الرأي الطبي الثاني من مجموعة مستشفيات شفا.
+</p>
 
-  <p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    الحالات هتوصلك تلقائياً حسب التخصص، وأنت اللي تختار اللي تقبله. هنبدأ تدريجياً، وبتدفع بعد كل تقرير يتم تسليمه.
-  </p>
+<p style="margin:0 0 26px;font:400 15px/1.95 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#2E2B26;">
+  حسابك جاهز. باقي خطوة واحدة — تحديد كلمة السر:
+</p>
 
-  <p style="margin:0 0 24px 0;font-size:14px;line-height:1.8;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    أي سؤال — رد على الرسالة دي أو كلمنا على واتساب:
-    <a href="https://wa.me/201102009886" style="color:#0B6B5F;text-decoration:none;font-weight:600;">+20 110 200 9886</a>
-  </p>
+{{#if password_setup_link}}<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 12px;">
+<tr><td bgcolor="#0B6B5F" style="border-radius:8px;">
+  <a href="{{{password_setup_link}}}" style="display:inline-block;padding:15px 38px;font:600 15px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#FFFFFF;text-decoration:none;">تفعيل الحساب</a>
+</td></tr>
+</table>
+<p style="margin:0 0 32px;font:400 13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#7A736A;">
+  الرابط صالح لمدة {{expiryDays}} أيام
+</p>{{/if}}
 
-  <p style="margin:0 0 4px 0;font-size:15px;line-height:1.6;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    شكراً لانضمامك،
-  </p>
-  <p style="margin:0 0 4px 0;font-size:16px;line-height:1.5;color:#0B6B5F;font-weight:600;font-family:'Cormorant Garamond','Amiri',Georgia,serif;">
-    زياد الوحش
-  </p>
-  <p style="margin:0;font-size:13px;line-height:1.5;color:#B38B3E;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    مؤسس تشخيصة
-  </p>
+<p style="margin:0 0 10px;font:400 18px/1.5 Georgia,'Times New Roman',serif;color:#0B6B5F;">طريقة العمل</p>
+<p style="margin:0 0 24px;font:400 15px/1.95 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#2E2B26;">
+  الحالة بتوصلك بملف المريض كامل — تقارير، أشعة، تحاليل. تراجعها وتكتب رأيك على المنصة، والمريض يستلم التقرير بالعربية والإنجليزية. وانت اللي تختار الحالات اللي تقبلها.
+</p>
+
+<p style="margin:0 0 10px;font:400 18px/1.5 Georgia,'Times New Roman',serif;color:#0B6B5F;">مواعيد التسليم</p>
+<p style="margin:0 0 24px;font:400 15px/1.95 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#2E2B26;">
+  ٤٨ ساعة (عادي) &nbsp;·&nbsp; ١٨ ساعة (سريع) &nbsp;·&nbsp; ٤ ساعات (عاجل)
+</p>
+
+<p style="margin:0 0 12px;font:400 18px/1.5 Georgia,'Times New Roman',serif;color:#0B6B5F;">الأتعاب</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E3DED2;border-radius:8px;background:#FBFAF7;margin:0 0 30px;">
+<tr><td style="padding:18px 20px;font:400 15px/1.95 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#2E2B26;">
+  الأتعاب محددة حسب نوع الخدمة والمعدلات المتفق عليها. قيمة كل حالة بتظهر قدامك على المنصة قبل ما تقبلها، والتحويل بيتم بعد تسليم كل تقرير.
+</td></tr>
+</table>
+<p style="margin:0 0 30px;font:400 14px/1.95 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#2E2B26;">
+  أي استفسار — رد على الرسالة دي أو كلمنا على واتساب:
+  <a href="https://wa.me/201102009886" style="color:#0B6B5F;text-decoration:none;font-weight:600;">‏+20 110 200 9886</a>
+</p>
+
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 4px;"><tr>
+  <td style="width:34px;height:2px;background:#B38B3E;font-size:0;line-height:0;">&nbsp;</td>
+</tr></table>
+<p style="margin:14px 0 0;font:400 15px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#2E2B26;">تحياتنا،</p>
+<p style="margin:3px 0 0;font:400 19px/1.5 Georgia,'Times New Roman',serif;color:#0B6B5F;">زياد الوحش</p>
+<p style="margin:3px 0 0;font:400 13px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#7A736A;">مؤسس تشخيصة</p>
+
 </div>
 
-<!-- ── Separator ──────────────────────────────────────────────── -->
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:36px 0;">
-  <tr>
-    <td align="center" style="font-size:14px;color:#B38B3E;letter-spacing:8px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-      — — —
-    </td>
-  </tr>
+<!-- DIVIDER -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:38px 0;">
+<tr><td align="center" style="font-size:0;line-height:0;">
+  <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+    <td style="width:180px;height:1px;background:#E3DED2;font-size:0;line-height:0;">&nbsp;</td>
+    <td style="padding:0 12px;font:400 13px/1 Georgia,serif;color:#B38B3E;">&#9670;</td>
+    <td style="width:180px;height:1px;background:#E3DED2;font-size:0;line-height:0;">&nbsp;</td>
+  </tr></table>
+</td></tr>
 </table>
 
-<!-- ── English ────────────────────────────────────────────────── -->
-<div dir="ltr" style="text-align:left;font-family:'Cormorant Garamond',Georgia,serif;">
-  <h2 style="margin:0 0 18px 0;font-size:22px;font-weight:600;color:#0B6B5F;font-family:'Cormorant Garamond',Georgia,serif;">
-    Welcome to Tashkheesa
-  </h2>
+<!-- ================= ENGLISH ================= -->
+<div dir="ltr" style="text-align:left;">
 
-  <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    Dr. {{firstName}},
-  </p>
+<h1 style="margin:0 0 22px;font:400 24px/1.4 Georgia,'Times New Roman',serif;color:#0B6B5F;">
+  Welcome to Tashkheesa
+</h1>
 
-  <p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    Welcome to Tashkheesa — Egypt's first specialist second-opinion platform.
-  </p>
+<p style="margin:0 0 18px;font:400 16px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  Dear Dr. {{firstName}},
+</p>
 
-  <p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    Your portal account is ready. Set your password to log in:
-  </p>
+<p style="margin:0 0 18px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  We're glad to have you joining Tashkheesa{{#if specialtyEn}} as a consultant in <strong style="color:#0B6B5F;font-weight:600;">{{specialtyEn}}</strong>{{/if}} — the second medical opinion service from Shifa Hospital Group.
+</p>
 
-  {{#if password_setup_link}}
-  <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;">
-    <tr>
-      <td style="background-color:#0B6B5F;border-radius:8px;">
-        <a href="{{{password_setup_link}}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#F8F5EF;text-decoration:none;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-          👉 Set up your account
-        </a>
-      </td>
-    </tr>
-  </table>
-  <p style="margin:0 0 24px 0;font-size:13px;line-height:1.5;color:#6B7280;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    (Link valid for {{expiryDays}} days)
-  </p>
-  {{/if}}
+<p style="margin:0 0 26px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  Your account is ready. One step remains — set your password:
+</p>
 
-  <p style="margin:0 0 12px 0;font-size:15px;line-height:1.6;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    Once inside, you can:
-  </p>
+{{#if password_setup_link}}<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 12px;">
+<tr><td bgcolor="#0B6B5F" style="border-radius:8px;">
+  <a href="{{{password_setup_link}}}" style="display:inline-block;padding:15px 38px;font:600 15px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#FFFFFF;text-decoration:none;">Set up your account</a>
+</td></tr>
+</table>
+<p style="margin:0 0 32px;font:400 13px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#7A736A;">
+  Link valid for {{expiryDays}} days
+</p>{{/if}}
 
-  <ul style="margin:0 0 20px 0;padding-inline-start:20px;font-size:15px;line-height:1.8;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    <li>Browse cases in your specialty</li>
-    <li>Write and submit reports</li>
-    <li>Track your earnings and case schedule</li>
-    <li>Update your profile and credentials</li>
-  </ul>
+<p style="margin:0 0 10px;font:400 18px/1.4 Georgia,'Times New Roman',serif;color:#0B6B5F;">How it works</p>
+<p style="margin:0 0 24px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  A case reaches you with the patient's full file — reports, imaging, labs. You review it and write your opinion on the platform, and the patient receives the report in Arabic and English. You choose which cases you accept.
+</p>
 
-  <p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    Cases are routed automatically by specialty — you choose which to accept. We're rolling out gradually, and you're paid after each delivered report.
-  </p>
+<p style="margin:0 0 10px;font:400 18px/1.4 Georgia,'Times New Roman',serif;color:#0B6B5F;">Turnaround</p>
+<p style="margin:0 0 24px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  48 hours (standard) &nbsp;·&nbsp; 18 hours (fast track) &nbsp;·&nbsp; 4 hours (urgent)
+</p>
 
-  <p style="margin:0 0 24px 0;font-size:14px;line-height:1.6;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    Questions? Reply to this email or message us on WhatsApp:
-    <a href="https://wa.me/201102009886" style="color:#0B6B5F;text-decoration:none;font-weight:600;">+20 110 200 9886</a>
-  </p>
+<p style="margin:0 0 12px;font:400 18px/1.4 Georgia,'Times New Roman',serif;color:#0B6B5F;">Your fee</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E3DED2;border-radius:8px;background:#FBFAF7;margin:0 0 30px;">
+<tr><td style="padding:18px 20px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  Fees follow the agreed rates for each service type. The fee for every case is shown to you on the platform before you accept it, and payment is made after each delivered report.
+</td></tr>
+</table>
+<p style="margin:0 0 30px;font:400 14px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  Questions — reply to this email or message us on WhatsApp:
+  <a href="https://wa.me/201102009886" style="color:#0B6B5F;text-decoration:none;font-weight:600;">+20 110 200 9886</a>
+</p>
 
-  <p style="margin:0 0 4px 0;font-size:15px;line-height:1.5;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    Thank you for joining,
-  </p>
-  <p style="margin:0 0 4px 0;font-size:16px;line-height:1.5;color:#0B6B5F;font-weight:600;font-family:'Cormorant Garamond',Georgia,serif;">
-    Ziad El Wahsh
-  </p>
-  <p style="margin:0;font-size:13px;line-height:1.5;color:#B38B3E;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    Founder, Tashkheesa
-  </p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 4px;"><tr>
+  <td style="width:34px;height:2px;background:#B38B3E;font-size:0;line-height:0;">&nbsp;</td>
+</tr></table>
+<p style="margin:14px 0 0;font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">Kind regards,</p>
+<p style="margin:3px 0 0;font:400 19px/1.4 Georgia,'Times New Roman',serif;color:#0B6B5F;">Ziad El Wahsh</p>
+<p style="margin:3px 0 0;font:400 13px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#7A736A;">Founder, Tashkheesa</p>
+
 </div>

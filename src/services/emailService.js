@@ -322,14 +322,25 @@ function loadTemplate(templateName, lang = 'en') {
   }
 }
 
+// Per-template layout overrides. A template listed here is wrapped in the named
+// layout instead of the shared '_layout'; everything absent falls through
+// unchanged, so the other 32 content templates keep byte-identical output.
+// doctor-welcome carries its own warm-green/beige chrome (v5 brand direction),
+// which would clash with the shared navy-gradient masthead.
+const TEMPLATE_LAYOUTS = {
+  'doctor-welcome': '_layout-doctor-welcome',
+};
+
 /**
  * Render an email template with the base layout.
+ * @param {string} [layoutName] - optional layout override. Defaults to the
+ *   TEMPLATE_LAYOUTS entry for this template, else the shared '_layout'.
  */
-function renderEmail(templateName, lang = 'en', data = {}) {
+function renderEmail(templateName, lang = 'en', data = {}, layoutName = null) {
   const contentTemplate = loadTemplate(templateName, lang);
   if (!contentTemplate) return null;
 
-  const layoutTemplate = loadTemplate('_layout', lang);
+  const layoutTemplate = loadTemplate(layoutName || TEMPLATE_LAYOUTS[templateName] || '_layout', lang);
 
   const vars = {
     ...data,

@@ -75,3 +75,84 @@ test('no-arg / empty-arg call does not throw (degrades to en Doctor, null links)
   assert.equal(p.magicLinkUrl, null);
   assert.equal(p.expiryDays, 7);
 });
+
+// ── v5 template additions: nameAr / specialtyAr / specialtyEn ────────────────
+// The v5 doctor-welcome body greets with "د. {{nameAr}}،" and names the
+// specialty in both languages, so these pin the two gaps that actually exist
+// in prod: one active doctor with no users.name_ar, and a doctor row with no
+// users.specialty_id.
+
+const BASE = 'https://portal.test';
+
+test('nameAr: uses users.name_ar (full name, not first token)', () => {
+  const p = buildDoctorWelcomePayload({
+    doctor: { name: 'Heba Samy', name_ar: 'هبة سامي', lang: 'en' },
+    token: 't', baseUrl: BASE
+  });
+  assert.equal(p.nameAr, 'هبة سامي');
+  assert.equal(p.firstName, 'Heba', 'firstName stays first-token only');
+});
+
+test("nameAr: strips a stored 'د.' prefix so the greeting can't double up", () => {
+  const p = buildDoctorWelcomePayload({
+    doctor: { name: 'Heba Samy', name_ar: 'د. هبة سامي', lang: 'ar' },
+    token: 't', baseUrl: BASE
+  });
+  assert.equal(p.nameAr, 'هبة سامي', 'template renders "د. " itself');
+});
+
+test('nameAr: falls back to users.name when name_ar is null/blank', () => {
+  for (const name_ar of [null, '', '   ', undefined]) {
+    const p = buildDoctorWelcomePayload({
+      doctor: { name: 'Taher Ahmed Abulaban', name_ar, lang: 'en' },
+      token: 't', baseUrl: BASE
+    });
+    assert.equal(p.nameAr, 'Taher Ahmed Abulaban', `fallback for name_ar=${JSON.stringify(name_ar)}`);
+  }
+});
+
+test("nameAr fallback also strips 'Dr.' from users.name", () => {
+  // The real inactive prod row: name='Dr. Ahmed Hassan', name_ar=NULL.
+  // Without the strip the greeting renders "د. Dr. Ahmed Hassan،".
+  const p = buildDoctorWelcomePayload({
+    doctor: { name: 'Dr. Ahmed Hassan', name_ar: null, lang: 'en' },
+    token: 't', baseUrl: BASE
+  });
+  assert.equal(p.nameAr, 'Ahmed Hassan');
+});
+
+test('nameAr: both name and name_ar empty → Arabic Doctor label, never blank', () => {
+  const p = buildDoctorWelcomePayload({ doctor: { name: '', name_ar: null, lang: 'en' }, token: 't', baseUrl: BASE });
+  assert.equal(p.nameAr, 'الطبيب');
+});
+
+test('specialty: both languages carried through', () => {
+  const p = buildDoctorWelcomePayload({
+    doctor: { name: 'Dr. A', lang: 'en', specialty_name: 'Cardiology', specialty_name_ar: 'أمراض القلب' },
+    token: 't', baseUrl: BASE
+  });
+  assert.equal(p.specialtyEn, 'Cardiology');
+  assert.equal(p.specialtyAr, 'أمراض القلب');
+});
+
+test('specialty: no specialty → empty strings so {{#if}} hides the clause', () => {
+  const p = buildDoctorWelcomePayload({ doctor: { name: 'Dr. A', lang: 'en' }, token: 't', baseUrl: BASE });
+  assert.equal(p.specialtyAr, '', 'falsy for {{#if specialtyAr}}');
+  assert.equal(p.specialtyEn, '', 'falsy for {{#if specialtyEn}}');
+});
+
+test('specialty: half-seeded row falls back across languages, never blank on one side', () => {
+  const arOnly = buildDoctorWelcomePayload({
+    doctor: { name: 'Dr. A', lang: 'en', specialty_name: null, specialty_name_ar: 'أمراض القلب' },
+    token: 't', baseUrl: BASE
+  });
+  assert.equal(arOnly.specialtyAr, 'أمراض القلب');
+  assert.equal(arOnly.specialtyEn, 'أمراض القلب');
+
+  const enOnly = buildDoctorWelcomePayload({
+    doctor: { name: 'Dr. A', lang: 'en', specialty_name: 'Cardiology', specialty_name_ar: '' },
+    token: 't', baseUrl: BASE
+  });
+  assert.equal(enOnly.specialtyEn, 'Cardiology');
+  assert.equal(enOnly.specialtyAr, 'Cardiology');
+});

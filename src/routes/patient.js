@@ -897,6 +897,17 @@ async function servicesVisibleClause(alias) {
   return `COALESCE(${col}, true) = true`;
 }
 
+// Bookable = visible AND not coming_soon. Unlike servicesVisibleClause (async,
+// tolerates a missing is_visible column), this is a pure synchronous string
+// builder per the shared contract — the coming_soon column is NOT NULL DEFAULT
+// false in prod (migration 078), so COALESCE keeps it safe on any older clone.
+// Callers inline it in a WHERE clause alongside their own predicates.
+function servicesBookableClause(alias) {
+  const vis  = alias ? `${alias}.is_visible`  : 'is_visible';
+  const soon = alias ? `${alias}.coming_soon` : 'coming_soon';
+  return `COALESCE(${vis},true)=true AND COALESCE(${soon},false)=false`;
+}
+
 // --- safe schema helpers ---
 function _forceSchema(tableName, columnName, value) {
   const key = `${tableName}.${columnName}`;
@@ -1425,7 +1436,9 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     files.forEach(f => { f.url = '/files/' + f.id; });
     if (draft.service_id) {
       try {
-        const visibleClause = await servicesVisibleClause('sv');
+        // Coming Soon guard (§4.5): use bookable clause so the step4/5 preview
+        // returns null for coming_soon services (matching what the POST validates).
+        const bookableClause = servicesBookableClause('sv');
         const localPrice = await safeGet(
           (slaExpr) => `SELECT sv.id, sv.name, sv.specialty_id,
                                COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
@@ -1437,7 +1450,7 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
                           ON cp.service_id = sv.id
                          AND cp.country_code = $1
                          AND COALESCE(cp.status, 'active') = 'active'
-                        WHERE sv.id = $2 AND ${visibleClause}`,
+                        WHERE sv.id = $2 AND ${bookableClause}`,
           [countryCode, draft.service_id]
         );
         const localCurrency = String((localPrice && localPrice.currency) || countryCurrency || 'EGP').toUpperCase();
@@ -1865,11 +1878,12 @@ router.post('/patient/new-case/step3', requireRole('patient'), async (req, res) 
     return res.redirect('/patient/new-case?step=3&id=' + encodeURIComponent(orderId) + '&err=needs_specialty');
   }
 
-  // Validate service belongs to specialty and is visible (unchanged from
-  // pre-Theme-14 behavior).
-  const visibleClause = await servicesVisibleClause('sv');
+  // Coming Soon guard (§4.5): a service with no active doctor (coming_soon=true)
+  // or hidden (is_visible=false) is NOT bookable — a stale page must not create
+  // an unfulfillable order.
+  const bookableClause = servicesBookableClause('sv');
   const service = await safeGet(
-    () => `SELECT sv.id, sv.specialty_id FROM services sv WHERE sv.id = $1 AND ${visibleClause}`,
+    () => `SELECT sv.id, sv.specialty_id FROM services sv WHERE sv.id = $1 AND ${bookableClause}`,
     [serviceId]
   );
   if (!service || String(service.specialty_id) !== specialtyId) {
@@ -1979,8 +1993,10 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
   // Look up the service catalog snapshot for this order's region.
   // Multipliers come straight from the services row — per-service
   // overrides win over platform defaults inside computeOrderPricing.
+  // Coming Soon guard (§4.5): re-validate at the pay/tier step so a service that
+  // flipped to coming_soon between step3 and step4 cannot be paid for.
   const countryCode = getDisplayCountryCode(req);
-  const visibleClause = await servicesVisibleClause('sv');
+  const bookableClause = servicesBookableClause('sv');
   const service = await safeGet(
     () => `SELECT sv.id, sv.vip_multiplier, sv.urgent_multiplier,
                   COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
@@ -1989,7 +2005,7 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
            LEFT JOIN service_regional_prices cp
              ON cp.service_id = sv.id AND cp.country_code = $1
             AND COALESCE(cp.status, 'active') = 'active'
-           WHERE sv.id = $2 AND ${visibleClause}`,
+           WHERE sv.id = $2 AND ${bookableClause}`,
     [countryCode, owned.service_id]
   );
   if (!service) {
@@ -2084,7 +2100,9 @@ router.post('/patient/new-case/step4/urgency-resolve', requireRole('patient'), a
   }
 
   const countryCode = getUserCountryCode(req);
-  const visibleClause = await servicesVisibleClause('sv');
+  // Coming Soon guard (§4.5): urgency-resolve is still a wizard write step — a
+  // service that became coming_soon between step3 and here must not proceed.
+  const bookableClause = servicesBookableClause('sv');
   const service = await safeGet(
     () => `SELECT sv.id, sv.vip_multiplier, sv.urgent_multiplier,
                   COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price
@@ -2092,7 +2110,7 @@ router.post('/patient/new-case/step4/urgency-resolve', requireRole('patient'), a
            LEFT JOIN service_regional_prices cp
              ON cp.service_id = sv.id AND cp.country_code = $1
             AND COALESCE(cp.status, 'active') = 'active'
-           WHERE sv.id = $2 AND ${visibleClause}`,
+           WHERE sv.id = $2 AND ${bookableClause}`,
     [countryCode, owned.service_id]
   );
   if (!service) {
@@ -2431,7 +2449,8 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
   const { specialty_id, service_id, notes, file_urls, sla_type } = req.body || {};
 
   const specialties = await queryAll('SELECT id, name, name_ar FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
-  const visibleClause = await servicesVisibleClause('sv');
+  // Coming Soon guard (§4.5): catalogue + single-service lookup both use bookable clause.
+  const bookableClauseUC = servicesBookableClause('sv');
   const services = await safeAll(
     (slaExpr) =>
       `SELECT sv.id,
@@ -2448,7 +2467,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
          ON cp.service_id = sv.id
         AND cp.country_code = $1
         AND COALESCE(cp.status, 'active') = 'active'
-       WHERE ${visibleClause}
+       WHERE ${bookableClauseUC}
        ORDER BY sv.name ASC`,
     [countryCode]
   );
@@ -2468,7 +2487,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
          ON cp.service_id = sv.id
         AND cp.country_code = $1
         AND COALESCE(cp.status, 'active') = 'active'
-       WHERE sv.id = $2 AND ${visibleClause}`,
+       WHERE sv.id = $2 AND ${bookableClauseUC}`,
     [countryCode, service_id]
   );
 
@@ -4088,3 +4107,4 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
 router.__test_mapAiQualityToIsValid = mapAiQualityToIsValid;
 
 module.exports = router;
+module.exports.servicesBookableClause = servicesBookableClause;

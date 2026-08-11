@@ -11,6 +11,7 @@ const { isLaunchMarket } = require('../launch-market');
 const rateLimit = require('express-rate-limit');
 const { sendOtpViaTwilio, verifyOtpCode } = require('../services/twilio_verify');
 const { validatePhoneE164 } = require('../validators/phone');
+const { resolveDoctorLanding } = require('../services/doctor_landing');
 require('dotenv').config();
 
 const NODE_ENV = String(process.env.NODE_ENV || '').toLowerCase();
@@ -156,6 +157,12 @@ async function createMagicLoginToken(userId) {
   const token = randomUUID();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + MAGIC_LINK_EXPIRY_MINUTES * 60 * 1000).toISOString();
+  // Remint invalidation (Package 2): burn any prior UNUSED token for this user
+  // before minting a fresh one, so an old magic link can't still be redeemed.
+  await execute(
+    `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+    [userId]
+  );
   await execute(
     `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
      VALUES ($1, $2, $3, $4, NULL, $5)`,
@@ -339,6 +346,16 @@ const otpVerifyCap = rateLimit({
   standardHeaders: false, legacyHeaders: false,
   keyGenerator: otpPhoneKey, message: otpRlMsg,
 });
+// Package 2 (Task 28): per-IP limiter for the ANONYMOUS token-redemption routes
+// (magic-login, reset-password, set-password). Same otp-door pattern
+// (validate:false because the trust-proxy req.ip shape varies at the Render
+// edge). 30/15min is generous for a human clicking an email link but caps
+// welcome/reset-token brute-force. One instance shared across the routes, so the
+// per-IP budget spans the whole redemption surface.
+const welcomeTokenIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 30, validate: false,
+  standardHeaders: true, legacyHeaders: false, message: otpRlMsg,
+});
 
 // POST /login/otp/request — send a code via Twilio Verify.
 // Anti-enumeration: ALWAYS returns { ok: true }, regardless of whether the
@@ -425,7 +442,7 @@ router.get('/forgot-password', (req, res) => {
 // ============================================
 // POST /forgot-password
 // ============================================
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', welcomeTokenIpLimiter, async (req, res) => {
   const email = (req.body && req.body.email ? req.body.email.trim().toLowerCase() : '');
   const user = email
     ? await queryOne("SELECT * FROM users WHERE email = $1 AND role IN ('patient', 'doctor') AND is_active = true", [email])
@@ -435,6 +452,12 @@ router.post('/forgot-password', async (req, res) => {
     const token = randomUUID();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + RESET_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+    // Remint invalidation (Package 2): a new reset link invalidates the prior
+    // unused one, so an intercepted earlier link can't still be redeemed.
+    await execute(
+      `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+      [user.id]
+    );
     await execute(
       `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
        VALUES ($1, $2, $3, $4, NULL, $5)`,
@@ -489,7 +512,7 @@ router.post('/forgot-password', async (req, res) => {
 // new doctor magic-link flow + the existing admin-create-doctor
 // reset-link flow at superadmin.js:2017+ both render "invalid token"
 // for any doctor user.
-router.get('/magic-login/:token', async (req, res) => {
+router.get('/magic-login/:token', welcomeTokenIpLimiter, async (req, res) => {
   setLangCookie(res, getReqLang(req));
   const token = req.params.token;
   const tokenRow = await findValidToken(token);
@@ -505,12 +528,23 @@ router.get('/magic-login/:token', async (req, res) => {
   }
 
   const nowIso = new Date().toISOString();
+  // Single-use: burn the token unconditionally BEFORE any branch, so a leaked
+  // welcome link can't be replayed even down the password-holder reject path.
   await execute(
     `UPDATE password_reset_tokens
      SET used_at = $1
      WHERE token = $2`,
     [nowIso, token]
   );
+
+  // Package 2 CRITICAL (Task 26 — backdoor): a magic/welcome token is a
+  // first-time-setup credential. If the user has ALREADY set a password, an old
+  // unused token must NOT silently establish a session (password-free login).
+  // Check password_hash BEFORE the session cookie is set and bounce to normal
+  // /login. The token is already burned above, so the leaked link is dead.
+  if (user.password_hash) {
+    return res.redirect('/login');
+  }
 
   const sessionToken = signUserToken(user);
   res.cookie(SESSION_COOKIE, sessionToken, {
@@ -522,11 +556,11 @@ router.get('/magic-login/:token', async (req, res) => {
   });
   setLangCookie(res, user.lang || getReqLang(req));
 
-  if (!user.password_hash) {
-    return res.redirect('/set-password');
-  }
-
-  return res.redirect(getHomeByRole(user.role));
+  // Only passwordless users reach here → always the first-time set-password step.
+  // A password-holding doctor's §4.7 services-landing is handled by POST
+  // /set-password when they first onboard; magic-login never lands a
+  // password-holder now (they are bounced to /login above).
+  return res.redirect('/set-password');
 });
 
 async function findValidToken(token) {
@@ -546,7 +580,7 @@ async function findValidToken(token) {
 // ============================================
 // GET /set-password
 // ============================================
-router.get('/set-password', async (req, res) => {
+router.get('/set-password', welcomeTokenIpLimiter, async (req, res) => {
   const c = authCopy(req);
   const lang = c.isAr ? 'ar' : 'en';
   setLangCookie(res, lang);
@@ -563,7 +597,7 @@ router.get('/set-password', async (req, res) => {
 // ============================================
 // POST /set-password
 // ============================================
-router.post('/set-password', async (req, res) => {
+router.post('/set-password', welcomeTokenIpLimiter, async (req, res) => {
   const c = authCopy(req);
   const lang = c.isAr ? 'ar' : 'en';
   setLangCookie(res, lang);
@@ -606,13 +640,20 @@ router.post('/set-password', async (req, res) => {
     );
   });
 
+  // §4.7 first-login landing: steer a not-yet-onboarded doctor with a non-empty
+  // service union to /portal/doctor/services; empty-union doctors and everyone
+  // else fall through to their normal home. One-time (driven by DB state, no
+  // persistent guard) — a doctor who has confirmed services no longer matches.
+  const doctorLanding = await resolveDoctorLanding(user);
+  if (doctorLanding) return res.redirect(doctorLanding);
+
   return res.redirect(getHomeByRole(user.role));
 });
 
 // ============================================
 // GET /reset-password/:token
 // ============================================
-router.get('/reset-password/:token', async (req, res) => {
+router.get('/reset-password/:token', welcomeTokenIpLimiter, async (req, res) => {
   setLangCookie(res, getReqLang(req));
   const token = req.params.token;
   const tokenRow = await findValidToken(token);
@@ -632,7 +673,7 @@ router.get('/reset-password/:token', async (req, res) => {
 // ============================================
 // POST /reset-password/:token
 // ============================================
-router.post('/reset-password/:token', async (req, res) => {
+router.post('/reset-password/:token', welcomeTokenIpLimiter, async (req, res) => {
   setLangCookie(res, getReqLang(req));
   const token = req.params.token;
   const tokenRow = await findValidToken(token);

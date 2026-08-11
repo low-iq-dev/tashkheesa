@@ -1,7 +1,8 @@
 // src/routes/superadmin.js
 const express = require('express');
-const { queryOne, queryAll, execute, withTransaction } = require('../pg');
+const { pool, queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { logErrorToDb } = require('../logger');
+const { resyncComingSoon } = require('../services/services_coming_soon_sync');
 const { randomUUID } = require('crypto');
 const { requireRole } = require('../middleware');
 const { isLaunchMarket } = require('../launch-market');
@@ -20,6 +21,9 @@ const caseLifecycle = require('../case_lifecycle');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
 const emailService = require('../services/emailService');
 const { logAdminAudit } = require('../services/admin_audit');
+const { bulkWelcomePasswordlessDoctors } = require('../services/admin_doctor_bulk_invite');
+const { WELCOME_EXPIRY_HOURS } = require('../services/doctor_welcome_payload');
+const rateLimit = require('express-rate-limit');
 const adminSettings = require('../services/admin_settings');
 const superadminDashboard = require('../services/superadmin_dashboard');
 const { getAiHealth } = require('../services/ai_health');
@@ -43,6 +47,18 @@ const router = express.Router();
 
 const requireSuperadmin = requireRole('superadmin');
 
+// Package 2 (T28 send-side): per-IP limiter for the welcome-SEND surfaces
+// (resend-welcome + bulk-welcome). Superadmin-gated defense-in-depth — caps a
+// scripted/compromised operator; sits AFTER requireSuperadmin so only
+// authenticated requests count. Sized PER-OPERATOR (10 sends / 15 min per IP),
+// NOT per-doctor: the bulk route is ONE request that invites the whole cohort
+// internally, so a 28-doctor batch is a SINGLE limiter tick — never throttled.
+const welcomeSendIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 10, validate: false,
+  standardHeaders: true, legacyHeaders: false,
+  message: { ok: false, error: 'too_many_requests' },
+});
+
 const IS_PROD = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 
 // Mirrors src/routes/auth.js portal flow — keep in sync. Used by the
@@ -52,7 +68,8 @@ const RESET_EXPIRY_HOURS = 2;     // forgot-password / manual reset — user is 
 // P1-NOTIF-5: doctor approval + admin-created doctor first-time setup —
 // recipient is passive (didn't request the email), may not check inbox
 // for days. 7 days matches industry-standard onboarding email expiry.
-const WELCOME_EXPIRY_HOURS = 168;
+// WELCOME_EXPIRY_HOURS is single-sourced from ../services/doctor_welcome_payload
+// (imported at the top — Task 25); do NOT redeclare it here.
 
 // Defaults for alerts badge on superadmin pages.
 router.use((req, res, next) => {
@@ -2003,7 +2020,7 @@ router.post('/superadmin/orders', requireSuperadmin, async (req, res) => {
   const selectedDoctor = doctor_id
     ? await queryOne("SELECT id, name, email, phone FROM users WHERE id = $1 AND role = 'doctor'", [doctor_id])
     : null;
-  const autoDoctor = !doctor_id ? pickDoctorForOrder({ specialtyId: specialty_id }) : null;
+  const autoDoctor = !doctor_id ? await pickDoctorForOrder({ specialtyId: specialty_id, serviceId: service_id }) : null;
   const chosenDoctor = selectedDoctor || autoDoctor;
   const status = chosenDoctor ? 'accepted' : 'new';
   const acceptedAt = chosenDoctor ? createdAt : null;
@@ -2960,6 +2977,11 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
   const resetToken = randomUUID();
   const tokenNow = new Date();
   const tokenExpiresAt = new Date(tokenNow.getTime() + WELCOME_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+  // Remint invalidation (Package 2): burn prior unused tokens before minting.
+  await execute(
+    `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+    [newDoctorId]
+  );
   await execute(
     `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
      VALUES ($1, $2, $3, $4, NULL, $5)`,
@@ -3082,6 +3104,13 @@ router.post('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) 
   } catch (_) {
     // no-op
   }
+  // Edit can flip is_active AND rewrite doctor_services → both change supply.
+  // Recompute coming_soon after the mapping rewrite (§4.3), best-effort.
+  try {
+    await resyncComingSoon();
+  } catch (e) {
+    logErrorToDb(e, { context: 'superadmin.doctor_edit_resync', userId: req.user?.id, url: req.originalUrl, method: req.method, category: 'superadmin_auth' });
+  }
   return res.redirect('/superadmin/doctors');
 });
 
@@ -3093,6 +3122,12 @@ router.post('/superadmin/doctors/:id/toggle', requireSuperadmin, async (req, res
      WHERE id = $1 AND role = 'doctor'`,
     [doctorId]
   );
+  // Toggling is_active changes supply → recompute coming_soon (§4.3), best-effort.
+  try {
+    await resyncComingSoon();
+  } catch (e) {
+    logErrorToDb(e, { context: 'superadmin.doctor_toggle_resync', userId: req.user?.id, url: req.originalUrl, method: req.method, category: 'superadmin_auth' });
+  }
   return res.redirect('/superadmin/doctors');
 });
 
@@ -3114,6 +3149,20 @@ router.get('/superadmin/doctors/:id', requireSuperadmin, async (req, res) => {
   res.render('superadmin_doctor_detail', { user: req.user, doctor, pendingDoctorsCount, query: req.query });
 });
 
+// Doctor row + specialty labels, for the two routes that feed
+// _issueDoctorWelcomePayload. The v5 doctor-welcome template greets with
+// "د. {{nameAr}}" and names the specialty in both languages, so the payload
+// needs users.name_ar (already in SELECT *) plus specialties.name/name_ar
+// (which SELECT * cannot reach — hence the LEFT JOIN). `u.*` keeps every
+// existing consumer of this row working; the two aliases are purely additive.
+// LEFT (not INNER) JOIN: users.specialty_id is nullable and one doctor has none
+// — an inner join would silently drop them from approve/resend entirely.
+const DOCTOR_WITH_SPECIALTY_SQL = `
+  SELECT u.*, sp.name AS specialty_name, sp.name_ar AS specialty_name_ar
+    FROM users u
+    LEFT JOIN specialties sp ON sp.id = u.specialty_id
+   WHERE u.id = $1 AND u.role = 'doctor'`;
+
 // P1-NOTIF-5: helper used by both /approve and /resend-welcome to issue a
 // 7-day magic-login token + queue the doctor-welcome email. Returns a
 // payload object suitable for queueMultiChannelNotification.response.
@@ -3124,6 +3173,11 @@ async function _issueDoctorWelcomePayload(doctor, req) {
   const token = randomUUID();
   const nowIso = new Date().toISOString();
   const expiresAt = new Date(Date.now() + WELCOME_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+  // Remint invalidation (Package 2): burn prior unused tokens before minting.
+  await execute(
+    `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+    [doctor.id]
+  );
   await execute(
     `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
      VALUES ($1, $2, $3, $4, NULL, $5)`,
@@ -3168,9 +3222,22 @@ async function _issueDoctorWelcomePayload(doctor, req) {
   const firstName = stripped.split(/\s+/)[0]
     || (lang === 'ar' ? 'الطبيب' : 'Doctor');
 
+  // v5 doctor-welcome additions — kept a verbatim mirror of
+  // services/doctor_welcome_payload.js (see its comments for the rationale on
+  // the Dr./د. strip, the name_ar→name fallback and the specialty guards).
+  const nameAr = String(doctor.name_ar || '').trim()
+    .replace(/^\s*(?:Dr\.?|د\.?)\s+/i, '').trim()
+    || stripped
+    || 'الطبيب';
+  const specName = String(doctor.specialty_name || '').trim();
+  const specNameAr = String(doctor.specialty_name_ar || '').trim();
+
   return {
     doctorName: doctor.name || (lang === 'ar' ? 'الطبيب' : 'Doctor'),
     firstName,
+    nameAr,
+    specialtyAr: specNameAr || specName,
+    specialtyEn: specName || specNameAr,
     magicLinkUrl,
     // #66/Ziad-locked: Ziad's bilingual welcome copy references
     // {{password_setup_link}}; expose as an alias of magicLinkUrl so the
@@ -3183,7 +3250,7 @@ async function _issueDoctorWelcomePayload(doctor, req) {
 
 router.post('/superadmin/doctors/:id/approve', requireSuperadmin, async (req, res) => {
   const doctorId = req.params.id;
-  const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [doctorId]);
+  const doctor = await queryOne(DOCTOR_WITH_SPECIALTY_SQL, [doctorId]);
   if (!doctor) return res.redirect('/superadmin/doctors');
   const nowIso = new Date().toISOString();
   await execute(
@@ -3195,6 +3262,14 @@ router.post('/superadmin/doctors/:id/approve', requireSuperadmin, async (req, re
      WHERE id = $2 AND role = 'doctor'`,
     [nowIso, doctorId]
   );
+
+  // Approving flips is_active → recompute services.coming_soon (design §4.3).
+  // Post-commit + best-effort: a re-sync failure must not break approval.
+  try {
+    await resyncComingSoon();
+  } catch (e) {
+    logErrorToDb(e, { context: 'superadmin.doctor_approve_resync', userId: req.user?.id, url: req.originalUrl, method: req.method, category: 'superadmin_auth' });
+  }
 
   // P1-NOTIF-5: audit the approval action durably, BEFORE the (async) email
   // queue. Approval state is committed in the UPDATE above; logging the
@@ -3233,11 +3308,12 @@ router.post('/superadmin/doctors/:id/approve', requireSuperadmin, async (req, re
 
 // P1-NOTIF-5: resend the welcome email to an already-approved doctor.
 // Useful when the original email was lost or expired before activation.
-// Issues a fresh token (existing unexpired tokens remain valid; magic-login
-// marks them used on first redemption — collision-safe). Audit-logged.
-router.post('/superadmin/doctors/:id/resend-welcome', requireSuperadmin, async (req, res) => {
+// Issues a fresh token; since T27, _issueDoctorWelcomePayload first DELETEs this
+// doctor's prior UNUSED tokens (remint), so exactly one welcome link is ever live
+// — an old link can't still be redeemed. Audit-logged.
+router.post('/superadmin/doctors/:id/resend-welcome', requireSuperadmin, welcomeSendIpLimiter, async (req, res) => {
   const doctorId = req.params.id;
-  const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [doctorId]);
+  const doctor = await queryOne(DOCTOR_WITH_SPECIALTY_SQL, [doctorId]);
   if (!doctor) return res.redirect('/superadmin/doctors');
   if (doctor.pending_approval) {
     // Approval not yet complete — admin should approve first; resend has no
@@ -3280,6 +3356,77 @@ router.post('/superadmin/doctors/:id/resend-welcome', requireSuperadmin, async (
   return res.redirect(`/superadmin/doctors/${doctorId}?resend=${resendOk ? 'ok' : 'failed'}`);
 });
 
+// Package 2 (T29/T31) — reusable BULK welcome-to-passwordless. Invites every
+// password-less ACTIVE doctor (role='doctor' AND is_active=true AND password_hash
+// IS NULL) so the never-logged-in cohort can set a password and confirm services.
+// Delegates to bulkWelcomePasswordlessDoctors: one txn/doctor via inviteDoctor
+// (token mint + remint-burn + welcome stamp + audit), skips password-holders and
+// anyone still inside the welcome cooldown, IDEMPOTENT (remint-DELETE → one live
+// token; cooldown skips a same-batch re-run → no double send). Notifications fire
+// POST-COMMIT per doctor with a per-doctor dedupe key. MUST SHIP IN THE SAME
+// RELEASE AS THE ASSIGNMENT GATE (spec §9): the gate makes every
+// onboarding_complete=false doctor unassignable, so without a way to send invites
+// the whole roster is stranded. requireSuperadmin + welcomeSendIpLimiter (10/15min
+// per IP; ONE tick per bulk call — the 28-doctor loop is internal, never throttled).
+router.post('/superadmin/doctors/bulk-welcome-passwordless', requireSuperadmin, welcomeSendIpLimiter, async (req, res) => {
+  logAdminAudit({ req, action: 'bulk_welcome_passwordless_doctors', target: '/superadmin/doctors' });
+
+  // baseUrl the same way _issueDoctorWelcomePayload resolves it (env first,
+  // request headers fallback) so the magic links are absolute. A null baseUrl
+  // still yields a valid (link-less) payload — never throws.
+  let baseUrl = String(process.env.BASE_URL || process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  if (!baseUrl) {
+    try {
+      const protoRaw = (req.get('x-forwarded-proto') || req.protocol || 'http');
+      const proto = String(protoRaw).split(',')[0].trim() || 'http';
+      const host = req.get('x-forwarded-host') || req.get('host');
+      baseUrl = host ? `${proto}://${host}` : '';
+    } catch (_) { baseUrl = ''; }
+  }
+
+  const client = await pool.connect();
+  try {
+    // The bulk service reuses `client` only for the read-side SELECT; each
+    // inviteDoctor runs on its own fresh pool client (own txn). Notifications
+    // fire post-commit via onInvited — per-doctor dedupe_key with a timestamp so
+    // the worker (which dedupes permanently) never drops a legitimately re-sent
+    // invite in a later batch, and a same-batch duplicate is impossible (each
+    // doctor appears once in the cohort).
+    const result = await bulkWelcomePasswordlessDoctors(client, {
+      actorId: req.user && req.user.id,
+      baseUrl: baseUrl || null,
+      onInvited: (doctorId, welcomePayload) => {
+        try {
+          queueMultiChannelNotification({
+            orderId: null,
+            toUserId: doctorId,
+            channels: ['internal', 'email', 'whatsapp'],
+            template: 'doctor_approved',
+            response: welcomePayload,
+            dedupe_key: 'doctor_bulk_welcome:' + doctorId + ':' + Date.now(),
+          });
+        } catch (e) {
+          console.error('[bulk-welcome] notify failed:', doctorId, e && e.message ? e.message : e);
+        }
+      },
+    });
+    return res.json({ sent: result.sent, skipped: result.skipped, failed: result.failed });
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.doctors_bulk_welcome_passwordless',
+      requestId: req.requestId,
+      userId: req.user && req.user.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_auth',
+    });
+    console.error('[bulk-welcome] batch failed:', err && err.message ? err.message : err);
+    return res.status(500).json({ error: 'Bulk welcome failed' });
+  } finally {
+    client.release();
+  }
+});
+
 router.post('/superadmin/doctors/:id/reject', requireSuperadmin, async (req, res) => {
   const doctorId = req.params.id;
   const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [doctorId]);
@@ -3294,6 +3441,14 @@ router.post('/superadmin/doctors/:id/reject', requireSuperadmin, async (req, res
      WHERE id = $2 AND role = 'doctor'`,
     [rejection_reason || 'Not approved', doctorId]
   );
+
+  // Rejecting deactivates the doctor (is_active→false) → recompute coming_soon
+  // so a service losing its last active doctor is flagged (§4.3), best-effort.
+  try {
+    await resyncComingSoon();
+  } catch (e) {
+    logErrorToDb(e, { context: 'superadmin.doctor_reject_resync', userId: req.user?.id, url: req.originalUrl, method: req.method, category: 'superadmin_auth' });
+  }
 
   queueNotification({
     orderId: null,
@@ -3472,7 +3627,7 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
     const doctorId = fresh && fresh.doctor_id ? String(fresh.doctor_id) : '';
     const pay = fresh && fresh.payment_status ? String(fresh.payment_status).toLowerCase() : '';
     if (!doctorId && pay === 'paid') {
-      const picked = await pickDoctorForOrder(fresh);
+      const picked = await pickDoctorForOrder({ specialtyId: fresh.specialty_id, serviceId: fresh.service_id });
       const pickedId = picked && picked.id ? String(picked.id) : (picked ? String(picked) : '');
       if (pickedId) {
         await execute(
@@ -3685,7 +3840,16 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, async (req, re
     return res.redirect(`/superadmin/orders/${orderId}`);
   }
 
-  const newDoctor = await queryOne("SELECT id, name FROM users WHERE id = $1 AND role = 'doctor' AND is_active = true", [newDoctorId]);
+  const newDoctor = await queryOne(
+    `SELECT id, name FROM users u
+      WHERE u.id = $1
+        AND u.role = 'doctor'
+        AND COALESCE(u.is_active, true) = true
+        AND COALESCE(u.is_paused, false) = false
+        AND COALESCE(u.onboarding_complete, false) = true
+        AND EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = u.id AND ds.service_id = $2)`,
+    [newDoctorId, order.service_id]
+  );
   if (!newDoctor) {
     return res.redirect(`/superadmin/orders/${orderId}`);
   }
@@ -3908,6 +4072,11 @@ router.get('/superadmin/debug/reset-link/:userId', requireSuperadmin, async (req
   const token = uuidv4();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + RESET_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+  // Remint invalidation (Package 2): burn prior unused tokens before minting.
+  await execute(
+    `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+    [user.id]
+  );
   await execute(
     `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
      VALUES ($1, $2, $3, $4, NULL, $5)`,

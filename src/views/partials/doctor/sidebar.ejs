@@ -24,6 +24,7 @@
     cases: 'cases',
     'case-detail': 'cases',
     'case': 'cases',
+    services: 'services',
     prescriptions: 'prescriptions',
     prescribe: 'prescriptions',
     analytics: 'analytics',
@@ -80,6 +81,14 @@
         <% if (_activeCountNum > 0) { %>
           <span class="v2-nav-count" data-numeric><%= _activeCountNum %></span>
         <% } %>
+      </a>
+    </li>
+    <li>
+      <a class="v2-nav-item <%= _isActive('services') %>" href="/portal/doctor/services" aria-current="<%= _active === 'services' ? 'page' : 'false' %>">
+        <svg class="v2-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>
+        </svg>
+        <span><%= _isAr ? 'خدماتي' : 'My Services' %></span>
       </a>
     </li>
     <li>

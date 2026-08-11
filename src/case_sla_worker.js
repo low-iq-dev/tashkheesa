@@ -6,6 +6,7 @@ const {
   logCaseEvent
 } = require('./case_lifecycle');
 const { major: logMajor, fatal: logFatal } = require('./logger');
+const { eligibleDoctorClause } = require('./services/doctor_eligibility');
 
 // SLA breach scanning should only apply once the case is in active review.
 // Keep this resilient even if older code uses a string literal for rejected_files.
@@ -34,13 +35,29 @@ function normalizeSpecialtyId(value) {
   return normalized ? normalized : null;
 }
 
-function buildAlternateDoctorQuery({ specialtyId, excludeDoctorId, countOnly }) {
+function buildAlternateDoctorQuery({ specialtyId, excludeDoctorId, countOnly, serviceId }) {
   // P1-FIN-2: exclude is_paused doctors (auto-paused by SLA breach
   // threshold or manually paused by admin). is_active continues to gate
   // login; is_paused gates new-assignment routing only.
-  const clauses = ["u.role = 'doctor'", 'u.is_active = true', "COALESCE(u.is_paused, false) = false"];
+  //
+  // §4.6: onboarding + service-level matching now come from the shared
+  // eligibleDoctorClause (keyed on the case's service_id). role/is_active/
+  // is_paused are folded into that fragment; specialty + capacity stay local.
   const statusParams = [...ACTIVE_STATUSES];
   let paramIdx = statusParams.length + 1; // $1..$N are status params
+
+  const clauses = [];
+
+  if (serviceId) {
+    // eligibleDoctorClause emits role='doctor', is_active, is_paused,
+    // onboarding_complete, and the doctor_services EXISTS gate.
+    clauses.push(eligibleDoctorClause({ alias: 'u', serviceIdParam: `$${paramIdx}` }));
+    statusParams.push(serviceId);
+    paramIdx++;
+  } else {
+    // Legacy fallback (no service on the case): keep the pre-§4.6 predicates.
+    clauses.push("u.role = 'doctor'", 'u.is_active = true', "COALESCE(u.is_paused, false) = false");
+  }
 
   if (excludeDoctorId) {
     clauses.push(`u.id != $${paramIdx}`);
@@ -76,32 +93,35 @@ function buildAlternateDoctorQuery({ specialtyId, excludeDoctorId, countOnly }) 
   return { query, allParams: statusParams };
 }
 
-async function selectAlternateDoctor({ specialtyId, excludeDoctorId } = {}) {
+async function selectAlternateDoctor({ specialtyId, excludeDoctorId, serviceId } = {}) {
   const { query, allParams } = buildAlternateDoctorQuery({
     specialtyId,
     excludeDoctorId,
-    countOnly: false
+    countOnly: false,
+    serviceId
   });
   return await queryOne(query, allParams);
 }
 
-async function countEligibleDoctors({ specialtyId, excludeDoctorId } = {}) {
+async function countEligibleDoctors({ specialtyId, excludeDoctorId, serviceId } = {}) {
   const { query, allParams } = buildAlternateDoctorQuery({
     specialtyId,
     excludeDoctorId,
-    countOnly: true
+    countOnly: true,
+    serviceId
   });
   const row = await queryOne(query, allParams);
   return row ? Number(row.eligible_count) : 0;
 }
 
-async function findAlternateDoctor({ specialtyId, excludeDoctorId } = {}) {
+async function findAlternateDoctor({ specialtyId, excludeDoctorId, serviceId } = {}) {
   const normalizedSpecialtyId = normalizeSpecialtyId(specialtyId);
   const hasSpecialtyFilter = Boolean(normalizedSpecialtyId);
 
   let doctor = await selectAlternateDoctor({
     specialtyId: hasSpecialtyFilter ? normalizedSpecialtyId : null,
-    excludeDoctorId
+    excludeDoctorId,
+    serviceId
   });
 
   if (doctor) {
@@ -118,7 +138,8 @@ async function findAlternateDoctor({ specialtyId, excludeDoctorId } = {}) {
     fallbackAttempted = true;
     doctor = await selectAlternateDoctor({
       specialtyId: null,
-      excludeDoctorId
+      excludeDoctorId,
+      serviceId
     });
     if (doctor) {
       return {
@@ -134,9 +155,9 @@ async function findAlternateDoctor({ specialtyId, excludeDoctorId } = {}) {
   try {
     eligibleCounts = {
       withSpecialty: hasSpecialtyFilter
-        ? await countEligibleDoctors({ specialtyId: normalizedSpecialtyId, excludeDoctorId })
+        ? await countEligibleDoctors({ specialtyId: normalizedSpecialtyId, excludeDoctorId, serviceId })
         : null,
-      withoutSpecialty: await countEligibleDoctors({ specialtyId: null, excludeDoctorId })
+      withoutSpecialty: await countEligibleDoctors({ specialtyId: null, excludeDoctorId, serviceId })
     };
   } catch (e) {
     eligibleCounts = null;
@@ -175,7 +196,8 @@ async function fetchSlaCandidates() {
   return await queryAll(
     `SELECT o.id AS case_id,
             o.doctor_id,
-            o.specialty_id
+            o.specialty_id,
+            o.service_id
      FROM orders_active o
      WHERE LOWER(COALESCE(o.status, '')) IN ($1, $2)
        AND o.deadline_at IS NOT NULL
@@ -273,6 +295,7 @@ async function fetchDoctorTimeouts({ nowIso, cutoffIso }) {
       `SELECT o.id AS case_id,
               o.doctor_id,
               o.specialty_id,
+              o.service_id,
               COALESCE(da.assigned_at, o.updated_at, o.created_at) AS assigned_at,
               da.accept_by_at AS accept_by_at
        FROM orders_active o
@@ -301,7 +324,8 @@ async function fetchDoctorTimeouts({ nowIso, cutoffIso }) {
     return await queryAll(
       `SELECT o.id AS case_id,
               o.doctor_id,
-              o.specialty_id
+              o.specialty_id,
+              o.service_id
        FROM orders_active o
        WHERE LOWER(COALESCE(o.status, '')) = $1
          AND o.doctor_id IS NOT NULL
@@ -321,7 +345,8 @@ async function handleBreach(candidate) {
   await markSlaBreach(candidate.case_id);
   const selection = await findAlternateDoctor({
     specialtyId: candidate.specialty_id,
-    excludeDoctorId: candidate.doctor_id
+    excludeDoctorId: candidate.doctor_id,
+    serviceId: candidate.service_id
   });
   const nextDoctor = selection.doctor;
   if (!nextDoctor) {
@@ -378,7 +403,8 @@ async function handleDoctorTimeout(candidate) {
   });
   const selection = await findAlternateDoctor({
     specialtyId: candidate.specialty_id,
-    excludeDoctorId: candidate.doctor_id
+    excludeDoctorId: candidate.doctor_id,
+    serviceId: candidate.service_id
   });
   const nextDoctor = selection.doctor;
   if (!nextDoctor) {
@@ -531,5 +557,6 @@ function startCaseSlaWorker(intervalMs = SCAN_INTERVAL_MS) {
 
 module.exports = {
   startCaseSlaWorker,
-  runCaseSlaSweep
+  runCaseSlaSweep,
+  buildAlternateDoctorQuery
 };

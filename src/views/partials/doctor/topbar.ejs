@@ -31,6 +31,7 @@
     <h1 class="v2-topbar__title"><%= _title %></h1>
     <% if (_sub) { %><div class="v2-topbar__sub"><%= _sub %></div><% } %>
   </div>
+  <%- include('services_banner', { isAr: _isAr }) %>
   <div class="v2-topbar__actions">
     <% if (_showSearch) { %>
     <form class="v2-search" role="search" action="<%= _searchHref %>" method="get">

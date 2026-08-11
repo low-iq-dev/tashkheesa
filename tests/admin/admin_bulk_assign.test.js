@@ -41,13 +41,23 @@ async function mkSpec(label) {
 async function mkDoctor(spec, opts = {}) {
   const id = uid('doc');
   await q(
-    `INSERT INTO users (id, email, name, role, is_active, is_paused, specialty_id,
+    `INSERT INTO users (id, email, name, role, is_active, is_paused, onboarding_complete, specialty_id,
                         max_active_cases, max_active_cases_urgent, sla_tiers_supported)
-       VALUES ($1,$2,$3,'doctor',$4,$5,$6,$7,$8,$9)`,
-    [id, id + '@t.local', opts.name || id, opts.active !== false, !!opts.paused, spec,
+       VALUES ($1,$2,$3,'doctor',$4,$5,$6,$7,$8,$9,$10)`,
+    [id, id + '@t.local', opts.name || id, opts.active !== false, !!opts.paused,
+      opts.onboarding !== false,   // default true
+      spec,
       opts.cap == null ? null : opts.cap, opts.capUrgent == null ? null : opts.capUrgent,
       opts.tiers == null ? null : JSON.stringify(opts.tiers)]
   );
+  if (opts.services && opts.services.length > 0) {
+    for (const svcId of opts.services) {
+      await q(
+        `INSERT INTO doctor_services (doctor_id, service_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [id, svcId]
+      );
+    }
+  }
   return id;
 }
 
@@ -55,14 +65,15 @@ async function mkCase(spec, opts = {}) {
   const id = uid('ord');
   const ageMin = opts.ageMin == null ? 5 : opts.ageMin;
   await q(
-    `INSERT INTO orders (id, reference_id, status, payment_status, paid_at, specialty_id,
+    `INSERT INTO orders (id, reference_id, status, payment_status, paid_at, specialty_id, service_id,
                          urgency_tier, sla_hours, assignment_status, doctor_id, deleted_at, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, NOW() - ($12 || ' minutes')::interval)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, NOW() - ($13 || ' minutes')::interval)`,
     [id, 'REF-' + id,
       opts.status || 'paid',
       opts.payment === undefined ? 'paid' : opts.payment,
       opts.paid === false ? null : new Date().toISOString(),
       spec,  // pass null explicitly for the no_specialty case
+      opts.service || null,
       opts.tier || 'standard',
       opts.sla == null ? 72 : opts.sla,
       opts.assignment === undefined ? 'auto' : opts.assignment,
@@ -122,6 +133,7 @@ test.after(async () => {
   await q('DELETE FROM order_events WHERE order_id LIKE $1', ['%' + SUFFIX + '%']);
   await q('DELETE FROM error_logs WHERE message LIKE $1', ['%' + SUFFIX + '%']);
   await q('DELETE FROM orders WHERE id LIKE $1', ['%' + SUFFIX + '%']);
+  await q('DELETE FROM doctor_services WHERE doctor_id LIKE $1', ['%' + SUFFIX + '%']);
   await q('DELETE FROM users WHERE id LIKE $1', ['%' + SUFFIX + '%']);
   await q('DELETE FROM specialties WHERE id LIKE $1', ['%' + SUFFIX + '%']);
   await pool.end();
@@ -130,10 +142,11 @@ test.after(async () => {
 // ── happy path + least-loaded distribution + cumulative tiebreak ──────────────
 test('happy: two cases distribute across two zero-load doctors (least-loaded + name tiebreak)', async () => {
   const spec = await mkSpec();
-  const docA = await mkDoctor(spec, { name: 'A Doc' });
-  const docB = await mkDoctor(spec, { name: 'B Doc' });
-  const c1 = await mkCase(spec, { ageMin: 20 }); // processed first (older)
-  const c2 = await mkCase(spec, { ageMin: 10 });
+  const svc = uid('svc');
+  const docA = await mkDoctor(spec, { name: 'A Doc', services: [svc] });
+  const docB = await mkDoctor(spec, { name: 'B Doc', services: [svc] });
+  const c1 = await mkCase(spec, { ageMin: 20, service: svc }); // processed first (older)
+  const c2 = await mkCase(spec, { ageMin: 10, service: svc });
 
   const r = await run([c1, c2]);
 
@@ -151,11 +164,12 @@ test('happy: two cases distribute across two zero-load doctors (least-loaded + n
 // ── THE cumulative-capacity boundary: 4/5 doctor + 3 cases → 1 assigned, 2 full ─
 test('cumulative capacity: doctor at 4/5 takes exactly ONE of three cases', async () => {
   const spec = await mkSpec();
-  const doc = await mkDoctor(spec, { name: 'Cap Doc', cap: 5 });
+  const svc = uid('svc');
+  const doc = await mkDoctor(spec, { name: 'Cap Doc', cap: 5, services: [svc] });
   await seedLoad(doc, 4, spec);                 // existing load = 4
-  const c1 = await mkCase(spec, { ageMin: 30 });
-  const c2 = await mkCase(spec, { ageMin: 20 });
-  const c3 = await mkCase(spec, { ageMin: 10 });
+  const c1 = await mkCase(spec, { ageMin: 30, service: svc });
+  const c2 = await mkCase(spec, { ageMin: 20, service: svc });
+  const c3 = await mkCase(spec, { ageMin: 10, service: svc });
 
   const r = await run([c1, c2, c3]);
 
@@ -221,8 +235,9 @@ test('manual_queue exclusion: a manual case with an available doctor is still sk
 // ── partial success + invariant ───────────────────────────────────────────────
 test('partial success: mixed batch → some assigned, some skipped, assigned+skipped===requested', async () => {
   const spec = await mkSpec();
-  await mkDoctor(spec, { name: 'Mix Doc' });
-  const ok = await mkCase(spec);
+  const svc = uid('svc');
+  await mkDoctor(spec, { name: 'Mix Doc', services: [svc] });
+  const ok = await mkCase(spec, { service: svc });
   const manual = await mkCase(spec, { assignment: 'manual_pending' });
   const noSpec = await mkCase(null);
 
@@ -240,9 +255,10 @@ test('partial success: mixed batch → some assigned, some skipped, assigned+ski
 // ── dryRun: identical plan, ZERO writes ───────────────────────────────────────
 test('dryRun: returns the plan but persists nothing', async () => {
   const spec = await mkSpec();
-  await mkDoctor(spec, { name: 'Dry Doc' });
-  const c1 = await mkCase(spec);
-  const c2 = await mkCase(spec);
+  const svc = uid('svc');
+  await mkDoctor(spec, { name: 'Dry Doc', services: [svc] });
+  const c1 = await mkCase(spec, { service: svc });
+  const c2 = await mkCase(spec, { service: svc });
 
   const r = await run([c1, c2], true);
 
@@ -258,10 +274,11 @@ test('dryRun: returns the plan but persists nothing', async () => {
 // ── atomicity #1: per-case savepoint rollback, siblings persist ───────────────
 test('atomicity: a fault on case #2 audit insert rolls back ONLY case #2; #1 and #3 commit', async () => {
   const spec = await mkSpec();
-  const doc = await mkDoctor(spec, { name: 'Atom Doc' }); // uncapped
-  const c1 = await mkCase(spec, { ageMin: 30 });
-  const c2 = await mkCase(spec, { ageMin: 20 });
-  const c3 = await mkCase(spec, { ageMin: 10 });
+  const svc = uid('svc');
+  const doc = await mkDoctor(spec, { name: 'Atom Doc', services: [svc] }); // uncapped
+  const c1 = await mkCase(spec, { ageMin: 30, service: svc });
+  const c2 = await mkCase(spec, { ageMin: 20, service: svc });
+  const c3 = await mkCase(spec, { ageMin: 10, service: svc });
 
   const real = await pool.connect();
   const proxy = faultClient(real, (sql, params) =>
@@ -291,9 +308,10 @@ test('atomicity: a fault on case #2 audit insert rolls back ONLY case #2; #1 and
 // ── atomicity #2: a fault at COMMIT rolls back the WHOLE batch ─────────────────
 test('atomicity: a fault at COMMIT rolls back the entire batch — nothing persists', async () => {
   const spec = await mkSpec();
-  await mkDoctor(spec, { name: 'Batch Doc' });
-  const c1 = await mkCase(spec, { ageMin: 20 });
-  const c2 = await mkCase(spec, { ageMin: 10 });
+  const svc = uid('svc');
+  await mkDoctor(spec, { name: 'Batch Doc', services: [svc] });
+  const c1 = await mkCase(spec, { ageMin: 20, service: svc });
+  const c2 = await mkCase(spec, { ageMin: 10, service: svc });
 
   const real = await pool.connect();
   const proxy = faultClient(real, (sql) => typeof sql === 'string' && sql.trim().toUpperCase() === 'COMMIT');
@@ -309,4 +327,34 @@ test('atomicity: a fault at COMMIT rolls back the entire batch — nothing persi
   assert.equal((await dbOrder(c2)).doctor_id, null);
   assert.equal(await assignCount(c1), 0);
   assert.equal(await assignCount(c2), 0);
+});
+
+// ── §4.6 onboarding + service-level gate ──────────────────────────────────────
+test('§4.6: onboarding-incomplete + service-less doctors are skipped, not assigned', async () => {
+  const spec = await mkSpec();
+  const svc = uid('svc');
+  // Only doctor available is NOT onboarded → case must be skipped.
+  await mkDoctor(spec, { name: 'NoBoard', onboarding: false, services: [svc] });
+  const c1 = await mkCase(spec, { service: svc });
+  const r1 = await run([c1]);
+  assert.equal(r1.counts.assigned, 0);
+  assert.equal(pick(r1.skipped, c1).reason, 'doctor_not_onboarded');
+
+  // Onboarded doctor but does NOT offer the service → skipped.
+  const spec2 = await mkSpec();
+  const svcB = uid('svc');
+  await mkDoctor(spec2, { name: 'WrongSvc', onboarding: true, services: [] });
+  const c2 = await mkCase(spec2, { service: svcB });
+  const r2 = await run([c2]);
+  assert.equal(r2.counts.assigned, 0);
+  assert.equal(pick(r2.skipped, c2).reason, 'no_doctor_offers_service');
+
+  // Fully eligible → assigned.
+  const spec3 = await mkSpec();
+  const svcC = uid('svc');
+  const good = await mkDoctor(spec3, { name: 'Good', onboarding: true, services: [svcC] });
+  const c3 = await mkCase(spec3, { service: svcC });
+  const r3 = await run([c3]);
+  assert.equal(r3.counts.assigned, 1);
+  assert.equal(pick(r3.assigned, c3).doctorId, good);
 });

@@ -14,15 +14,27 @@ var TERMINAL_STATUSES = ['completed', 'cancelled', 'canceled', 'rejected', 'refu
 var DEFAULT_TIER = 'standard';
 
 // ---------------------------------------------------------------------------
-// eligibleDoctorsFor({ specialtyId, tier })
+// eligibleDoctorsFor({ specialtyId, tier, serviceId })
 // Returns active doctors who match the specialty AND opt into the given SLA
 // tier via users.sla_tiers_supported (JSONB array). NULL is treated as
 // ["standard"] so legacy rows can still take Standard cases.
+// §4.6: when serviceId is provided, also gates on onboarding_complete=true and
+// an EXISTS row in doctor_services. A NULL serviceId falls back to the legacy
+// specialty-only path so callers that cannot resolve a service_id still work.
 // ---------------------------------------------------------------------------
 async function eligibleDoctorsFor(opts) {
   var specialtyId = opts && opts.specialtyId;
+  var serviceId   = opts && opts.serviceId;
   var tier = (opts && opts.tier) || DEFAULT_TIER;
   var tierJson = JSON.stringify([tier]);
+  // §4.6: onboarding gate + service-level matching. A NULL serviceId means the
+  // caller couldn't resolve the order's service — fall back to specialty-only
+  // (legacy) rather than matching zero doctors.
+  var serviceClause = serviceId
+    ? "  AND COALESCE(onboarding_complete, false) = true " +
+      "  AND EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = users.id AND ds.service_id = $3) "
+    : "";
+  var params = serviceId ? [specialtyId, tierJson, serviceId] : [specialtyId, tierJson];
   return await queryAll(
     "SELECT id, name FROM users " +
     "WHERE role = 'doctor' " +
@@ -31,8 +43,9 @@ async function eligibleDoctorsFor(opts) {
     "  AND COALESCE(pending_approval, false) = false " +
     "  AND specialty_id = $1 " +
     "  AND COALESCE(sla_tiers_supported, '[\"standard\"]'::jsonb) @> $2::jsonb " +
+    serviceClause +
     "ORDER BY name ASC",
-    [specialtyId, tierJson]
+    params
   );
 }
 
@@ -98,7 +111,7 @@ async function autoAssignDoctor(orderId) {
     // pg_get_viewdef on 2026-06-01 — column dropped during view recreation
     // but kept on the base table). Read from orders directly with the same
     // soft-deletion filter the view applies.
-    'SELECT id, specialty_id, doctor_id, status, urgency_tier, assignment_status FROM orders WHERE id = $1 AND deleted_at IS NULL',
+    'SELECT id, specialty_id, service_id, doctor_id, status, urgency_tier, assignment_status FROM orders WHERE id = $1 AND deleted_at IS NULL',
     [orderId]
   );
   if (!order) {
@@ -125,14 +138,18 @@ async function autoAssignDoctor(orderId) {
   var tier = (order.urgency_tier && String(order.urgency_tier).trim()) || DEFAULT_TIER;
 
   // Tier-aware candidate pool (specialty + sla_tiers_supported @> [tier]).
-  var candidates = await eligibleDoctorsFor({ specialtyId: order.specialty_id, tier: tier });
+  var candidates = await eligibleDoctorsFor({ specialtyId: order.specialty_id, tier: tier, serviceId: order.service_id });
 
   if (!candidates || candidates.length === 0) {
     // Distinguish "no doctor for specialty" from "tier filter eliminated the pool".
     // The latter is a routing/under-capacity signal ops needs to see.
+    // §4.6: COUNT now mirrors the eligibleDoctorsFor gate — onboarding_complete +
+    // service-level match — so the "specialty has doctors but tier filtered them"
+    // signal stays honest. If service_id is NULL this returns 0 and we log
+    // "no active doctors for specialty", matching the legacy no-service path.
     var specialtyPool = await queryOne(
-      "SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND COALESCE(is_active, true) = true AND COALESCE(is_paused, false) = false AND COALESCE(pending_approval, false) = false AND specialty_id = $1",
-      [order.specialty_id]
+      "SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND COALESCE(is_active, true) = true AND COALESCE(is_paused, false) = false AND COALESCE(pending_approval, false) = false AND COALESCE(onboarding_complete, false) = true AND specialty_id = $1 AND EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = users.id AND ds.service_id = $2)",
+      [order.specialty_id, order.service_id]
     );
     var specialtyCount = specialtyPool ? Number(specialtyPool.c || 0) : 0;
 
