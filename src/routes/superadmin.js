@@ -23,6 +23,7 @@ const emailService = require('../services/emailService');
 const { logAdminAudit } = require('../services/admin_audit');
 const { bulkWelcomePasswordlessDoctors } = require('../services/admin_doctor_bulk_invite');
 const { WELCOME_EXPIRY_HOURS } = require('../services/doctor_welcome_payload');
+const rateLimit = require('express-rate-limit');
 const adminSettings = require('../services/admin_settings');
 const superadminDashboard = require('../services/superadmin_dashboard');
 const { getAiHealth } = require('../services/ai_health');
@@ -45,6 +46,18 @@ const dbStatusValuesFor = caseLifecycle.dbStatusValuesFor;
 const router = express.Router();
 
 const requireSuperadmin = requireRole('superadmin');
+
+// Package 2 (T28 send-side): per-IP limiter for the welcome-SEND surfaces
+// (resend-welcome + bulk-welcome). Superadmin-gated defense-in-depth — caps a
+// scripted/compromised operator; sits AFTER requireSuperadmin so only
+// authenticated requests count. Sized PER-OPERATOR (10 sends / 15 min per IP),
+// NOT per-doctor: the bulk route is ONE request that invites the whole cohort
+// internally, so a 28-doctor batch is a SINGLE limiter tick — never throttled.
+const welcomeSendIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 10, validate: false,
+  standardHeaders: true, legacyHeaders: false,
+  message: { ok: false, error: 'too_many_requests' },
+});
 
 const IS_PROD = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 
@@ -3295,9 +3308,10 @@ router.post('/superadmin/doctors/:id/approve', requireSuperadmin, async (req, re
 
 // P1-NOTIF-5: resend the welcome email to an already-approved doctor.
 // Useful when the original email was lost or expired before activation.
-// Issues a fresh token (existing unexpired tokens remain valid; magic-login
-// marks them used on first redemption — collision-safe). Audit-logged.
-router.post('/superadmin/doctors/:id/resend-welcome', requireSuperadmin, async (req, res) => {
+// Issues a fresh token; since T27, _issueDoctorWelcomePayload first DELETEs this
+// doctor's prior UNUSED tokens (remint), so exactly one welcome link is ever live
+// — an old link can't still be redeemed. Audit-logged.
+router.post('/superadmin/doctors/:id/resend-welcome', requireSuperadmin, welcomeSendIpLimiter, async (req, res) => {
   const doctorId = req.params.id;
   const doctor = await queryOne(DOCTOR_WITH_SPECIALTY_SQL, [doctorId]);
   if (!doctor) return res.redirect('/superadmin/doctors');
@@ -3352,9 +3366,9 @@ router.post('/superadmin/doctors/:id/resend-welcome', requireSuperadmin, async (
 // POST-COMMIT per doctor with a per-doctor dedupe key. MUST SHIP IN THE SAME
 // RELEASE AS THE ASSIGNMENT GATE (spec §9): the gate makes every
 // onboarding_complete=false doctor unassignable, so without a way to send invites
-// the whole roster is stranded. (Send-side per-IP limiter is deferred — T28
-// send-side half.) requireSuperadmin mirrors the other /superadmin/doctors/* actions.
-router.post('/superadmin/doctors/bulk-welcome-passwordless', requireSuperadmin, async (req, res) => {
+// the whole roster is stranded. requireSuperadmin + welcomeSendIpLimiter (10/15min
+// per IP; ONE tick per bulk call — the 28-doctor loop is internal, never throttled).
+router.post('/superadmin/doctors/bulk-welcome-passwordless', requireSuperadmin, welcomeSendIpLimiter, async (req, res) => {
   logAdminAudit({ req, action: 'bulk_welcome_passwordless_doctors', target: '/superadmin/doctors' });
 
   // baseUrl the same way _issueDoctorWelcomePayload resolves it (env first,

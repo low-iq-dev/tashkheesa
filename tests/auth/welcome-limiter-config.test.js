@@ -85,6 +85,26 @@ try {
   t.pass('auth.js: welcomeTokenIpLimiter now also gates web POST /forgot-password (issuance)');
 } catch (e) { t.fail('web forgot-password limiter wiring', e); }
 
+// ── 2c. T28 SEND-SIDE: welcomeSendIpLimiter on superadmin resend + bulk routes ──
+// Superadmin-gated defense-in-depth (caps a scripted/compromised operator). Sized
+// PER-OPERATOR (10/15min per IP), NOT per-doctor: the bulk-welcome call is ONE HTTP
+// request that loops N doctors INTERNALLY, so a 28-doctor batch counts as a SINGLE
+// limiter tick and is never throttled. The limiter sits AFTER requireSuperadmin so
+// only authenticated requests are counted.
+try {
+  const sa = read('routes', 'superadmin.js');
+  assert.ok(/require\(['"]express-rate-limit['"]\)/.test(sa), 'superadmin.js must require express-rate-limit');
+  assert.ok(/const\s+welcomeSendIpLimiter\s*=\s*rateLimit\(/.test(sa), 'superadmin.js must define welcomeSendIpLimiter');
+  const block = (sa.match(/const\s+welcomeSendIpLimiter\s*=\s*rateLimit\(\{[\s\S]*?\}\);/) || [''])[0];
+  assert.ok(/max:\s*10\b/.test(block), 'welcomeSendIpLimiter cap must be max: 10 (per-operator, not per-doctor)');
+  assert.ok(/windowMs:\s*15\s*\*\s*60\s*\*\s*1000/.test(block), 'welcomeSendIpLimiter window must be 15 minutes');
+  assert.ok(/resend-welcome['"]\s*,\s*requireSuperadmin\s*,\s*welcomeSendIpLimiter/.test(sa),
+    'resend-welcome must carry welcomeSendIpLimiter (after requireSuperadmin)');
+  assert.ok(/bulk-welcome-passwordless['"]\s*,\s*requireSuperadmin\s*,\s*welcomeSendIpLimiter/.test(sa),
+    'bulk-welcome-passwordless must carry welcomeSendIpLimiter (after requireSuperadmin)');
+  t.pass('superadmin.js: welcomeSendIpLimiter (10/15min, per-operator) on resend-welcome + bulk-welcome');
+} catch (e) { t.fail('superadmin send-side limiter wiring', e); }
+
 // ── 3. Behavioral: the limiter actually returns 429 past the cap ──
 (async function behavioral() {
   if (!process.env.DATABASE_URL || !process.env.JWT_SECRET) {
