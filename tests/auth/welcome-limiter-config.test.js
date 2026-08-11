@@ -63,6 +63,28 @@ try {
   t.pass('api/admin.js: inviteIpLimiter (10/15min) defined + attached to POST /doctors/:id/invite');
 } catch (e) { t.fail('api/admin.js invite limiter wiring', e); }
 
+// ── 2b. T28 WIDEN: close the genuinely-unthrottled anonymous token surface ──
+// The MOBILE /api/v1/auth/{forgot,reset}-password routes are ALREADY throttled
+// at the mount (api_v1.js: `router.use('/auth', authLimiter, …)`, 20/15min per IP
+// — stricter than the web limiter). The earlier "mobile unthrottled" flag was a
+// false positive that missed that mount-level limiter, so we do NOT add a
+// duplicate there (that would double-limit). The one genuinely unthrottled
+// surface was the WEB POST /forgot-password (a portal route, not under /api/v1).
+try {
+  const apiv1 = read('routes', 'api_v1.js');
+  assert.ok(/const\s+authLimiter\s*=\s*rateLimit\(/.test(apiv1), 'api_v1.js defines authLimiter');
+  assert.ok(/router\.use\(\s*['"]\/auth['"]\s*,\s*authLimiter/.test(apiv1),
+    'api_v1.js gates the mobile /auth/* router (forgot-password + reset-password) with authLimiter at the mount');
+  t.pass('mobile /api/v1/auth token routes already throttled via authLimiter at the mount (no dup added)');
+} catch (e) { t.fail('mobile auth throttle (mount-level authLimiter)', e); }
+
+try {
+  const auth = read('routes', 'auth.js');
+  assert.ok(/router\.post\(\s*['"]\/forgot-password['"]\s*,\s*welcomeTokenIpLimiter/.test(auth),
+    'web POST /forgot-password (issuance) must carry welcomeTokenIpLimiter');
+  t.pass('auth.js: welcomeTokenIpLimiter now also gates web POST /forgot-password (issuance)');
+} catch (e) { t.fail('web forgot-password limiter wiring', e); }
+
 // ── 3. Behavioral: the limiter actually returns 429 past the cap ──
 (async function behavioral() {
   if (!process.env.DATABASE_URL || !process.env.JWT_SECRET) {
@@ -88,18 +110,38 @@ try {
 
   try { await boot(); } catch (e) { t.skip('welcome-limiter 429 behavior', 'boot failed: ' + e.message); return; }
   try {
-    // welcomeTokenIpLimiter is max:30/15min, per-IP, shared across the redemption
-    // routes. Fire 31 GETs to an invalid magic-login token from one IP; the first
-    // 30 pass (invalid token → login render), the 31st crosses the cap → 429.
-    const statuses = [];
-    for (let i = 0; i < 31; i++) {
-      const r = await fetch(BASE + '/magic-login/ratelimit-probe', { redirect: 'manual' });
-      statuses.push(r.status);
-    }
-    assert.notStrictEqual(statuses[0], 429, 'the first request must NOT be rate-limited');
-    assert.ok(statuses.includes(429), 'limiter must return 429 within 31 requests (cap 30); got ' + JSON.stringify(statuses));
-    assert.ok(statuses.filter((s) => s !== 429).length <= 30, 'no more than 30 non-429 responses (cap respected)');
-    t.pass('behavioral: /magic-login limiter caps at 30 then returns 429');
-  } catch (e) { t.fail('welcome-limiter 429 behavior', e); }
-  finally { try { await shutdown(); } catch (_) {} }
+    // ── web welcomeTokenIpLimiter (30/15min, shared across redemption routes) ──
+    // Fire 31 GETs to an invalid magic-login token from one IP; the first 30 pass
+    // (invalid token → login render), the 31st crosses the cap → 429.
+    try {
+      const statuses = [];
+      for (let i = 0; i < 31; i++) {
+        const r = await fetch(BASE + '/magic-login/ratelimit-probe', { redirect: 'manual' });
+        statuses.push(r.status);
+      }
+      assert.notStrictEqual(statuses[0], 429, 'the first request must NOT be rate-limited');
+      assert.ok(statuses.includes(429), 'limiter must return 429 within 31 requests (cap 30); got ' + JSON.stringify(statuses));
+      assert.ok(statuses.filter((s) => s !== 429).length <= 30, 'no more than 30 non-429 responses (cap respected)');
+      t.pass('behavioral: /magic-login limiter caps at 30 then returns 429');
+    } catch (e) { t.fail('welcome-limiter 429 behavior (web magic-login)', e); }
+
+    // ── mobile /api/v1/auth/reset-password: throttled by the EXISTING authLimiter ──
+    // (api_v1.js mount, 20/15min per IP — NOT a new limiter). Proves the mobile
+    // redemption surface is capped (regression guard). POST 31× with a valid-length
+    // body + bogus token → 400 INVALID each, then 429 once authLimiter's cap trips.
+    try {
+      const ms = [];
+      for (let i = 0; i < 31; i++) {
+        const r = await fetch(BASE + '/api/v1/auth/reset-password', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ token: 'ratelimit-probe-' + i, password: 'Xx123456' }), redirect: 'manual',
+        });
+        ms.push(r.status);
+      }
+      assert.notStrictEqual(ms[0], 429, 'mobile reset: first request must NOT be rate-limited');
+      assert.ok(ms.includes(429), 'mobile reset must return 429 within 31 (authLimiter cap 20); got ' + JSON.stringify(ms));
+      assert.ok(ms.filter((s) => s !== 429).length <= 30, 'mobile reset: non-429 count well under 31 (authLimiter cap 20, ≤30 with margin)');
+      t.pass('behavioral: mobile /api/v1/auth/reset-password limiter caps at 30 then 429');
+    } catch (e) { t.fail('mobile-limiter 429 behavior (reset-password)', e); }
+  } finally { try { await shutdown(); } catch (_) {} }
 })();
