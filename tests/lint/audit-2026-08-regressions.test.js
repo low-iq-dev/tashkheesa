@@ -424,3 +424,46 @@ try {
   }
   t.pass(`all ${files.length} server modules load without throwing`);
 } catch (e) { t.fail('module load smoke test', e); }
+
+// ── 10. The clock contract is observable, not just set ────────────────────
+//
+// Guard 6 checks the pin is in the source. This checks it can be OBSERVED at
+// runtime. The SET TIME ZONE in src/pg.js is fire-and-forget on a pooled
+// client — if it ever fails, nothing surfaces and every SLA deadline that
+// instance computes is silently 2-3h wrong. /healthz reports db + node
+// timezone and a clockOk boolean so an uptime check can alarm on it.
+try {
+  const h = fs.readFileSync(path.join(SRC, 'routes', 'health.js'), 'utf8');
+  for (const [needle, why] of [
+    ['SHOW TimeZone', '/healthz no longer reads the database session timezone'],
+    ['clockOk', '/healthz no longer exposes the clockOk flag an uptime check alarms on'],
+  ]) {
+    if (!h.includes(needle)) throw new Error(why);
+  }
+  t.pass('/healthz reports the db + node clock contract');
+} catch (e) { t.fail('clock contract observability', e); }
+
+// ── 11. Revenue is bucketed in ONE timezone, declared explicitly ──────────
+//
+// orders.paid_at is timestamptz; orders.created_at is timestamp WITHOUT time
+// zone holding UTC digits. A bare COALESCE of the two lets the SESSION
+// timezone decide how created_at is read — which was wrong under Cairo, and
+// separately, pinning the session to UTC redefined "collected today" from a
+// Cairo day to a UTC day, moving the cutoff to 2am Cairo. Both the KPI tile
+// and the list behind it must use the same explicit Cairo-day expression.
+try {
+  const a = fs.readFileSync(path.join(SRC, 'routes', 'api', 'admin.js'), 'utf8');
+  if (/COALESCE\((?:o\.)?paid_at,\s*(?:o\.)?created_at\)/.test(a)) {
+    throw new Error(
+      "admin.js has a bare COALESCE(paid_at, created_at) again. created_at is " +
+      "timezone-naive, so this lets the session timezone silently decide the " +
+      "revenue buckets. Use the COLLECTED_AT_CAIRO fragments."
+    );
+  }
+  if (!a.includes('BUSINESS_TZ')) {
+    throw new Error('admin.js no longer defines BUSINESS_TZ — the revenue day boundary is implicit again');
+  }
+  const uses = (a.match(/COLLECTED_AT_CAIRO/g) || []).length;
+  if (uses < 3) throw new Error(`expected the shared Cairo-day fragments at the KPI and the list; saw ${uses} references`);
+  t.pass('revenue buckets on an explicit Cairo business day');
+} catch (e) { t.fail('revenue bucketing timezone', e); }

@@ -33,6 +33,28 @@ const {
 } = require('../../middleware/requireJWT');
 const { buildHealthPayload, WORKER_SPECS } = require('../../services/admin_health');
 const { randomUUID } = require('crypto');
+
+// ─── AUDIT-TZ-3 — revenue bucketing timezone ────────────────────────────────
+// Two SQL fragments, defined once so the KPI tile and the list it links to can
+// never drift apart. See the long note at the collected-revenue query.
+//
+//   COLLECTED_AT_CAIRO — the moment an order's money was collected, expressed
+//   as Cairo wall-clock. paid_at is timestamptz; created_at is timestamp
+//   WITHOUT time zone holding UTC digits, so it is labelled UTC explicitly
+//   rather than left to the session default.
+//
+//   NOW_CAIRO — "now" as Cairo wall-clock, so date_trunc() cuts the business
+//   day at Cairo midnight rather than UTC midnight.
+//
+// Both sides of every comparison are therefore naive Cairo timestamps.
+// 'Africa/Cairo' matches src/services/urgency_window.js and tracks the IANA
+// database, so DST is handled for free.
+const BUSINESS_TZ = 'Africa/Cairo';
+const NOW_CAIRO = `(NOW() AT TIME ZONE '${BUSINESS_TZ}')`;
+const COLLECTED_AT_CAIRO =
+  `(COALESCE(paid_at, created_at AT TIME ZONE 'UTC') AT TIME ZONE '${BUSINESS_TZ}')`;
+const COLLECTED_AT_CAIRO_O =
+  `(COALESCE(o.paid_at, o.created_at AT TIME ZONE 'UTC') AT TIME ZONE '${BUSINESS_TZ}')`;
 // Shared pure helpers for the /cases endpoints (status/tier normalization,
 // tier-support, capacity, acceptance window). Extracted to a single source of
 // truth so the candidates picker, single-assign write, queue/detail readers,
@@ -498,13 +520,32 @@ module.exports = function (db, helpers, deploy, deps) {
         ),
         // Collected revenue (paid/captured) — orders_active. Sums grandTotal
         // = COALESCE(total_price_with_addons, price), bucketed by
-        // COALESCE(paid_at, created_at) — the SAME amount column and date as the
-        // GET /revenue list total, so the tile always equals the list (including
-        // orders with file add-ons).
+        // the collected-date expression below — the SAME amount column and date
+        // as the GET /revenue list total, so the tile always equals the list
+        // (including orders with file add-ons).
+        //
+        // AUDIT-TZ-3 — the date expression is explicit about BOTH timezones, for
+        // two separate reasons:
+        //
+        //   1. paid_at is timestamptz; created_at is timestamp WITHOUT time zone
+        //      holding UTC digits. A bare COALESCE of the two makes Postgres
+        //      cast created_at using the SESSION timezone. That silently
+        //      produced wrong buckets while the session was Africa/Cairo, and
+        //      would break again if anyone changed the session default. The
+        //      `AT TIME ZONE 'UTC'` states what the digits actually are.
+        //
+        //   2. "Today" means today IN CAIRO, not in UTC. Pinning the session to
+        //      UTC (src/pg.js) silently redefined date_trunc('day', NOW()) from
+        //      a Cairo day to a UTC day, which moves the cutoff to 2am Cairo —
+        //      so a sale at 00:30 Cairo would land in yesterday's figure. The
+        //      business day is bucketed in Cairo explicitly.
+        //
+        // Keep this expression identical to the one in GET /revenue below, or
+        // the tile and the list it links to will disagree.
         safeGet(
           `SELECT
-             COALESCE(SUM(COALESCE(total_price_with_addons, price)) FILTER (WHERE COALESCE(paid_at, created_at) >= date_trunc('day', NOW())), 0) AS collected_today,
-             COALESCE(SUM(COALESCE(total_price_with_addons, price)) FILTER (WHERE COALESCE(paid_at, created_at) >= date_trunc('month', NOW())), 0) AS collected_mtd
+             COALESCE(SUM(COALESCE(total_price_with_addons, price)) FILTER (WHERE ${COLLECTED_AT_CAIRO} >= date_trunc('day', ${NOW_CAIRO})), 0) AS collected_today,
+             COALESCE(SUM(COALESCE(total_price_with_addons, price)) FILTER (WHERE ${COLLECTED_AT_CAIRO} >= date_trunc('month', ${NOW_CAIRO})), 0) AS collected_mtd
            FROM orders_active
            WHERE payment_status IN ('paid','captured')`
         ),
@@ -563,9 +604,9 @@ module.exports = function (db, helpers, deploy, deps) {
   });
 
   // ─── GET /revenue?scope=today|mtd (read-only paid-orders list) ─
-  // The list behind the Collected today / Collected MTD tiles. Buckets by
-  // COALESCE(paid_at, created_at) — the SAME coalesced collected-date the
-  // collected KPI now sums on — so this list's row set matches the tile's window.
+  // The list behind the Collected today / Collected MTD tiles. Buckets by the
+  // SAME Cairo-day expression the collected KPI sums on (AUDIT-TZ-3, see the
+  // long note there) — so this list's row set matches the tile's window.
   router.get('/revenue', async (req, res) => {
     try {
       const n = (v) => Number(v) || 0;
@@ -576,13 +617,13 @@ module.exports = function (db, helpers, deploy, deps) {
       const rows = await safeAll(
         `SELECT o.id, o.reference_id, COALESCE(p.name,'—') AS patient, COALESCE(sv.name,'—') AS service,
                 o.base_price, o.price, o.total_price_with_addons, o.currency, o.payment_method,
-                COALESCE(o.paid_at, o.created_at) AS collected_at
+                COALESCE(o.paid_at, o.created_at AT TIME ZONE 'UTC') AS collected_at
            FROM orders_active o
            LEFT JOIN users p     ON p.id = o.patient_id
            LEFT JOIN services sv ON sv.id = o.service_id
           WHERE LOWER(COALESCE(o.payment_status,'')) IN ('paid','captured')
-            AND COALESCE(o.paid_at, o.created_at) >= date_trunc($1, NOW())
-          ORDER BY COALESCE(o.paid_at, o.created_at) DESC`,
+            AND ${COLLECTED_AT_CAIRO_O} >= date_trunc($1, ${NOW_CAIRO})
+          ORDER BY COALESCE(o.paid_at, o.created_at AT TIME ZONE 'UTC') DESC`,
         [unit]
       );
 

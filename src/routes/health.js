@@ -46,6 +46,32 @@ function setupHealthRoutes(opts) {
       var w = workerLiveness(spec.key, byName[spec.key] || null, now, spec.staleSeconds, uptimeSec);
       return { name: w.name, status: w.status, ageSec: w.ageSec, staleSeconds: spec.staleSeconds };
     });
+
+    // AUDIT-TZ-1 — the clock contract, exposed so it can be MONITORED rather
+    // than confirmed by eyeballing a boot log once and hoping.
+    //
+    // Every SLA deadline is written as a JS .toISOString() into a `timestamp
+    // WITHOUT time zone` column, and the sweeps compare with NOW()::timestamp.
+    // Those only agree when BOTH the database session and the Node process are
+    // UTC. They were not: the session inherited Africa/Cairo, so every deadline
+    // read 2-3h further past than it was and cases breached early.
+    //
+    // src/pg.js pins the session per connection and src/server.js forces the
+    // process, but a pinning failure is silent — the SET is fire-and-forget on
+    // a pooled client. Reporting it here turns that into something an uptime
+    // check can alarm on. clockOk false means SLA timing is wrong on this
+    // instance and every deadline it computes is suspect.
+    var clock = { db: null, node: null, ok: false };
+    try {
+      var tzr = await pool.query('SHOW TimeZone');
+      clock.db = (tzr.rows && tzr.rows[0]) ? (tzr.rows[0].TimeZone || tzr.rows[0].timezone) : null;
+    } catch (_) { /* DB hiccup: clock reads unknown; /healthz still 200 */ }
+    try {
+      clock.node = Intl.DateTimeFormat().resolvedOptions().timeZone || process.env.TZ || null;
+    } catch (_) { clock.node = process.env.TZ || null; }
+    clock.ok = String(clock.db || '').toUpperCase() === 'UTC' &&
+               String(clock.node || '').toUpperCase() === 'UTC';
+
     return res.json({
       ok: true,
       mode: MODE,
@@ -58,7 +84,9 @@ function setupHealthRoutes(opts) {
         waiting: pool.waitingCount
       },
       workers: workers,
-      workersOk: workers.every(function(w) { return w.status !== 'down'; })
+      workersOk: workers.every(function(w) { return w.status !== 'down'; }),
+      clock: clock,
+      clockOk: clock.ok
     });
   });
 
