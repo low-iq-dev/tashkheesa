@@ -193,15 +193,58 @@ async function autoAssignDoctor(orderId) {
     return { assigned: false, reason: 'no_doctors_available' };
   }
 
-  // Assign the doctor.
-  // Theme 14 — also flip assignment_status to 'assigned' (terminal state)
-  // so the superadmin manual queue (Phase 5) correctly distinguishes
-  // assigned-via-auto from manual_pending / manual_claimed.
+  // AUDIT-P0-2 — assign through the case lifecycle, not a raw UPDATE.
+  //
+  // This used to be:
+  //   UPDATE orders SET doctor_id = $1, assignment_status = 'assigned' ...
+  // which left `status` on PAID. The consequences were total:
+  //   * doctor.js's "new cases" queue is a UNION of (doctor_id = me AND status
+  //     IN ('assigned','accepted')) and (doctor_id IS NULL). A row with a
+  //     doctor_id but status='paid' matches NEITHER — invisible to the assigned
+  //     doctor AND removed from every other doctor's broadcast pool.
+  //   * No doctor_assignments row and no accept_by_at, so
+  //     case_sla_worker.fetchDoctorTimeouts (needs status='assigned' + an
+  //     assignment row) could never recover it.
+  //   * markCasePaid sets deadline_at = NULL, so fetchSlaCandidates (needs
+  //     deadline_at IS NOT NULL) could never recover it either.
+  // Net: a paid, orphaned, permanently silent case.
+  //
+  // assignDoctor writes status=ASSIGNED, assigned_at, the doctor_assignments
+  // row with a tier-proportional accept_by_at, the CASE_ASSIGNED event, the
+  // case conversation, and the patient email — all the things the raw UPDATE
+  // skipped. Required lazily to avoid the
+  // auto_assign -> case_lifecycle -> job_queue -> auto_assign require cycle.
   var nowIso = new Date().toISOString();
-  await execute(
-    "UPDATE orders SET doctor_id = $1, assignment_status = 'assigned', updated_at = $2 WHERE id = $3",
-    [best.id, nowIso, orderId]
+  var caseLifecycle = require('./case_lifecycle');
+
+  // Atomic claim: only one writer may move this order out of "unassigned".
+  // Guards the TOCTOU window between the order.doctor_id check at the top of
+  // this function and the write, which the auto-assign worker and a manual
+  // admin assign can both be inside at once.
+  var claim = await execute(
+    "UPDATE orders SET assignment_status = 'assigned', updated_at = $1 " +
+    " WHERE id = $2 AND doctor_id IS NULL AND deleted_at IS NULL",
+    [nowIso, orderId]
   );
+  if (!claim || claim.rowCount === 0) {
+    logMajor('[auto-assign] Order ' + orderId + ' was claimed by another writer — skipping');
+    return { assigned: false, reason: 'already_assigned' };
+  }
+
+  try {
+    await caseLifecycle.assignDoctor(orderId, best.id);
+  } catch (e) {
+    // Release the claim so a later sweep or a human can still assign it, and
+    // surface the reason rather than leaving a half-assigned row behind.
+    try {
+      await execute(
+        "UPDATE orders SET assignment_status = 'manual_pending', updated_at = $1 WHERE id = $2 AND doctor_id IS NULL",
+        [new Date().toISOString(), orderId]
+      );
+    } catch (_) { /* non-fatal */ }
+    logMajor('[auto-assign] assignDoctor rejected order ' + orderId + ': ' + (e && e.message));
+    return { assigned: false, reason: 'lifecycle_rejected', error: e && e.message };
+  }
 
   // Audit trail
   await logOrderEvent({
