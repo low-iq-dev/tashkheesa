@@ -32,17 +32,19 @@ var THROTTLE_MINUTES = 5;
 // Log every send attempt — success or failure — to critical_alert_log.
 // Lazy-require pg so this module stays loadable in the boot-time path
 // before the pool is initialized. Never throws.
-function _logCriticalAlertAttempt(alertKey, statusCode, errorText, message) {
+// AUDIT-P1-4: records the OUTCOME on the row already claimed by _claimSend.
+// claimId 0 means the claim itself failed (DB down, fail-open) — nothing to
+// update, and re-inserting would defeat the throttle.
+function _logCriticalAlertAttempt(claimId, statusCode, errorText) {
+  if (!claimId) return;
   try {
     var pg = require('./pg');
     pg.execute(
-      "INSERT INTO critical_alert_log (alert_key, status_code, error, message)" +
-      " VALUES ($1, $2, $3, $4)",
+      "UPDATE critical_alert_log SET status_code = $2, error = $3 WHERE id = $1",
       [
-        String(alertKey || 'unknown').slice(0, 200),
+        claimId,
         statusCode == null ? null : Number(statusCode),
-        errorText == null ? null : String(errorText).slice(0, 1000),
-        message == null ? null : String(message).slice(0, 1000)
+        errorText == null ? null : String(errorText).slice(0, 1000)
       ]
     ).catch(function () { /* never throw from log writer */ });
   } catch (_) { /* pg not loaded yet — boot path */ }
@@ -66,23 +68,40 @@ function _logToErrorLogs(statusCode, errorText, alertKey) {
   } catch (_) { /* never throw from log writer */ }
 }
 
-// Returns Promise<boolean>: true if we should send (no recent send for
-// this alert_key), false if throttled. Fails open (returns true) if the
-// DB is unavailable — we'd rather risk a duplicate alert during a DB
-// outage than suppress the alert that says "DB is down".
-async function _shouldSend(alertKey) {
+// AUDIT-P1-4 — the throttle is now CLAIMED UP FRONT, in one statement.
+//
+// It used to be a read-only `SELECT 1 ...` check, while the row that closes
+// the window was only written from `res.on('end')` — i.e. AFTER the Meta
+// round-trip, up to the 10s request timeout later. Every caller inside that
+// window passed the throttle. That is exactly the failure migration 049 was
+// written to prevent: a crash loop or error burst fires N unhandledRejection
+// handlers within seconds, all N pass, and all N page the on-call phone,
+// burning the Meta rate limit at the worst possible moment.
+//
+// INSERT ... SELECT ... WHERE NOT EXISTS claims and checks in a single
+// statement, so the window closes before the HTTPS request is even built.
+// Returns the claimed row id (to be updated with the outcome), or null when
+// throttled. Fails OPEN on DB error — during a DB outage we would rather risk
+// a duplicate alert than suppress the alert that says "the DB is down" — and
+// signals that with the sentinel id 0.
+async function _claimSend(alertKey, message) {
   try {
     var pg = require('./pg');
-    var row = await pg.queryOne(
-      "SELECT 1 FROM critical_alert_log" +
-      " WHERE alert_key = $1" +
-      "   AND sent_at > NOW() - INTERVAL '" + THROTTLE_MINUTES + " minutes'" +
-      " LIMIT 1",
-      [alertKey]
+    var res = await pg.execute(
+      "INSERT INTO critical_alert_log (alert_key, message)" +
+      " SELECT $1, $2" +
+      " WHERE NOT EXISTS (" +
+      "   SELECT 1 FROM critical_alert_log" +
+      "    WHERE alert_key = $1" +
+      "      AND sent_at > NOW() - INTERVAL '" + THROTTLE_MINUTES + " minutes'" +
+      " )" +
+      " RETURNING id",
+      [alertKey, message == null ? null : String(message).slice(0, 1000)]
     );
-    return !row;  // no recent row → send
+    if (res && res.rows && res.rows.length) return res.rows[0].id;
+    return null;  // throttled
   } catch (_) {
-    return true;  // DB unavailable → fail open
+    return 0;     // DB unavailable → fail open, nothing to update later
   }
 }
 
@@ -109,13 +128,13 @@ async function sendCriticalAlert(message, alertKey) {
   var key = String(alertKey || 'generic').slice(0, 200);
   var text = '[TASHKHEESA CRITICAL] ' + String(message || 'Unknown error').slice(0, 1000);
 
-  var ok = await _shouldSend(key);
-  if (!ok) return;
+  var claimId = await _claimSend(key, text);
+  if (claimId === null) return;  // throttled
 
   // Env gate — log the attempt as suppressed so /ops widget 5 still
   // shows we tried (and why it didn't go through).
   if (!adminPhone || !phoneNumberId || !accessToken) {
-    _logCriticalAlertAttempt(key, null, 'env_missing', text);
+    _logCriticalAlertAttempt(claimId, null, 'env_missing');
     return;
   }
 
@@ -125,7 +144,7 @@ async function sendCriticalAlert(message, alertKey) {
   // (e.g. pre-Meta-verification), skip the send and log it — the operator
   // still sees the suppression in /ops widget 5.
   if (!templateName) {
-    _logCriticalAlertAttempt(key, null, 'template_not_configured', text);
+    _logCriticalAlertAttempt(claimId, null, 'template_not_configured');
     return;
   }
 
@@ -162,7 +181,7 @@ async function sendCriticalAlert(message, alertKey) {
         var responseBody = '';
         try { responseBody = Buffer.concat(chunks).toString('utf8').slice(0, 1000); } catch (_) {}
         var isFailure = !(status >= 200 && status < 300);
-        _logCriticalAlertAttempt(key, status, isFailure ? responseBody : null, text);
+        _logCriticalAlertAttempt(claimId, status, isFailure ? responseBody : null);
         if (isFailure) _logToErrorLogs(status, responseBody, key);
       });
       res.resume();
@@ -170,19 +189,19 @@ async function sendCriticalAlert(message, alertKey) {
 
     req.on('error', function (err) {
       var msg = 'request_error: ' + (err && err.message ? err.message : 'unknown');
-      _logCriticalAlertAttempt(key, null, msg, text);
+      _logCriticalAlertAttempt(claimId, null, msg);
       _logToErrorLogs(null, msg, key);
     });
     req.on('timeout', function () {
       req.destroy();
-      _logCriticalAlertAttempt(key, null, 'timeout', text);
+      _logCriticalAlertAttempt(claimId, null, 'timeout');
       _logToErrorLogs(null, 'timeout', key);
     });
     req.write(body);
     req.end();
   } catch (e) {
     var msg = 'send_threw: ' + (e && e.message ? e.message : 'unknown');
-    _logCriticalAlertAttempt(key, null, msg, text);
+    _logCriticalAlertAttempt(claimId, null, msg);
     _logToErrorLogs(null, msg, key);
   }
 }

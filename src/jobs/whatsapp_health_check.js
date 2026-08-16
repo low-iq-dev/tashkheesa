@@ -28,6 +28,15 @@ var { queryOne } = require('../pg');
 var { sendCriticalAlert } = require('../critical-alert');
 var { major: logMajor } = require('../logger');
 
+// AUDIT-P1-4: this filtered on context->>'statusCode', a key the WhatsApp
+// senders never write — notify/whatsapp.js and lib/openclaw_client.js both
+// record the HTTP status under 'status'. Only critical-alert.js writes
+// 'statusCode', so the detector could only ever see its own alerting
+// failures. When WHATSAPP_ACCESS_TOKEN expired, every send 401'd, this cron
+// reported 0, no alert fired, and WhatsApp was silently dead.
+// The context ~ '^\\s*\\{' guard prevents a truncated JSON row (whatsapp.js
+// slices context to 4000 chars) from making the ::jsonb cast raise, which
+// would abort the whole query and be caught into a 0 result.
 async function checkWhatsAppHealth() {
   try {
     var row = await queryOne(
@@ -35,7 +44,8 @@ async function checkWhatsAppHealth() {
       " FROM error_logs" +
       " WHERE category = 'whatsapp_send'" +
       "   AND created_at > NOW() - INTERVAL '15 minutes'" +
-      "   AND (context::jsonb)->>'statusCode' = '401'"
+      "   AND context ~ '^\\s*\\{'" +
+      "   AND (context::jsonb)->>'status' = '401'"
     );
     var count = row && row.c ? Number(row.c) : 0;
     if (count > 0) {

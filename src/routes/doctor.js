@@ -224,7 +224,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
   var streakCount = 0;
   try {
     var streakRow = await queryOne(
-      "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND status = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
+      "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND LOWER(COALESCE(status, '')) = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
       [doctorId]
     );
     streakCount = (streakRow && streakRow.c) || 0;
@@ -238,8 +238,8 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
   try {
     var mRow = await queryOne(
       `SELECT
-         COUNT(*) FILTER (WHERE status = 'completed') AS completed_this_month,
-         COALESCE(SUM(doctor_fee) FILTER (WHERE status = 'completed'), 0) AS earnings_this_month
+         COUNT(*) FILTER (WHERE LOWER(COALESCE(status, '')) = 'completed') AS completed_this_month,
+         COALESCE(SUM(doctor_fee) FILTER (WHERE LOWER(COALESCE(status, '')) = 'completed'), 0) AS earnings_this_month
        FROM orders_active
        WHERE doctor_id = $1
          AND COALESCE(completed_at, updated_at) >= date_trunc('month', NOW())
@@ -413,7 +413,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
          AVG(EXTRACT(EPOCH FROM (completed_at - COALESCE(accepted_at, created_at))) / 3600.0) AS avg_turnaround_hours
        FROM orders_active
        WHERE doctor_id = $1
-         AND status = 'completed'
+         AND LOWER(COALESCE(status, '')) = 'completed'
          AND COALESCE(completed_at, updated_at) >= date_trunc('month', NOW())
          AND COALESCE(completed_at, updated_at) <  date_trunc('month', NOW()) + INTERVAL '1 month'`,
       [doctorId]
@@ -1276,7 +1276,7 @@ router.use(async (req, res, next) => {
   try {
     if (req.user && req.user.id) {
       var sRow = await queryOne(
-        "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND status = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
+        "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND LOWER(COALESCE(status, '')) = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
         [req.user.id]
       );
       res.locals.streakCount = (sRow && sRow.c) || 0;
@@ -2189,7 +2189,7 @@ router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(r
 
   // Streak count for sidebar
   var streakRow = await queryOne(
-    "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND status = 'completed' AND completed_at >= NOW() - INTERVAL '7 days'",
+    "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND LOWER(COALESCE(status, '')) = 'completed' AND completed_at >= NOW() - INTERVAL '7 days'",
     [doctorId]
   );
 
@@ -4853,6 +4853,37 @@ async function handlePortalDoctorGenerateReport(req, res) {
       annotations,
     });
 
+    // AUDIT-P1-4 — walk the case into IN_REVIEW before completing it.
+    //
+    // markOrderCompletedFallback is a raw UPDATE straight to COMPLETED with no
+    // assertTransition, no case_events row and no assignment close. But
+    // STATUS_TRANSITIONS only allows COMPLETED from IN_REVIEW, so a doctor who
+    // never clicked Accept could jump ASSIGNED -> COMPLETED with accepted_at
+    // NULL: turnaround metrics divided by a null acceptance, /ops saw no
+    // completion event, and the still-open doctor_assignments row was later
+    // picked up by the accept-timeout sweep, which tried to reassign a
+    // COMPLETED case and threw.
+    //
+    // transitionCase(IN_REVIEW) sets accepted_at and deadline_at if they are
+    // missing, which is exactly the state a report submission implies. It is
+    // a no-op when the case is already IN_REVIEW. Best-effort: a doctor must
+    // never lose a written report because of a bookkeeping transition.
+    try {
+      const canon = caseLifecycle.CANON_STATUS || caseLifecycle.CASE_STATUS;
+      // doctor.js's local normalizeStatus lowercases; case_lifecycle canonical
+      // values are uppercase — compare on the lowercase form.
+      if (normalizeStatus(order.status) !== 'in_review') {
+        await caseLifecycle.transitionCase(orderId, canon.IN_REVIEW);
+      }
+    } catch (e) {
+      logErrorToDb(e, {
+        context: 'doctor.report_in_review_transition',
+        category: 'doctor_case',
+        orderId
+      });
+      console.error('[report] IN_REVIEW transition before completion failed:', e && e.message);
+    }
+
     await markOrderCompletedFallback({
       orderId,
       doctorId,
@@ -4860,6 +4891,28 @@ async function handlePortalDoctorGenerateReport(req, res) {
       diagnosisText,
       annotatedFiles: []
     });
+
+    // AUDIT-P1-4 — close the open assignment and emit the canonical case event.
+    // Without the close, sweepDoctorTimeouts kept selecting this completed case
+    // forever; without the event, /ops and the case timeline showed no
+    // completion at all.
+    try {
+      await execute(
+        `UPDATE doctor_assignments SET completed_at = $1
+          WHERE case_id = $2 AND completed_at IS NULL`,
+        [new Date().toISOString(), orderId]
+      );
+    } catch (e) {
+      console.error('[report] could not close doctor_assignments:', e && e.message);
+    }
+    try {
+      await caseLifecycle.logCaseEvent(orderId, 'CASE_COMPLETED', {
+        doctorId,
+        via: 'doctor_portal_report'
+      });
+    } catch (e) {
+      console.error('[report] could not log CASE_COMPLETED:', e && e.message);
+    }
 
     // P0-FIN-1 site 2: flip pending doctor_earnings row to 'paid', or
     // INSERT directly if this is a legacy order (completed without ever

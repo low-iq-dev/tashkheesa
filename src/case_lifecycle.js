@@ -436,7 +436,11 @@ function isUnpaidReminderEligible(orderRow) {
 
   if (orderRow.completed_at) return false;
   if (isTerminalStatus(canonStatus)) return false;
-  if (canonStatus === 'EXPIRED') return false;
+  // AUDIT-P1-4: was `canonStatus === 'EXPIRED'`, a value normalizeStatus never
+  // produced — the sweep writes 'expired_unpaid', which canonicalises to
+  // EXPIRED_UNPAID. The guard therefore never fired and expired cases kept
+  // receiving payment reminders. (EXPIRED is now an alias, so both work.)
+  if (canonStatus === CASE_STATUS.EXPIRED_UNPAID) return false;
 
   if (HAS_PAYMENT_STATUS_COLUMN) {
     const ps = String(orderRow.payment_status || '').trim().toLowerCase();
@@ -679,7 +683,17 @@ const CASE_STATUS = Object.freeze({
   BREACHED_SLA: 'BREACHED_SLA',
   DELAYED: 'DELAYED',
   REASSIGNED: 'REASSIGNED',
-  CANCELLED: 'CANCELLED'
+  CANCELLED: 'CANCELLED',
+  // AUDIT-P1-4 — first-class statuses that were previously written by raw SQL
+  // which deliberately bypassed assertCanonicalDbStatus, and appeared in NO
+  // map: not CASE_STATUS, not STATUS_ALIASES, not STATUS_TRANSITIONS, not
+  // CASE_STATUS_UI, not DB_STATUS_VARIANTS. normalizeStatus produced
+  // 'EXPIRED_UNPAID', assertTransition then threw
+  // "No transitions defined from EXPIRED_UNPAID" for EVERY target, and
+  // getStatusUi fell through to its raw-string fallback so patients literally
+  // saw the badge text "EXPIRED_UNPAID".
+  EXPIRED_UNPAID: 'EXPIRED_UNPAID',
+  PENDING_REVIEW: 'PENDING_REVIEW'
 });
 
 // Legacy / UI-facing status aliases -> canonical CASE_STATUS
@@ -715,7 +729,12 @@ const STATUS_ALIASES = Object.freeze({
   // Cancelled synonyms
   CANCELLED: CASE_STATUS.CANCELLED,
   CANCELED: CASE_STATUS.CANCELLED,
-  CANCEL: CASE_STATUS.CANCELLED
+  CANCEL: CASE_STATUS.CANCELLED,
+
+  // AUDIT-P1-4
+  EXPIRED: CASE_STATUS.EXPIRED_UNPAID,
+  EXPIRED_UNPAID: CASE_STATUS.EXPIRED_UNPAID,
+  PENDING_REVIEW: CASE_STATUS.PENDING_REVIEW
 });
 
 // Resolve SLA hours from an orders row. The orders row's sla_hours
@@ -775,7 +794,18 @@ const STATUS_TRANSITIONS = Object.freeze({
   [CASE_STATUS.REJECTED_FILES]: [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW],
   [CASE_STATUS.SLA_BREACH]: [CASE_STATUS.REASSIGNED, CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW],
   [CASE_STATUS.REASSIGNED]: [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW],
-  [CASE_STATUS.CANCELLED]: []
+  [CASE_STATUS.CANCELLED]: [],
+  // AUDIT-P1-4 — the unpaid-expiry sweep flips a case here at 24h. The Paymob
+  // callback has no expiry guard, so a patient paying from an emailed link 30
+  // hours later WAS charged, payment_status went to 'paid', and markCasePaid
+  // then threw — swallowed and logged as "Payment lifecycle transition
+  // skipped/failed (idempotent)". Money in, case never assigned, no alert.
+  // Allowing EXPIRED_UNPAID -> PAID means a late payment revives the case
+  // instead of bricking it. CANCELLED remains available for a deliberate close.
+  [CASE_STATUS.EXPIRED_UNPAID]: [CASE_STATUS.PAID, CASE_STATUS.CANCELLED],
+  // Anonymous marketing-site intake (routes/api/cases_intake.js) lands here
+  // awaiting ops triage, which either prices and submits it or closes it.
+  [CASE_STATUS.PENDING_REVIEW]: [CASE_STATUS.SUBMITTED, CASE_STATUS.PAID, CASE_STATUS.CANCELLED]
 });
 
 // -----------------------------------------------------------------------------
@@ -1040,6 +1070,51 @@ const CASE_STATUS_UI = Object.freeze({
       visible: true,
       terminal: true
     }
+  },
+
+  // AUDIT-P1-4 — without these entries getStatusUi fell through to its
+  // raw-string fallback and patients literally saw the badge text
+  // "EXPIRED_UNPAID" on their own case page.
+  [CASE_STATUS.EXPIRED_UNPAID]: {
+    patient: {
+      title: { en: 'Payment window closed', ar: 'انتهت مهلة الدفع' },
+      description: { en: 'This case was held for payment and has now been released. You can start a new case any time.', ar: 'تم حفظ هذه الحالة في انتظار الدفع وتم إغلاقها الآن. يمكنك بدء حالة جديدة في أي وقت.' },
+      badge: UI_BADGE.neutral,
+      visible: true
+    },
+    doctor: {
+      title: { en: 'Not available', ar: 'غير متاح' },
+      description: { en: 'This case expired before payment.', ar: 'انتهت مهلة هذه الحالة قبل الدفع.' },
+      badge: UI_BADGE.neutral,
+      visible: false
+    },
+    admin: {
+      title: { en: 'Expired (unpaid)', ar: 'منتهية (غير مدفوعة)' },
+      description: { en: 'Held for payment past the window and released. A late payment revives it to PAID.', ar: 'تجاوزت مهلة الدفع وتم إغلاقها. الدفع المتأخر يعيدها إلى حالة مدفوعة.' },
+      badge: UI_BADGE.neutral,
+      visible: true
+    }
+  },
+
+  [CASE_STATUS.PENDING_REVIEW]: {
+    patient: {
+      title: { en: 'Case received', ar: 'تم استلام الحالة' },
+      description: { en: 'Our team is reviewing your request and will be in touch shortly.', ar: 'فريقنا يراجع طلبك وسنتواصل معك قريبًا.' },
+      badge: UI_BADGE.info,
+      visible: true
+    },
+    doctor: {
+      title: { en: 'Not available', ar: 'غير متاح' },
+      description: { en: 'This case has not been triaged yet.', ar: 'لم يتم فرز هذه الحالة بعد.' },
+      badge: UI_BADGE.neutral,
+      visible: false
+    },
+    admin: {
+      title: { en: 'Pending triage', ar: 'في انتظار الفرز' },
+      description: { en: 'Website intake awaiting ops review and pricing.', ar: 'طلب من الموقع في انتظار المراجعة والتسعير.' },
+      badge: UI_BADGE.warning,
+      visible: true
+    }
   }
 });
 
@@ -1141,7 +1216,10 @@ const DB_STATUS_VARIANTS = Object.freeze({
   [CASE_STATUS.COMPLETED]: [CASE_STATUS.COMPLETED, 'completed', 'COMPLETED', 'done', 'DONE', 'finished', 'FINISHED'],
   [CASE_STATUS.SLA_BREACH]: [CASE_STATUS.SLA_BREACH, 'sla_breach', 'SLA_BREACH', 'breached', 'BREACHED', 'breached_sla', 'BREACHED_SLA', 'sla_breached', 'SLA_BREACHED', 'delayed', 'DELAYED', 'overdue', 'OVERDUE'],
   [CASE_STATUS.REASSIGNED]: [CASE_STATUS.REASSIGNED, 'reassigned', 'REASSIGNED'],
-  [CASE_STATUS.CANCELLED]: [CASE_STATUS.CANCELLED, 'cancelled', 'CANCELLED', 'canceled', 'CANCELED', 'cancel', 'CANCEL']
+  [CASE_STATUS.CANCELLED]: [CASE_STATUS.CANCELLED, 'cancelled', 'CANCELLED', 'canceled', 'CANCELED', 'cancel', 'CANCEL'],
+  // AUDIT-P1-4: lowercase is what the raw-SQL writers actually store.
+  [CASE_STATUS.EXPIRED_UNPAID]: [CASE_STATUS.EXPIRED_UNPAID, 'expired_unpaid', 'EXPIRED_UNPAID', 'expired', 'EXPIRED'],
+  [CASE_STATUS.PENDING_REVIEW]: [CASE_STATUS.PENDING_REVIEW, 'pending_review', 'PENDING_REVIEW']
 });
 
 function toCanonStatus(dbValue) {

@@ -40,6 +40,11 @@ function stripDrPrefix(name) {
  * notification template -> email .hbs file (without extension)
  */
 const TEMPLATE_TO_EMAIL = {
+  // AUDIT-P1-4: magic_login_link had no mapping and no .hbs file, so every
+  // magic-login request queued a notification that failed three retries and
+  // died — getMagicLink returned the URL to its caller while the user's
+  // email never arrived.
+  magic_login_link: 'magic-login-link',
   order_created_patient: 'case-submitted',
   public_order_created_patient: 'case-submitted',
   order_assigned_doctor: 'case-assigned',

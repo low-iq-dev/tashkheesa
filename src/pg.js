@@ -136,16 +136,31 @@ async function execute(sql, params = []) {
  */
 async function withTransaction(fn) {
   const client = await pool.connect();
+  let released = false;
   try {
     await client.query('BEGIN');
     const result = await fn(client);
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    await client.query('ROLLBACK');
+    // AUDIT-P1-4: a failing ROLLBACK used to (a) replace the original error and
+    // (b) still release the client back to the pool. node-pg does not reset a
+    // released connection, so a client left inside an aborted transaction was
+    // handed to the next borrower, who got "current transaction is aborted,
+    // commands ignored until end of transaction block" — and the real cause was
+    // already lost. Swallow the rollback failure, keep the original error, and
+    // pass it to release() so the pool DESTROYS the connection instead of
+    // reusing it.
+    let rollbackFailed = null;
+    try { await client.query('ROLLBACK'); }
+    catch (rollbackErr) { rollbackFailed = rollbackErr; }
+    if (rollbackFailed) {
+      try { client.release(rollbackFailed); } catch (_) {}
+      released = true;
+    }
     throw err;
   } finally {
-    client.release();
+    if (!released) client.release();
   }
 }
 

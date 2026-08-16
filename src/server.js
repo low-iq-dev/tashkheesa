@@ -1136,6 +1136,12 @@ var SLA_ENFORCEMENT_INTERVAL_MS = Number(process.env.SLA_ENFORCEMENT_INTERVAL_MS
 // SIGTERM hits the 10s force-exit timer on every Render redeploy because
 // every worker except slaSweepIntervalId pinned the event loop.
 var intervalIds = [];
+// AUDIT-P1-4 — node-cron task registry. intervalIds only holds setInterval
+// handles; the four cron.schedule() tasks below were never captured and never
+// .stop()ed, and node-cron keeps its own timers alive without unref. Every
+// SIGTERM therefore hit the 10s force-exit path in gracefulShutdown, so every
+// Render redeploy reported as a failed shutdown.
+var cronTasks = [];
 // Track the IG scheduler instance for shutdown cleanup (it owns its own
 // interval inside instagram/scheduler.js and exposes a .stop() method).
 var igSchedulerInstance = null;
@@ -1282,9 +1288,9 @@ _dbReady.then(async function() {
     try {
       var cron = require('node-cron');
       var runAppointmentReminders = require('./jobs/appointment_reminders').runAppointmentReminders;
-      cron.schedule('*/15 * * * *', function() {
+      cronTasks.push(cron.schedule('*/15 * * * *', function() {
         try { runAppointmentReminders(); } catch (_) {}
-      });
+      }));
       logMajor('Appointment reminder cron registered (every 15 min, primary-only)');
     } catch (cronErr) {
       logMajor('Appointment reminder cron registration failed: ' + cronErr.message);
@@ -1298,9 +1304,9 @@ _dbReady.then(async function() {
     try {
       var whatsappHealthCron = require('node-cron');
       var checkWhatsAppHealth = require('./jobs/whatsapp_health_check').checkWhatsAppHealth;
-      whatsappHealthCron.schedule('*/15 * * * *', function() {
+      cronTasks.push(whatsappHealthCron.schedule('*/15 * * * *', function() {
         try { checkWhatsAppHealth(); } catch (_) {}
-      });
+      }));
       logMajor('WhatsApp 401-detector cron registered (every 15 min, primary-only)');
     } catch (waHealthErr) {
       logMajor('WhatsApp health cron registration failed: ' + waHealthErr.message);
@@ -1314,9 +1320,9 @@ _dbReady.then(async function() {
     try {
       var errorRateCron = require('node-cron');
       var checkErrorRate = require('./jobs/error_rate_check').checkErrorRate;
-      errorRateCron.schedule('*/15 * * * *', function() {
+      cronTasks.push(errorRateCron.schedule('*/15 * * * *', function() {
         try { checkErrorRate(); } catch (_) {}
-      });
+      }));
       logMajor('Error-rate 5x cron registered (every 15 min, primary-only)');
     } catch (errRateErr) {
       logMajor('Error-rate cron registration failed: ' + errRateErr.message);
@@ -1326,7 +1332,7 @@ _dbReady.then(async function() {
     try {
       var campaignCron = require('node-cron');
       var processCampaign = require('./routes/campaigns').processCampaign;
-      campaignCron.schedule('*/5 * * * *', async function() {
+      cronTasks.push(campaignCron.schedule('*/5 * * * *', async function() {
         try {
           var now = new Date().toISOString();
           // B2 (April 29 audit): require human approval. Cron only fires
@@ -1371,7 +1377,7 @@ _dbReady.then(async function() {
             logMajor('[campaigns] Triggered ' + scheduled.length + ' scheduled campaign(s)');
           }
         } catch (_) {}
-      });
+      }));
       logMajor('Campaign scheduler cron registered (every 5 min, primary-only)');
     } catch (campaignCronErr) {
       logMajor('Campaign scheduler cron registration failed: ' + campaignCronErr.message);
@@ -1493,6 +1499,20 @@ function gracefulShutdown(signal) {
     intervalIds.length = 0;
   } catch (e) {}
 
+  // AUDIT-P1-4 — stop the node-cron tasks. These are not setInterval handles,
+  // so the loop above never touched them, and node-cron keeps its own timers
+  // alive: the event loop never drained and every shutdown hit the 10s
+  // force-exit above.
+  try {
+    for (var ci2 = 0; ci2 < cronTasks.length; ci2++) {
+      try {
+        var task = cronTasks[ci2];
+        if (task && typeof task.stop === 'function') task.stop();
+      } catch (_) {}
+    }
+    cronTasks.length = 0;
+  } catch (e) {}
+
   // Theme 6 §4-A — stop the Instagram scheduler if it was started.
   try {
     if (igSchedulerInstance && typeof igSchedulerInstance.stop === 'function') {
@@ -1508,12 +1528,18 @@ function gracefulShutdown(signal) {
     if (typeof stopMacMiniProbe === 'function') stopMacMiniProbe();
   } catch (e) {}
 
-  // Stop pg-boss job queue
-  try { stopJobQueue(); } catch (e) {}
+  // Stop pg-boss job queue.
+  // AUDIT-P1-4: was fire-and-forget, so pg-boss's graceful drain never got a
+  // chance to finish before process.exit. Chain the close on it instead.
+  var jobQueueStopped;
+  try { jobQueueStopped = Promise.resolve(stopJobQueue()); }
+  catch (e) { jobQueueStopped = Promise.resolve(); }
+  jobQueueStopped = jobQueueStopped.catch(function () { /* never block shutdown */ });
 
   var server = module.exports._server;
   if (server) {
     server.close(async function() {
+      try { await jobQueueStopped; } catch (e) {}
       try { if (pool && typeof pool.end === 'function') await pool.end(); } catch (e) { logFatal('Error closing DB pool during shutdown', e); }
       logMajor('Graceful shutdown complete');
       process.exit(0);

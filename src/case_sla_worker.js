@@ -446,7 +446,28 @@ async function handleDoctorTimeout(candidate) {
   return 1;
 }
 
+// AUDIT-P1-4 — re-entrancy guard. notification_worker and acceptance_watcher
+// both have one; this sweep did not, and fetchSlaCandidates does not use
+// FOR UPDATE SKIP LOCKED. On the in-process fallback path (pg-boss
+// unavailable, server.js registers a 5-minute setInterval) a sweep that runs
+// long enough for a backlog gets a second tick selecting the SAME
+// still-unbreached rows, so handleBreach / handleDoctorTimeout run twice per
+// case — duplicate reassignment and duplicate notifications.
+let _slaSweepRunning = false;
+
 async function runCaseSlaSweep(runAt = new Date()) {
+  if (_slaSweepRunning) {
+    return { ok: true, skipped: 'already_running' };
+  }
+  _slaSweepRunning = true;
+  try {
+    return await _runCaseSlaSweepInner(runAt);
+  } finally {
+    _slaSweepRunning = false;
+  }
+}
+
+async function _runCaseSlaSweepInner(runAt = new Date()) {
   const now = runAt instanceof Date ? runAt : new Date(runAt);
   const nowIso = now.toISOString();
   const cutoffIso = new Date(now.getTime() - DOCTOR_RESPONSE_TIMEOUT_HOURS * 60 * 60 * 1000)
