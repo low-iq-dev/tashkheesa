@@ -1137,11 +1137,17 @@ async function runSlaEnforcementSweep(source) {
     // (registered via pg-boss) is the canonical SLA sweep path.
     try { await runSlaReminderJob(); } catch (err) { logFatal('SLA reminder job error', err); }
     try { await dispatchUnpaidCaseReminders(); } catch (err) { logFatal('Unpaid reminder sweep error', err); }
-    try {
-      if (typeof caseLifecycle.sweepExpiredDoctorAccepts === 'function') {
-        await caseLifecycle.sweepExpiredDoctorAccepts();
-      }
-    } catch (err) { logFatal('Doctor accept sweep failed', err); }
+    // AUDIT-P0-2b — caseLifecycle.sweepExpiredDoctorAccepts removed.
+    // It selected exactly the same rows as case_sla_worker.handleDoctorTimeout
+    // (doctor_assignments WHERE completed_at IS NULL AND accept_by_at < now)
+    // and raced it, but picked the replacement via pickNextAvailableDoctor —
+    // `role='doctor' ... ORDER BY RANDOM()`, with no specialty, pause,
+    // approval, onboarding or service filter. Whichever sweep won the race
+    // decided whether a case went to a matched specialist or to a paused,
+    // unapproved doctor in the wrong discipline. This is the same reasoning
+    // that already removed the inline pickNextAvailableDoctor call from
+    // markSlaBreach (see case_lifecycle.js, B11). handleDoctorTimeout, which
+    // routes through findAlternateDoctor, is now the single owner.
     try { logVerbose('[SLA] enforcement sweep ran (' + srcLabel + ')'); } catch (e) {}
   } catch (err) {
     logFatal('SLA enforcement sweep failed', err);

@@ -18,6 +18,7 @@ async function pickDoctorForOrder({ specialtyId, serviceId }) {
      WHERE u.role = 'doctor'
        AND u.is_active = true
        AND COALESCE(u.is_paused, false) = false
+       AND COALESCE(u.pending_approval, false) = false
        AND u.specialty_id = $1
        ${serviceClause}
      ORDER BY u.name ASC`,
@@ -28,11 +29,17 @@ async function pickDoctorForOrder({ specialtyId, serviceId }) {
 
   let best = null;
   for (const doc of doctors) {
+    // AUDIT-P0-2c — the load count was `status IN ('new','accepted','in_review')`:
+    // case-sensitive, against two values that STATUS_ALIASES maps away. Live
+    // rows are 'ASSIGNED' / 'IN_REVIEW', so this counted 0 for every doctor and
+    // the localeCompare tiebreaker below silently decided every assignment —
+    // i.e. the alphabetically-first doctor took every case while colleagues sat
+    // idle. Matches the status list used by doctor.js countActiveCases.
     const row = await queryOne(
       `SELECT COUNT(*) AS c
        FROM orders_active
        WHERE doctor_id = $1
-         AND status IN ('new','accepted','in_review')`,
+         AND LOWER(COALESCE(status, '')) IN ('assigned','in_review','rejected_files','breached','sla_breach')`,
       [doc.id]
     );
     const load = row ? Number(row.c) || 0 : 0;

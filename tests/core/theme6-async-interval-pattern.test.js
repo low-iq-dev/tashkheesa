@@ -188,15 +188,23 @@ try {
   const sweepBody = sweepFnStart >= 0 && sweepFnEnd > sweepFnStart ? serverSrc.slice(sweepFnStart, sweepFnEnd) : '';
   // Side issue #47 — runWatcherSweep removed from runSlaEnforcementSweep
   // (sla_watcher.runSlaSweep was a no-op stub; canonical sweep is
-  // case_sla_worker via pg-boss). The other two awaits remain load-bearing.
+  // case_sla_worker via pg-boss).
+  // AUDIT-P0-2b — sweepExpiredDoctorAccepts removed too: it raced
+  // case_sla_worker.handleDoctorTimeout over identical rows and reassigned via
+  // an unfiltered `ORDER BY RANDOM()` picker. The remaining awaits are
+  // load-bearing.
   const checks = [
     ['dispatchUnpaidCaseReminders awaited',  /await\s+dispatchUnpaidCaseReminders\s*\(/],
-    ['sweepExpiredDoctorAccepts awaited',    /await\s+caseLifecycle\.sweepExpiredDoctorAccepts\s*\(/],
+    ['runSlaReminderJob awaited',            /await\s+runSlaReminderJob\s*\(/],
   ];
   for (const [name, re] of checks) {
     if (!re.test(sweepBody)) {
       throw new Error('runSlaEnforcementSweep: ' + name + ' — Sub-issue B regression');
     }
+  }
+  // Regression guard: the unfiltered duplicate sweep must not come back.
+  if (/sweepExpiredDoctorAccepts\s*\(/.test(sweepBody)) {
+    throw new Error('runSlaEnforcementSweep calls sweepExpiredDoctorAccepts again — AUDIT-P0-2b regression (handleDoctorTimeout is the single owner)');
   }
   t.pass('runSlaEnforcementSweep awaits each async sub-sweep');
 } catch (e) { t.fail('runSlaEnforcementSweep awaits', e); }

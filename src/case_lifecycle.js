@@ -1799,77 +1799,19 @@ async function closeOpenDoctorAssignments(caseId, client) {
   }
 }
 
-async function expireStaleAssignments() {
-  try {
-    const now = nowIso();
-    const rows = await queryAll(
-      `SELECT id, case_id, doctor_id
-       FROM doctor_assignments
-       WHERE completed_at IS NULL
-         AND accept_by_at IS NOT NULL
-         AND accept_by_at < $1`,
-      [now]
-    );
-
-    for (const r of rows) {
-      try {
-        // finalize the expired assignment
-        await execute(
-          `UPDATE doctor_assignments
-           SET completed_at = $1
-           WHERE id = $2`,
-          [now, r.id]
-        );
-
-        await logCaseEvent(r.case_id, 'DOCTOR_ACCEPT_TIMEOUT', {
-          doctor_id: r.doctor_id
-        });
-
-        // auto-pick next available doctor
-        const nextDoctorId = await pickNextAvailableDoctor({
-          excludeDoctorId: r.doctor_id
-        });
-
-        if (nextDoctorId) {
-          await reassignCase(r.case_id, nextDoctorId, {
-            reason: 'accept_timeout'
-          });
-        }
-      } catch (e) {
-        // best-effort per row
-      }
-    }
-  } catch (e) {
-    // sweep failure should never crash app
-  }
-}
-
-async function pickNextAvailableDoctor({ excludeDoctorId = null } = {}) {
-  try {
-    const params = [];
-    let excludeClause = '';
-    if (excludeDoctorId) {
-      excludeClause = 'AND u.id != $1';
-      params.push(excludeDoctorId);
-    }
-    const row = await queryOne(`
-      SELECT u.id
-      FROM users u
-      LEFT JOIN orders_active o
-        ON o.doctor_id = u.id
-       AND LOWER(COALESCE(o.status,'')) IN ('assigned','in_review','rejected_files','sla_breach')
-      WHERE u.role = 'doctor'
-      ${excludeClause}
-      GROUP BY u.id
-      HAVING COUNT(o.id) < 4
-      ORDER BY RANDOM()
-      LIMIT 1
-    `, params);
-    return row ? row.id : null;
-  } catch {
-    return null;
-  }
-}
+// AUDIT-P0-2b — expireStaleAssignments() and pickNextAvailableDoctor() removed.
+//
+// expireStaleAssignments was a byte-identical copy of sweepExpiredDoctorAccepts
+// with zero callers. Both drove pickNextAvailableDoctor, which selected a
+// replacement with `WHERE u.role = 'doctor' ... ORDER BY RANDOM()` — no
+// specialty, is_paused, pending_approval, onboarding_complete or doctor_services
+// filter — and raced case_sla_worker.handleDoctorTimeout over the same rows.
+// A doctor auto-paused for breaching SLAs was a valid target; so was a
+// dermatologist for a cardiology case.
+//
+// Accept-timeout reassignment is now owned solely by
+// case_sla_worker.handleDoctorTimeout -> findAlternateDoctor, which applies the
+// full eligibility gate. Same reasoning as the B11 removal in markSlaBreach.
 
 async function finalizePreviousAssignment(caseId) {
   const existing = await getLatestAssignment(caseId);
@@ -2137,60 +2079,7 @@ async function logNotification(caseId, template, payload) {
   await triggerNotification(caseId, template, payload);
 }
 
-async function sweepExpiredDoctorAccepts() {
-  // This function expires doctor assignments whose accept_by_at is in the past.
-  // It finalizes the expired assignment, logs the timeout, and auto-reassigns if possible.
-  try {
-    const now = nowIso();
-    const rows = await queryAll(
-      `SELECT id, case_id, doctor_id
-       FROM doctor_assignments
-       WHERE completed_at IS NULL
-         AND accept_by_at IS NOT NULL
-         AND accept_by_at < $1`,
-      [now]
-    );
-
-    let processed = 0;
-    for (const r of rows) {
-      try {
-        // finalize the expired assignment
-        await execute(
-          `UPDATE doctor_assignments
-           SET completed_at = $1
-           WHERE id = $2`,
-          [now, r.id]
-        );
-
-        await logCaseEvent(r.case_id, 'DOCTOR_ACCEPT_TIMEOUT', {
-          doctor_id: r.doctor_id
-        });
-
-        // auto-pick next available doctor
-        const nextDoctorId = await pickNextAvailableDoctor({
-          excludeDoctorId: r.doctor_id
-        });
-
-        if (nextDoctorId) {
-          await reassignCase(r.case_id, nextDoctorId, {
-            reason: 'accept_timeout'
-          });
-        }
-        processed++;
-      } catch (e) {
-        // best-effort per row
-      }
-    }
-    return { ok: true, processed };
-  } catch (e) {
-    // sweep failure should never crash app
-    return { ok: false, error: String((e && e.message) || e) };
-  }
-}
-
 module.exports = {
-  sweepExpiredDoctorAccepts,
-  pickNextAvailableDoctor,
   transitionCase,
   CASE_STATUS,
   CANON_STATUS: CASE_STATUS,
@@ -2224,7 +2113,6 @@ module.exports = {
   dbStatusValuesFor,
   isUnacceptedStatus,
   isTerminalStatus,
-  expireStaleAssignments,
   ensureColumnCache,
   sweepSlaBreaches,
   // recalcSlaBreaches is the historical name from the deleted sla.js.

@@ -74,11 +74,19 @@ async function findNextAvailableDoctor(specialtyId, excludeDoctorId) {
   // Some DB snapshots do not have (or do not consistently use) `doctor_services`.
   // The canonical field for a doctor's specialty in this portal DB is `users.specialty_id`.
   // Keep this selection simple and resilient to schema drift.
+  // AUDIT-P0-2c — is_paused / pending_approval added. Without them this path
+  // (a doctor at capacity accepting a case, which reassigns the overflow) could
+  // hand a case to a doctor an admin had paused for quality reasons, or to one
+  // still awaiting approval. is_paused is set automatically by the SLA-breach
+  // threshold in services/doctor_pause.js, so the worst offenders were exactly
+  // the ones eligible here.
   return await queryOne(`
     SELECT u.id
     FROM users u
     WHERE LOWER(COALESCE(u.role, '')) = 'doctor'
       AND COALESCE(u.is_active, true) = true
+      AND COALESCE(u.is_paused, false) = false
+      AND COALESCE(u.pending_approval, false) = false
       AND ($1 = '' OR u.specialty_id = $2)
       AND u.id != $3
       AND (
