@@ -736,6 +736,27 @@ function resolveSlaHoursForCase(orderRow) {
   return Number.isFinite(n) && n > 0 ? n : 48;
 }
 
+// AUDIT-P0-8 — canonical tier -> SLA hours. THE single source of truth.
+//
+// Four different maps existed: this file's fallback (48/18/4), the mobile API
+// (48/18/4), routes/intake.js (72/24 — deleted with the guest funnel), and the
+// accept-window default inside assignDoctor (72). Two patients could pick
+// "standard" at the same price and be promised 48h or 72h depending on which
+// form they used, and the doctor's acceptance window diverged with it.
+// Per docs/PAYOUT_AND_URGENCY_POLICY.md §2. 'fast_track' is the legacy alias
+// for 'vip' (migration 031 backfills existing rows).
+const SLA_HOURS_BY_TIER = Object.freeze({
+  urgent: 4,
+  vip: 18,
+  fast_track: 18,
+  standard: 48
+});
+
+function slaHoursForTier(tier) {
+  const key = String(tier || '').trim().toLowerCase();
+  return SLA_HOURS_BY_TIER[key] || SLA_HOURS_BY_TIER.standard;
+}
+
 // Cairo time restriction for urgent tier (7am–7pm Cairo). Single source
 // of truth: services/urgency_window (DST-aware via Intl — Egypt has DST
 // again since April 2023, so local offset math is not safe here).
@@ -1867,7 +1888,12 @@ async function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) 
 
   // Doctor must accept within a window proportional to the SLA tier.
   const existingOrder = await getCase(caseId);
-  const caseSlaHours = (existingOrder && existingOrder.sla_hours) || 72;
+  // AUDIT-P0-8: was `|| 72`, a fourth SLA default that stretched the doctor's
+  // acceptance window on any row with a NULL sla_hours. Falls back to the
+  // order's own tier, then to canonical Standard (48h).
+  const caseSlaHours = (existingOrder && Number(existingOrder.sla_hours) > 0)
+    ? Number(existingOrder.sla_hours)
+    : slaHoursForTier(existingOrder && existingOrder.urgency_tier);
   const acceptWindowHours = caseSlaHours <= 4 ? 0.5    // 30 min for urgent
                           : caseSlaHours <= 24 ? 4     // 4h for fast track
                           : Number(process.env.DOCTOR_RESPONSE_TIMEOUT_HOURS || 24); // 24h for standard
@@ -2084,6 +2110,8 @@ module.exports = {
   CASE_STATUS,
   CANON_STATUS: CASE_STATUS,
   resolveSlaHoursForCase,
+  slaHoursForTier,
+  SLA_HOURS_BY_TIER,
   calculateDeadline,
   STATUS_TRANSITIONS,
   CASE_STATUS_UI,

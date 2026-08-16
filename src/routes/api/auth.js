@@ -20,6 +20,53 @@ const { verifyOtpCode } = require('../../services/twilio_verify');
 const emailService = require('../../services/emailService');
 const { withTransaction } = require('../../db');
 
+// ── AUDIT-P0-8: per-phone OTP rate limits ────────────────────────────────
+//
+// The mobile OTP door was protected ONLY by the per-IP authLimiter mounted on
+// /auth in api_v1.js (20 req / 15 min). The web equivalent in routes/auth.js
+// has three additional PER-PHONE limiters — a 60s send cooldown, a 3-per-15min
+// send cap and a 5-per-15min verify cap — and the mobile routes used none of
+// them. A script hitting /otp/request for a victim's number from a handful of
+// IPs was therefore an SMS-bombing vector against that person and a direct
+// Twilio cost attack, with no per-number ceiling anywhere, and /otp/verify had
+// no per-number attempt cap to bound guessing of a 6-digit code.
+//
+// Mirrors routes/auth.js:323-348. validate:false because the trust-proxy
+// req.ip shape varies at the Render edge.
+const { rateLimit: _otpRateLimit } = require('express-rate-limit');
+
+// Normalises {countryCode, phone} into a stable limiter key. Runs BEFORE the
+// limiters so they have something to key on; falls back to the IP so a
+// malformed body can never bypass the cap by yielding a constant key.
+function otpPhoneScope(req, _res, next) {
+  const cc = String((req.body && req.body.countryCode) || '').replace(/[^0-9+]/g, '');
+  const ph = String((req.body && req.body.phone) || '').replace(/[^0-9]/g, '');
+  req.otpPhone = { key: (cc + ph) || ('ip:' + (req.ip || 'unknown')) };
+  next();
+}
+const otpPhoneKey = (req) => (req.otpPhone && req.otpPhone.key) || 'unknown';
+const otpRlMsg = { success: false, error: 'Too many attempts. Try again later.', code: 'RATE_LIMITED' };
+
+// Per-phone: 60s cooldown between sends.
+const otpSendCooldown = _otpRateLimit({
+  windowMs: 60 * 1000, max: 1, validate: false,
+  standardHeaders: false, legacyHeaders: false,
+  keyGenerator: otpPhoneKey,
+  message: { success: false, error: 'Please wait a minute before requesting another code.', code: 'OTP_COOLDOWN' },
+});
+// Per-phone: total sends per window (SMS-cost / bombing guard).
+const otpSendCap = _otpRateLimit({
+  windowMs: 15 * 60 * 1000, max: 3, validate: false,
+  standardHeaders: false, legacyHeaders: false,
+  keyGenerator: otpPhoneKey, message: otpRlMsg,
+});
+// Per-phone: verify attempts per window.
+const otpVerifyCap = _otpRateLimit({
+  windowMs: 15 * 60 * 1000, max: 5, validate: false,
+  standardHeaders: false, legacyHeaders: false,
+  keyGenerator: otpPhoneKey, message: otpRlMsg,
+});
+
 const RESET_EXPIRY_HOURS = 2; // matches src/routes/auth.js portal flow — keep in sync
 const APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
 
@@ -160,6 +207,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
 
   router.post(
     '/otp/request',
+    otpPhoneScope, otpSendCooldown, otpSendCap,
     [body('phone').trim().notEmpty(), body('countryCode').trim().notEmpty()],
     async (req, res) => {
       const { phone, countryCode } = req.body;
@@ -171,12 +219,22 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       const otp = String(randomInt(100000, 1000000)).padStart(6, '0');
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
 
-      // Store OTP (upsert)
-      await safeRun(`
-        INSERT INTO otp_codes (phone, code, expires_at, created_at)
-        VALUES ($1, $2, $3, NOW())
-        ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, created_at = NOW()
-      `, [fullPhone, otp, expiresAt]);
+      // AUDIT-P0-8 — do NOT persist a local code when Twilio Verify is live.
+      //
+      // sendOtpViaTwilio delivers TWILIO's code, not this one, but the row was
+      // written unconditionally and /otp/verify accepts it as a fallback
+      // whenever the Twilio check fails. That doubled the number of
+      // simultaneously-valid 6-digit codes for a phone number while nothing
+      // capped verify attempts. The local code is now only stored when there is
+      // no Verify service configured — i.e. dev / self-delivery.
+      const useTwilioVerify = !!(process.env.TWILIO_VERIFY_SERVICE_SID && process.env.TWILIO_ACCOUNT_SID);
+      if (!useTwilioVerify) {
+        await safeRun(`
+          INSERT INTO otp_codes (phone, code, expires_at, created_at)
+          VALUES ($1, $2, $3, NOW())
+          ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, created_at = NOW()
+        `, [fullPhone, otp, expiresAt]);
+      }
 
       // Send via WhatsApp/SMS
       let sendResult = null;
@@ -202,6 +260,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
 
   router.post(
     '/otp/verify',
+    otpPhoneScope, otpVerifyCap,
     [
       body('phone').trim().notEmpty(),
       body('countryCode').trim().notEmpty(),

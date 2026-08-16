@@ -227,8 +227,10 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     // to 'vip' on intake (migration 031 handles existing rows).
     let tier = rawTier || (urgent ? 'vip' : 'standard');
     if (tier === 'fast_track') tier = 'vip';
-    // SLA hours per §2: standard 48h, vip 18h, urgent 4h.
-    const slaHours = tier === 'urgent' ? 4 : tier === 'vip' ? 18 : 48;
+    // SLA hours per §2 — AUDIT-P0-8: use the canonical map in case_lifecycle
+    // instead of an inline copy, so this can never drift from the web funnel
+    // or from the doctor acceptance-window calculation again.
+    const slaHours = require('../../case_lifecycle').slaHoursForTier(tier);
     const urgencyFlag = tier !== 'standard';
     const urgencyTier = tier;
 
