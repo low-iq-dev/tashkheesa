@@ -323,9 +323,29 @@ app.use('/js', express.static(path.join(__dirname, '..', 'public', 'js')));
 app.use('/css', express.static(path.join(__dirname, '..', 'public', 'css')));
 app.use('/vendor', express.static(path.join(__dirname, '..', 'public', 'vendor')));
 app.use('/uploads', express.static(path.join(__dirname, '..', 'public', 'uploads')));
+// AUDIT-P0-5 — /fonts and /icons were referenced everywhere but served nowhere.
+//   * public/css/fonts.css declares every @font-face src as
+//     url('/fonts/cormorant-garamond/...'), and partials/patient/head.ejs
+//     preloads two of them. With no mount, every one 404'd and the brand
+//     display serif silently fell back to sans across the whole patient portal.
+//   * portal_doctor_cases.ejs, portal_doctor_earnings.ejs and
+//     portal_doctor_case.ejs reference /icons/... — broken-image placeholders
+//     in the doctor empty states and Documents/Earnings panels.
+// The files were present on disk the whole time (public/fonts, public/icons).
+app.use('/fonts', express.static(path.join(__dirname, '..', 'public', 'fonts'), {
+  maxAge: '1y',
+  immutable: true
+}));
+app.use('/icons', express.static(path.join(__dirname, '..', 'public', 'icons'), {
+  maxAge: '7d'
+}));
 app.use('/styles.css', express.static(path.join(__dirname, '..', 'public', 'styles.css')));
 app.use('/favicon.ico', express.static(path.join(__dirname, '..', 'public', 'favicon.ico')));
 app.use('/favicon.svg', express.static(path.join(__dirname, '..', 'public', 'assets', 'favicon.svg')));
+// AUDIT-P0-5 — partials/patient/head.ejs asks for /apple-touch-icon.png and
+// /site.webmanifest at the public root; neither had a mount.
+app.use('/apple-touch-icon.png', express.static(path.join(__dirname, '..', 'public', 'apple-touch-icon.png')));
+app.use('/site.webmanifest', express.static(path.join(__dirname, '..', 'public', 'site.webmanifest')));
 app.use('/annotator.html', express.static(path.join(__dirname, '..', 'public', 'annotator.html')));
 
 // ----------------------------------------------------
@@ -389,7 +409,13 @@ app.use(function(req, res, next) {
       // relaxes the eval() *function*. Tracked for migration to Uploadcare Blocks
       // v1.x (CSP-strict compatible) in a follow-up.
       "script-src 'self' 'unsafe-eval' 'nonce-" + nonce + "' https://ucarecdn.com https://cdn.jsdelivr.net https://media.twiliocdn.com https://unpkg.com",
-      "connect-src 'self' https://upload.uploadcare.com https://api.uploadcare.com https://ucarecdn.com",
+      // AUDIT-P0-5 — Twilio Video added. media.twiliocdn.com was already in
+      // script-src so the SDK loaded, and the token fetch is same-origin so it
+      // succeeded — but Twilio.Video.connect() opens a WebSocket to
+      // wss://global.vss.twilio.com and an HTTPS call to ecs.*.twilio.com, both
+      // governed by connect-src. Every paid video consultation rendered its UI
+      // and then failed at connect time, looking like a Twilio outage.
+      "connect-src 'self' https://upload.uploadcare.com https://api.uploadcare.com https://ucarecdn.com https://*.twilio.com wss://*.twilio.com",
       "frame-src 'self' https://uploadcare.com https://ucarecdn.com",
     ].join('; ');
 

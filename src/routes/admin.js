@@ -781,6 +781,11 @@ async function renderAdminProfile(req, res) {
 // First services route removed — consolidated into single route below (line ~1432)
 
 
+// AUDIT-P0-5 — renderAdminProfile() was fully implemented but never routed.
+// The admin topbar links to /admin/profile and server.js redirects GET /profile
+// there for role='admin', so both landed on the 404 page.
+router.get('/admin/profile', requireAdmin, renderAdminProfile);
+
 // Redirect entry
 router.get('/admin', requireAdmin, async (req, res) => {
   // Fire-and-forget; sweep failures must never bubble into UnhandledRejection.
@@ -1107,7 +1112,11 @@ router.get('/admin', requireAdmin, async (req, res) => {
       s.name as specialties
     FROM users u
     LEFT JOIN specialties s ON s.id = u.specialty_id
-    WHERE u.role = 'doctor' AND (u.pending_approval = true OR u.status = 'pending')
+    WHERE u.role = 'doctor' AND u.pending_approval = true
+        -- AUDIT-P0-5: the disjunct "OR u.status = 'pending'" was removed.
+        -- The users table has no status column, so this query threw and
+        -- safeAll swallowed the error into []. The Pending Doctor Approvals
+        -- widget showed 0 forever and applications were never reviewed.
     ORDER BY u.created_at DESC
   `, [], []);
 
