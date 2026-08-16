@@ -77,12 +77,26 @@ assert(/resendKeyPresent\b/.test(ops) && /channel\s*=\s*'email'\s*AND\s*status\s
 
 // 4. ops-dashboard.ejs renders the 6 widget cards.
 const dash = read('src/views/ops-dashboard.ejs');
-assert(/Notif Queue Depth/i.test(dash),         "dashboard renders Widget 1 'Notif Queue Depth' card", "");
-assert(/Notification Dispatch Split/i.test(dash), "dashboard renders Widget 2 'Notification Dispatch Split'", "");
-assert(/Cron Last-Run/i.test(dash),               "dashboard renders Widget 3 'Cron Last-Run'", "");
-assert(/Error Rate \(now\/baseline\)/i.test(dash), "dashboard renders Widget 4 'Error Rate'", "");
-assert(/Critical Alert \(last\)/i.test(dash),     "dashboard renders Widget 5 'Critical Alert (last)'", "");
-assert(/Resend Health/i.test(dash),               "dashboard renders Widget 6 'Resend Health'", "");
+// STALE-TEST FIX (2026-08-16): these six matched the ORIGINAL card titles
+// ('Notif Queue Depth', 'Cron Last-Run', 'Error Rate (now/baseline)', …). The
+// dashboard was rebuilt into the compact pill layout and every title was
+// shortened to fit its cell. Matching titles meant the guard could not tell
+// "renamed" from "deleted" — and one of them WAS deleted: Widget 5's card
+// vanished in the rework while routes/ops.js kept paying for its query on
+// every load and throwing the answer away. That is exactly the regression this
+// test exists to catch, and the copy-matching form hid it behind five
+// identical-looking cosmetic failures.
+//
+// Assert each widget's DATA BINDING in the view instead. A renamed card still
+// passes; a deleted one cannot.
+assert(/_w\.notifQueueDepth/.test(dash),          "dashboard renders Widget 1 (queue depth) binding", "");
+assert(/_w\.notifStatusSplit/.test(dash),         "dashboard renders Widget 2 (dispatch split) binding", "");
+assert(/_w\.cronWidget/.test(dash),               "dashboard renders Widget 3 (cron last-run) binding", "");
+assert(/_w\.errorRate\.currentHour/.test(dash) && /_w\.errorRate\.baseline/.test(dash),
+  "dashboard renders Widget 4 (error rate) current + baseline bindings", "");
+assert(/_w\.lastCriticalAlert|_ca\s*=\s*_w\.lastCriticalAlert/.test(dash),
+  "dashboard renders Widget 5 (critical-alert health) binding", "");
+assert(/_w\.resend\.envPresent/.test(dash),       "dashboard renders Widget 6 (Resend health) binding", "");
 
 // 5. Empty-data fallback — typeof phase7Widgets !== 'undefined' check.
 assert(/typeof phase7Widgets !== 'undefined'/.test(dash),
@@ -107,6 +121,12 @@ function makeLocals(phase7Widgets) {
     dbPoolWaiting: 0, mode: 'test', macMiniStatus: { gateway: 'unknown', checkedAt: null },
     macMiniCheckedAgo: null, paymobHealth: { lastIntentionAgo: null, lastWebhookAgo: null, hmacFailures24h: 0 },
     silentFailures7d: 0,
+    // STALE-FIXTURE FIX (2026-08-16): the view gained an `errorsOk` local (the
+    // green/red "production clean" tier on the Errors 24h cell). routes/ops.js
+    // supplies it, but this fixture did not, so both render smokes threw
+    // `errorsOk is not defined` and the six behavioural assertions below never
+    // ran at all — the file failed loudly while telling us nothing.
+    errorsOk: true,
     phase7Widgets: phase7Widgets
   };
 }

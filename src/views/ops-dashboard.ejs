@@ -365,6 +365,17 @@
           <div class="p"><div class="pl">Queue depth</div><div class="pv" data-stat="phase7Widgets.notifQueueDepth"><%= _w.notifQueueDepth %></div></div>
           <div class="p"><div class="pl">Error rate</div><div class="pv" style="font-size:13px"><span data-stat="phase7Widgets.errorRate.currentHour"><%= _w.errorRate.currentHour %></span>/<span data-stat="phase7Widgets.errorRate.baseline" data-fmt="fixed1"><%= _w.errorRate.baseline.toFixed(1) %></span></div></div>
           <div class="p"><div class="pl">Resend</div><div class="pv" style="font-size:12px"><%= _w.resend.envPresent ? 'enabled' : 'NO KEY' %></div></div>
+          <%
+            // AUDIT — the "Critical alert (last)" widget was computed by
+            // routes/ops.js on every dashboard load (a query against
+            // critical_alert_log) but dropped from the view in the compact
+            // redesign, so the result was thrown away. That left the health of
+            // the alert channel itself invisible: if Meta started rejecting our
+            // WhatsApp criticals with a 500, nothing on this page would say so.
+            // The 401 cron only covers expired tokens. Restored as a pill.
+            var _ca = _w.lastCriticalAlert;
+          %>
+          <div class="p"><div class="pl">Critical alert (last)</div><div class="pv" style="font-size:12px"><%= _ca ? ((_ca.ago || '?') + ' · ' + (_ca.ok ? 'ok' : ('HTTP ' + (_ca.statusCode == null ? 'no reply' : _ca.statusCode)))) : 'never' %></div></div>
         </div>
         <div style="margin-top:10px" id="cronCards">
           <div class="cron-cards">
