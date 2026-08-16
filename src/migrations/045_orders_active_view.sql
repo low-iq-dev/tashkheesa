@@ -17,7 +17,7 @@
 --   * Forensic / audit / admin "trash" reads that DO want to see
 --     deleted rows: use orders directly with an explicit
 --     `-- include-deleted-ok: <reason>` comment justifying the
---     intent. The CI lint test in tests/core/orders-table-readers.test.js
+--     intent. The CI lint test in tests/core/orders-table-readers-allowlist.test.js
 --     uses that exact comment as its allowlist marker.
 --
 -- The VIEW is `CREATE OR REPLACE` so re-runs are no-ops; it carries

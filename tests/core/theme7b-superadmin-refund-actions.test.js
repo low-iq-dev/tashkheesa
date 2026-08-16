@@ -118,12 +118,32 @@ try {
   if (!/template:\s*['"]patient_refund_paid['"]/.test(paidBody)) {
     throw new Error('mark-paid missing patient notification template');
   }
-  // Earnings hook deviation: explicitly NOT calling recomputeOnBreach.
-  // We assert the comment-block is in place documenting this.
-  if (!/recomputeOnBreach/.test(paidBody) || !/intentionally do NOT call/.test(paidBody)) {
-    throw new Error('mark-paid is missing the documented earnings_writer deviation comment (Phase 3 must skip recomputeOnBreach because it hardcodes upliftAmount=0)');
+  // Earnings hook.
+  //
+  // STALE-TEST FIX (2026-08-16): this used to assert an ABSENCE — a comment
+  // reading "intentionally do NOT call" recomputeOnBreach, from the era when
+  // mark-paid deliberately ran no earnings hook at all. Side issue #43 gave it
+  // a real one: recomputeOnRefund, which applies the final per-reason clawback
+  // (sla_breach → 0, patient_request/operator_refund → keep 10%). The old
+  // assertion outlived the gap it documented, and re-greening it by restoring
+  // that comment would have meant deleting a working clawback.
+  //
+  // Assert the hook that must be there, and that it is the RIGHT one —
+  // recomputeOnBreach zeroes only the mid-flight uplift and would silently
+  // under-claw if wired here.
+  if (!/recomputeOnRefund/.test(paidBody)) {
+    throw new Error('mark-paid no longer calls recomputeOnRefund — the doctor-earnings clawback (Side issue #43) would never run.');
   }
-  t.pass('mark-paid: requireSuperadmin + ref 1-100 + status precondition + amount_egp from approved/requested + paid_at + concurrency-safe + audit + notification + earnings deviation documented');
+  if (!/SELECT reason FROM refunds/.test(paidBody)) {
+    throw new Error('mark-paid does not read the refund reason — recomputeOnRefund cannot apply the per-reason clawback policy without it.');
+  }
+  if (/await\s+recomputeOnBreach\s*\(/.test(paidBody)) {
+    throw new Error('mark-paid calls recomputeOnBreach — that hook zeroes only the urgency uplift (upliftAmount=0) and would under-claw a full refund. recomputeOnRefund is the mark-paid hook.');
+  }
+  if (!/catch\s*\(/.test(paidBody)) {
+    throw new Error('the earnings clawback is not wrapped in a catch — a clawback failure would abort a refund the patient has already been paid.');
+  }
+  t.pass('mark-paid: requireSuperadmin + ref 1-100 + status precondition + amount_egp from approved/requested + paid_at + concurrency-safe + audit + notification + recomputeOnRefund clawback wired');
 } catch (e) { t.fail('mark-paid action', e); }
 
 // ── Notification templates registered ─────────────────────────

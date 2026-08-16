@@ -108,10 +108,22 @@ assert(
   "ops-dashboard.ejs has a link to /ops/silent-failures",
   "expected href='/ops/silent-failures' in dashboard"
 );
+// STALE-TEST FIX (2026-08-16): this asserted the literal card title
+// 'Silent Failures (7d)'. The ops dashboard was reworked into the compact
+// chip layout and the title became a 'silent 7d' chip carrying the count, plus
+// a 'Silent Failures' entry in the nav row. Both the link and the counter are
+// still there — only the copy changed. Assert the count binding, which is the
+// contract between the ops route and the view, and that a 7-day label of some
+// form sits next to it, rather than one exact string.
 assert(
-  /Silent Failures \(7d\)/.test(dashSrc),
-  "ops-dashboard.ejs labels the card 'Silent Failures (7d)'",
-  "expected 'Silent Failures (7d)' label in dashboard"
+  /data-stat\s*=\s*['"]silentFailures7d['"]/.test(dashSrc),
+  'ops-dashboard.ejs renders the silentFailures7d counter',
+  "expected a data-stat='silentFailures7d' binding in the dashboard — the count is not displayed at all"
+);
+assert(
+  /silent[^<]{0,20}7d|7d[^<]{0,20}silent/i.test(dashSrc),
+  'the silent-failure counter is labelled with its 7-day window',
+  "expected a 'silent … 7d' label next to the counter — a bare number is unreadable"
 );
 
 // 4. LIKE patterns cover all 4 SILENT_FAILURE_EVENTS literals from Phase 3.

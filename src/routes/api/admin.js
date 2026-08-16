@@ -415,6 +415,9 @@ module.exports = function (db, helpers, deploy, deps) {
                   u.name AS actor_name, o.reference_id, o.id AS order_id
              FROM order_events e
              LEFT JOIN users u ON u.id = e.actor_user_id
+             -- include-deleted-ok: audit activity feed. Showing the
+             -- reference of an expired case is correct, and the LEFT JOIN
+             -- means filtering would change nothing anyway.
              LEFT JOIN orders o ON o.id = e.order_id
             ORDER BY e.at DESC
             LIMIT 8`,
@@ -501,6 +504,10 @@ module.exports = function (db, helpers, deploy, deps) {
                    r.refunded_at, r.reviewed_at, r.paid_at,
                    p.name AS patient_name, o.reference_id, o.service_id, o.price, o.currency
               FROM refunds r
+              -- include-deleted-ok: every refund-insert path gates on
+              -- payment_status='paid', and soft-delete only ever touches
+              -- unpaid expired drafts — so this join cannot produce a
+              -- deleted row.
               JOIN orders o ON o.id = r.order_id
               LEFT JOIN users p ON p.id = o.patient_id`;
 
@@ -1811,6 +1818,10 @@ module.exports = function (db, helpers, deploy, deps) {
             return 'failed';
           }
         };
+        // include-deleted-ok: addressing the patient's refund notification.
+        // Refunds only exist for paid orders, which are never soft-deleted;
+        // and if one somehow were, you would still want to tell the patient
+        // about their money.
         const ord = await safeGet('SELECT patient_id FROM orders WHERE id = $1', [refund.orderId]);
         const patientUserId = ord && ord.patient_id ? ord.patient_id : null;
         notification = await safeQueue({
@@ -1876,6 +1887,10 @@ module.exports = function (db, helpers, deploy, deps) {
             return 'failed';
           }
         };
+        // include-deleted-ok: addressing the patient's refund notification.
+        // Refunds only exist for paid orders, which are never soft-deleted;
+        // and if one somehow were, you would still want to tell the patient
+        // about their money.
         const ord = await safeGet('SELECT patient_id FROM orders WHERE id = $1', [refund.orderId]);
         const patientUserId = ord && ord.patient_id ? ord.patient_id : null;
         notification = await safeQueue({
@@ -1955,6 +1970,10 @@ module.exports = function (db, helpers, deploy, deps) {
             return 'failed';
           }
         };
+        // include-deleted-ok: addressing the patient's refund notification.
+        // Refunds only exist for paid orders, which are never soft-deleted;
+        // and if one somehow were, you would still want to tell the patient
+        // about their money.
         const ord = await safeGet('SELECT patient_id FROM orders WHERE id = $1', [refund.orderId]);
         const patientUserId = ord && ord.patient_id ? ord.patient_id : null;
         notification = await safeQueue({

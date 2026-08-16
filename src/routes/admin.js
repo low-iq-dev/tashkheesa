@@ -4,7 +4,7 @@ const { logOrderEvent } = require('../audit');
 const { randomUUID } = require('crypto');
 const { queueNotification, queueMultiChannelNotification } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
-const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
+const { computeSla } = require('../sla_status');
 const { recalcSlaBreaches } = require('../case_lifecycle'); // P3: sla.js deleted, use case_lifecycle
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
 const { safeAll, safeGet, tableExists } = require('../sql-utils');
@@ -997,7 +997,6 @@ router.get('/admin', requireAdmin, async (req, res) => {
   );
 
   const ordersList = (ordersListRaw || []).map((o) => {
-    enforceBreachIfNeeded(o);
     const computed = computeSla(o);
     const effective = canonOrOriginal(computed.effectiveStatus || o.status);
 
@@ -1290,7 +1289,6 @@ router.get('/admin/orders', requireAdmin, async (req, res) => {
   );
 
   const orders = (ordersRaw || []).map((o) => {
-    enforceBreachIfNeeded(o);
     const computed = computeSla(o);
     const effective = canonOrOriginal(computed.effectiveStatus || o.status);
 

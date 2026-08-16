@@ -11,7 +11,7 @@ const { getNotificationTitles } = require('../notify/notification_titles');
 // Side issue #47 — sla_watcher.runSlaSweep was a no-op; callers below
 // removed. case_sla_worker.runCaseSlaSweep is the canonical sweep.
 const { logOrderEvent } = require('../audit');
-const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
+const { computeSla } = require('../sla_status');
 const { pickDoctorForOrder } = require('../assign');
 const { recalcSlaBreaches } = require('../case_lifecycle'); // sla.js deleted, use case_lifecycle shim
 const { randomUUID: uuidv4 } = require('crypto');
@@ -1071,7 +1071,12 @@ router.post('/superadmin/chat-moderation/:reportId/resolve', requireSuperadmin, 
       }
     } catch (e) {
       // AUDIT-P1-2: was catch(_){} — a swallowed failure here is invisible.
-      console.error('[chat-moderation] conduct warning notification failed:', e && e.message);
+      // AUDIT-M1: stdout is not visibility either. Route it to error_logs so a
+      // conduct warning that never reached the doctor shows on /ops/errors.
+      logErrorToDb(e, {
+        context: 'chat_moderation.conduct_warning_notification',
+        category: 'moderation'
+      });
     }
   }
 
@@ -2485,11 +2490,39 @@ router.post('/superadmin/manual-queue/:id/approve', requireSuperadmin, async (re
   if (!doctorId) {
     const isPaid = ['paid', 'captured'].includes(String(order.payment_status || '').toLowerCase());
     if (isPaid) {
+      // AUDIT-H1 — these were `.catch(console.error)`. If either rejected, the
+      // redirect below still reported success, nothing reached /ops/errors, and
+      // the case became UNREACHABLE: the acceptance watcher only picks up
+      // orders that have an acceptance_deadline_at (which the failed broadcast
+      // never set), and the SLA sweep only scans IN_REVIEW / REJECTED_FILES. A
+      // paid case would sit forever with no doctor and no signal to anyone.
+      //
+      // Both failures now land in error_logs — surfacing on /ops/errors and in
+      // the silent-failures view — and a CASE_ROUTING_FAILED event goes on the
+      // case timeline so the order itself carries the evidence.
       enqueueAutoAssign(orderId).catch(function (err) {
-        console.error('[manual-queue-approve] enqueueAutoAssign failed:', err && err.message);
+        logErrorToDb(err, {
+          context: 'manual_queue_approve.enqueueAutoAssign',
+          category: 'assignment',
+          orderId: orderId,
+          userId: req.user && req.user.id,
+          requestId: req.requestId
+        });
+        Promise.resolve(caseLifecycle.logCaseEvent(orderId, 'CASE_ROUTING_FAILED', {
+          stage: 'auto_assign', reason: err && err.message, via: 'manual_queue_approve'
+        })).catch(function () {});
       });
       broadcastOrderToSpecialty(orderId).catch(function (err) {
-        console.error('[manual-queue-approve] broadcast failed:', err && err.message);
+        logErrorToDb(err, {
+          context: 'manual_queue_approve.broadcast',
+          category: 'assignment',
+          orderId: orderId,
+          userId: req.user && req.user.id,
+          requestId: req.requestId
+        });
+        Promise.resolve(caseLifecycle.logCaseEvent(orderId, 'CASE_ROUTING_FAILED', {
+          stage: 'broadcast', reason: err && err.message, via: 'manual_queue_approve'
+        })).catch(function () {});
       });
     }
   }
@@ -3209,7 +3242,14 @@ async function _issueDoctorWelcomePayload(doctor, req) {
       [nowIso, doctor.id]
     );
   } catch (e) {
-    console.error('[doctor-welcome] welcome_email_last_sent_at update failed:', e && e.message ? e.message : e);
+    // AUDIT-M1: non-blocking by design (the email is the real side-effect), but
+    // a persistent failure leaves the admin UI's "last sent" hint permanently
+    // wrong, which reads as "never sent".
+    logErrorToDb(e, {
+      context: 'doctor_welcome.last_sent_at_update',
+      category: 'doctor_admin',
+      userId: doctor && doctor.id
+    });
   }
 
   // Resolve baseUrl the same way superadmin.js:2027-2042 does — env first,

@@ -9,7 +9,7 @@ const { getNotificationTitles } = require('../notify/notification_titles');
 const { randomUUID } = require('crypto');
 const { logOrderEvent } = require('../audit');
 var { enqueueCaseIntelligence } = require('../job_queue');
-const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
+const { computeSla } = require('../sla_status');
 const { buildWizardPricing, buildStep4Persistence } = require('../services/wizard_pricing');
 // Always-charge-EGP: convert a local catalog price to the EGP charge base + the
 // display fields + the flat 20% doctor fee. Single source of truth for the
@@ -1135,7 +1135,6 @@ router.get('/dashboard', requireRole('patient'), async (req, res) => {
 
   // Refresh SLA breach + canonical status for the active case (if any).
   if (activeOrder) {
-    try { enforceBreachIfNeeded(activeOrder); } catch (_) {}
     try {
       const computed = computeSla(activeOrder);
       activeOrder.effectiveStatus = computed.effectiveStatus || activeOrder.status;
@@ -2039,6 +2038,17 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
     return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=' + persist.error);
   }
 
+  // AUDIT — this UPDATE changes `price` but used to leave paymob_intention_id
+  // and payment_link untouched. Creating a Paymob intention does NOT require
+  // the order to have left DRAFT (routes/payments.js create-intention gates on
+  // payment_status != 'paid' only), and step 4 is reachable again by going back
+  // in the funnel. So: pick Urgent → open the pay page → Pay Now (intention for
+  // the urgent amount is stored) → go back → switch to Standard. The price
+  // dropped, but the stored link still charges the urgent amount. The webhook's
+  // owedCentsForOrder check catches the discrepancy and refuses to settle — the
+  // patient's card is charged and the case stays unpaid, which is the worst of
+  // both outcomes. Invalidate the stale intention with the price, in the same
+  // statement, exactly as routes/referrals.js does.
   await execute(
     `UPDATE orders
      SET urgency_tier = $1,
@@ -2051,6 +2061,8 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
          display_price = $7,
          display_currency = $8,
          urgency_flag = $9,
+         paymob_intention_id = NULL,
+         payment_link = NULL,
          draft_step = GREATEST(COALESCE(draft_step, 0), 4),
          updated_at = $10
      WHERE id = $11 AND patient_id = $12 AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
@@ -2130,6 +2142,9 @@ router.post('/patient/new-case/step4/urgency-resolve', requireRole('patient'), a
     ? new Date(nextSevenAmCairoUtc().getTime() + 4 * 60 * 60 * 1000).toISOString()
     : null;
 
+  // AUDIT — same stale-payment-link hazard as the step-4 urgency UPDATE above:
+  // the Wait/Downgrade choice changes `price`, so any intention already created
+  // for the previous amount must die with it.
   await execute(
     `UPDATE orders
      SET urgency_tier = $1,
@@ -2139,6 +2154,8 @@ router.post('/patient/new-case/step4/urgency-resolve', requireRole('patient'), a
          price = $5,
          urgency_flag = $6,
          sla_deadline = $7,
+         paymob_intention_id = NULL,
+         payment_link = NULL,
          draft_step = GREATEST(COALESCE(draft_step, 0), 4),
          updated_at = $8
      WHERE id = $9 AND patient_id = $10 AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
@@ -3166,7 +3183,6 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
   }
 
   // SLA refresh.
-  enforceBreachIfNeeded(order);
   const computed = computeSla(order);
   order.effectiveStatus = computed.effectiveStatus;
   order.status = order.effectiveStatus || order.status;

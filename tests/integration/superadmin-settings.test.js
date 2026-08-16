@@ -101,10 +101,25 @@ assert(
 
 // View shape
 const viewSrc = fs.readFileSync(SETTINGS_EJS, 'utf8');
+// STALE-TEST FIX (2026-08-16): this asserted the OLD frame contract —
+// `portalRole: 'superadmin'` + `portalActive: 'settings'` passed to a generic
+// portal wrapper. The superadmin chrome was rebuilt (Batch 7) around
+// partials/superadmin/header + footer, which resolve the role themselves via
+// layouts/superadmin.ejs and take the highlighted nav entry as
+// `currentSection`. The view is still framed and still highlights Settings;
+// only the parameter names changed. Assert the current contract — and that the
+// view is framed at BOTH ends, since a missing footer renders an unclosed page.
 assert(
-  /portalRole:\s*['"]superadmin['"]/.test(viewSrc) &&
-  /portalActive:\s*['"]settings['"]/.test(viewSrc),
-  'view is wired into the superadmin portal frame with portalActive="settings"'
+  /include\(\s*['"]partials\/superadmin\/header['"]/.test(viewSrc),
+  'view is wired into the superadmin chrome via the header partial'
+);
+assert(
+  /currentSection:\s*['"]settings['"]/.test(viewSrc),
+  'view marks itself as the "settings" section so the nav entry highlights'
+);
+assert(
+  /include\(\s*['"]partials\/superadmin\/footer['"]/.test(viewSrc),
+  'view closes the superadmin chrome with the footer partial'
 );
 assert(
   /name="classifier_threshold_locked"/.test(viewSrc) &&

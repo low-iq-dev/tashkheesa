@@ -128,11 +128,27 @@ try {
 // ── 7. OTP-verify uses normalizedPhone (not bare phone) — bug fix ──
 try {
   var src = fs.readFileSync(require.resolve('../../src/routes/api/auth.js'), 'utf8');
-  // Locate the route handler block. Find the literal route reg line, take
-  // the next ~3000 chars as "the OTP-verify region" (handler is < 100 lines).
+  // STALE-TEST FIX (2026-08-16): this used to slice a FIXED 3000 characters
+  // after the route registration and call that "the OTP-verify region". The
+  // multi-market seeding work pushed the INSERT INTO users statement to +3715,
+  // so the window no longer reached it, the INSERT assertion failed, and — had
+  // it been the other way round — the whole guard would have silently passed
+  // while checking nothing. A hardcoded byte window is not a region.
+  //
+  // Size the region from the code instead: from this route registration up to
+  // the NEXT route registration (or EOF if it is the last one), so it tracks
+  // the handler however it grows.
   var routeIdx = src.indexOf("'/otp/verify'");
   assert.ok(routeIdx > -1, "'/otp/verify' route registered");
-  var otpRegion = src.substring(routeIdx, Math.min(routeIdx + 3000, src.length));
+  var afterRoute = src.slice(routeIdx + 10);
+  var nextRoute = afterRoute.search(/\n\s*router\.(post|get|put|patch|delete)\s*\(/);
+  var otpRegion = nextRoute > -1
+    ? src.substring(routeIdx, routeIdx + 10 + nextRoute)
+    : src.substring(routeIdx);
+  // Sanity floor — if the region collapses, every assertion below would pass
+  // vacuously or fail for the wrong reason.
+  assert.ok(otpRegion.length > 500,
+    'OTP-verify region is only ' + otpRegion.length + ' chars — the region finder is broken, not the code');
   assert.ok(/normalizedPhone/.test(otpRegion),
     'OTP-verify region references normalizedPhone (post-validator)');
   // Strip line comments — the buggy pattern shouldn't survive in code.

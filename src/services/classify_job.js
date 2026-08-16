@@ -34,6 +34,9 @@ async function runClassification(orderId) {
     // Ownership was validated by the route handler before enqueue.
     const draft = await queryOne(
       `SELECT clinical_question, medical_history, current_medications
+         // include-deleted-ok: classification runs at draft creation;
+         // soft-delete happens 48h later. Worst case is one wasted call
+         // on a draft that has since expired.
          FROM orders WHERE id = $1`,
       [orderId]
     );

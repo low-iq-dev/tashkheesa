@@ -69,19 +69,57 @@ function priceMutatingSetClauses(src) {
   }
   return out;
 }
-[['src/routes/referrals.js', referrals, 1], ['src/routes/order_flow.js', orderFlow, 3]].forEach(function (row) {
-  const label = row[0], src = row[1], expected = row[2];
-  const blocks = priceMutatingSetClauses(src);
-  assert(blocks.length === expected,
-    label + ': found ' + expected + ' price-mutating UPDATE(s)',
-    'found ' + blocks.length + ' (expected ' + expected + ') — update the test if a site was added/removed');
-  const missing = blocks.filter(function (b) {
-    return !(/paymob_intention_id\s*=\s*NULL/i.test(b) && /payment_link\s*=\s*NULL/i.test(b));
+// STALE-TEST FIX (2026-08-16): this asserted an EXACT per-file count —
+// order_flow.js must have exactly 3 price-mutating UPDATEs. The legacy
+// /order/* checkout funnel that owned those three was deleted, so the file now
+// has 0 and the test failed even though the invariant it exists to protect was
+// never violated. An exact count of a thing that is allowed to move is not an
+// invariant; it is a snapshot.
+//
+// The real rule is: WHEREVER a price is mutated, the stale Paymob intention and
+// payment link must be nulled in the same statement — otherwise a patient can
+// pay yesterday's amount through a link that outlived its price. Discover the
+// sites across the whole src/ tree instead of naming files, so a mutation added
+// in a NEW file is covered too (the old form would have missed it entirely),
+// and keep a floor so the scan cannot silently find nothing.
+{
+  const SRC_DIR = path.join(__dirname, '..', '..', 'src');
+  function walk(dir, acc) {
+    for (const name of fs.readdirSync(dir)) {
+      if (name === 'node_modules' || name === '.git') continue;
+      const full = path.join(dir, name);
+      const st = fs.statSync(full);
+      if (st.isDirectory()) walk(full, acc);
+      else if (/\.js$/.test(name)) acc.push(full);
+    }
+    return acc;
+  }
+
+  const files = walk(SRC_DIR, []);
+  const sites = [];
+  for (const full of files) {
+    const rel = path.relative(path.join(__dirname, '..', '..'), full);
+    for (const body of priceMutatingSetClauses(fs.readFileSync(full, 'utf8'))) {
+      sites.push({ rel: rel, body: body });
+    }
+  }
+
+  assert(files.length >= 100,
+    'price-mutation scan walked ' + files.length + ' src files (sanity floor)',
+    'only walked ' + files.length + ' files — the walker is broken, so a pass here means nothing');
+
+  assert(sites.length >= 1,
+    'found ' + sites.length + ' price-mutating UPDATE(s) across src/',
+    'found 0 price-mutating UPDATEs anywhere in src/ — either the regex broke or price mutation moved somewhere this test cannot see');
+
+  const missing = sites.filter(function (s) {
+    return !(/paymob_intention_id\s*=\s*NULL/i.test(s.body) && /payment_link\s*=\s*NULL/i.test(s.body));
   });
   assert(missing.length === 0,
-    label + ': every price-mutating UPDATE also nulls paymob_intention_id + payment_link',
-    missing.length + ' price mutation(s) leave the stale link live');
-});
+    'every price-mutating UPDATE also nulls paymob_intention_id + payment_link (' + sites.length + ' checked)',
+    missing.length + ' price mutation(s) leave the stale link live: ' +
+      missing.map(function (s) { return s.rel; }).join(', '));
+}
 
 // ── B6: add-ons are charged (create-intention) ─────────────────────────────
 assert(/const\s+amountCents\s*=\s*owedCentsForOrder\(\{[\s\S]*?addons_json:/.test(payments),

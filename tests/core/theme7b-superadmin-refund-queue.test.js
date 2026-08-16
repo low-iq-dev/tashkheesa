@@ -57,8 +57,25 @@ try {
   if (!/section\.pending/.test(view)) throw new Error('view missing pending section');
   if (!/section\.awaiting_payment/.test(view)) throw new Error('view missing awaiting_payment section');
   if (!/section\.recent/.test(view)) throw new Error('view missing recent section');
-  // Status badges
-  if (!/admin-status--/.test(view)) throw new Error('view missing per-status admin-status-- class for badges');
+  // Status badges.
+  //
+  // STALE-TEST FIX (2026-08-16): this demanded a literal `admin-status--`
+  // class. Refund status badges were since moved onto the shared design-system
+  // chip partial (partials/superadmin/c_chip) with a local statusTone() mapping
+  // status → tone, so the bespoke class no longer exists. The badge is still
+  // per-status and still rendered in all three sections; only the markup owner
+  // changed. Assert the behaviour (a badge whose text AND colour are derived
+  // from r.status) rather than one design system's class name.
+  const chipRenders = (view.match(/c_chip[^\n]*label:\s*r\.status/g) || []).length;
+  if (chipRenders < 3) {
+    throw new Error('view renders a per-status badge in only ' + chipRenders + ' of the 3 sections (expected 3, driven by r.status)');
+  }
+  if (!/tone:\s*statusTone\(r\.status\)/.test(view)) {
+    throw new Error('status badges are no longer colour-coded per status (statusTone(r.status) not passed to the chip)');
+  }
+  if (!/function statusTone\s*\(/.test(view)) {
+    throw new Error('statusTone() helper missing — the tone argument would be undefined and every badge would render neutral');
+  }
   // Action buttons
   if (!/action="\/superadmin\/refunds\/<%= r\.id %>\/approve"/.test(view)) {
     throw new Error('view missing approve form');

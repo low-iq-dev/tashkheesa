@@ -52,7 +52,12 @@ async function suggestSpecialty(input) {
   const enabled = process.env.AI_SPECIALTY_ROUTING_ENABLED === 'true';
   if (!enabled) return null;
 
-  const model = process.env.AI_SPECIALTY_ROUTING_MODEL || 'claude-opus-4-7';
+  // AUDIT-L3 — the fallback used to be a hardcoded Claude model string, which
+  // meant this router would not rotate with the other three call sites when
+  // src/config/anthropic.js is updated. Zero impact today (this module is
+  // PARKED and mounted nowhere), but it is exactly the kind of straggler
+  // that gets missed on a model migration.
+  const model = process.env.AI_SPECIALTY_ROUTING_MODEL || modelSonnet();
   const timeoutMs = parseInt(process.env.AI_SPECIALTY_ROUTING_TIMEOUT_MS || '8000', 10);
 
   const specialties = await getSpecialties();

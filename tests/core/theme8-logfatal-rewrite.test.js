@@ -158,33 +158,65 @@ for (const rel of FILES_WITH_LOGFATAL) {
     totalCalls++;
     const a = c.args;
     // Heuristics — match common Error-binding patterns.
+    //
+    // STALE-TEST FIX (2026-08-16): the identifier alternation used to be
+    // `\b(err|error|e|reason)\b`, which does not match numbered or suffixed
+    // catch bindings. src/services/worker_watchdog.js binds `e1`, `e3`, `e4`,
+    // `ep`, `er` in its four isolated layers and passes every one of them to
+    // logFatal — all five were miscounted as "msg-only, produces no
+    // /ops/errors row", which is the opposite of true. The floor below was
+    // then failing on five phantom offenders while the code was correct.
+    // Match any short identifier in the err*/e* family instead.
     const looksLikeError =
-      /\b(err|error|e|reason)\b/.test(a) ||
+      /\b(err|error|reason)\w*\b/.test(a) ||
+      /\be\d*[a-z]?\b/.test(a) ||
       /new\s+Error\s*\(/.test(a) ||
       // Catch the case-sla-worker handler shape: `candidate.case_id, err`
       /,\s*err\)/.test(a) ||
       /,\s*err,/.test(a);
     if (!looksLikeError) {
-      offendersNoError.push({ file: rel, line: c.line, args: a.slice(0, 80) });
+      // Does the process die immediately after this call? logFatal's DB write
+      // is fire-and-forget async; a `process.exit(1)` on the next line kills
+      // the INSERT before it lands, so passing an Error on a die-immediately
+      // path buys nothing and would only make the guard *look* satisfied.
+      const tail = src.slice(c.offset, c.offset + a.length + 400);
+      const diesImmediately = /process\.exit\s*\(/.test(tail);
+      offendersNoError.push({
+        file: rel, line: c.line, args: a.slice(0, 80), diesImmediately: diesImmediately
+      });
     }
   }
 }
 
-// Some of these will be msg-only calls (e.g. `logFatal('Boot failed — DB not
-// reachable')`). The brief explicitly approved supporting the 1-arg shape
-// as backward-compat — but the brief ALSO requires that EVERY new logFatal
-// call passes an Error. So we treat msg-only calls as a soft warning:
-// they're acceptable per backward-compat but flagged for the audit.
+// STALE-TEST FIX (2026-08-16): this used to assert a raw floor —
+// `errorBearingCalls >= 22`, described in its own comment as "inventory said 22
+// of 33 sites pass Error". That number was a snapshot of one afternoon's tree.
+// Call sites have since been added and removed (the /order/* funnel deletion
+// alone took several), the total is now 26, and the floor failed at 21 while
+// every remaining msg-only site was correct by design. A count is not a rule.
 //
-// For the lint test, we assert that the COUNT of Error-bearing calls is
-// at least the count from inventory minus a slack of 2. Adding an
-// Error-bearing call is always fine.
-const errorBearingCalls = totalCalls - offendersNoError.length;
-const MIN_ERROR_BEARING = 22; // inventory said 22 of 33 sites pass Error
+// The actual rule, which is what Theme 8 was about: a logFatal on a path where
+// THE PROCESS KEEPS RUNNING must carry an Error, or the failure exists only in
+// Render stdout and never reaches /ops/errors. A logFatal immediately followed
+// by process.exit(1) — boot-time env validation, a failed pg-boss connection, a
+// shutdown timeout — is allowed to be message-only: there is no live process
+// left to observe it, and the async DB write could not complete anyway.
+const survivingOffenders = offendersNoError.filter(function (o) { return !o.diesImmediately; });
+const dieImmediately = offendersNoError.filter(function (o) { return o.diesImmediately; });
+
 assert(
-  errorBearingCalls >= MIN_ERROR_BEARING,
-  "at least " + MIN_ERROR_BEARING + " logFatal call sites pass an Error in args",
-  "saw " + errorBearingCalls + " (total " + totalCalls + " sites; " + offendersNoError.length + " msg-only — these don't crash but produce no /ops/errors row)"
+  totalCalls >= 20,
+  'logFatal inventory scanned ' + totalCalls + ' call sites (sanity floor)',
+  'only found ' + totalCalls + ' logFatal call sites — the scanner or the file list is broken, so a pass here means nothing'
+);
+
+assert(
+  survivingOffenders.length === 0,
+  'every logFatal on a surviving-process path passes an Error (' +
+    (totalCalls - offendersNoError.length) + ' Error-bearing, ' +
+    dieImmediately.length + ' msg-only but followed by process.exit)',
+  survivingOffenders.length + ' logFatal call(s) log a fatal condition, keep running, and write NO /ops/errors row: ' +
+    survivingOffenders.map(function (o) { return o.file + ':' + o.line; }).join(', ')
 );
 
 // ─────────────────────────────────────────────────────────────────────────

@@ -503,8 +503,15 @@ async function runNotificationWorker(limit = 50) {
           attempts,
           n.id
         ]);
-        console.error('[notify-worker] PERMANENT failure — not retrying', {
-          id: n.id, template: n.template, channel, error: result.error
+        // AUDIT-M1 — the notifications row is marked 'failed', so this is not
+        // invisible, but it never reached the errors dashboard. A permanent
+        // failure means someone was never told something we decided was worth
+        // telling them; that belongs on /ops/errors.
+        logErrorToDb(new Error('permanent notification failure: ' + (result.error || 'unknown')), {
+          context: 'notification_worker.permanent_failure',
+          category: 'notifications',
+          orderId: n.order_id || null,
+          userId: n.to_user_id || null
         });
       } else {
         // Handle failure with retry

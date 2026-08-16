@@ -50,8 +50,24 @@ try {
   if (!/INTERVAL\s*'15 minutes'/.test(src)) {
     throw new Error("whatsapp_health_check.js does not use the 15-minute window — must match the cron cadence.");
   }
-  if (!/'statusCode'\s*=\s*'401'|statusCode.*=\s*'401'/.test(src)) {
-    throw new Error("whatsapp_health_check.js does not filter on statusCode=401 — would alert on any error.");
+  // STALE-TEST FIX (2026-08-16) — READ THIS BEFORE "FIXING" IT BACK.
+  //
+  // This used to demand a filter on context->>'statusCode'. That key is one
+  // the WhatsApp senders never write: notify/whatsapp.js and
+  // lib/openclaw_client.js both record the HTTP status under 'status'. The
+  // ONLY module that writes 'statusCode' is critical-alert.js — so a detector
+  // filtering on 'statusCode' could see nothing but its own alerting failures.
+  // When WHATSAPP_ACCESS_TOKEN expired, every send 401'd, this cron counted 0,
+  // no alert fired, and WhatsApp was silently dead. That was the actual
+  // outage-invisibility bug (AUDIT-P1-4), and this assertion was pinning it.
+  //
+  // Restoring 'statusCode' here would reintroduce it. Assert the correct key,
+  // and fail loudly if the wrong one ever comes back.
+  if (!/'status'\s*=\s*'401'/.test(src)) {
+    throw new Error("whatsapp_health_check.js does not filter on context->>'status' = '401' — the key the WhatsApp senders actually write.");
+  }
+  if (/'statusCode'/.test(src.replace(/\/\/[^\n]*/g, ''))) {
+    throw new Error("whatsapp_health_check.js filters on 'statusCode' again — no WhatsApp sender writes that key, so the detector would only ever see critical-alert.js's own failures (AUDIT-P1-4).");
   }
   if (!/sendCriticalAlert\s*\(/.test(src)) {
     throw new Error('whatsapp_health_check.js does not call sendCriticalAlert — alert path is broken.');
@@ -114,11 +130,20 @@ try {
   if (!/typeof whatsappHealth !== 'undefined'/.test(src)) {
     throw new Error('ops-dashboard.ejs does not defensively typeof-guard whatsappHealth — render path can ReferenceError.');
   }
-  if (!/Token 401s/.test(src)) {
-    throw new Error("ops-dashboard.ejs missing 'Token 401s' card label.");
+  // STALE-TEST FIX (2026-08-16): this asserted the literal label copy
+  // 'Token 401s' / 'Send errors'. The card was later restyled and the labels
+  // shortened to 'WA 401s (15m)' / 'WA errors (24h)' to fit the pill row. The
+  // card, the counters and the typeof-guard are all intact — only the display
+  // string changed. Assert the DATA BINDINGS, which are the real contract
+  // between the ops route and the view, instead of the copy, which is not.
+  if (!/whatsappHealth\.token401Last15min/.test(src)) {
+    throw new Error("ops-dashboard.ejs does not render whatsappHealth.token401Last15min — the 401 counter is not on the dashboard.");
   }
-  if (!/Send errors/.test(src)) {
-    throw new Error("ops-dashboard.ejs missing 'Send errors' card label.");
+  if (!/whatsappHealth\.sendErrorsLast24h/.test(src)) {
+    throw new Error("ops-dashboard.ejs does not render whatsappHealth.sendErrorsLast24h — the send-error counter is not on the dashboard.");
+  }
+  if (!/401/.test(src)) {
+    throw new Error('ops-dashboard.ejs has no 401 label at all next to the counter — the number would be unreadable.');
   }
   t.pass(fileTag + ': ops-dashboard.ejs renders WhatsApp card with both counters + typeof-guard fallback');
 } catch (e) {

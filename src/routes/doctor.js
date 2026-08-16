@@ -8,7 +8,7 @@ const { requireRole } = require('../middleware');
 const { queueNotification, queueMultiChannelNotification, doctorNotify } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
 const { logOrderEvent } = require('../audit');
-const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
+const { computeSla } = require('../sla_status');
 const { markSlaBreach } = require('../case_lifecycle');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
 const { ensureConversation, computeDoctorStreakCount } = require('./messaging');
@@ -3480,7 +3480,6 @@ function mapPortalCaseItem(order, lang = 'en', extra = {}) {
 
 function enrichOrders(rows) {
   return rows.map((row) => {
-    enforceBreachIfNeeded(row);
     const computed = computeSla(row);
     return {
       ...row,
@@ -4903,7 +4902,15 @@ async function handlePortalDoctorGenerateReport(req, res) {
         [new Date().toISOString(), orderId]
       );
     } catch (e) {
-      console.error('[report] could not close doctor_assignments:', e && e.message);
+      // AUDIT-M1 — not cosmetic. doctor_assignments.completed_at is what takes a
+      // finished case OUT of fetchDoctorTimeouts; if this close fails the sweep
+      // re-selects the completed case on every tick, indefinitely.
+      logErrorToDb(e, {
+        context: 'doctor_report.close_assignment',
+        category: 'sla',
+        orderId: orderId,
+        userId: doctorId
+      });
     }
     try {
       await caseLifecycle.logCaseEvent(orderId, 'CASE_COMPLETED', {
@@ -4911,7 +4918,13 @@ async function handlePortalDoctorGenerateReport(req, res) {
         via: 'doctor_portal_report'
       });
     } catch (e) {
-      console.error('[report] could not log CASE_COMPLETED:', e && e.message);
+      // AUDIT-M1 — the patient's case timeline silently loses its final step.
+      logErrorToDb(e, {
+        context: 'doctor_report.log_case_completed',
+        category: 'lifecycle',
+        orderId: orderId,
+        userId: doctorId
+      });
     }
 
     // P0-FIN-1 site 2: flip pending doctor_earnings row to 'paid', or

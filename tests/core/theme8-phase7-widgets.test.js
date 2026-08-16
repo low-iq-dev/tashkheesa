@@ -117,7 +117,17 @@ const DASH_PATH = path.join(ROOT, 'src', 'views', 'ops-dashboard.ejs');
 try {
   const html = ejs.render(read('src/views/ops-dashboard.ejs'), makeLocals(undefined), { filename: DASH_PATH });
   assert(html.length > 0, "empty-widgets render: produces HTML output", "");
-  assert(html.indexOf('Notif Queue Depth') !== -1, "empty-widgets render: still shows Widget 1 label", "");
+  // STALE-TEST FIX (2026-08-16): the ops dashboard was rebuilt into the compact
+  // pill layout and the widget labels were shortened for the narrower cells
+  // ('Notif Queue Depth' → 'Queue depth', and the 'card error' tier class
+  // became per-card 'error'/'warn'/'ok' on .cron-card). Every widget, binding
+  // and colour tier survived the rework; only the copy and the class names
+  // moved. Assert the DATA BINDINGS the ops route promises the view, which is
+  // the contract that actually matters, plus one label so the number is not
+  // rendered bare.
+  assert(html.indexOf('data-stat="phase7Widgets.notifQueueDepth"') !== -1,
+    "empty-widgets render: still renders the Widget 1 queue-depth binding", "");
+  assert(/Queue depth/i.test(html), "empty-widgets render: queue-depth cell is labelled", "");
   assert(html.indexOf('never') !== -1 || html.indexOf('NO KEY') !== -1,
     "empty-widgets render: shows 'never' or 'NO KEY' placeholders gracefully", "");
 } catch (e) {
@@ -151,10 +161,18 @@ try {
   assert(html.indexOf('skipped') !== -1, "populated render: Widget 2 includes 'skipped' status pill", "");
   assert(html.indexOf('case_sla_worker') !== -1, "populated render: Widget 3 lists case_sla_worker", "");
   assert(html.indexOf('never run') !== -1, "populated render: Widget 3 shows 'never run' for missing heartbeats", "");
-  assert(html.indexOf('25/4') !== -1, "populated render: Widget 4 shows current/baseline format", "");
-  // Use 'error' class for color-tier verification — appears multiple
-  // times in widgets that exceeded thresholds.
-  assert(html.indexOf('card error') !== -1, "populated render: at least one widget applies 'card error' class", "");
+  // The baseline is now rendered with one decimal (4 → "4.0") so a baseline of
+  // 4.25 does not display as 4. Match the current/baseline pair structurally
+  // rather than pinning the old integer formatting.
+  assert(/25<\/span>\/<span[^>]*>4\.0</.test(html) || /25\s*\/\s*4(\.0)?/.test(html),
+    "populated render: Widget 4 shows the current/baseline pair (25 over 4.0)", "");
+  // Colour tiers: the redesign replaced the shared 'card error' class with
+  // per-card 'error' / 'warn' / 'ok' on .cron-card. video_scheduler is 30min
+  // stale in this fixture, which is past the 25min red threshold.
+  assert(/cron-card\s+error/.test(html),
+    "populated render: a stale worker is rendered in the red tier (cron-card error)", "");
+  assert(/cron-card\s+warn/.test(html),
+    "populated render: a 12min-stale worker is rendered in the amber tier (cron-card warn)", "");
 } catch (e) {
   t.fail(fileTag + ': populated EJS render throws', e);
 }

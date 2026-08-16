@@ -150,8 +150,19 @@ try {
   if (!/critical_alert_log/.test(src)) {
     throw new Error('src/critical-alert.js no longer references critical_alert_log — Theme 8 Phase 7 DB throttle has been regressed.');
   }
-  if (!/_shouldSend/.test(src)) {
-    throw new Error('src/critical-alert.js no longer has the per-key DB throttle (_shouldSend) — regression.');
+  // STALE-TEST FIX (2026-08-16): this used to demand a `_shouldSend` helper.
+  // That name is gone on purpose — `_shouldSend` was check-then-act (SELECT,
+  // then INSERT), which left a window where two concurrent alerts on the same
+  // key both read "not throttled" and both sent. It was replaced by
+  // `_claimSend`, a single INSERT ... SELECT ... WHERE NOT EXISTS that claims
+  // and checks in one statement. Asserting the old name would have pushed
+  // someone to reintroduce the race, so assert the ATOMIC CLAIM instead —
+  // a strictly stronger guarantee than the one the old test encoded.
+  if (!/_claimSend/.test(src)) {
+    throw new Error('src/critical-alert.js no longer has the per-key DB throttle (_claimSend) — regression.');
+  }
+  if (!/INSERT INTO critical_alert_log[\s\S]{0,400}WHERE NOT EXISTS/.test(src)) {
+    throw new Error('the per-key throttle is no longer a single atomic INSERT ... WHERE NOT EXISTS — a check-then-act throttle lets duplicate alerts through under concurrency.');
   }
   if (!/_logCriticalAlertAttempt/.test(src)) {
     throw new Error('src/critical-alert.js no longer logs to critical_alert_log (_logCriticalAlertAttempt) — regression.');

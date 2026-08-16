@@ -115,7 +115,19 @@ async function recordAiHealth(ok, err, ctx) {
 
     if (current.ok !== false) {
       // First detection of this outage → one loud, greppable warning.
-      _deps.logFatal('[ai-health] Anthropic BILLING failure — ALL AI features degraded (classifier, case-intelligence). ' + msg);
+      //
+      // AUDIT — this passed a message ONLY. logFatal's DB write is gated on an
+      // Error being present somewhere in its args (see src/logger.js), so the
+      // single most consequential AI event we have — every AI feature going
+      // dark because the Anthropic balance ran out — printed to Render stdout
+      // and produced no /ops/errors row at all. The flag written above lands in
+      // admin_settings, which drives the banner but is not the errors
+      // dashboard. Pass the originating error through so the outage is durable
+      // and greppable in the same place as everything else.
+      _deps.logFatal(
+        '[ai-health] Anthropic BILLING failure — ALL AI features degraded (classifier, case-intelligence). ' + msg,
+        (err instanceof Error) ? err : new Error(msg)
+      );
     }
   } catch (_) {
     // Health recording must never break or block the AI call site.

@@ -36,6 +36,21 @@ const SRC = path.join(__dirname, '..', '..', 'src');
 // Files where bare `FROM orders` is a deliberate, audited choice. Every
 // entry on this list has been reviewed; net-new additions require a
 // matching `// include-deleted-ok` comment + a PR-level justification.
+// Reads a +/-5 line window around the matched line and tests it against a
+// pattern. Shared by the deleted_at and include-deleted-ok checks.
+function nearbyHas(filePath, line, firstColon, secondColon, re) {
+  const lineNum = parseInt(line.slice(firstColon + 1, secondColon), 10);
+  if (!Number.isFinite(lineNum)) return false;
+  try {
+    const fileText = fs.readFileSync(filePath, 'utf8').split('\n');
+    const lo = Math.max(0, lineNum - 6);
+    const hi = Math.min(fileText.length, lineNum + 5);
+    return re.test(fileText.slice(lo, hi).join('\n'));
+  } catch (_) {
+    return false;
+  }
+}
+
 const FILE_ALLOWLIST = new Set([
   // Soft-delete sweep itself (writes deleted_at, idempotency guard
   // already in WHERE clause).
@@ -72,6 +87,12 @@ try {
 
     // Allow: deleted_at IS NULL on the same line.
     if (/deleted_at\s+IS\s+NULL/i.test(text)) continue;
+    // ...or within the same statement. A multi-line query routinely puts the
+    // WHERE clause below the FROM, and checking only the FROM line reported
+    // admin_bulk_assign.js:76 and :119 as unfiltered when the very next line
+    // reads `AND deleted_at IS NULL`. Same window the include-deleted-ok
+    // check below already uses, for the same reason.
+    if (nearbyHas(filePath, line, firstColon, secondColon, /deleted_at\s+IS\s+NULL/i)) continue;
 
     // Allow: explicit include-deleted-ok comment on the same line.
     if (/include-deleted-ok/i.test(text)) continue;

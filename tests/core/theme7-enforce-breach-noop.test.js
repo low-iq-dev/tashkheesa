@@ -2,11 +2,21 @@
 //
 // Theme 7 sub-issue B regression guard.
 //
-// Asserts that sla_status.enforceBreachIfNeeded is now a no-op with a
-// deprecation comment, and that the 7 inline call sites still exist
-// (the function is kept callable so a follow-up PR can delete the call
-// sites mechanically — a deletion now would risk a runtime crash if any
-// caller depended on the return value).
+// HISTORY — this file used to assert that sla_status.enforceBreachIfNeeded was
+// a `return null;` no-op AND that all 7 inline call sites were still present.
+// That second half was a deliberately temporary contract: the function was
+// neutered in May 2026 but left callable for one release so nothing crashed,
+// with deletion scheduled after 30 days of stable canonical-worker behaviour.
+//
+// The window passed. Two of the call sites went in the Phase 2 superadmin
+// dashboard perf rework; the remaining five and the no-op itself were deleted
+// on 2026-08-16. The old assertions were therefore pinning a migration
+// half-step in place — a test demanding that dead code stay in the tree.
+//
+// What this file guards now is the thing that actually matters and did not
+// change: breach detection and state mutation happen in exactly ONE place,
+// case_sla_worker.runCaseSlaSweep. If anyone reintroduces a page-load breach
+// write — under this name or any other — these assertions fail.
 
 'use strict';
 
@@ -19,92 +29,92 @@ const t = global._testRunner || {
   skip: function (n, r) { console.log('  \x1b[33m⏭️\x1b[0m  ' + n + ' (' + r + ')'); }
 };
 
-console.log('\n💤 Theme 7 sub-B — enforceBreachIfNeeded no-op + call sites preserved\n');
+console.log('\n💤 Theme 7 sub-B — breach writes live only in the canonical worker\n');
 
 const SRC_ROOT = path.join(__dirname, '..', '..', 'src');
 function read(p) { return fs.readFileSync(path.join(SRC_ROOT, p), 'utf8'); }
 
-// 1. sla_status.enforceBreachIfNeeded body is a `return null;` no-op.
+// 1. enforceBreachIfNeeded is fully gone — no definition, no export, no callers.
 try {
   const slaStatus = read('sla_status.js');
-  const start = slaStatus.indexOf('async function enforceBreachIfNeeded(');
-  if (start < 0) throw new Error('enforceBreachIfNeeded not found in sla_status.js');
-  const after = slaStatus.slice(start);
-  const end = after.indexOf('\n}\n');
-  const body = end > 0 ? after.slice(0, end + 2) : after;
+  if (/function\s+enforceBreachIfNeeded\s*\(/.test(slaStatus)) {
+    throw new Error('enforceBreachIfNeeded has been reintroduced in sla_status.js');
+  }
+  if (/module\.exports\s*=\s*\{[^}]*enforceBreachIfNeeded/.test(slaStatus)) {
+    throw new Error('sla_status.js exports enforceBreachIfNeeded again');
+  }
+  t.pass('enforceBreachIfNeeded is gone from sla_status.js (definition + export)');
+} catch (e) { t.fail('enforce-breach-removed', e); }
 
-  // Body must NOT contain a real UPDATE on orders.
-  if (/UPDATE\s+orders/i.test(body)) {
-    throw new Error('enforceBreachIfNeeded body still contains UPDATE orders');
+// 2. No route file calls it any more.
+const ROUTE_FILES = [
+  'routes/admin.js',
+  'routes/doctor.js',
+  'routes/patient.js',
+  'routes/superadmin.js'
+];
+try {
+  const offenders = [];
+  for (const rel of ROUTE_FILES) {
+    const content = read(rel);
+    // `enforceBreachIfNeeded(` = an invocation. The word also appears in
+    // explanatory comments (routes/admin.js, routes/superadmin.js) — those
+    // carry no open paren and are intentionally left as history.
+    const calls = (content.match(/enforceBreachIfNeeded\s*\(/g) || []).length;
+    if (calls > 0) offenders.push(rel + ' (' + calls + ')');
+    // The destructured import must be gone too, or the module would throw
+    // on a call that no longer exists.
+    if (/enforceBreachIfNeeded\s*\}?\s*=\s*require/.test(content) ||
+        /\{[^}]*enforceBreachIfNeeded[^}]*\}\s*=\s*require\(/.test(content)) {
+      offenders.push(rel + ' (still imports it)');
+    }
   }
-  // Body must NOT call issueBreachRefundSafe (that responsibility moved
-  // to case_lifecycle.markSlaBreach).
-  if (/issueBreachRefundSafe/.test(body)) {
-    throw new Error('enforceBreachIfNeeded still calls issueBreachRefundSafe (now belongs to markSlaBreach)');
+  if (offenders.length) {
+    throw new Error('page-load breach enforcement reintroduced in: ' + offenders.join(', '));
   }
-  // Body must be a `return null` no-op.
-  if (!/return null;/.test(body)) {
-    throw new Error('enforceBreachIfNeeded body is not a `return null;` no-op');
-  }
-  t.pass('enforceBreachIfNeeded body is a `return null;` no-op');
-} catch (e) { t.fail('enforce-breach-noop-body', e); }
+  t.pass('no route file calls or imports enforceBreachIfNeeded (' + ROUTE_FILES.length + ' checked)');
+} catch (e) { t.fail('no-page-load-breach-calls', e); }
 
-// 2. Deprecation comment present and references Theme 7 sub-issue B.
+// 3. The deletion rationale is recorded where the function used to be, so the
+//    next person to wonder "why is there no single-order breach helper?" finds
+//    the answer instead of writing one.
 try {
   const slaStatus = read('sla_status.js');
-  if (!/DEPRECATED — Theme 7 sub-issue B/.test(slaStatus)) {
-    throw new Error('sla_status.js missing DEPRECATED Theme 7 marker comment');
+  if (!/Theme 7 sub-issue B/.test(slaStatus)) {
+    throw new Error('sla_status.js lost the Theme 7 sub-issue B marker comment');
   }
   if (!/case_sla_worker\.runCaseSlaSweep/.test(slaStatus)) {
-    throw new Error('deprecation comment does not point to canonical case_sla_worker.runCaseSlaSweep');
+    throw new Error('sla_status.js does not point at the canonical case_sla_worker.runCaseSlaSweep');
   }
-  if (!/30 days/.test(slaStatus)) {
-    throw new Error('deprecation comment does not specify the 30-day stability window before deletion');
-  }
-  t.pass('deprecation comment present, references canonical worker + 30-day deletion window');
-} catch (e) { t.fail('enforce-breach-deprecation-comment', e); }
+  t.pass('removal rationale present and points at the canonical worker');
+} catch (e) { t.fail('removal-rationale', e); }
 
-// 3. All 7 inline call sites still exist (call surface preserved per the
-//    user's explicit request — delete in a follow-up PR).
-const EXPECTED_CALL_SITES = [
-  { file: 'routes/admin.js',       count: 2 },
-  { file: 'routes/doctor.js',      count: 1 },
-  { file: 'routes/patient.js',     count: 2 },
-  { file: 'routes/superadmin.js',  count: 2 }
-];
-
-let totalCalls = 0;
-for (const cs of EXPECTED_CALL_SITES) {
-  try {
-    const content = read(cs.file);
-    // Match invocation patterns: `enforceBreachIfNeeded(` (with paren).
-    // The destructured import line uses `enforceBreachIfNeeded }` (no
-    // paren) so it does not match this regex — we count call sites
-    // directly without subtracting.
-    const matches = content.match(/enforceBreachIfNeeded\(/g) || [];
-    const callCount = matches.length;
-    if (callCount < cs.count) {
-      throw new Error(
-        cs.file + ' has ' + callCount + ' enforceBreachIfNeeded call sites, expected at least ' + cs.count
-      );
-    }
-    totalCalls += callCount;
-    t.pass(cs.file + ' preserves ≥ ' + cs.count + ' enforceBreachIfNeeded call site(s) (found ' + callCount + ')');
-  } catch (e) { t.fail('callsite: ' + cs.file, e); }
-}
-
-try {
-  if (totalCalls < 7) {
-    throw new Error('total enforceBreachIfNeeded call sites = ' + totalCalls + ', expected ≥ 7');
-  }
-  t.pass('total enforceBreachIfNeeded call sites preserved: ' + totalCalls + ' (≥ 7)');
-} catch (e) { t.fail('total-callsites', e); }
-
-// 4. enforceBreachIfNeeded export shape preserved (callers do destructured imports).
+// 4. computeSla is still exported — it is pure (read-only projection) and every
+//    former caller of the pair still uses it.
 try {
   const slaStatus = read('sla_status.js');
-  if (!/module\.exports\s*=\s*\{[\s\S]*?enforceBreachIfNeeded[\s\S]*?\}/.test(slaStatus)) {
-    throw new Error('sla_status.js export shape lost — enforceBreachIfNeeded no longer exported');
+  if (!/module\.exports\s*=\s*\{[\s\S]*?computeSla[\s\S]*?\}/.test(slaStatus)) {
+    throw new Error('sla_status.js no longer exports computeSla');
   }
-  t.pass('sla_status.js still exports enforceBreachIfNeeded (callers can keep destructured imports)');
-} catch (e) { t.fail('export-shape', e); }
+  let users = 0;
+  for (const rel of ROUTE_FILES) {
+    if (/computeSla\s*\(/.test(read(rel))) users++;
+  }
+  if (users < 3) {
+    throw new Error('only ' + users + ' route files call computeSla — expected ≥3. The removal may have taken the projection with it.');
+  }
+  t.pass('computeSla still exported and used by ' + users + ' route files (read-only projection preserved)');
+} catch (e) { t.fail('computesla-preserved', e); }
+
+// 5. The canonical worker still does the write. This is the assertion that
+//    would catch "breach enforcement removed everywhere and never replaced".
+try {
+  const worker = read('case_sla_worker.js');
+  if (!/runCaseSlaSweep/.test(worker)) {
+    throw new Error('case_sla_worker.js no longer defines runCaseSlaSweep');
+  }
+  if (!/markSlaBreach/.test(worker)) {
+    throw new Error('case_sla_worker.js no longer calls markSlaBreach — nothing enforces breaches at all');
+  }
+  t.pass('canonical worker still sweeps and calls markSlaBreach');
+} catch (e) { t.fail('canonical-worker-intact', e); }
