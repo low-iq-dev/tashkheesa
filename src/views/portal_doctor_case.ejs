@@ -373,8 +373,10 @@
           <span class="v2-chip v2-chip--green"><%= tt('Completed', 'Completed', 'مكتمل') %></span>
         </div>
         <div class="v2-card__body">
+          <%# AUDIT-P0-1: report_url is an R2 object key, not a URL. Link the
+              signed-download route instead. %>
           <% if (_order && (_order.report_url || _order.reportUrl)) { %>
-            <a class="v2-btn v2-btn--primary" href="<%= _order.report_url || _order.reportUrl %>" target="_blank" rel="noopener"><%= tt('Open submitted PDF', 'Open submitted PDF', 'فتح ملف PDF المُرسَل') %></a>
+            <a class="v2-btn v2-btn--primary" href="/portal/case/<%= _order.id %>/download-report" target="_blank" rel="noopener"><%= tt('Open submitted PDF', 'Open submitted PDF', 'فتح ملف PDF المُرسَل') %></a>
           <% } else { %>
             <div class="v2-empty__msg"><%= tt('Your submitted report is being prepared. Refresh in a moment.', 'Your submitted report is being prepared. Refresh in a moment.', 'يجري تجهيز تقريرك. حدّث الصفحة بعد قليل.') %></div>
           <% } %>

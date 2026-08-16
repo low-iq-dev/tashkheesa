@@ -4695,6 +4695,34 @@ async function markOrderCompletedFallback({ orderId, doctorId, reportUrl, diagno
   params.push(orderId);
   await execute(`UPDATE orders SET ${sets.join(', ')} WHERE id = $${paramIdx}`, params);
 
+  // AUDIT-P0-1 — record the delivered export.
+  //
+  // The patient case page gates the whole Report tab on the existence of a
+  // report_exports row (routes/patient.js -> hasReport -> reportContent), and
+  // /portal/case/:id/download-report falls back to this table. Before this
+  // fix the ONLY writer was POST /portal/case/:caseId/generate-pdf, which the
+  // doctor submit flow never calls — so every report delivered through the
+  // doctor portal left the patient's Report tab permanently "Locked" even
+  // though they had already been emailed "your report is ready".
+  if (reportUrl) {
+    try {
+      await execute(
+        `INSERT INTO report_exports (id, case_id, file_path, created_by, created_at)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [require('crypto').randomUUID(), orderId, reportUrl, doctorId || null, nowIso]
+      );
+    } catch (e) {
+      // Must never block delivery, but must be loud — a silent failure here
+      // reproduces the exact bug this write exists to fix.
+      logErrorToDb(e, {
+        context: 'doctor.report_exports_insert',
+        category: 'doctor_case',
+        orderId
+      });
+      console.error('[report] report_exports insert failed — patient Report tab will stay locked', e && e.message ? e.message : e);
+    }
+  }
+
   // Persist an event for audit/debug.
   try {
     await execute(

@@ -86,12 +86,12 @@
     <%- include('partials/patient/icon', { name: 'eye', size: 14 }) %>
     <%= tt('Print', 'Print', 'طباعة') %>
   </button>
-  <% if (__order.report_url) { %>
-    <a class="p-btn p-btn--primary" href="<%= __order.report_url %>" download="Tashkheesa-Report-<%= caseRef %>.pdf">
-      <%- include('partials/patient/icon', { name: 'download', size: 14 }) %>
-      <%= tt('Download PDF', 'Download PDF', 'تنزيل PDF') %>
-    </a>
-  <% } else if (__existingReport) { %>
+  <%# AUDIT-P0-1: never link report_url directly — it is an R2 object key
+      ("reports/<uuid>.pdf"), not a URL, so the browser resolves it relative to
+      the current path and 404s. /download-report is the only correct path: it
+      resolves report_url OR the newest report_exports row and 302s to a signed
+      URL. %>
+  <% if (__order.report_url || __existingReport) { %>
     <a class="p-btn p-btn--primary" href="/portal/case/<%= __order.id %>/download-report" download="Tashkheesa-Report-<%= caseRef %>.pdf">
       <%- include('partials/patient/icon', { name: 'download', size: 14 }) %>
       <%= tt('Download PDF', 'Download PDF', 'تنزيل PDF') %>
