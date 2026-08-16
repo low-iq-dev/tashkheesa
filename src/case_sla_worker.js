@@ -203,28 +203,23 @@ function logNoAlternateDoctor({ candidate, selection, trigger }) {
 }
 
 async function fetchSlaCandidates() {
-  // AUDIT-TZ-1 — CORRECTION. This comment used to claim the parameterized
-  // ISO-Z form was the buggy one and NOW()::timestamp the fix (commit f8b11c0).
-  // That is backwards, and it made the problem worse.
+  // AUDIT-TZ-1 / migration 081 — deadline_at is timestamptz, so a plain NOW()
+  // comparison is unambiguous: both sides are absolute instants and the session
+  // timezone cannot change the result.
   //
-  // deadline_at is `timestamp WITHOUT time zone` and EVERY application write
-  // to it is a JS .toISOString() — so the digits on disk are UTC. The ISO-Z
-  // param compared UTC against UTC and was CORRECT. NOW()::timestamp yields the
-  // SESSION's wall clock, which on prod was Africa/Cairo, so this comparison
-  // read every deadline as 2-3h further past than it was and selected cases
-  // that were not remotely due.
+  // History, because the comment that used to live here had it backwards and
+  // the wrong version is cited in a still-open audit ticket. The column was
+  // once `timestamp WITHOUT time zone` holding UTC digits (every write is a JS
+  // .toISOString()). A previous fix (f8b11c0) replaced a parameterized ISO-Z
+  // comparison with NOW()::timestamp, believing the param form was the bug. It
+  // was the other way round: NOW()::timestamp yields the SESSION's wall clock,
+  // which on production was Africa/Cairo, so this query read every deadline as
+  // 2-3h further past than it was and swept cases that were nowhere near due.
   //
-  // The idiom is now safe because src/pg.js pins every session to UTC — read
-  // the comment there before touching either. It is left as NOW()::timestamp
-  // rather than reverted so there is exactly one clock in play (the DB's)
-  // instead of two that have to be kept in agreement.
-  //
-  // NOTE for whoever picks up P3-WORKER-48 in
-  // docs/audits/COMPREHENSIVE_PRE_LAUNCH_AUDIT_2026-05-06.md: that ticket asks
-  // for this idiom to be copied to sla_watcher / runSlaReminderJob /
-  // appointment_reminders on the strength of the wrong comment above. With the
-  // session pinned it is harmless, but it is not a fix and it was never the
-  // reason anything worked.
+  // P3-WORKER-48 in docs/audits/COMPREHENSIVE_PRE_LAUNCH_AUDIT_2026-05-06.md
+  // still asks for NOW()::timestamp to be propagated to sla_watcher /
+  // runSlaReminderJob / appointment_reminders on the strength of that wrong
+  // reasoning. Do not. Plain NOW() against a timestamptz column is the answer.
   //
   // AUDIT-P0-4 — `sla_paused_at IS NULL` added here and in
   // fetchPreBreachCandidates. SCAN_STATUSES includes REJECTED_FILES, and
@@ -245,7 +240,7 @@ async function fetchSlaCandidates() {
        AND o.deadline_at IS NOT NULL
        AND o.breached_at IS NULL
        AND o.sla_paused_at IS NULL
-       AND o.deadline_at <= NOW()::timestamp`,
+       AND o.deadline_at <= NOW()`,
     statuses
   );
 }
@@ -254,7 +249,7 @@ async function fetchSlaCandidates() {
 // Replaces the legacy paths' pre-breach handling that lived in
 // src/sla_watcher.js (order_sla_prebreach to superadmins) and
 // src/server.js:runSlaReminderJob (sla_reminder_doctor to the assigned
-// doctor). Mirrors fetchSlaCandidates' NOW()::timestamp semantics to
+// doctor). Mirrors fetchSlaCandidates' plain-NOW() semantics to
 // avoid the Africa/Cairo TZ-offset bug from commit f8b11c0.
 //
 // SLA_REMINDER_MINUTES env var preserved from runSlaReminderJob — clamps
@@ -275,7 +270,7 @@ async function fetchPreBreachCandidates() {
        AND o.deadline_at IS NOT NULL
        AND o.breached_at IS NULL
        AND o.sla_paused_at IS NULL
-       AND o.deadline_at > NOW()::timestamp
+       AND o.deadline_at > NOW()
        AND o.deadline_at <= (NOW() + INTERVAL '${reminderMinutes} minutes')::timestamp`,
     statuses
   );

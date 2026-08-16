@@ -453,11 +453,15 @@ try {
 // and the list behind it must use the same explicit Cairo-day expression.
 try {
   const a = fs.readFileSync(path.join(SRC, 'routes', 'api', 'admin.js'), 'utf8');
-  if (/COALESCE\((?:o\.)?paid_at,\s*(?:o\.)?created_at\)/.test(a)) {
+  // NB: since migration 081 both arms of the COALESCE are timestamptz, so the
+  // bare COALESCE is now the CORRECT form — what has to be present is the
+  // explicit Cairo conversion that defines the business day. (Before 081 this
+  // guard checked the opposite; the column type is what changed.)
+  if (!/COALESCE\(paid_at, created_at\) AT TIME ZONE/.test(a)) {
     throw new Error(
-      "admin.js has a bare COALESCE(paid_at, created_at) again. created_at is " +
-      "timezone-naive, so this lets the session timezone silently decide the " +
-      "revenue buckets. Use the COLLECTED_AT_CAIRO fragments."
+      "admin.js no longer converts the collected-date to the business timezone. " +
+      "Without it the revenue day boundary follows the session timezone — which " +
+      "is UTC, so 'today' would start at 2am Cairo and miss late-night sales."
     );
   }
   if (!a.includes('BUSINESS_TZ')) {
@@ -467,3 +471,63 @@ try {
   if (uses < 3) throw new Error(`expected the shared Cairo-day fragments at the KPI and the list; saw ${uses} references`);
   t.pass('revenue buckets on an explicit Cairo business day');
 } catch (e) { t.fail('revenue bucketing timezone', e); }
+
+// ── 12. SLA timestamps are timestamptz, and compared as instants ──────────
+//
+// Migration 081 converted orders/doctor_assignments' naive TIMESTAMP columns
+// to timestamptz. Before it, correctness depended on the session timezone
+// staying UTC — `deadline_at <= NOW()::timestamp` compares the column against
+// the SESSION's wall clock, which on production was Africa/Cairo and made every
+// deadline read 2-3h further past than it was.
+//
+// With timestamptz, a plain NOW() comparison is an absolute-instant comparison
+// and the session cannot change the answer. Re-introducing ::timestamp would
+// silently reinstate the dependency.
+try {
+  const mig = path.join(SRC, 'migrations', '081_timestamptz_sla_columns.sql');
+  if (!fs.existsSync(mig)) throw new Error('migration 081 is missing — the SLA columns would revert to timezone-naive on a fresh database');
+
+  const offenders = [];
+  (function walk(d) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const f = path.join(d, e.name);
+      if (e.isDirectory()) { if (e.name !== 'node_modules' && e.name !== 'migrations') walk(f); }
+      else if (e.name.endsWith('.js')) {
+        fs.readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+          // Skip comments — the history is discussed at length in several files.
+          const code = line.replace(/\/\/.*$/, '').replace(/^\s*\*.*$/, '');
+          if (/NOW\(\)::timestamp/.test(code)) offenders.push(`${path.relative(SRC, f)}:${i + 1}`);
+        });
+      }
+    }
+  })(SRC);
+  if (offenders.length) {
+    throw new Error(
+      'NOW()::timestamp is back in live SQL at ' + offenders.join(', ') +
+      '. Against a timestamptz column that casts NOW() to the SESSION wall clock, ' +
+      'which is exactly the bug migration 081 removed. Use plain NOW().'
+    );
+  }
+  t.pass('SLA deadlines compared as instants (no NOW()::timestamp in live SQL)');
+} catch (e) { t.fail('timestamptz instant comparison', e); }
+
+// ── 13. The revenue expression matches the column types it reads ──────────
+//
+// Coupled to 081 and easy to get wrong in the other direction. While
+// created_at was naive, `created_at AT TIME ZONE 'UTC'` correctly labelled the
+// digits. Now that it is timestamptz, AT TIME ZONE STRIPS the zone, and the
+// outer conversion reinterprets those naive digits as Cairo — shifting every
+// fallback row by the Cairo offset. Verified against PostgreSQL 16: a 999 sale
+// at 01:00 Cairo drops out of "collected today" entirely under the stale form.
+try {
+  const a = fs.readFileSync(path.join(SRC, 'routes', 'api', 'admin.js'), 'utf8');
+  if (/created_at AT TIME ZONE 'UTC'/.test(a)) {
+    throw new Error(
+      "admin.js labels created_at as UTC again. Since migration 081 that column " +
+      "is timestamptz and already carries its zone — AT TIME ZONE strips it, and " +
+      "the Cairo conversion then double-shifts. Revenue rows near midnight land " +
+      "in the wrong day."
+    );
+  }
+  t.pass('revenue expression agrees with the post-081 column types');
+} catch (e) { t.fail('revenue expression vs column types', e); }

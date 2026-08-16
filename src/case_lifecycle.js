@@ -1706,12 +1706,10 @@ async function sweepSlaBreaches() {
 
   let candidates;
   try {
-    // AUDIT-TZ-1 — CORRECTION, see the long note in
-    // case_sla_worker.js fetchSlaCandidates and src/pg.js. The claim that the
-    // ISO-Z param was wrong is backwards: deadline_at holds UTC digits (every
-    // write is a JS .toISOString()), so the param form was right and
-    // NOW()::timestamp was reading a Cairo wall clock against them, selecting
-    // cases ~3h early. Safe now only because src/pg.js pins the session to UTC.
+    // AUDIT-TZ-1 / migration 081 — deadline_at is timestamptz, so plain NOW()
+    // is an unambiguous instant comparison. See the note in
+    // case_sla_worker.js fetchSlaCandidates for why the previous
+    // NOW()::timestamp form swept cases ~3h early.
     candidates = await queryAll(
       `SELECT o.id AS case_id
          FROM ${CASE_TABLE} o
@@ -1719,7 +1717,7 @@ async function sweepSlaBreaches() {
           AND o.deadline_at IS NOT NULL
           AND o.breached_at IS NULL
           AND o.deleted_at IS NULL
-          AND o.deadline_at <= NOW()::timestamp`,
+          AND o.deadline_at <= NOW()`,
       statuses
     );
   } catch (err) {

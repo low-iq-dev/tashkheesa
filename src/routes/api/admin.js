@@ -49,12 +49,18 @@ const { randomUUID } = require('crypto');
 // Both sides of every comparison are therefore naive Cairo timestamps.
 // 'Africa/Cairo' matches src/services/urgency_window.js and tracks the IANA
 // database, so DST is handled for free.
+// Migration 081 made created_at timestamptz, so both arms of the COALESCE now
+// carry their zone and the value only has to be converted ONCE, to Cairo. The
+// labelling created_at as UTC was correct while the column was naive; leaving
+// that label after 081 would be actively wrong — on a timestamptz input
+// AT TIME ZONE strips the zone, and the outer conversion would then reinterpret
+// those naive digits as Cairo, shifting every figure by the Cairo offset.
 const BUSINESS_TZ = 'Africa/Cairo';
 const NOW_CAIRO = `(NOW() AT TIME ZONE '${BUSINESS_TZ}')`;
 const COLLECTED_AT_CAIRO =
-  `(COALESCE(paid_at, created_at AT TIME ZONE 'UTC') AT TIME ZONE '${BUSINESS_TZ}')`;
+  `(COALESCE(paid_at, created_at) AT TIME ZONE '${BUSINESS_TZ}')`;
 const COLLECTED_AT_CAIRO_O =
-  `(COALESCE(o.paid_at, o.created_at AT TIME ZONE 'UTC') AT TIME ZONE '${BUSINESS_TZ}')`;
+  `(COALESCE(o.paid_at, o.created_at) AT TIME ZONE '${BUSINESS_TZ}')`;
 // Shared pure helpers for the /cases endpoints (status/tier normalization,
 // tier-support, capacity, acceptance window). Extracted to a single source of
 // truth so the candidates picker, single-assign write, queue/detail readers,
@@ -617,13 +623,13 @@ module.exports = function (db, helpers, deploy, deps) {
       const rows = await safeAll(
         `SELECT o.id, o.reference_id, COALESCE(p.name,'—') AS patient, COALESCE(sv.name,'—') AS service,
                 o.base_price, o.price, o.total_price_with_addons, o.currency, o.payment_method,
-                COALESCE(o.paid_at, o.created_at AT TIME ZONE 'UTC') AS collected_at
+                COALESCE(o.paid_at, o.created_at) AS collected_at
            FROM orders_active o
            LEFT JOIN users p     ON p.id = o.patient_id
            LEFT JOIN services sv ON sv.id = o.service_id
           WHERE LOWER(COALESCE(o.payment_status,'')) IN ('paid','captured')
             AND ${COLLECTED_AT_CAIRO_O} >= date_trunc($1, ${NOW_CAIRO})
-          ORDER BY COALESCE(o.paid_at, o.created_at AT TIME ZONE 'UTC') DESC`,
+          ORDER BY COALESCE(o.paid_at, o.created_at) DESC`,
         [unit]
       );
 
@@ -1419,7 +1425,7 @@ module.exports = function (db, helpers, deploy, deps) {
       const prevDeadlineIso = toIso(o.deadline_at);
 
       // Atomic write. The WHERE guard enforces "resulting deadline in the future"
-      // using the same comparison the breach worker uses (deadline_at vs NOW()::timestamp);
+      // using the same comparison the breach worker uses (deadline_at vs NOW());
       // a 0-row result means the guard failed → DEADLINE_IN_PAST. Bumping both
       // sla_hours and deadline_at by +N keeps the acceptance invariant intact.
       const upd = await client.query(
@@ -1432,7 +1438,7 @@ module.exports = function (db, helpers, deploy, deps) {
                 status = CASE WHEN LOWER(COALESCE(status, '')) IN ('sla_breach', 'breached') THEN 'IN_REVIEW' ELSE status END,
                 updated_at = NOW()
           WHERE id = $1
-            AND deadline_at + make_interval(hours => $2::int) > NOW()::timestamp
+            AND deadline_at + make_interval(hours => $2::int) > NOW()
         RETURNING deadline_at, sla_hours`,
         [id, extendHours]
       );
