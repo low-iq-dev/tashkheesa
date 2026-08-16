@@ -100,11 +100,20 @@ async function sendWhatsApp({ to, template, lang = 'en_US', vars = {}, orderId =
     const body = getOpenClawBody(template, ocLang, vars, { orderId });
 
     if (!body) {
-      console.warn('[WA→OC] no openclaw template for event', { template, lang: ocLang });
-      // Treat as skipped (not failed) so the worker doesn't retry. A
-      // missing event mapping is a deployment gap, not a transient
-      // error — retrying won't help.
-      return { skipped: true, reason: 'no_openclaw_template' };
+      console.error('[WA→OC] NO OPENCLAW TEMPLATE for event — message NOT delivered', { template, lang: ocLang });
+      // AUDIT-P0-3 — this used to return { skipped: true }.
+      //
+      // 'skipped' is the bucket for legitimate non-sends (opted out, no
+      // phone), and /ops deliberately excludes it from the failure pill.
+      // A missing template is not that: it is an undelivered message caused
+      // by a deployment gap, and burying it under 'skipped' is exactly why
+      // the doctor new-case broadcast went unnoticed — zero doctors
+      // notified, zero failures reported.
+      //
+      // `permanent: true` tells notification_worker to mark it failed
+      // immediately: retrying a missing mapping cannot help, so we get the
+      // visibility without the retry storm.
+      return { ok: false, error: 'no_openclaw_template', permanent: true, template };
     }
 
     const result = await sendViaOpenClaw({
