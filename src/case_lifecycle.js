@@ -780,6 +780,7 @@ function slaHoursForTier(tier) {
 // of truth: services/urgency_window (DST-aware via Intl — Egypt has DST
 // again since April 2023, so local offset math is not safe here).
 const { isUrgentWindowOpen } = require('./services/urgency_window');
+const { acceptanceMinutesForOrder, acceptanceDeadlineIso } = require('./acceptance_window');
 
 const STATUS_TRANSITIONS = Object.freeze({
   [CASE_STATUS.DRAFT]: [CASE_STATUS.SUBMITTED],
@@ -1969,17 +1970,13 @@ async function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) 
   // AUDIT-P0-8: was `|| 72`, a fourth SLA default that stretched the doctor's
   // acceptance window on any row with a NULL sla_hours. Falls back to the
   // order's own tier, then to canonical Standard (48h).
-  const caseSlaHours = (existingOrder && Number(existingOrder.sla_hours) > 0)
-    ? Number(existingOrder.sla_hours)
-    : slaHoursForTier(existingOrder && existingOrder.urgency_tier);
-  const acceptWindowHours = caseSlaHours <= 4 ? 0.5    // 30 min for urgent
-                          : caseSlaHours <= 24 ? 4     // 4h for fast track
-                          : Number(process.env.DOCTOR_RESPONSE_TIMEOUT_HOURS || 24); // 24h for standard
-  const ACCEPT_WINDOW_MINUTES = Math.max(1, Math.floor(acceptWindowHours * 60));
-
-  const acceptByAt = new Date(
-    Date.now() + ACCEPT_WINDOW_MINUTES * 60 * 1000
-  ).toISOString();
+  // AUDIT-ACCEPT-1 — this used to carry its OWN acceptance table (30m / 4h /
+  // 24h) that disagreed with notify/broadcast.js's (10m / 60m / 240m) for the
+  // same three tiers. A case therefore had two live acceptance deadlines and
+  // whichever worker swept first decided which one counted. Both now read
+  // src/acceptance_window.js — the only place that answers this question.
+  const ACCEPT_WINDOW_MINUTES = acceptanceMinutesForOrder(existingOrder);
+  const acceptByAt = acceptanceDeadlineIso(ACCEPT_WINDOW_MINUTES);
   try {
     await execute(
       `INSERT INTO doctor_assignments (

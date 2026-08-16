@@ -12,9 +12,18 @@ const { eligibleDoctorClause } = require('./services/doctor_eligibility');
 // Keep this resilient even if older code uses a string literal for rejected_files.
 const SCAN_STATUSES = [CASE_STATUS.IN_REVIEW, (CASE_STATUS.REJECTED_FILES || 'rejected_files')];
 const SCAN_INTERVAL_MS = 5 * 60 * 1000;
-// Doctor must accept within N hours after assignment, otherwise auto-reassign.
-// Configurable via env; defaults to 24 hours.
-const DOCTOR_RESPONSE_TIMEOUT_HOURS = Number(process.env.DOCTOR_RESPONSE_TIMEOUT_HOURS || 24);
+// AUDIT-ACCEPT-1 — fallback acceptance cutoff for LEGACY rows only: assignments
+// written before doctor_assignments.accept_by_at existed. Every new assignment
+// carries an explicit per-tier accept_by_at from src/acceptance_window.js
+// (urgent 15m / vip 45m / standard 2h) and takes the branch above this one.
+//
+// The default was 24 hours, which was a fourth answer to the acceptance-window
+// question and nine times looser than the agreed standard-tier policy. It now
+// tracks the standard tier so a legacy row cannot sit unaccepted for a day.
+const { ACCEPTANCE_MINUTES_BY_TIER } = require('./acceptance_window');
+const DOCTOR_RESPONSE_TIMEOUT_HOURS = Number(
+  process.env.DOCTOR_RESPONSE_TIMEOUT_HOURS || (ACCEPTANCE_MINUTES_BY_TIER.standard / 60)
+);
 // Cap how many active (non-terminal) cases a doctor can hold.
 // Configurable via env; defaults to 4.
 const MAX_ACTIVE_CASES_PER_DOCTOR = Number(process.env.MAX_ACTIVE_CASES_PER_DOCTOR || 4);

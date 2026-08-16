@@ -6,6 +6,9 @@ const { queueNotification } = require('../notify');
 const { TEMPLATES } = require('../notify/templates');
 const { logOrderEvent } = require('../audit');
 const { logErrorToDb } = require('../logger');
+const { eligibleDoctorClause } = require('../services/doctor_eligibility');
+const { acceptanceMinutesForOrder, acceptanceDeadlineIso } = require('../acceptance_window');
+const MAX_ACTIVE_CASES_PER_DOCTOR = Number(process.env.MAX_ACTIVE_CASES_PER_DOCTOR || 4);
 
 let running = false;
 
@@ -81,22 +84,34 @@ async function autoAssignOrder(order) {
     specialtyId = svc ? svc.specialty_id : null;
   }
 
-  // Find the most available doctor in the specialty
+  // AUDIT-ACCEPT-2 — this hand-rolled query bypassed the assignment safety
+  // gate entirely. It filtered on `is_available` (a column the admin UI does
+  // not even set) and checked NONE of: is_paused, onboarding_complete,
+  // pending_approval, service-level matching, or the per-doctor capacity cap.
+  // So the path that fires when a doctor misses their acceptance window — i.e.
+  // the busiest assignment path in the system — could hand a paid case to a
+  // suspended doctor, a doctor still mid-onboarding, or a doctor who does not
+  // offer that service. Under the timezone skew this path fired for EVERY
+  // broadcast case (see src/pg.js), so it was not a corner case.
+  //
+  // Now routed through the same eligibility fragment every other assignment
+  // site uses (services/doctor_eligibility.js), ordered by current load.
   const doctor = await queryOne(`
     SELECT u.id, u.name
     FROM users u
-    JOIN doctor_specialties ds ON ds.doctor_id = u.id
-    WHERE ds.specialty_id = $1
-      AND u.role = 'doctor'
-      AND COALESCE(u.is_active, true) = true
-      AND COALESCE(u.is_available, true) = true
-    ORDER BY (
-      SELECT COUNT(*) FROM orders_active o
-      WHERE o.doctor_id = u.id
-        AND LOWER(o.status) NOT IN ('completed', 'cancelled')
-    ) ASC
+    LEFT JOIN (
+      SELECT doctor_id, COUNT(*) AS active_count
+      FROM orders_active
+      WHERE doctor_id IS NOT NULL
+        AND LOWER(TRIM(COALESCE(status, ''))) IN ('assigned','in_review','rejected_files','sla_breach')
+      GROUP BY doctor_id
+    ) a ON a.doctor_id = u.id
+    WHERE ${eligibleDoctorClause({ alias: 'u', serviceIdParam: '$2' })}
+      AND LOWER(TRIM(COALESCE(u.specialty_id, ''))) = LOWER(TRIM($1))
+      AND COALESCE(a.active_count, 0) < $3
+    ORDER BY COALESCE(a.active_count, 0) ASC, u.created_at ASC
     LIMIT 1
-  `, [specialtyId]);
+  `, [specialtyId, order.service_id, MAX_ACTIVE_CASES_PER_DOCTOR]);
 
   if (!doctor) {
     // THEME8-LINT-EXEMPT-HELPER: benign "no available doctor" diagnostic,
@@ -108,25 +123,49 @@ async function autoAssignOrder(order) {
     return;
   }
 
-  // Idempotency guard: only assign if still unassigned
+  // AUDIT-ACCEPT-3 — this set `accepted_at` while auto-assigning, which is a
+  // lie: the doctor has not accepted, they have merely been handed the case.
+  // deadlineFromAcceptance() reads accepted_at, so the SLA clock started the
+  // moment the system assigned rather than when a human took responsibility —
+  // the doctor could open the case hours later already part-way through their
+  // window. It also made the case invisible to the doctor-timeout sweep, which
+  // requires accepted_at IS NULL, so a doctor who ignored an auto-assigned case
+  // held it indefinitely and it was never passed on.
+  //
+  // accepted_at now stays NULL and a fresh per-tier accept_by_at is written, so
+  // an ignored case keeps moving down the eligible list until someone accepts.
   const nowIso = new Date().toISOString();
+  const acceptMinutes = acceptanceMinutesForOrder(order);
+  const acceptByAt = acceptanceDeadlineIso(acceptMinutes);
   const result = await execute(
     `UPDATE orders
      SET doctor_id = $1,
          status = 'assigned',
-         accepted_at = $2,
+         acceptance_deadline_at = $4,
          reassigned_count = COALESCE(reassigned_count, 0) + 1,
          updated_at = $2
      WHERE id = $3
        AND doctor_id IS NULL`,
-    [doctor.id, nowIso, order.id]
+    [doctor.id, nowIso, order.id, acceptByAt]
   );
 
   if (!result || result.rowCount === 0) {
     return; // Already assigned by another process
   }
 
-  console.log('[acceptance_watcher] auto-assigned order ' + order.id + ' to doctor ' + doctor.id + ' (' + doctor.name + ')');
+  // Mirror the assignment into doctor_assignments so the doctor-timeout sweep
+  // (case_sla_worker.fetchDoctorTimeouts) sees an explicit accept_by_at rather
+  // than falling back to the legacy cutoff.
+  try {
+    await execute(
+      `INSERT INTO doctor_assignments (id, case_id, doctor_id, assigned_at, accept_by_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4)`,
+      [order.id, doctor.id, nowIso, acceptByAt]
+    );
+  } catch (e) { /* table may not exist on older deployments */ }
+
+  console.log('[acceptance_watcher] auto-assigned order ' + order.id + ' to doctor ' + doctor.id +
+              ' (' + doctor.name + ') accept_by=' + acceptByAt + ' (' + acceptMinutes + 'm)');
 
   // Log event
   try {

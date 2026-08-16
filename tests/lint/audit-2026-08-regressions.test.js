@@ -326,3 +326,51 @@ try {
   }
   t.pass('SLA reassignment gated on a confirmed breach');
 } catch (e) { t.fail('breach-before-reassign guard', e); }
+
+// ── 8. One acceptance window, not four ───────────────────────────────────
+//
+// "How long does a doctor have to accept a case?" had four independent
+// answers in this codebase and none of them agreed:
+//   notify/broadcast.js  urgent 10m / vip 60m / standard 240m
+//   case_lifecycle.js    urgent 30m / vip  4h / standard  24h
+//   case_sla_worker.js   DOCTOR_RESPONSE_TIMEOUT_HOURS = 24
+//   (and acceptance_watcher set accepted_at on auto-assign, so the case
+//    dropped out of the timeout sweep entirely and had NO window at all)
+//
+// A case broadcast under one table and assigned under another carried two live
+// acceptance deadlines; which one applied depended on which worker swept first.
+// Policy is now urgent 15m / vip 45m / standard 2h in src/acceptance_window.js.
+try {
+  const awPath = path.join(SRC, 'acceptance_window.js');
+  if (!fs.existsSync(awPath)) throw new Error('src/acceptance_window.js is gone — the acceptance policy has no single source of truth');
+  const aw = require(awPath);
+  const expected = { urgent: 15, vip: 45, standard: 120 };
+  for (const [tier, mins] of Object.entries(expected)) {
+    if (aw.acceptanceMinutesForTier(tier) !== mins) {
+      throw new Error(
+        `acceptance window for ${tier} is ${aw.acceptanceMinutesForTier(tier)}m, policy is ${mins}m. ` +
+        'If this is a deliberate policy change, update the patient-facing turnaround copy too — ' +
+        'the window is added in full to the wait, because the SLA clock starts at acceptance.'
+      );
+    }
+  }
+  // Nobody may re-introduce a local table.
+  for (const f of ['notify/broadcast.js', 'case_lifecycle.js', 'workers/acceptance_watcher.js']) {
+    const src = fs.readFileSync(path.join(SRC, f), 'utf8');
+    if (!/require\((['"])(\.\.?\/)*acceptance_window\1\)/.test(src)) {
+      throw new Error(f + ' no longer reads src/acceptance_window.js — it has grown its own acceptance table again');
+    }
+  }
+  const accSrc = fs.readFileSync(path.join(SRC, 'workers', 'acceptance_watcher.js'), 'utf8');
+  if (/SET[\s\S]{0,200}?accepted_at\s*=/.test(accSrc)) {
+    throw new Error(
+      'acceptance_watcher sets accepted_at when auto-assigning. The doctor has NOT accepted: ' +
+      'this starts the SLA clock without a human taking responsibility, and hides the case from ' +
+      'the doctor-timeout sweep (which requires accepted_at IS NULL) so an ignored case is never passed on.'
+    );
+  }
+  if (!/is_paused|eligibleDoctorClause/.test(accSrc)) {
+    throw new Error('acceptance_watcher auto-assign no longer applies the doctor-eligibility gate — it can hand a paid case to a suspended or half-onboarded doctor');
+  }
+  t.pass('acceptance window has one source of truth (urgent 15m / vip 45m / standard 2h)');
+} catch (e) { t.fail('acceptance window policy', e); }
