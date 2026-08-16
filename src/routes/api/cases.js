@@ -47,12 +47,17 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     let whereClause = `WHERE o.patient_id = $${paramIndex++} AND o.deleted_at IS NULL`;
     const params = [patientId];
 
+    // AUDIT-P1-3: these were case-SENSITIVE comparisons against lowercase
+    // values. case_lifecycle forces canonical UPPERCASE on write, and
+    // 'under_review' / 'in_progress' exist nowhere in the codebase at all. Every
+    // filter therefore matched zero rows for any case created through the web
+    // wizard: the app showed an empty list for both Active and Completed.
     if (statusFilter === 'active') {
-      whereClause += " AND o.status IN ('submitted','under_review','assigned','in_progress')";
+      whereClause += " AND LOWER(COALESCE(o.status, '')) IN ('draft','submitted','new','paid','assigned','accepted','in_review','rejected_files','sla_breach','reassigned')";
     } else if (statusFilter === 'completed') {
-      whereClause += " AND o.status = 'completed'";
+      whereClause += " AND LOWER(COALESCE(o.status, '')) IN ('completed','done','delivered','report_ready','finalized')";
     } else if (statusFilter === 'cancelled') {
-      whereClause += " AND o.status = 'cancelled'";
+      whereClause += " AND LOWER(COALESCE(o.status, '')) IN ('cancelled','canceled','refunded','expired_unpaid')";
     }
 
     const cases = await safeAll(`
@@ -282,14 +287,26 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     }
 
     await safeRun(`
+      -- AUDIT-P1-3: specialty_id was validated as REQUIRED at the top of this
+      -- handler and destructured from the body, then omitted from the column
+      -- list. orders.specialty_id therefore stayed NULL on every app-created
+      -- case, and nothing backfills it (there are no triggers). Downstream:
+      -- auto_assign bails with 'no_specialty', bulkAutoAssign skips the case,
+      -- and the SLA-breach reassign falls back to ANY doctor. Every case
+      -- submitted from the mobile app was unroutable.
+      -- deadline_at is deliberately NOT set here. Per the SLA model the clock
+      -- starts when a doctor ACCEPTS (case_lifecycle sets deadline_at then, and
+      -- markCasePaid explicitly nulls it), so stamping it at creation would
+      -- produce phantom breaches on unpaid cases. sla_deadline below is the
+      -- informational "promised by" figure shown to the patient.
       INSERT INTO orders (
-        id, reference_id, patient_id, service_id, status,
+        id, reference_id, patient_id, service_id, specialty_id, status,
         clinical_question, medical_history, country,
         base_price, price, currency, doctor_fee, display_price, display_currency,
         sla_deadline, sla_hours, urgency_flag, urgency_tier, created_at
-      ) VALUES ($1, $2, $3, $4, 'submitted', $5, $6, $7, $8, $9, 'EGP', $10, $11, $12, $13, $14, $15, $16, NOW())
+      ) VALUES ($1, $2, $3, $4, $5, 'submitted', $6, $7, $8, $9, $10, 'EGP', $11, $12, $13, $14, $15, $16, $17, NOW())
     `, [
-      orderId, refNumber, req.user.id, serviceId,
+      orderId, refNumber, req.user.id, serviceId, specialtyId,
       clinicalQuestion, medicalHistory || null, displayCountry,
       charge.egpBase, charge.egpBase, charge.doctorFeeEgp, charge.displayPrice, charge.displayCurrency,
       slaDeadline, slaHours, urgencyFlag, urgencyTier
@@ -404,7 +421,12 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       specialtyName: created.specialtyName,
       price: created.display_price != null ? created.display_price : created.price,
       currency: created.display_currency || created.currency,
-      slaDeadline: created.deadline_at || null,
+      // AUDIT-P1-3: was created.deadline_at, which is NULL by design until a
+      // doctor accepts — so the app always showed "no deadline". Report the
+      // promised turnaround instead, and expose the live deadline separately
+      // once it exists.
+      slaHours: created.sla_hours != null ? Number(created.sla_hours) : null,
+      slaDeadline: created.deadline_at || created.sla_deadline || null,
       createdAt: created.created_at,
     });
   });
@@ -430,7 +452,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       return res.fail('Cancellation window has expired. Cases can only be cancelled within 10 minutes of submission.', 400, 'CANCEL_WINDOW_EXPIRED');
     }
 
-    if (!['submitted', 'under_review'].includes(caseData.status)) {
+    // AUDIT-P1-3: same case-sensitivity bug — a web-created case is 'SUBMITTED',
+    // so POST /cases/:id/cancel always returned CANNOT_CANCEL.
+    if (!['submitted', 'new', 'draft'].includes(String(caseData.status || '').toLowerCase())) {
       return res.fail('This case cannot be cancelled.', 400, 'CANNOT_CANCEL');
     }
 
@@ -503,7 +527,11 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     body('comment').optional().isString(),
   ], async (req, res) => {
     const caseData = await safeGet(
-      "SELECT * FROM orders_active WHERE id = $1 AND patient_id = $2 AND status = 'completed'",
+      // AUDIT-P1-3: was `status = 'completed'` (case-sensitive) — the DB stores
+      // 'COMPLETED', so review submission 404'd for every case.
+      `SELECT * FROM orders_active
+        WHERE id = $1 AND patient_id = $2
+          AND LOWER(COALESCE(status, '')) IN ('completed','done','delivered','report_ready','finalized')`,
       [req.params.id, req.user.id]
     );
     if (!caseData) return res.fail('Case not found or not completed', 404);
