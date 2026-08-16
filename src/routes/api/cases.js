@@ -65,8 +65,20 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         o.id, o.reference_id as "referenceId", o.patient_id as "patientId",
         o.doctor_id as "doctorId", o.service_id as "serviceId",
         o.status, o.clinical_question as "clinicalQuestion",
-        o.base_price as price, o.currency,
-        o.deadline_at as "slaDeadline", o.created_at as "createdAt",
+        -- AUDIT-APP-H1: price is the amount the patient actually owes
+        -- (base + urgency uplift). This projected base_price, so the app showed
+        -- a smaller figure than the card was charged.
+        o.price, o.base_price as "basePrice", o.urgency_uplift_amount as "urgencyUplift", o.currency,
+        -- AUDIT-APP-H3: deadline_at is NULL by design until a doctor accepts, so
+        -- the app's SLA countdown showed nothing for the whole pre-acceptance
+        -- window — exactly when the patient is watching the clock they paid for.
+        COALESCE(o.deadline_at, o.sla_deadline) as "slaDeadline",
+        o.deadline_at as "acceptedDeadline",
+        -- AUDIT-APP-M1: return the tier and hours instead of making the app
+        -- infer them from (deadline - created), which includes the whole
+        -- pre-acceptance wait and mislabels Urgent cases as VIP.
+        o.sla_hours as "slaHours", o.urgency_tier as "urgencyTier",
+        o.created_at as "createdAt",
         o.completed_at as "completedAt",
         s.name as "serviceName", sp.name as "specialtyName",
         s.specialty_id as "specialtyId",
@@ -105,8 +117,11 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         o.id, o.reference_id as "referenceId", o.patient_id as "patientId",
         o.doctor_id as "doctorId", o.service_id as "serviceId",
         o.status, o.clinical_question as "clinicalQuestion",
-        o.base_price as price, o.currency,
-        o.deadline_at as "slaDeadline", o.created_at as "createdAt",
+        o.price, o.base_price as "basePrice", o.urgency_uplift_amount as "urgencyUplift", o.currency,
+        COALESCE(o.deadline_at, o.sla_deadline) as "slaDeadline",
+        o.deadline_at as "acceptedDeadline",
+        o.sla_hours as "slaHours", o.urgency_tier as "urgencyTier",
+        o.created_at as "createdAt",
         o.completed_at as "completedAt", o.urgency_flag as "urgent",
         s.name as "serviceName", sp.name as "specialtyName",
         s.specialty_id as "specialtyId",
@@ -179,7 +194,14 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     body('specialtyId').notEmpty(),
     body('serviceId').notEmpty(),
     body('clinicalQuestion').isLength({ min: 10 }).withMessage('Clinical question must be at least 10 characters'),
-    body('files').isArray({ min: 1 }).withMessage('At least one file is required'),
+    // AUDIT-APP-H12 — the app exports MAX_FILES = 15 and ALLOWED_FILE_TYPES and
+    // imports neither; its validateFile() takes a mimeType and never reads it.
+    // Server-side there was no cap either, so a patient could attach 200 files
+    // of any type. The real allowlist lives in middleware/upload.js, which only
+    // guards POST /api/v1/files — so this is the one place that can enforce it
+    // for the case-creation payload.
+    body('files').isArray({ min: 1, max: 15 })
+      .withMessage('Attach between 1 and 15 files.'),
     body('country').notEmpty(),
   ], async (req, res) => {
     const errors = validationResult(req);
@@ -271,6 +293,41 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       return res.fail('Unsupported currency for this market', 400, 'UNSUPPORTED_CURRENCY');
     }
 
+    // ── AUDIT-APP-H1: APPLY THE URGENCY UPLIFT ─────────────────────────────
+    //
+    // This route priced every order at the flat base and NEVER applied the tier
+    // multiplier, while the app displayed basePrice x 1.3 (vip) / 1.6 (urgent)
+    // as the checkout total. Two consequences: the patient saw one number on
+    // the review screen and a smaller one on the confirmation, and Tashkheesa
+    // collected NO urgency premium on any app order while still honouring the
+    // 18h/4h SLA — and earnings_writer had no uplift to split with the doctor.
+    //
+    // computeOrderPricing is the same helper the web wizard uses
+    // (routes/patient.js), so app and web now price identically, including any
+    // per-service vip_multiplier / urgent_multiplier override.
+    const { computeOrderPricing } = require('../../services/urgency_pricing');
+    const pricing = computeOrderPricing({
+      basePrice: charge.egpBase,
+      urgencyTier: urgencyTier,
+      servicesRow: service
+    });
+    // Display figures follow the same multiplier so the local-currency figure
+    // the patient was quoted stays consistent with the EGP amount charged.
+    const displayPricing = computeOrderPricing({
+      basePrice: Number(charge.displayPrice) || 0,
+      urgencyTier: urgencyTier,
+      servicesRow: service
+    });
+
+    // AUDIT-APP-M2: derive specialty_id from the service row rather than
+    // trusting the client. orders.specialty_id has no FK, so a stale client
+    // build can write a dangling id that LOOKS populated — which defeats the
+    // `no_specialty` guard in auto_assign entirely.
+    const resolvedSpecialtyId = service.specialty_id || specialtyId || null;
+    if (specialtyId && service.specialty_id && String(specialtyId) !== String(service.specialty_id)) {
+      return res.fail('Selected specialty does not match the chosen service.', 400, 'SPECIALTY_SERVICE_MISMATCH');
+    }
+
     // Generate case
     const orderId = randomUUID();
     const refNumber = generateReferenceId();
@@ -302,13 +359,18 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       INSERT INTO orders (
         id, reference_id, patient_id, service_id, specialty_id, status,
         clinical_question, medical_history, country,
-        base_price, price, currency, doctor_fee, display_price, display_currency,
+        base_price, price, urgency_uplift_amount, currency, doctor_fee,
+        display_price, display_currency,
         sla_deadline, sla_hours, urgency_flag, urgency_tier, created_at
-      ) VALUES ($1, $2, $3, $4, $5, 'submitted', $6, $7, $8, $9, $10, 'EGP', $11, $12, $13, $14, $15, $16, $17, NOW())
+      ) VALUES ($1, $2, $3, $4, $5, 'submitted', $6, $7, $8, $9, $10, $11, 'EGP', $12, $13, $14, $15, $16, $17, $18, NOW())
     `, [
-      orderId, refNumber, req.user.id, serviceId, specialtyId,
+      orderId, refNumber, req.user.id, serviceId, resolvedSpecialtyId,
       clinicalQuestion, medicalHistory || null, displayCountry,
-      charge.egpBase, charge.egpBase, charge.doctorFeeEgp, charge.displayPrice, charge.displayCurrency,
+      // base_price stays the un-uplifted figure; price is what the patient owes
+      // (owedCentsForOrder reads `price`), and urgency_uplift_amount is the
+      // delta the 30/70 doctor split applies to.
+      charge.egpBase, pricing.totalPrice, pricing.upliftAmount,
+      charge.doctorFeeEgp, displayPricing.totalPrice, charge.displayCurrency,
       slaDeadline, slaHours, urgencyFlag, urgencyTier
     ]);
 
@@ -518,6 +580,54 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     }
 
     return res.ok(payment || { status: 'pending' });
+  });
+
+  // ─── GET /cases/:id/report ───────────────────────────────
+  // AUDIT-APP-C2 — this route did not exist. The patient app calls it from the
+  // case-detail screen ("View Report"), so the ENTIRE product deliverable — the
+  // written second opinion the patient paid for — 404'd in the app.
+  //
+  // Mirrors the web /portal/case/:id/download-report contract: resolve
+  // orders.report_url, else the newest report_exports row, and return a
+  // short-lived signed URL. Ownership-scoped like every other route here, and
+  // gated on delivery so a draft PDF is never reachable.
+  router.get('/:id/report', async (req, res) => {
+    const order = await safeGet(
+      `SELECT id, status, report_url FROM orders_active
+        WHERE id = $1 AND patient_id = $2`,
+      [req.params.id, req.user.id]
+    );
+    if (!order) return res.fail('Case not found', 404, 'CASE_NOT_FOUND');
+
+    const DELIVERED = ['completed', 'done', 'delivered', 'report_ready', 'report-ready', 'finalized'];
+    if (!DELIVERED.includes(String(order.status || '').toLowerCase())) {
+      return res.fail('Your report is not ready yet.', 409, 'REPORT_NOT_READY');
+    }
+
+    let key = order.report_url || null;
+    if (!key) {
+      const exported = await safeGet(
+        `SELECT file_path FROM report_exports WHERE case_id = $1
+          ORDER BY created_at DESC LIMIT 1`,
+        [order.id]
+      );
+      if (exported) key = exported.file_path;
+    }
+    if (!key) return res.fail('Your report is not ready yet.', 409, 'REPORT_NOT_READY');
+
+    // Legacy rows hold a full HTTP URL; newer rows hold an R2 object key.
+    if (/^https?:\/\//i.test(key)) {
+      return res.ok({ url: key, expiresInSeconds: null });
+    }
+    try {
+      const url = await getSignedDownloadUrl(key, 3600, {
+        downloadName: `Tashkheesa-Report-${String(order.id).slice(0, 12).toUpperCase()}.pdf`
+      });
+      return res.ok({ url, expiresInSeconds: 3600 });
+    } catch (err) {
+      logErrorToDb(err, { context: 'mobile_report_sign', orderId: order.id });
+      return res.fail('Could not prepare your report. Please try again.', 500, 'REPORT_SIGN_ERROR');
+    }
   });
 
   // ─── POST /cases/:id/review ──────────────────────────────

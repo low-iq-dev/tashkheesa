@@ -15,7 +15,7 @@ let _ev;
 function ev() { if (!_ev) _ev = require('express-validator'); return _ev; }
 function body(...a) { return ev().body(...a); }
 function validationResult(...a) { return ev().validationResult(...a); }
-const { generateTokens, verifyRefreshToken } = require('../../middleware/requireJWT');
+const { generateTokens, verifyRefreshToken, requireJWT } = require('../../middleware/requireJWT');
 const { verifyOtpCode } = require('../../services/twilio_verify');
 const emailService = require('../../services/emailService');
 const { withTransaction } = require('../../db');
@@ -79,6 +79,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       body('name').trim().notEmpty().withMessage('Name is required'),
       body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
       body('phone').trim().notEmpty().withMessage('Phone is required'),
+      // AUDIT-APP-C4: countryCode is now load-bearing (it is concatenated
+      // into the E.164 number below), so it must be required here.
+      body('countryCode').trim().notEmpty().withMessage('Country code is required'),
       body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
       body('country').trim().notEmpty().withMessage('Country is required'),
     ],
@@ -93,8 +96,18 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       // P0-FORM-1: enforce E.164. Was a bare notEmpty() — accepted
       // anything, which is what produced the truncated-format rows
       // we audited yesterday.
+      //
+      // AUDIT-APP-C4 — countryCode was destructured here and then NEVER USED;
+      // validation ran on the bare national number. An Egyptian mobile
+      // '1102009886' is 10 digits, so validatePhoneE164 just prefixed '+' and
+      // accepted '+1102009886' — a US/Canada number. Every SMS/WhatsApp went
+      // nowhere, and when the patient later signed in by phone, /otp/verify
+      // (which DOES concatenate) looked up '+201102009886', found nothing, and
+      // auto-created a SECOND empty account — orphaning their paid cases.
+      // Concatenate first, exactly as /otp/verify does.
+      const fullPhone = `${String(countryCode || '').trim()}${String(phone || '').trim()}`.replace(/\s/g, '');
       const { validatePhoneE164 } = require('../../validators/phone');
-      const phoneCheck = validatePhoneE164(phone, lang === 'ar' ? 'ar' : 'en');
+      const phoneCheck = validatePhoneE164(fullPhone, lang === 'ar' ? 'ar' : 'en');
       if (!phoneCheck.ok) {
         return res.fail(phoneCheck.error, 422, 'PHONE_INVALID');
       }
@@ -210,6 +223,14 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
     otpPhoneScope, otpSendCooldown, otpSendCap,
     [body('phone').trim().notEmpty(), body('countryCode').trim().notEmpty()],
     async (req, res) => {
+      // AUDIT-APP: the validators above were declared and never checked, so an
+      // empty body produced fullPhone === '' — an OTP was generated and
+      // "sent" to nothing, and otpPhoneScope degraded to the IP key, weakening
+      // the per-phone limiter. /otp/verify gets this right; this now matches.
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.fail(errors.array()[0].msg, 422, 'VALIDATION_ERROR');
+      }
       const { phone, countryCode } = req.body;
       const fullPhone = `${countryCode}${phone}`.replace(/\s/g, '');
 
@@ -354,13 +375,43 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
   );
 
   // ─── GET /me ─────────────────────────────────────────────
-  // NOTE: This route needs requireJWT — mounted separately in api_v1.js
-
-  router.get('/me', async (req, res) => {
+  // AUDIT-APP-C3 — this genuinely does need requireJWT, and it never got it:
+  // api_v1.js mounts this whole router at '/auth' BEFORE its
+  // `router.use(requireJWT)` line, so req.user was always undefined and the
+  // route returned 401 unconditionally. The patient app calls this on every
+  // cold start to restore the session, so a patient with valid tokens was
+  // logged out on EVERY launch.
+  //
+  // The handler is exported so api_v1.js can mount it with requireJWT
+  // explicitly, rather than re-dispatching into this router.
+  async function meHandler(req, res) {
     if (!req.user) return res.fail('Not authenticated', 401);
     const user = await safeGet('SELECT * FROM users WHERE id = $1', [req.user.id]);
     if (!user) return res.fail('User not found', 404);
     return res.ok(sanitizeUser(user));
+  }
+  router.meHandler = meHandler;
+
+  // ─── POST /logout ────────────────────────────────────────
+  // AUDIT-APP-H7 — there was no server-side logout at all. The app only wiped
+  // local storage, so the 30-day refresh token minted by requireJWT stayed
+  // redeemable for a month after the patient signed out — on a medical account,
+  // recoverable from a device backup. This also clears push_token so a
+  // signed-out device stops receiving that patient's case/report pushes
+  // (AUDIT-APP-H6).
+  //
+  // Mounted under the public /auth router, so it authenticates explicitly.
+  router.post('/logout', requireJWT, async (req, res) => {
+    try {
+      await safeRun(
+        'UPDATE users SET refresh_token = NULL, push_token = NULL WHERE id = $1',
+        [req.user.id]
+      );
+    } catch (err) {
+      // Never fail a logout — the client is signing out regardless.
+      console.error('[auth/logout] failed:', err && err.message);
+    }
+    return res.ok({ message: 'Signed out' });
   });
 
   // ─── POST /forgot-password ───────────────────────────────

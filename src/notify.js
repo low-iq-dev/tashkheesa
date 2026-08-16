@@ -366,7 +366,14 @@ async function queueNotification({
     ? response
     : (() => { try { return JSON.parse(responseJson); } catch { return null; } })();
   const titles = getNotificationTitles(template);
-  const inAppTitle = titles?.title_en || null;
+  // AUDIT-APP — was hardcoded to title_en, so Arabic patients (the primary
+  // market) saw English titles throughout the app's notification list, with the
+  // title_ar variant never used anywhere. Resolve against the recipient's
+  // language; fall back to English when there is no Arabic copy.
+  const _notifLang = String(
+    (parsedResponse && (parsedResponse.lang || parsedResponse.language)) || ''
+  ).toLowerCase();
+  const inAppTitle = (_notifLang === 'ar' ? (titles?.title_ar || titles?.title_en) : titles?.title_en) || null;
   const inAppMessage = renderNotificationMessage(template, parsedResponse);
 
   try {
