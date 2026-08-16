@@ -192,6 +192,15 @@ async function fetchSlaCandidates() {
   // form applies a TZ offset to the implicit timestamp coercion and
   // silently filters out rows past deadline by less than the offset
   // (~3h). Mirrors the fix in sweepSlaBreaches (commit f8b11c0).
+  //
+  // AUDIT-P0-4 — `sla_paused_at IS NULL` added here and in
+  // fetchPreBreachCandidates. SCAN_STATUSES includes REJECTED_FILES, and
+  // pauseSla stores sla_remaining_seconds but deliberately leaves the stale
+  // deadline_at in place. Without this filter a paused case was selected on
+  // every tick once its old deadline passed, handleBreach called
+  // transitionCase(SLA_BREACH), and transitionCase rejected it with
+  // "Only active review cases can escalate to SLA breach" — caught, logged,
+  // breached_at never set, re-selected 5 minutes later, forever.
   const statuses = SCAN_STATUSES.map((s) => String(s).toLowerCase());
   return await queryAll(
     `SELECT o.id AS case_id,
@@ -202,6 +211,7 @@ async function fetchSlaCandidates() {
      WHERE LOWER(COALESCE(o.status, '')) IN ($1, $2)
        AND o.deadline_at IS NOT NULL
        AND o.breached_at IS NULL
+       AND o.sla_paused_at IS NULL
        AND o.deadline_at <= NOW()::timestamp`,
     statuses
   );
@@ -231,6 +241,7 @@ async function fetchPreBreachCandidates() {
      WHERE LOWER(COALESCE(o.status, '')) IN ($1, $2)
        AND o.deadline_at IS NOT NULL
        AND o.breached_at IS NULL
+       AND o.sla_paused_at IS NULL
        AND o.deadline_at > NOW()::timestamp
        AND o.deadline_at <= (NOW() + INTERVAL '${reminderMinutes} minutes')::timestamp`,
     statuses

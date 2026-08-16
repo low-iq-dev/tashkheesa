@@ -4038,6 +4038,46 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
     return res.redirect(`/portal/patient/orders/${orderId}/upload?error=invalid_url`);
   }
 
+  // AUDIT-P0-4 — restart the SLA clock the doctor's file request paused.
+  //
+  // doctor.js reject-files calls caseLifecycle.pauseSla and flips the case to
+  // 'rejected_files'. Nothing ever called resumeSla (it had zero call sites in
+  // the entire repo), and this handler cleared additional_files_requested and
+  // stopped. So every file request froze that case's SLA permanently: it
+  // dropped off every SLA report, and once the stale deadline_at passed the
+  // breach worker re-selected it every 5 minutes forever, each time throwing
+  // "Only active review cases can escalate to SLA breach". Nobody was ever
+  // told the case was late.
+  //
+  // resumeSla recomputes deadline_at = now + sla_remaining_seconds and clears
+  // sla_paused_at; the IN_REVIEW transition puts the case back in the doctor's
+  // active queue and back in scope for the breach sweep. Both are idempotent
+  // and best-effort — the patient's upload must never fail because of them.
+  if (wasAdditionalFilesRequested && !isDraft && !isCompletedStatus) {
+    try {
+      await caseLifecycle.resumeSla(orderId, { reason: 'files_uploaded' });
+    } catch (err) {
+      logErrorToDb(err, {
+        context: 'patient.order_upload_resume_sla',
+        orderId,
+        category: 'patient_upload'
+      });
+      console.error('[patient upload] resumeSla failed — case SLA stays paused', err && err.message);
+    }
+    try {
+      if (isCanonStatus(order.status, 'REJECTED_FILES')) {
+        await caseLifecycle.transitionCase(orderId, caseLifecycle.CASE_STATUS.IN_REVIEW);
+      }
+    } catch (err) {
+      logErrorToDb(err, {
+        context: 'patient.order_upload_resume_transition',
+        orderId,
+        category: 'patient_upload'
+      });
+      console.error('[patient upload] IN_REVIEW transition failed', err && err.message);
+    }
+  }
+
   // Case intelligence pipeline (queued via pg-boss for crash recovery)
   enqueueCaseIntelligence(orderId).catch(function(err) {
     logErrorToDb(err, {

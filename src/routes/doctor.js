@@ -2582,9 +2582,17 @@ router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, async (re
       console.error('[doctor.reject-files] pauseSla failed:', err && err.message);
     }
 
+    // AUDIT-P0-4 — canonical label. This wrote 'doctor_rejected_files', but
+    // every reader matches 'doctor_requested_additional_files':
+    // getAdditionalFilesRequestState below, and the superadmin pending-requests
+    // queue (superadmin.js). The superadmin fuzzy fallback didn't catch it
+    // either ('%reject file%' has a space; the label has an underscore), so the
+    // "pending additional-file requests" queue was permanently empty — nobody
+    // approved, the patient was never asked to upload, and the case sat in
+    // rejected_files with a frozen SLA.
     await logOrderEvent({
       orderId: orderId,
-      label: 'doctor_rejected_files',
+      label: 'doctor_requested_additional_files',
       meta: { doctorId: doctorId, reason: reason, doctorName: req.user.name || '' },
       actorUserId: doctorId,
       actorRole: 'doctor'
@@ -4555,10 +4563,12 @@ function wantsJson(req) {
 async function getAdditionalFilesRequestState(orderId) {
   try {
     const reqRow = await queryOne(
+      // AUDIT-P0-4 — accept the legacy 'doctor_rejected_files' label too, so
+      // requests written before the writer was corrected still resolve.
       `SELECT id, at
        FROM order_events
        WHERE order_id = $1
-         AND label = 'doctor_requested_additional_files'
+         AND label IN ('doctor_requested_additional_files', 'doctor_rejected_files')
        ORDER BY at DESC, id DESC
        LIMIT 1`,
       [orderId]
