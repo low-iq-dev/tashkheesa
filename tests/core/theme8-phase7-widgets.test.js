@@ -121,17 +121,51 @@ function makeLocals(phase7Widgets) {
     dbPoolWaiting: 0, mode: 'test', macMiniStatus: { gateway: 'unknown', checkedAt: null },
     macMiniCheckedAgo: null, paymobHealth: { lastIntentionAgo: null, lastWebhookAgo: null, hmacFailures24h: 0 },
     silentFailures7d: 0,
-    // STALE-FIXTURE FIX (2026-08-16): the view gained an `errorsOk` local (the
-    // green/red "production clean" tier on the Errors 24h cell). routes/ops.js
-    // supplies it, but this fixture did not, so both render smokes threw
-    // `errorsOk is not defined` and the six behavioural assertions below never
-    // ran at all — the file failed loudly while telling us nothing.
-    errorsOk: true,
+    // STALE-FIXTURE FIX (2026-08-16): the view gained a family of green/red
+    // tier flags on the summary cells. routes/ops.js supplies all six; this
+    // fixture supplied none, so both render smokes threw `<x>Ok is not
+    // defined` and the behavioural assertions below never ran at all — the
+    // file failed loudly while telling us nothing about the widgets.
+    //
+    // Kept in one list so the next addition is a one-line fix rather than
+    // another round of failures. They are asserted against the route's render
+    // context by the loop after makeLocals().
+    errorsOk: true, slaOk: true, dbPoolOk: true,
+    payOk: true, macMiniOk: true, workersOk: true,
     phase7Widgets: phase7Widgets
   };
 }
 
 const DASH_PATH = path.join(ROOT, 'src', 'views', 'ops-dashboard.ejs');
+
+// Fixture-drift guard. Twice now the dashboard has gained a bare local that
+// routes/ops.js supplies and makeLocals() did not, and each time BOTH render
+// smokes below died on `<x> is not defined` before asserting anything — a
+// failure that looks like a view bug and is actually a stale test. Check the
+// three-way agreement directly: every colour-tier flag the view reads must be
+// produced by the route AND present in the fixture.
+try {
+  const dashSrc = read('src/views/ops-dashboard.ejs');
+  const opsSrc = read('src/routes/ops.js');
+  const flags = Array.from(new Set(
+    (dashSrc.match(/data-color-ok="([a-zA-Z0-9_]+)"/g) || [])
+      .map(function (s) { return s.replace(/.*="|"$/g, ''); })
+  ));
+  const fixtureKeys = Object.keys(makeLocals(undefined));
+  const notInRoute = flags.filter(function (f) { return !new RegExp('\\b' + f + '\\s*:').test(opsSrc); });
+  const notInFixture = flags.filter(function (f) { return fixtureKeys.indexOf(f) === -1; });
+  assert(flags.length >= 4,
+    'found ' + flags.length + ' colour-tier flags in the dashboard (sanity floor)',
+    'only found ' + flags.length + ' — the scan is broken, so a pass means nothing');
+  assert(notInRoute.length === 0,
+    'every colour-tier flag the view reads is supplied by routes/ops.js',
+    'the view reads ' + notInRoute.join(', ') + ' but routes/ops.js never sets it — the ops dashboard would 500');
+  assert(notInFixture.length === 0,
+    'the render fixture supplies every colour-tier flag the view reads',
+    'fixture is missing ' + notInFixture.join(', ') + ' — add it to makeLocals() (the render smokes below would die before asserting anything)');
+} catch (e) {
+  t.fail(fileTag + ': render-fixture drift guard', e);
+}
 
 // 6a. Render with undefined phase7Widgets (the defensive fallback path).
 try {
