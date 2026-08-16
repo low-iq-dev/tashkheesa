@@ -45,10 +45,27 @@ async function issueBreachRefund(orderId) {
   if (!orderId) return { skipped: 'order_not_found' };
 
   var order = await queryOne(
-    'SELECT id, urgency_uplift_amount, urgency_tier FROM orders_active WHERE id = $1',
+    'SELECT id, urgency_uplift_amount, urgency_tier, payment_status FROM orders_active WHERE id = $1',
     [orderId]
   );
   if (!order) return { skipped: 'order_not_found' };
+
+  // AUDIT-P0-7 — you cannot refund money you never collected.
+  //
+  // This checked only `urgency_uplift_amount > 0`, never that the uplift had
+  // actually been PAID. The deleted /order/:id/payment guest route let a
+  // patient rewrite urgency_tier and urgency_uplift_amount on an already-paid
+  // order for free; the retroactive deadline then breached immediately and
+  // this function opened a real refund obligation against revenue that was
+  // never taken, while clawing back the doctor's uplift share.
+  //
+  // The route is gone, but the gate belongs here too: this is the function
+  // that decides money is owed, and any future write to urgency_uplift_amount
+  // would re-open the same hole.
+  var paymentStatus = String(order.payment_status || '').toLowerCase();
+  if (paymentStatus !== 'paid' && paymentStatus !== 'captured') {
+    return { skipped: 'not_paid' };
+  }
 
   var uplift = Number(order.urgency_uplift_amount) || 0;
   if (uplift <= 0) {

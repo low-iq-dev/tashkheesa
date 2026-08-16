@@ -83,7 +83,12 @@ function setupCsrf(app, opts) {
     // Public marketing-site intake endpoint. The caller is cross-origin
     // and cannot read the httpOnly csrf_token cookie. Auth/abuse defense
     // lives in the dedicated /api/cases rate limiter (src/middleware.js).
-    if (req.originalUrl && req.originalUrl.startsWith('/api/cases/')) {
+    // AUDIT-P0-7: narrowed from the '/api/cases/' PREFIX to the exact intake
+    // path. The prefix also matched cookie-authenticated, state-changing routes
+    // registered in routes/order_flow.js — POST /api/cases/:id/request-files
+    // (now deleted) and POST /api/cases/:id/intelligence/reprocess — leaving
+    // them with no CSRF protection at all.
+    if (p === '/api/cases/intake') {
       return next();
     }
     if (p === '/callback' || p.startsWith('/portal/video/payment/callback') || p.startsWith('/payments/callback')) {

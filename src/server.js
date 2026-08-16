@@ -239,7 +239,6 @@ var superadminRoutes = require('./routes/superadmin').router;
 var exportRoutes = require('./routes/exports');
 var adminRoutes = require('./routes/admin');
 var publicOrdersRoutes = require('./routes/public_orders');
-var intakeRoutes = require('./routes/intake');
 var orderFlowRoutes = require('./routes/order_flow');
 // Side issue #47 — sla_worker.js + sla_watcher.js removed. Their
 // runSlaSweep was already a `return;` no-op; case_sla_worker.js is
@@ -929,7 +928,10 @@ app.use('/', superadminRoutes);
 app.use('/', exportRoutes);
 app.use('/', adminRoutes);
 app.use('/', publicOrdersRoutes);
-app.use('/', intakeRoutes);
+// AUDIT-P0-7: routes/intake.js unmounted and deleted — orphaned guest
+// funnel with its own 72h/24h SLA map (contradicting the 48/18/4 policy)
+// and its own deadline_at-at-creation semantics, which produced phantom
+// breaches on unpaid cases. The canonical funnel is the patient wizard.
 app.use('/', orderFlowRoutes);
 app.use('/payments', paymentRoutes);
 app.use('/', videoRoutes);
