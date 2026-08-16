@@ -132,37 +132,48 @@ function makeLocals(phase7Widgets) {
     // context by the loop after makeLocals().
     errorsOk: true, slaOk: true, dbPoolOk: true,
     payOk: true, macMiniOk: true, workersOk: true,
+    dbPoolActive: 0, workersLive: 0, workersTotal: 0, workersSubLabel: '',
     phase7Widgets: phase7Widgets
   };
 }
 
 const DASH_PATH = path.join(ROOT, 'src', 'views', 'ops-dashboard.ejs');
 
-// Fixture-drift guard. Twice now the dashboard has gained a bare local that
-// routes/ops.js supplies and makeLocals() did not, and each time BOTH render
-// smokes below died on `<x> is not defined` before asserting anything — a
-// failure that looks like a view bug and is actually a stale test. Check the
-// three-way agreement directly: every colour-tier flag the view reads must be
-// produced by the route AND present in the fixture.
+// Fixture-drift guard.
+//
+// Four times in a row the dashboard turned out to read a bare local that
+// routes/ops.js supplies and makeLocals() did not (errorsOk, slaOk,
+// dbPoolActive, workersLive/Total/SubLabel). Each time BOTH render smokes died
+// on `<x> is not defined` before asserting anything, which reads like a view
+// bug and is actually a stale fixture — and each fix surfaced exactly one more,
+// because the failure aborts on the first missing local.
+//
+// So check the three-way agreement up front and report the WHOLE set at once:
+// every value the view binds must be produced by the route AND present in the
+// fixture. The route half is the one with production teeth — a name the view
+// reads and the route never sets is a 500 on /ops.
 try {
   const dashSrc = read('src/views/ops-dashboard.ejs');
   const opsSrc = read('src/routes/ops.js');
-  const flags = Array.from(new Set(
-    (dashSrc.match(/data-color-ok="([a-zA-Z0-9_]+)"/g) || [])
+  // Top-level bound names: colour-tier flags plus every data-stat that is not
+  // a dotted path (dotted ones live inside an object local like phase7Widgets,
+  // which is passed in whole and separately defended by a typeof guard).
+  const bound = Array.from(new Set(
+    (dashSrc.match(/data-(?:color-ok|stat)="([a-zA-Z0-9_]+)"/g) || [])
       .map(function (s) { return s.replace(/.*="|"$/g, ''); })
   ));
   const fixtureKeys = Object.keys(makeLocals(undefined));
-  const notInRoute = flags.filter(function (f) { return !new RegExp('\\b' + f + '\\s*:').test(opsSrc); });
-  const notInFixture = flags.filter(function (f) { return fixtureKeys.indexOf(f) === -1; });
-  assert(flags.length >= 4,
-    'found ' + flags.length + ' colour-tier flags in the dashboard (sanity floor)',
-    'only found ' + flags.length + ' — the scan is broken, so a pass means nothing');
+  const notInRoute = bound.filter(function (f) { return !new RegExp('\\b' + f + '\\s*:').test(opsSrc); });
+  const notInFixture = bound.filter(function (f) { return fixtureKeys.indexOf(f) === -1; });
+  assert(bound.length >= 20,
+    'found ' + bound.length + ' top-level bindings in the dashboard (sanity floor)',
+    'only found ' + bound.length + ' — the scan is broken, so a pass means nothing');
   assert(notInRoute.length === 0,
-    'every colour-tier flag the view reads is supplied by routes/ops.js',
-    'the view reads ' + notInRoute.join(', ') + ' but routes/ops.js never sets it — the ops dashboard would 500');
+    'every value the view binds is supplied by routes/ops.js (' + bound.length + ' checked)',
+    'the view reads ' + notInRoute.join(', ') + ' but routes/ops.js never sets it — /ops would 500');
   assert(notInFixture.length === 0,
-    'the render fixture supplies every colour-tier flag the view reads',
-    'fixture is missing ' + notInFixture.join(', ') + ' — add it to makeLocals() (the render smokes below would die before asserting anything)');
+    'the render fixture supplies every value the view binds',
+    'fixture is missing ' + notInFixture.join(', ') + ' — add them to makeLocals() (the render smokes below die before asserting anything)');
 } catch (e) {
   t.fail(fileTag + ': render-fixture drift guard', e);
 }
