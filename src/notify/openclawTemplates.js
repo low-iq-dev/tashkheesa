@@ -136,6 +136,144 @@ const OPENCLAW_TEMPLATES = {
   case_routing_updated: {
     en: (v) => `We updated your case routing based on the details you provided (${v.caseReference}). Track updates here: ${v.link}\n— Tashkheesa`,
     ar: (v) => `تم تحديث توجيه حالتك بناءً على التفاصيل اللي قدمتها (${v.caseReference}). للمتابعة من هنا: ${v.link}\n— تشخيصة`
+  },
+  // ══════════════════════════════════════════════════════════════════
+  // AUDIT-P0-3 — bodies added for events that were queued over WhatsApp
+  // with no OpenClaw template.
+  //
+  // getOpenClawBody() returned null for every one of these, so
+  // notify/whatsapp.js took the `no_openclaw_template` branch and the
+  // worker wrote status='skipped' — which /ops deliberately excludes
+  // from its failure count. The most damaging case was the doctor
+  // broadcast on a newly paid case (tashkheesa_new_case_*): NO doctor
+  // was ever notified of a new paid case by WhatsApp, and the ops
+  // dashboard showed zero failures the whole time.
+  // ══════════════════════════════════════════════════════════════════
+
+  // ── Doctor: new paid case broadcast (notify/broadcast.js TIER_CONFIG) ──
+  // vars carry case_ref / specialty / tier / sla_hours; caseReference and
+  // slaHours are normalised by the enricher below.
+  tashkheesa_new_case_urgent: {
+    en: (v) => `URGENT case available (${v.caseReference}) — ${v.slaHours || 4}h SLA. First to accept takes it: ${appUrl()}/portal/doctor/cases\n— Tashkheesa`,
+    ar: (v) => `حالة عاجلة متاحة (${v.caseReference}) — مهلة ${v.slaHours || 4} ساعات. أول قبول ياخدها: ${appUrl()}/portal/doctor/cases\n— تشخيصة`
+  },
+  tashkheesa_new_case_fasttrack: {
+    en: (v) => `Fast-track case available (${v.caseReference}) — ${v.slaHours || 18}h SLA. Accept here: ${appUrl()}/portal/doctor/cases\n— Tashkheesa`,
+    ar: (v) => `حالة سريعة متاحة (${v.caseReference}) — مهلة ${v.slaHours || 18} ساعة. القبول من هنا: ${appUrl()}/portal/doctor/cases\n— تشخيصة`
+  },
+  tashkheesa_new_case_standard: {
+    en: (v) => `New case available (${v.caseReference}) — ${v.slaHours || 48}h SLA. Accept here: ${appUrl()}/portal/doctor/cases\n— Tashkheesa`,
+    ar: (v) => `حالة جديدة متاحة (${v.caseReference}) — مهلة ${v.slaHours || 48} ساعة. القبول من هنا: ${appUrl()}/portal/doctor/cases\n— تشخيصة`
+  },
+
+  // ── Doctor: assignment lifecycle ──────────────────────────────────
+  tashkheesa_case_assigned: {
+    en: (v) => `Case ${v.caseReference} has been assigned to you. Review and accept: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`,
+    ar: (v) => `تم إسناد حالة ${v.caseReference} إليك. للمراجعة والقبول: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+  },
+  tashkheesa_case_auto_assigned: {
+    en: (v) => `Case ${v.caseReference} was auto-assigned to you. Please accept it to start the SLA clock: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`,
+    ar: (v) => `تم إسناد حالة ${v.caseReference} إليك تلقائيًا. القبول يبدأ مهلة المراجعة: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+  },
+  order_assigned_doctor: {
+    en: (v) => `Case ${v.caseReference} has been assigned to you. Open it here: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`,
+    ar: (v) => `تم إسناد حالة ${v.caseReference} إليك. للفتح من هنا: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+  },
+  order_auto_assigned_doctor: {
+    en: (v) => `Case ${v.caseReference} was auto-assigned to you. Please accept it to start the SLA clock: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`,
+    ar: (v) => `تم إسناد حالة ${v.caseReference} إليك تلقائيًا. القبول يبدأ مهلة المراجعة: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+  },
+  order_reassigned_doctor: {
+    en: (v) => `Case ${v.caseReference} has been reassigned to you. Open it here: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`,
+    ar: (v) => `تم إعادة إسناد حالة ${v.caseReference} إليك. للفتح من هنا: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+  },
+  patient_uploaded_files_doctor: {
+    en: (v) => `New files were uploaded on case ${v.caseReference}. Review them here: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`,
+    ar: (v) => `تم رفع ملفات جديدة على حالة ${v.caseReference}. للمراجعة من هنا: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+  },
+  payment_success_doctor: {
+    en: (v) => `Payment confirmed on case ${v.caseReference} — it is ready for review: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`,
+    ar: (v) => `تم تأكيد الدفع لحالة ${v.caseReference} — جاهزة للمراجعة: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+  },
+  sla_breach: {
+    en: (v) => `SLA BREACHED on case ${v.caseReference}. Immediate action needed: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`,
+    ar: (v) => `تم تجاوز المهلة على حالة ${v.caseReference}. مطلوب إجراء فوري: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+  },
+  doctor_approved: {
+    en: (v) => `Your Tashkheesa specialist account is approved. Sign in to view available cases: ${appUrl()}/portal/doctor\n— Tashkheesa`,
+    ar: (v) => `تم اعتماد حسابك كطبيب على تشخيصة. لتسجيل الدخول ومتابعة الحالات المتاحة: ${appUrl()}/portal/doctor\n— تشخيصة`
+  },
+
+  // ── Patient: order + prescription ─────────────────────────────────
+  order_created_patient: {
+    en: (v) => `We received your case (${v.caseReference}). Complete payment to start your specialist review: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `استلمنا حالتك (${v.caseReference}). إكمال الدفع يبدأ مراجعة الطبيب: ${v.link}\n— تشخيصة`
+  },
+  payment_failed_patient: {
+    en: (v) => `Your payment for case ${v.caseReference} did not go through. No charge was made — you can try again here: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `الدفع لحالة ${v.caseReference} لم يكتمل. لم يتم خصم أي مبلغ — إعادة المحاولة من هنا: ${v.link}\n— تشخيصة`
+  },
+  prescription_uploaded_patient: {
+    en: (v) => `Your prescription for case ${v.caseReference} is ready on the portal: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `روشتتك لحالة ${v.caseReference} جاهزة على البورتال: ${v.link}\n— تشخيصة`
+  },
+  appointment_reminder: {
+    en: (v) => `Reminder — your appointment for case ${v.caseReference} is at ${v.appointmentTime}. Details: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تذكير — موعدك لحالة ${v.caseReference} الساعة ${v.appointmentTime}. التفاصيل: ${v.link}\n— تشخيصة`
+  },
+
+  // ── Video consultation (routes/video.js, video_scheduler.js) ──────
+  video_payment_confirmed: {
+    en: (v) => `Your video consultation for case ${v.caseReference} is paid and confirmed. We'll send the time shortly: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تم دفع وتأكيد الاستشارة المرئية لحالة ${v.caseReference}. هنبعت الموعد قريب: ${v.link}\n— تشخيصة`
+  },
+  video_slot_proposed: {
+    en: (v) => `A time has been proposed for your video consultation (${v.caseReference}): ${v.appointmentTime}. Confirm or ask for another: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تم اقتراح موعد لاستشارتك المرئية (${v.caseReference}): ${v.appointmentTime}. للتأكيد أو طلب موعد آخر: ${v.link}\n— تشخيصة`
+  },
+  video_slot_accepted: {
+    en: (v) => `The proposed time for case ${v.caseReference} was accepted: ${v.appointmentTime}. Details: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تم قبول الموعد المقترح لحالة ${v.caseReference}: ${v.appointmentTime}. التفاصيل: ${v.link}\n— تشخيصة`
+  },
+  video_slot_confirmed: {
+    en: (v) => `Your video consultation for case ${v.caseReference} is confirmed for ${v.appointmentTime}. Join from: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تم تأكيد استشارتك المرئية لحالة ${v.caseReference} في ${v.appointmentTime}. للانضمام: ${v.link}\n— تشخيصة`
+  },
+  video_appointment_reminder: {
+    en: (v) => `Reminder — your video consultation (${v.caseReference}) starts at ${v.appointmentTime}. Join from: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تذكير — استشارتك المرئية (${v.caseReference}) تبدأ ${v.appointmentTime}. للانضمام: ${v.link}\n— تشخيصة`
+  },
+  video_appointment_rescheduled: {
+    en: (v) => `Your video consultation for case ${v.caseReference} has moved to ${v.appointmentTime}. Details: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تم نقل استشارتك المرئية لحالة ${v.caseReference} إلى ${v.appointmentTime}. التفاصيل: ${v.link}\n— تشخيصة`
+  },
+  video_appointment_cancelled: {
+    en: (v) => `Your video consultation for case ${v.caseReference} has been cancelled${v.reason ? ` (${v.reason})` : ''}. Details: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تم إلغاء استشارتك المرئية لحالة ${v.caseReference}${v.reason ? ` (${v.reason})` : ''}. التفاصيل: ${v.link}\n— تشخيصة`
+  },
+  video_slot_auto_cancelled_patient: {
+    en: (v) => `The proposed video consultation time for case ${v.caseReference} expired without confirmation, so it was released. Pick a new time: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `الموعد المقترح للاستشارة المرئية لحالة ${v.caseReference} انتهت مهلته بدون تأكيد وتم إلغاؤه. لاختيار موعد جديد: ${v.link}\n— تشخيصة`
+  },
+  video_call_started: {
+    en: (v) => `Your video consultation for case ${v.caseReference} has started. Join now: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `بدأت استشارتك المرئية لحالة ${v.caseReference}. للانضمام الآن: ${v.link}\n— تشخيصة`
+  },
+  video_call_ended: {
+    en: (v) => `Your video consultation for case ${v.caseReference} has ended. Notes and next steps: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `انتهت استشارتك المرئية لحالة ${v.caseReference}. الملاحظات والخطوات التالية: ${v.link}\n— تشخيصة`
+  },
+  video_no_show_patient: {
+    en: (v) => `We couldn't connect for your video consultation (${v.caseReference}). Reschedule here: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تعذّر الاتصال بخصوص استشارتك المرئية (${v.caseReference}). لإعادة تحديد الموعد: ${v.link}\n— تشخيصة`
+  },
+  video_no_show_doctor: {
+    en: (v) => `The patient did not join the video consultation for case ${v.caseReference}. Details: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`,
+    ar: (v) => `المريض لم ينضم للاستشارة المرئية لحالة ${v.caseReference}. التفاصيل: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+  },
+  video_slot_review_requested: {
+    en: (v) => `A new video-consultation time needs your review on case ${v.caseReference}: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`,
+    ar: (v) => `مطلوب مراجعتك لموعد استشارة مرئية على حالة ${v.caseReference}: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
   }
 };
 
@@ -158,7 +296,10 @@ function getOpenClawBody(eventName, lang, rawVars, opts) {
   const orderId = (opts && opts.orderId) || vars.order_id || vars.orderId || null;
 
   const enriched = {
-    caseReference: vars.caseReference || (orderId ? String(orderId).slice(0, 12).toUpperCase() : ''),
+    // AUDIT-P0-3: notify/broadcast.js queues `case_ref` (not caseReference)
+    // and `sla_hours`; without these aliases the doctor broadcast bodies
+    // would render an empty case reference.
+    caseReference: vars.caseReference || vars.case_ref || vars.caseRef || (orderId ? String(orderId).slice(0, 12).toUpperCase() : ''),
     doctorName: stripDr(vars.doctorName || vars.doctor_name || ''),
     patientName: vars.patientName || vars.patient_name || '',
     amount: vars.amount != null ? vars.amount : '',

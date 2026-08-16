@@ -34,6 +34,15 @@ async function safeAll(sql, params) {
   }
 }
 
+// AUDIT-P0-1 — single definition of "the report has been delivered".
+// Previously the HTML viewer had its own inline list and the download/generate
+// routes had no gate at all.
+const DELIVERED_STATUSES = ['completed', 'done', 'delivered', 'report_ready', 'report-ready', 'finalized'];
+
+function isDeliveredStatus(status) {
+  return DELIVERED_STATUSES.includes(String(status || '').toLowerCase());
+}
+
 function userCanViewCase(user, caseRow) {
   if (!user || !caseRow) return false;
   var role = String(user.role || '').toLowerCase();
@@ -83,8 +92,7 @@ router.get(
       }
 
       // Only show report for completed/delivered cases
-      var completedStatuses = ['completed', 'done', 'delivered', 'report_ready', 'report-ready', 'finalized'];
-      if (!completedStatuses.includes(String(order.status || '').toLowerCase())) {
+      if (!isDeliveredStatus(order.status)) {
         return res.status(400).render('error', {
           message: isAr ? 'التقرير غير متاح بعد' : 'Report is not yet available',
           status: 400
@@ -186,6 +194,14 @@ router.post(
         return res.status(403).json({ ok: false, error: 'Access denied' });
       }
 
+      // AUDIT-P0-1 — a PDF may only be (re)generated for a delivered case.
+      // Without this gate, "Generate new PDF" on an in-review case wrote
+      // orders.report_url, which immediately made the draft downloadable by
+      // the patient via /download-report.
+      if (!isDeliveredStatus(order.status)) {
+        return res.status(400).json({ ok: false, error: 'Report is not yet available' });
+      }
+
       var patient = await safeGet('SELECT name FROM users WHERE id = $1', [order.patient_id], {});
       var doctor = await safeGet('SELECT name, specialty_id FROM users WHERE id = $1', [order.doctor_id], {});
       var specialty = doctor && doctor.specialty_id
@@ -226,15 +242,20 @@ router.post(
            VALUES ($1, $2, $3, $4, NOW())`,
           [exportId, caseId, reportUrl, req.user.id]
         );
-      } catch (_) {
-        // Table may not exist yet — non-critical
+      } catch (e) {
+        // The patient's Report tab is gated on this row — never fail silently.
+        logMajor('reports report_exports insert FAILED: ' + e.message);
       }
 
-      // Update order with report URL if not set
-      if (!order.report_url) {
-        try {
-          await execute('UPDATE orders SET report_url = $1 WHERE id = $2', [reportUrl, caseId]);
-        } catch (_) {}
+      // AUDIT-P0-1 — always point the order at the newest export.
+      // Previously this was `if (!order.report_url)`, so regenerating a
+      // corrected PDF left orders.report_url on the erroneous one — and
+      // /download-report prefers that column. Patients kept downloading the
+      // superseded clinical report.
+      try {
+        await execute('UPDATE orders SET report_url = $1 WHERE id = $2', [reportUrl, caseId]);
+      } catch (e) {
+        logMajor('reports report_url update FAILED: ' + e.message);
       }
 
       res.json({
@@ -263,6 +284,15 @@ router.get(
 
       if (!userCanViewCase(req.user, order)) {
         return res.status(403).send('Access denied');
+      }
+
+      // AUDIT-P0-1 — patients may only download a delivered report. Doctors and
+      // admins keep pre-delivery access so the assigned doctor can verify the
+      // PDF they are about to submit. Without this, a draft PDF generated on an
+      // in-review case was downloadable by the patient at a stable, guessable
+      // URL keyed on their own case id.
+      if (String(req.user.role || '').toLowerCase() === 'patient' && !isDeliveredStatus(order.status)) {
+        return res.status(404).send('No report generated yet');
       }
 
       // Check for report URL on order

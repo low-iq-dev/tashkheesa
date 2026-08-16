@@ -5,15 +5,21 @@ const { queryOne, queryAll, execute } = require('../pg');
 const { queueNotification } = require('../notify');
 const { TEMPLATES } = require('./templates');
 
-// Tier definitions: acceptance window in minutes.
-// Canonical names per docs/PAYOUT_AND_URGENCY_POLICY.md §2.  TEMPLATES
-// constant keeps its NEW_CASE_FASTTRACK identifier — it's a notification-
-// template-id string registered separately with WhatsApp Cloud API,
-// independent of the tier rename.
+// Tier → notification template. The acceptance WINDOW no longer lives here:
+// it moved to src/acceptance_window.js, which is now the only place that
+// answers "how long does a doctor have to accept?". This file had 10/60/240
+// minutes while case_lifecycle.js had 30/240/1440 for the same three tiers, so
+// a case carried two different acceptance deadlines at once and whichever
+// worker swept first decided which one applied.
+//
+// TEMPLATES keeps its NEW_CASE_FASTTRACK identifier — that's a WhatsApp Cloud
+// API template id registered separately, independent of the tier rename.
+const { acceptanceMinutesForTier, acceptanceDeadlineIso } = require('../acceptance_window');
+
 const TIER_CONFIG = {
-  urgent:   { acceptanceMinutes: 10,  template: TEMPLATES.NEW_CASE_URGENT },
-  vip:      { acceptanceMinutes: 60,  template: TEMPLATES.NEW_CASE_FASTTRACK },
-  standard: { acceptanceMinutes: 240, template: TEMPLATES.NEW_CASE_STANDARD },
+  urgent:   { template: TEMPLATES.NEW_CASE_URGENT },
+  vip:      { template: TEMPLATES.NEW_CASE_FASTTRACK },
+  standard: { template: TEMPLATES.NEW_CASE_STANDARD },
 };
 
 function determineTier(order) {
@@ -57,7 +63,8 @@ async function broadcastOrderToSpecialty(orderId) {
 
   // 4. Save tier + broadcast metadata
   const now = new Date();
-  const acceptanceDeadline = new Date(now.getTime() + config.acceptanceMinutes * 60 * 1000);
+  const acceptanceMinutes = acceptanceMinutesForTier(tier);
+  const acceptanceDeadline = acceptanceDeadlineIso(acceptanceMinutes, now.getTime());
 
   await execute(
     `UPDATE orders
@@ -67,7 +74,7 @@ async function broadcastOrderToSpecialty(orderId) {
          acceptance_deadline_at = $3,
          updated_at = $2
      WHERE id = $4`,
-    [tier, now.toISOString(), acceptanceDeadline.toISOString(), orderId]
+    [tier, now.toISOString(), acceptanceDeadline, orderId]
   );
 
   // 5. Resolve specialty

@@ -159,6 +159,12 @@ function baseMiddlewares(app) {
 
   // P1-A FIX: Rate limit doctor signup and pre-launch interest (no limit existed before)
   app.use('/doctor/signup', authLimiter);
+  // AUDIT-P0-8: /register was covered only by the global 100/min limiter while
+  // every other credential endpoint (/login, /forgot-password, /reset-password,
+  // /doctor/signup) sat behind authLimiter. Each registration runs a cost-10
+  // bcrypt hash (~100ms), so 100/min/IP was both an account-spam vector and a
+  // CPU-exhaustion vector against a single-process Node server.
+  app.use('/register', authLimiter);
   app.use('/api/pre-launch-interest', rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 10,

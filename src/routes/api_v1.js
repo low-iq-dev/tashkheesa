@@ -63,11 +63,34 @@ module.exports = function (db, helpers, deploy) {
     legacyHeaders: false,
   });
 
-  router.use(apiLimiter);
+  // AUDIT-APP-H4 — apiLimiter is 100 req / 15 min PER IP and was applied to
+  // every route. The patient app polls /health every 30s (permanently), the
+  // payment status every 5s for up to 120 polls, and chat every 10s — one
+  // 10-minute checkout alone issues ~150 requests. The limiter tripped
+  // mid-payment, the 429 was swallowed by the app, and a patient who HAD paid
+  // never saw confirmation. On Egyptian carrier CGNAT, where many patients
+  // share one IP, it tripped far sooner and took out unrelated users.
+  //
+  // /health and the payment-status poll are cheap, read-only and safety-
+  // critical to the checkout, so they are exempted. Everything else keeps the
+  // limit. The app-side polling is also backed off separately.
+  const RATE_LIMIT_EXEMPT = /^\/health$|^\/cases\/[^/]+\/payment$/;
+  router.use((req, res, next) => {
+    if (RATE_LIMIT_EXEMPT.test(req.path)) return next();
+    return apiLimiter(req, res, next);
+  });
 
   // ─── Public Routes (no auth required) ──────────────────────
 
   const authRoutes = require('./api/auth')(db, helpers);
+  // AUDIT-APP-C3 — /auth/me needs a JWT, but `router.use(requireJWT)` below runs
+  // AFTER this mount, so req.user was always undefined and the route returned
+  // 401 unconditionally. The handler's own comment said it "needs requireJWT —
+  // mounted separately in api_v1.js"; it never was. Effect: the patient app's
+  // cold-start session check always failed, so a patient with perfectly valid
+  // tokens was dumped on the login screen on EVERY app launch.
+  // Mounted here explicitly, ahead of the public /auth routes.
+  router.get('/auth/me', requireJWT, (req, res) => authRoutes.meHandler(req, res));
   router.use('/auth', authLimiter, authRoutes);
 
   // ─── Health check ──────────────────────────────────────────

@@ -327,8 +327,21 @@ router.post('/portal/video/payment/callback', async (req, res) => {
   // Paymob wraps the transaction in body.obj; fall back to flat body for compatibility
   const body = req.body || {};
   const txn = body.obj || body;
-  const { payment_id, status, reference } = txn;
+  const { payment_id, reference } = txn;
   if (!payment_id) return res.status(400).json({ ok: false, error: 'payment_id required' });
+
+  // ── AUDIT-P0-6: outcome from HMAC-SIGNED FIELDS ONLY ────────────────────
+  //
+  // This route used to read `txn.status`, which is not one of the 19 fields in
+  // the HMAC subject (src/paymob-hmac.js). Combined with the total absence of
+  // amount verification and per-transaction idempotency, one captured
+  // (hmac, signed fields) pair could be replayed forever against freshly
+  // booked appointment ids with `status:"success"` appended — unlimited free
+  // video consultations. `success`, `pending` and `error_occured` ARE signed.
+  const paymobTxnId = (txn && txn.id != null) ? String(txn.id) : null;
+  const paymobIntentionId = (txn && txn.intention && txn.intention.id != null)
+    ? String(txn.intention.id) : null;
+  const isSuccess = (txn.success === true) && (txn.pending !== true) && (txn.error_occured !== true);
 
   // Theme 9 Sub-issue C: kill-switch gate on the webhook. ACK Paymob (200) so
   // they don't retry, but trigger a critical alert — the patient already
@@ -347,20 +360,60 @@ router.post('/portal/video/payment/callback', async (req, res) => {
   const payment = await queryOne('SELECT * FROM appointment_payments WHERE id = $1', [payment_id]);
   if (!payment) return res.status(404).json({ ok: false, error: 'payment not found' });
 
-  const normalizedStatus = String(status || '').toLowerCase();
-  if (!['success', 'paid', 'complete', 'completed'].includes(normalizedStatus)) {
+  if (!isSuccess) {
     return res.json({ ok: true, note: 'non-success status' });
   }
 
   if (payment.status === 'paid') return res.json({ ok: true, note: 'already paid' });
 
+  // ── AUDIT-P0-6: AMOUNT VERIFICATION ────────────────────────────────────
+  // `amount_cents` IS signed. Mirrors the B5 check in /payments/callback:
+  // never mark paid unless Paymob charged exactly what this appointment owes.
+  // Left unpaid on mismatch, 200 so Paymob stops retrying, ops alerted.
+  const owedCents = Math.round(Number(payment.amount || 0) * 100);
+  const paidCents = Number(txn.amount_cents);
+  if (!Number.isFinite(paidCents) || !Number.isFinite(owedCents) || owedCents <= 0 || paidCents !== owedCents) {
+    try {
+      sendCriticalAlert(
+        'Video payment amount mismatch — left UNPAID. payment_id=' + payment_id +
+        ' owed=' + owedCents + ' paid=' + (Number.isFinite(paidCents) ? paidCents : 'n/a'),
+        'video_payment_amount_mismatch'
+      );
+    } catch (_) {}
+    return res.json({ ok: true, amount_mismatch: true });
+  }
+
   const now = nowIso();
-  // Atomic idempotency guard — only one concurrent webhook wins
+  // ── AUDIT-P0-6: per-transaction idempotency ────────────────────────────
+  // The status guard alone (`WHERE status != 'paid'`) only stops the SAME
+  // appointment being paid twice; it did nothing to stop one signed
+  // transaction being applied to many different appointments. Claiming the
+  // signed transaction id under the unique partial index from migration 079
+  // makes each Paymob transaction usable exactly once, platform-wide.
   const guard = await execute(
-    `UPDATE appointment_payments SET status = 'paid', paid_at = $1, method = 'paymob', reference = $2
-     WHERE id = $3 AND status != 'paid'`,
-    [now, reference || null, payment_id]
-  );
+    `UPDATE appointment_payments
+        SET status = 'paid', paid_at = $1, method = 'paymob', reference = $2,
+            paymob_transaction_id = $4, paymob_intention_id = $5, hmac_verified_at = $1
+      WHERE id = $3 AND status != 'paid'`,
+    [now, reference || null, payment_id, paymobTxnId, paymobIntentionId]
+  ).catch((err) => {
+    // Unique-violation on paymob_transaction_id => this transaction was
+    // already spent on another appointment. Treat as a replay, not an error.
+    if (err && String(err.code) === '23505') {
+      console.warn('[video-callback] paymob transaction already spent', {
+        payment_id, paymobTxnId
+      });
+      try {
+        sendCriticalAlert(
+          'Video payment webhook replay blocked: transaction ' + paymobTxnId +
+          ' was already applied to another appointment (attempted payment_id=' + payment_id + ')',
+          'video_payment_txn_replay'
+        );
+      } catch (_) {}
+      return { rowCount: 0 };
+    }
+    throw err;
+  });
   if (!guard || guard.rowCount === 0) {
     return res.json({ ok: true, note: 'already paid (concurrent)' });
   }

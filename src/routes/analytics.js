@@ -196,7 +196,7 @@ router.get(
       var notificationStats = [];
       if (await tableExists('notifications')) {
         notificationStats = await safeAll(
-          "SELECT COALESCE(channel, 'unknown') as channel, status, COUNT(*) as count FROM notifications WHERE created_at >= $1 GROUP BY channel, status ORDER BY channel, status",
+          "SELECT COALESCE(channel, 'unknown') as channel, status, COUNT(*) as count FROM notifications WHERE at >= $1 GROUP BY channel, status ORDER BY channel, status",
           [startDate]
         );
       }

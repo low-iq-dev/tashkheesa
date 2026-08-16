@@ -306,11 +306,23 @@ router.post('/callback', async (req, res, next) => {
       || (txnBody.order && txnBody.order.merchant_order_id)
       || txnBody.merchant_order_id
       || null;
-    // Outcome: Paymob transaction webhooks signal via booleans
-    // (success / pending), not a status string. Fall back to
-    // txnBody.status for the legacy flat shape.
-    const status = (txnBody.status != null) ? txnBody.status
-      : (txnBody.pending === true) ? 'pending'
+    // ── AUDIT-P0-6: the outcome is derived from HMAC-SIGNED FIELDS ONLY ──
+    //
+    // This used to prefer `txnBody.status`, which is NOT one of the 19 fields
+    // in the HMAC subject (see paymob-hmac.js HMAC_FIELDS — only `success`,
+    // `pending` and `error_occured` are signed). An attacker who captured any
+    // valid (hmac, 19 signed fields) pair — trivially available from their own
+    // Paymob redirect after deliberately failing a card — could re-POST it here
+    // with `status: "success"` appended. The HMAC still verified, because the
+    // appended field is not hashed, and the signed `success: false` was
+    // silently overridden. Result: an order marked paid with no money moved.
+    //
+    // `pending` is checked before `success` because Paymob sends
+    // success=false + pending=true on an in-flight 3DS transaction; treating
+    // that as `failed` would fire a spurious "payment failed" notification.
+    const status =
+        (txnBody.pending === true) ? 'pending'
+      : (txnBody.error_occured === true) ? 'failed'
       : (txnBody.success === true) ? 'success'
       : (txnBody.success === false) ? 'failed'
       : null;
@@ -375,6 +387,50 @@ router.post('/callback', async (req, res, next) => {
     return res.status(404).json({ ok: false, error: 'order not found' });
   }
 
+  // ── AUDIT-P0-6: bind the transaction to the intention we created ────────
+  //
+  // `orderId` above comes from obj.order.merchant_order_id, which is NOT in
+  // the HMAC subject — i.e. the order a payment lands on was attacker-
+  // choosable. orders.paymob_intention_id is written at intention creation
+  // (see POST /paymob/create-intention), so when the webhook carries an
+  // intention id it must be the one we minted for THIS order.
+  //
+  // Defence in depth, not the primary control: the per-transaction-id unique
+  // index on payment_events already blocks replaying one settled transaction
+  // onto a second order, and the signed-outcome fix above blocks laundering a
+  // failed transaction into a success. This closes the remaining seam where
+  // a live intention exists for a different order.
+  if (paymobIntentionId && order.paymob_intention_id &&
+      String(paymobIntentionId) !== String(order.paymob_intention_id)) {
+    try {
+      await execute(
+        `INSERT INTO payment_events (id, order_id, paymob_intention_id, event_type, payload_json, hmac_verified, received_at)
+         VALUES ($1, $2, $3, 'intention_mismatch', $4, true, NOW())`,
+        [
+          'pe-' + crypto.randomUUID(),
+          orderId,
+          paymobIntentionId,
+          JSON.stringify({
+            expected_intention_id: order.paymob_intention_id,
+            received_intention_id: paymobIntentionId,
+            paymob_transaction_id: paymobTxnId,
+            ip: req.ip || null
+          })
+        ]
+      );
+    } catch (auditErr) {
+      logErrorToDb(auditErr, { context: 'payment_callback_intention_mismatch_audit', orderId });
+    }
+    try {
+      sendCriticalAlert(
+        'Paymob webhook intention mismatch on order ' + orderId +
+        ' (expected ' + order.paymob_intention_id + ', got ' + paymobIntentionId + ')'
+      );
+    } catch (_) {}
+    // Ack 200 so Paymob stops retrying; the order is deliberately left UNPAID.
+    return res.json({ ok: true, intention_mismatch: true });
+  }
+
   const alreadyPaid = String(order.payment_status || '').toLowerCase() === 'paid';
 
   const normalized = normalizeStatus(status);
@@ -414,7 +470,14 @@ router.post('/callback', async (req, res, next) => {
             paymentUrl: paymentUrl,
             errorReason: (txnBody && (txnBody.error_message || txnBody.data_message)) || null
           }
-        });
+        }).catch(function (err) {
+      // AUDIT-P0-8: queueMultiChannelNotification is async and awaits a users
+      // lookup inside normalizeToUserId, so it can reject on any transient DB
+      // error. Un-awaited and un-caught, that rejection reached
+      // server.js's unhandledRejection handler, which calls process.exit(1) —
+      // crashing the whole server AFTER the order had already been marked paid.
+      console.error('[payments] notification queue failed:', err && err.message ? err.message : err);
+    });
       } catch (err) {
         console.error('[payment-failed-notify] queue failed:', err && err.message ? err.message : err);
       }
@@ -570,7 +633,14 @@ router.post('/callback', async (req, res, next) => {
       order_id: orderId,
       caseReference: String(orderId).slice(0, 12).toUpperCase(),
     },
-  });
+  }).catch(function (err) {
+      // AUDIT-P0-8: queueMultiChannelNotification is async and awaits a users
+      // lookup inside normalizeToUserId, so it can reject on any transient DB
+      // error. Un-awaited and un-caught, that rejection reached
+      // server.js's unhandledRejection handler, which calls process.exit(1) —
+      // crashing the whole server AFTER the order had already been marked paid.
+      console.error('[payments] notification queue failed:', err && err.message ? err.message : err);
+    });
 
   // WhatsApp-via-OpenClaw rollout: urgency upgrade is a tier on the
   // main service (orders.urgency_tier), not a separately-paid add-on
@@ -601,6 +671,13 @@ router.post('/callback', async (req, res, next) => {
       channels: ['whatsapp', 'internal'],
       template: 'payment_success_doctor',
       response: { order_id: orderId },
+    }).catch(function (err) {
+      // AUDIT-P0-8: queueMultiChannelNotification is async and awaits a users
+      // lookup inside normalizeToUserId, so it can reject on any transient DB
+      // error. Un-awaited and un-caught, that rejection reached
+      // server.js's unhandledRejection handler, which calls process.exit(1) —
+      // crashing the whole server AFTER the order had already been marked paid.
+      console.error('[payments] notification queue failed:', err && err.message ? err.message : err);
     });
   }
 

@@ -38,6 +38,21 @@ router.post(
     try {
       const order = await queryOne(`SELECT * FROM orders_active WHERE id = $1`, [req.params.orderId]);
       if (!order) return res.status(404).json({ error: 'order not found' });
+
+      // AUDIT-P0-7 — IDOR: this handler loaded the order and never compared
+      // order.doctor_id against req.user.id, so ANY doctor could mark ANY
+      // other doctor's add-on fulfilled — and video_consult.onFulfill stamps
+      // `doctor_id` / `fulfilled_by` from req.user into metadata_json, so the
+      // wrong doctor was recorded as having delivered it. Requiring
+      // accepted_at as well means an assigned-but-unaccepted case cannot be
+      // fulfilled either.
+      if (String(order.doctor_id || '') !== String(req.user.id)) {
+        return res.status(403).json({ error: 'forbidden' });
+      }
+      if (!order.accepted_at) {
+        return res.status(409).json({ error: 'case not accepted yet' });
+      }
+
       const addon = await queryOne(
         `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = $2`,
         [req.params.orderId, req.params.addonServiceId]
@@ -69,6 +84,21 @@ router.post(
   requireRole(['patient', 'admin', 'superadmin']),
   async function(req, res) {
     try {
+      // AUDIT-P0-7 — IDOR: this looked the add-on up by order_id +
+      // addon_service_id and updated it with NO ownership check whatsoever.
+      // Any patient could cancel any other patient's paid add-on by guessing
+      // or enumerating an order id. For a prescription that is doubly
+      // damaging: onComplete refuses to pay the doctor for a cancelled add-on,
+      // so the victim loses the prescription they paid for AND the doctor
+      // loses the fee. Admin/superadmin retain the override.
+      const order = await queryOne(`SELECT id, patient_id FROM orders_active WHERE id = $1`, [req.params.orderId]);
+      if (!order) return res.status(404).json({ error: 'order not found' });
+      const role = String((req.user && req.user.role) || '').toLowerCase();
+      const isStaff = role === 'admin' || role === 'superadmin';
+      if (!isStaff && String(order.patient_id || '') !== String(req.user.id)) {
+        return res.status(403).json({ error: 'forbidden' });
+      }
+
       const addon = await queryOne(
         `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = $2`,
         [req.params.orderId, req.params.addonServiceId]

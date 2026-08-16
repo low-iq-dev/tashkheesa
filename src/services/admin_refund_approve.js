@@ -55,7 +55,7 @@ async function setRefundApproval(client, opts) {
     // (1) lock the refund row; re-read in-txn, never trust the caller. FOR UPDATE
     //     serializes two operators acting on the same refund.
     const r = (await client.query(
-      `SELECT id, order_id, status, requested_amount FROM refunds WHERE id = $1 FOR UPDATE`,
+      `SELECT id, order_id, status, requested_amount, amount_egp FROM refunds WHERE id = $1 FOR UPDATE`,
       [refundId]
     )).rows[0];
     if (!r) throw af('Refund not found', 404, 'REFUND_NOT_FOUND');
@@ -70,7 +70,16 @@ async function setRefundApproval(client, opts) {
       throw af('Approved amount must be greater than zero', 400, 'INVALID_AMOUNT');
     }
     // (4) partial allowed, upgrades rejected: approved <= requested (+epsilon)
-    const requestedAmount = Number(r.requested_amount || 0);
+    //
+    // AUDIT-P1-5: fall back to amount_egp when requested_amount is NULL.
+    // Every current writer sets requested_amount = amount_egp, but legacy and
+    // backfilled rows predate that. On those, `Number(null || 0)` collapsed the
+    // ceiling to 0, so EVERY positive amount tripped AMOUNT_EXCEEDS_REQUESTED
+    // and the refund could not be approved at any value — while the Command
+    // app's modal happily prefilled amountEgp and enabled the button.
+    const requestedAmount = Number(
+      r.requested_amount != null ? r.requested_amount : (r.amount_egp || 0)
+    );
     if (approvedAmount > requestedAmount + 0.001) {
       throw af('Approved amount exceeds the requested amount', 409, 'AMOUNT_EXCEEDS_REQUESTED');
     }

@@ -90,6 +90,34 @@ async function sendWhatsApp({ to, template, lang = 'en_US', vars = {}, orderId =
     return { skipped: true };
   }
 
+  // ── AUDIT-P1-4: environment guard ──────────────────────────────────────
+  //
+  // services/recipientGuard.js protects EMAIL only, and it blocks test-looking
+  // *addresses*, not environments. Neither this file nor lib/openclaw_client.js
+  // had any MODE/NODE_ENV check, so any non-production instance booted with
+  // NOTIFICATIONS_WHATSAPP_ENABLED=true plus real OpenClaw or Meta credentials
+  // would message REAL patients and doctors on their real phone numbers — from
+  // staging, from a developer's laptop, from a restored DR environment holding
+  // a copy of production data.
+  //
+  // Outside production, only numbers on WHATSAPP_TEST_RECIPIENTS (comma-
+  // separated, digits compared) may receive anything. Fail closed: an unset
+  // allowlist in a non-production environment blocks every send.
+  const _mode = String(process.env.MODE || process.env.NODE_ENV || '').toLowerCase();
+  if (_mode !== 'production') {
+    const digits = String(to).replace(/[^0-9]/g, '');
+    const allow = String(process.env.WHATSAPP_TEST_RECIPIENTS || '')
+      .split(',')
+      .map((n) => n.replace(/[^0-9]/g, ''))
+      .filter(Boolean);
+    if (!allow.includes(digits)) {
+      console.warn('[WA] non-production environment — recipient not on WHATSAPP_TEST_RECIPIENTS, blocked', {
+        to: maskPhone(to), template, mode: _mode || 'unset'
+      });
+      return { skipped: true, reason: 'non_production_recipient_blocked' };
+    }
+  }
+
   // ── OpenClaw transport branch ───────────────────────────────────────
   // Composes a free-form bilingual body (openclawTemplates.js) and
   // POSTs to the Mac mini gateway. Returns the same { ok, data } /
@@ -100,11 +128,20 @@ async function sendWhatsApp({ to, template, lang = 'en_US', vars = {}, orderId =
     const body = getOpenClawBody(template, ocLang, vars, { orderId });
 
     if (!body) {
-      console.warn('[WA→OC] no openclaw template for event', { template, lang: ocLang });
-      // Treat as skipped (not failed) so the worker doesn't retry. A
-      // missing event mapping is a deployment gap, not a transient
-      // error — retrying won't help.
-      return { skipped: true, reason: 'no_openclaw_template' };
+      console.error('[WA→OC] NO OPENCLAW TEMPLATE for event — message NOT delivered', { template, lang: ocLang });
+      // AUDIT-P0-3 — this used to return { skipped: true }.
+      //
+      // 'skipped' is the bucket for legitimate non-sends (opted out, no
+      // phone), and /ops deliberately excludes it from the failure pill.
+      // A missing template is not that: it is an undelivered message caused
+      // by a deployment gap, and burying it under 'skipped' is exactly why
+      // the doctor new-case broadcast went unnoticed — zero doctors
+      // notified, zero failures reported.
+      //
+      // `permanent: true` tells notification_worker to mark it failed
+      // immediately: retrying a missing mapping cannot help, so we get the
+      // visibility without the retry storm.
+      return { ok: false, error: 'no_openclaw_template', permanent: true, template };
     }
 
     const result = await sendViaOpenClaw({

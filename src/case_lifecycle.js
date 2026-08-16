@@ -436,7 +436,11 @@ function isUnpaidReminderEligible(orderRow) {
 
   if (orderRow.completed_at) return false;
   if (isTerminalStatus(canonStatus)) return false;
-  if (canonStatus === 'EXPIRED') return false;
+  // AUDIT-P1-4: was `canonStatus === 'EXPIRED'`, a value normalizeStatus never
+  // produced — the sweep writes 'expired_unpaid', which canonicalises to
+  // EXPIRED_UNPAID. The guard therefore never fired and expired cases kept
+  // receiving payment reminders. (EXPIRED is now an alias, so both work.)
+  if (canonStatus === CASE_STATUS.EXPIRED_UNPAID) return false;
 
   if (HAS_PAYMENT_STATUS_COLUMN) {
     const ps = String(orderRow.payment_status || '').trim().toLowerCase();
@@ -679,7 +683,17 @@ const CASE_STATUS = Object.freeze({
   BREACHED_SLA: 'BREACHED_SLA',
   DELAYED: 'DELAYED',
   REASSIGNED: 'REASSIGNED',
-  CANCELLED: 'CANCELLED'
+  CANCELLED: 'CANCELLED',
+  // AUDIT-P1-4 — first-class statuses that were previously written by raw SQL
+  // which deliberately bypassed assertCanonicalDbStatus, and appeared in NO
+  // map: not CASE_STATUS, not STATUS_ALIASES, not STATUS_TRANSITIONS, not
+  // CASE_STATUS_UI, not DB_STATUS_VARIANTS. normalizeStatus produced
+  // 'EXPIRED_UNPAID', assertTransition then threw
+  // "No transitions defined from EXPIRED_UNPAID" for EVERY target, and
+  // getStatusUi fell through to its raw-string fallback so patients literally
+  // saw the badge text "EXPIRED_UNPAID".
+  EXPIRED_UNPAID: 'EXPIRED_UNPAID',
+  PENDING_REVIEW: 'PENDING_REVIEW'
 });
 
 // Legacy / UI-facing status aliases -> canonical CASE_STATUS
@@ -715,7 +729,12 @@ const STATUS_ALIASES = Object.freeze({
   // Cancelled synonyms
   CANCELLED: CASE_STATUS.CANCELLED,
   CANCELED: CASE_STATUS.CANCELLED,
-  CANCEL: CASE_STATUS.CANCELLED
+  CANCEL: CASE_STATUS.CANCELLED,
+
+  // AUDIT-P1-4
+  EXPIRED: CASE_STATUS.EXPIRED_UNPAID,
+  EXPIRED_UNPAID: CASE_STATUS.EXPIRED_UNPAID,
+  PENDING_REVIEW: CASE_STATUS.PENDING_REVIEW
 });
 
 // Resolve SLA hours from an orders row. The orders row's sla_hours
@@ -736,10 +755,32 @@ function resolveSlaHoursForCase(orderRow) {
   return Number.isFinite(n) && n > 0 ? n : 48;
 }
 
+// AUDIT-P0-8 — canonical tier -> SLA hours. THE single source of truth.
+//
+// Four different maps existed: this file's fallback (48/18/4), the mobile API
+// (48/18/4), routes/intake.js (72/24 — deleted with the guest funnel), and the
+// accept-window default inside assignDoctor (72). Two patients could pick
+// "standard" at the same price and be promised 48h or 72h depending on which
+// form they used, and the doctor's acceptance window diverged with it.
+// Per docs/PAYOUT_AND_URGENCY_POLICY.md §2. 'fast_track' is the legacy alias
+// for 'vip' (migration 031 backfills existing rows).
+const SLA_HOURS_BY_TIER = Object.freeze({
+  urgent: 4,
+  vip: 18,
+  fast_track: 18,
+  standard: 48
+});
+
+function slaHoursForTier(tier) {
+  const key = String(tier || '').trim().toLowerCase();
+  return SLA_HOURS_BY_TIER[key] || SLA_HOURS_BY_TIER.standard;
+}
+
 // Cairo time restriction for urgent tier (7am–7pm Cairo). Single source
 // of truth: services/urgency_window (DST-aware via Intl — Egypt has DST
 // again since April 2023, so local offset math is not safe here).
 const { isUrgentWindowOpen } = require('./services/urgency_window');
+const { acceptanceMinutesForOrder, acceptanceDeadlineIso } = require('./acceptance_window');
 
 const STATUS_TRANSITIONS = Object.freeze({
   [CASE_STATUS.DRAFT]: [CASE_STATUS.SUBMITTED],
@@ -754,7 +795,18 @@ const STATUS_TRANSITIONS = Object.freeze({
   [CASE_STATUS.REJECTED_FILES]: [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW],
   [CASE_STATUS.SLA_BREACH]: [CASE_STATUS.REASSIGNED, CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW],
   [CASE_STATUS.REASSIGNED]: [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW],
-  [CASE_STATUS.CANCELLED]: []
+  [CASE_STATUS.CANCELLED]: [],
+  // AUDIT-P1-4 — the unpaid-expiry sweep flips a case here at 24h. The Paymob
+  // callback has no expiry guard, so a patient paying from an emailed link 30
+  // hours later WAS charged, payment_status went to 'paid', and markCasePaid
+  // then threw — swallowed and logged as "Payment lifecycle transition
+  // skipped/failed (idempotent)". Money in, case never assigned, no alert.
+  // Allowing EXPIRED_UNPAID -> PAID means a late payment revives the case
+  // instead of bricking it. CANCELLED remains available for a deliberate close.
+  [CASE_STATUS.EXPIRED_UNPAID]: [CASE_STATUS.PAID, CASE_STATUS.CANCELLED],
+  // Anonymous marketing-site intake (routes/api/cases_intake.js) lands here
+  // awaiting ops triage, which either prices and submits it or closes it.
+  [CASE_STATUS.PENDING_REVIEW]: [CASE_STATUS.SUBMITTED, CASE_STATUS.PAID, CASE_STATUS.CANCELLED]
 });
 
 // -----------------------------------------------------------------------------
@@ -1019,6 +1071,51 @@ const CASE_STATUS_UI = Object.freeze({
       visible: true,
       terminal: true
     }
+  },
+
+  // AUDIT-P1-4 — without these entries getStatusUi fell through to its
+  // raw-string fallback and patients literally saw the badge text
+  // "EXPIRED_UNPAID" on their own case page.
+  [CASE_STATUS.EXPIRED_UNPAID]: {
+    patient: {
+      title: { en: 'Payment window closed', ar: 'انتهت مهلة الدفع' },
+      description: { en: 'This case was held for payment and has now been released. You can start a new case any time.', ar: 'تم حفظ هذه الحالة في انتظار الدفع وتم إغلاقها الآن. يمكنك بدء حالة جديدة في أي وقت.' },
+      badge: UI_BADGE.neutral,
+      visible: true
+    },
+    doctor: {
+      title: { en: 'Not available', ar: 'غير متاح' },
+      description: { en: 'This case expired before payment.', ar: 'انتهت مهلة هذه الحالة قبل الدفع.' },
+      badge: UI_BADGE.neutral,
+      visible: false
+    },
+    admin: {
+      title: { en: 'Expired (unpaid)', ar: 'منتهية (غير مدفوعة)' },
+      description: { en: 'Held for payment past the window and released. A late payment revives it to PAID.', ar: 'تجاوزت مهلة الدفع وتم إغلاقها. الدفع المتأخر يعيدها إلى حالة مدفوعة.' },
+      badge: UI_BADGE.neutral,
+      visible: true
+    }
+  },
+
+  [CASE_STATUS.PENDING_REVIEW]: {
+    patient: {
+      title: { en: 'Case received', ar: 'تم استلام الحالة' },
+      description: { en: 'Our team is reviewing your request and will be in touch shortly.', ar: 'فريقنا يراجع طلبك وسنتواصل معك قريبًا.' },
+      badge: UI_BADGE.info,
+      visible: true
+    },
+    doctor: {
+      title: { en: 'Not available', ar: 'غير متاح' },
+      description: { en: 'This case has not been triaged yet.', ar: 'لم يتم فرز هذه الحالة بعد.' },
+      badge: UI_BADGE.neutral,
+      visible: false
+    },
+    admin: {
+      title: { en: 'Pending triage', ar: 'في انتظار الفرز' },
+      description: { en: 'Website intake awaiting ops review and pricing.', ar: 'طلب من الموقع في انتظار المراجعة والتسعير.' },
+      badge: UI_BADGE.warning,
+      visible: true
+    }
   }
 });
 
@@ -1120,7 +1217,10 @@ const DB_STATUS_VARIANTS = Object.freeze({
   [CASE_STATUS.COMPLETED]: [CASE_STATUS.COMPLETED, 'completed', 'COMPLETED', 'done', 'DONE', 'finished', 'FINISHED'],
   [CASE_STATUS.SLA_BREACH]: [CASE_STATUS.SLA_BREACH, 'sla_breach', 'SLA_BREACH', 'breached', 'BREACHED', 'breached_sla', 'BREACHED_SLA', 'sla_breached', 'SLA_BREACHED', 'delayed', 'DELAYED', 'overdue', 'OVERDUE'],
   [CASE_STATUS.REASSIGNED]: [CASE_STATUS.REASSIGNED, 'reassigned', 'REASSIGNED'],
-  [CASE_STATUS.CANCELLED]: [CASE_STATUS.CANCELLED, 'cancelled', 'CANCELLED', 'canceled', 'CANCELED', 'cancel', 'CANCEL']
+  [CASE_STATUS.CANCELLED]: [CASE_STATUS.CANCELLED, 'cancelled', 'CANCELLED', 'canceled', 'CANCELED', 'cancel', 'CANCEL'],
+  // AUDIT-P1-4: lowercase is what the raw-SQL writers actually store.
+  [CASE_STATUS.EXPIRED_UNPAID]: [CASE_STATUS.EXPIRED_UNPAID, 'expired_unpaid', 'EXPIRED_UNPAID', 'expired', 'EXPIRED'],
+  [CASE_STATUS.PENDING_REVIEW]: [CASE_STATUS.PENDING_REVIEW, 'pending_review', 'PENDING_REVIEW']
 });
 
 function toCanonStatus(dbValue) {
@@ -1606,12 +1706,12 @@ async function sweepSlaBreaches() {
 
   let candidates;
   try {
-    // deadline_at is timestamp without time zone. Comparing it to a
-    // parameterized ISO-with-Z string does the wrong thing once you mix
-    // in the pg session timezone (Africa/Cairo on prod) — the cast
-    // semantics shift the wall-clock by the session offset and rows
-    // get silently filtered out. Use NOW() directly so the comparison
-    // is timezone-symmetric within pg.
+    // AUDIT-TZ-1 — CORRECTION, see the long note in
+    // case_sla_worker.js fetchSlaCandidates and src/pg.js. The claim that the
+    // ISO-Z param was wrong is backwards: deadline_at holds UTC digits (every
+    // write is a JS .toISOString()), so the param form was right and
+    // NOW()::timestamp was reading a Cairo wall clock against them, selecting
+    // cases ~3h early. Safe now only because src/pg.js pins the session to UTC.
     candidates = await queryAll(
       `SELECT o.id AS case_id
          FROM ${CASE_TABLE} o
@@ -1799,77 +1899,19 @@ async function closeOpenDoctorAssignments(caseId, client) {
   }
 }
 
-async function expireStaleAssignments() {
-  try {
-    const now = nowIso();
-    const rows = await queryAll(
-      `SELECT id, case_id, doctor_id
-       FROM doctor_assignments
-       WHERE completed_at IS NULL
-         AND accept_by_at IS NOT NULL
-         AND accept_by_at < $1`,
-      [now]
-    );
-
-    for (const r of rows) {
-      try {
-        // finalize the expired assignment
-        await execute(
-          `UPDATE doctor_assignments
-           SET completed_at = $1
-           WHERE id = $2`,
-          [now, r.id]
-        );
-
-        await logCaseEvent(r.case_id, 'DOCTOR_ACCEPT_TIMEOUT', {
-          doctor_id: r.doctor_id
-        });
-
-        // auto-pick next available doctor
-        const nextDoctorId = await pickNextAvailableDoctor({
-          excludeDoctorId: r.doctor_id
-        });
-
-        if (nextDoctorId) {
-          await reassignCase(r.case_id, nextDoctorId, {
-            reason: 'accept_timeout'
-          });
-        }
-      } catch (e) {
-        // best-effort per row
-      }
-    }
-  } catch (e) {
-    // sweep failure should never crash app
-  }
-}
-
-async function pickNextAvailableDoctor({ excludeDoctorId = null } = {}) {
-  try {
-    const params = [];
-    let excludeClause = '';
-    if (excludeDoctorId) {
-      excludeClause = 'AND u.id != $1';
-      params.push(excludeDoctorId);
-    }
-    const row = await queryOne(`
-      SELECT u.id
-      FROM users u
-      LEFT JOIN orders_active o
-        ON o.doctor_id = u.id
-       AND LOWER(COALESCE(o.status,'')) IN ('assigned','in_review','rejected_files','sla_breach')
-      WHERE u.role = 'doctor'
-      ${excludeClause}
-      GROUP BY u.id
-      HAVING COUNT(o.id) < 4
-      ORDER BY RANDOM()
-      LIMIT 1
-    `, params);
-    return row ? row.id : null;
-  } catch {
-    return null;
-  }
-}
+// AUDIT-P0-2b — expireStaleAssignments() and pickNextAvailableDoctor() removed.
+//
+// expireStaleAssignments was a byte-identical copy of sweepExpiredDoctorAccepts
+// with zero callers. Both drove pickNextAvailableDoctor, which selected a
+// replacement with `WHERE u.role = 'doctor' ... ORDER BY RANDOM()` — no
+// specialty, is_paused, pending_approval, onboarding_complete or doctor_services
+// filter — and raced case_sla_worker.handleDoctorTimeout over the same rows.
+// A doctor auto-paused for breaching SLAs was a valid target; so was a
+// dermatologist for a cardiology case.
+//
+// Accept-timeout reassignment is now owned solely by
+// case_sla_worker.handleDoctorTimeout -> findAlternateDoctor, which applies the
+// full eligibility gate. Same reasoning as the B11 removal in markSlaBreach.
 
 async function finalizePreviousAssignment(caseId) {
   const existing = await getLatestAssignment(caseId);
@@ -1925,15 +1967,16 @@ async function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) 
 
   // Doctor must accept within a window proportional to the SLA tier.
   const existingOrder = await getCase(caseId);
-  const caseSlaHours = (existingOrder && existingOrder.sla_hours) || 72;
-  const acceptWindowHours = caseSlaHours <= 4 ? 0.5    // 30 min for urgent
-                          : caseSlaHours <= 24 ? 4     // 4h for fast track
-                          : Number(process.env.DOCTOR_RESPONSE_TIMEOUT_HOURS || 24); // 24h for standard
-  const ACCEPT_WINDOW_MINUTES = Math.max(1, Math.floor(acceptWindowHours * 60));
-
-  const acceptByAt = new Date(
-    Date.now() + ACCEPT_WINDOW_MINUTES * 60 * 1000
-  ).toISOString();
+  // AUDIT-P0-8: was `|| 72`, a fourth SLA default that stretched the doctor's
+  // acceptance window on any row with a NULL sla_hours. Falls back to the
+  // order's own tier, then to canonical Standard (48h).
+  // AUDIT-ACCEPT-1 — this used to carry its OWN acceptance table (30m / 4h /
+  // 24h) that disagreed with notify/broadcast.js's (10m / 60m / 240m) for the
+  // same three tiers. A case therefore had two live acceptance deadlines and
+  // whichever worker swept first decided which one counted. Both now read
+  // src/acceptance_window.js — the only place that answers this question.
+  const ACCEPT_WINDOW_MINUTES = acceptanceMinutesForOrder(existingOrder);
+  const acceptByAt = acceptanceDeadlineIso(ACCEPT_WINDOW_MINUTES);
   try {
     await execute(
       `INSERT INTO doctor_assignments (
@@ -2137,64 +2180,13 @@ async function logNotification(caseId, template, payload) {
   await triggerNotification(caseId, template, payload);
 }
 
-async function sweepExpiredDoctorAccepts() {
-  // This function expires doctor assignments whose accept_by_at is in the past.
-  // It finalizes the expired assignment, logs the timeout, and auto-reassigns if possible.
-  try {
-    const now = nowIso();
-    const rows = await queryAll(
-      `SELECT id, case_id, doctor_id
-       FROM doctor_assignments
-       WHERE completed_at IS NULL
-         AND accept_by_at IS NOT NULL
-         AND accept_by_at < $1`,
-      [now]
-    );
-
-    let processed = 0;
-    for (const r of rows) {
-      try {
-        // finalize the expired assignment
-        await execute(
-          `UPDATE doctor_assignments
-           SET completed_at = $1
-           WHERE id = $2`,
-          [now, r.id]
-        );
-
-        await logCaseEvent(r.case_id, 'DOCTOR_ACCEPT_TIMEOUT', {
-          doctor_id: r.doctor_id
-        });
-
-        // auto-pick next available doctor
-        const nextDoctorId = await pickNextAvailableDoctor({
-          excludeDoctorId: r.doctor_id
-        });
-
-        if (nextDoctorId) {
-          await reassignCase(r.case_id, nextDoctorId, {
-            reason: 'accept_timeout'
-          });
-        }
-        processed++;
-      } catch (e) {
-        // best-effort per row
-      }
-    }
-    return { ok: true, processed };
-  } catch (e) {
-    // sweep failure should never crash app
-    return { ok: false, error: String((e && e.message) || e) };
-  }
-}
-
 module.exports = {
-  sweepExpiredDoctorAccepts,
-  pickNextAvailableDoctor,
   transitionCase,
   CASE_STATUS,
   CANON_STATUS: CASE_STATUS,
   resolveSlaHoursForCase,
+  slaHoursForTier,
+  SLA_HOURS_BY_TIER,
   calculateDeadline,
   STATUS_TRANSITIONS,
   CASE_STATUS_UI,
@@ -2224,7 +2216,6 @@ module.exports = {
   dbStatusValuesFor,
   isUnacceptedStatus,
   isTerminalStatus,
-  expireStaleAssignments,
   ensureColumnCache,
   sweepSlaBreaches,
   // recalcSlaBreaches is the historical name from the deleted sla.js.

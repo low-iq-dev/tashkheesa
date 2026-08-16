@@ -8,17 +8,64 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { randomUUID, randomInt } = require('crypto');
-const { coerceCountry } = require('../../launch-market');
+const { coerceCountry, marketFromDialCode } = require('../../launch-market');
 // Lazy-load express-validator — top-level require takes ~120s (validator.js regex compilation)
 // and starves the DB connection pool timeout during boot.
 let _ev;
 function ev() { if (!_ev) _ev = require('express-validator'); return _ev; }
 function body(...a) { return ev().body(...a); }
 function validationResult(...a) { return ev().validationResult(...a); }
-const { generateTokens, verifyRefreshToken } = require('../../middleware/requireJWT');
+const { generateTokens, verifyRefreshToken, requireJWT } = require('../../middleware/requireJWT');
 const { verifyOtpCode } = require('../../services/twilio_verify');
 const emailService = require('../../services/emailService');
 const { withTransaction } = require('../../db');
+
+// ── AUDIT-P0-8: per-phone OTP rate limits ────────────────────────────────
+//
+// The mobile OTP door was protected ONLY by the per-IP authLimiter mounted on
+// /auth in api_v1.js (20 req / 15 min). The web equivalent in routes/auth.js
+// has three additional PER-PHONE limiters — a 60s send cooldown, a 3-per-15min
+// send cap and a 5-per-15min verify cap — and the mobile routes used none of
+// them. A script hitting /otp/request for a victim's number from a handful of
+// IPs was therefore an SMS-bombing vector against that person and a direct
+// Twilio cost attack, with no per-number ceiling anywhere, and /otp/verify had
+// no per-number attempt cap to bound guessing of a 6-digit code.
+//
+// Mirrors routes/auth.js:323-348. validate:false because the trust-proxy
+// req.ip shape varies at the Render edge.
+const { rateLimit: _otpRateLimit } = require('express-rate-limit');
+
+// Normalises {countryCode, phone} into a stable limiter key. Runs BEFORE the
+// limiters so they have something to key on; falls back to the IP so a
+// malformed body can never bypass the cap by yielding a constant key.
+function otpPhoneScope(req, _res, next) {
+  const cc = String((req.body && req.body.countryCode) || '').replace(/[^0-9+]/g, '');
+  const ph = String((req.body && req.body.phone) || '').replace(/[^0-9]/g, '');
+  req.otpPhone = { key: (cc + ph) || ('ip:' + (req.ip || 'unknown')) };
+  next();
+}
+const otpPhoneKey = (req) => (req.otpPhone && req.otpPhone.key) || 'unknown';
+const otpRlMsg = { success: false, error: 'Too many attempts. Try again later.', code: 'RATE_LIMITED' };
+
+// Per-phone: 60s cooldown between sends.
+const otpSendCooldown = _otpRateLimit({
+  windowMs: 60 * 1000, max: 1, validate: false,
+  standardHeaders: false, legacyHeaders: false,
+  keyGenerator: otpPhoneKey,
+  message: { success: false, error: 'Please wait a minute before requesting another code.', code: 'OTP_COOLDOWN' },
+});
+// Per-phone: total sends per window (SMS-cost / bombing guard).
+const otpSendCap = _otpRateLimit({
+  windowMs: 15 * 60 * 1000, max: 3, validate: false,
+  standardHeaders: false, legacyHeaders: false,
+  keyGenerator: otpPhoneKey, message: otpRlMsg,
+});
+// Per-phone: verify attempts per window.
+const otpVerifyCap = _otpRateLimit({
+  windowMs: 15 * 60 * 1000, max: 5, validate: false,
+  standardHeaders: false, legacyHeaders: false,
+  keyGenerator: otpPhoneKey, message: otpRlMsg,
+});
 
 const RESET_EXPIRY_HOURS = 2; // matches src/routes/auth.js portal flow — keep in sync
 const APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
@@ -32,6 +79,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       body('name').trim().notEmpty().withMessage('Name is required'),
       body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
       body('phone').trim().notEmpty().withMessage('Phone is required'),
+      // AUDIT-APP-C4: countryCode is now load-bearing (it is concatenated
+      // into the E.164 number below), so it must be required here.
+      body('countryCode').trim().notEmpty().withMessage('Country code is required'),
       body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
       body('country').trim().notEmpty().withMessage('Country is required'),
     ],
@@ -46,8 +96,18 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       // P0-FORM-1: enforce E.164. Was a bare notEmpty() — accepted
       // anything, which is what produced the truncated-format rows
       // we audited yesterday.
+      //
+      // AUDIT-APP-C4 — countryCode was destructured here and then NEVER USED;
+      // validation ran on the bare national number. An Egyptian mobile
+      // '1102009886' is 10 digits, so validatePhoneE164 just prefixed '+' and
+      // accepted '+1102009886' — a US/Canada number. Every SMS/WhatsApp went
+      // nowhere, and when the patient later signed in by phone, /otp/verify
+      // (which DOES concatenate) looked up '+201102009886', found nothing, and
+      // auto-created a SECOND empty account — orphaning their paid cases.
+      // Concatenate first, exactly as /otp/verify does.
+      const fullPhone = `${String(countryCode || '').trim()}${String(phone || '').trim()}`.replace(/\s/g, '');
       const { validatePhoneE164 } = require('../../validators/phone');
-      const phoneCheck = validatePhoneE164(phone, lang === 'ar' ? 'ar' : 'en');
+      const phoneCheck = validatePhoneE164(fullPhone, lang === 'ar' ? 'ar' : 'en');
       if (!phoneCheck.ok) {
         return res.fail(phoneCheck.error, 422, 'PHONE_INVALID');
       }
@@ -68,9 +128,14 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       const userId = randomUUID();
       const hashedPassword = await bcrypt.hash(password, 10);
 
+      // AUDIT-APP-H10: country_code is written alongside country. It was
+      // omitted here, so app-registered patients had a NULL country_code while
+      // web- and OTP-created ones did not — and the web session JWT
+      // (signUserToken) embeds country_code, so pricing resolved inconsistently
+      // depending on which surface created the account.
       await safeRun(`
-        INSERT INTO users (id, name, email, phone, password_hash, country, lang, role, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'patient', NOW())
+        INSERT INTO users (id, name, email, phone, password_hash, country, country_code, lang, role, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $6, $7, 'patient', NOW())
       `, [userId, name, email, normalizedPhone, hashedPassword, coerceCountry(country), lang || 'en']);
 
       const user = await safeGet('SELECT * FROM users WHERE id = $1', [userId]);
@@ -160,8 +225,17 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
 
   router.post(
     '/otp/request',
+    otpPhoneScope, otpSendCooldown, otpSendCap,
     [body('phone').trim().notEmpty(), body('countryCode').trim().notEmpty()],
     async (req, res) => {
+      // AUDIT-APP: the validators above were declared and never checked, so an
+      // empty body produced fullPhone === '' — an OTP was generated and
+      // "sent" to nothing, and otpPhoneScope degraded to the IP key, weakening
+      // the per-phone limiter. /otp/verify gets this right; this now matches.
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.fail(errors.array()[0].msg, 422, 'VALIDATION_ERROR');
+      }
       const { phone, countryCode } = req.body;
       const fullPhone = `${countryCode}${phone}`.replace(/\s/g, '');
 
@@ -171,12 +245,22 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       const otp = String(randomInt(100000, 1000000)).padStart(6, '0');
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
 
-      // Store OTP (upsert)
-      await safeRun(`
-        INSERT INTO otp_codes (phone, code, expires_at, created_at)
-        VALUES ($1, $2, $3, NOW())
-        ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, created_at = NOW()
-      `, [fullPhone, otp, expiresAt]);
+      // AUDIT-P0-8 — do NOT persist a local code when Twilio Verify is live.
+      //
+      // sendOtpViaTwilio delivers TWILIO's code, not this one, but the row was
+      // written unconditionally and /otp/verify accepts it as a fallback
+      // whenever the Twilio check fails. That doubled the number of
+      // simultaneously-valid 6-digit codes for a phone number while nothing
+      // capped verify attempts. The local code is now only stored when there is
+      // no Verify service configured — i.e. dev / self-delivery.
+      const useTwilioVerify = !!(process.env.TWILIO_VERIFY_SERVICE_SID && process.env.TWILIO_ACCOUNT_SID);
+      if (!useTwilioVerify) {
+        await safeRun(`
+          INSERT INTO otp_codes (phone, code, expires_at, created_at)
+          VALUES ($1, $2, $3, NOW())
+          ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, created_at = NOW()
+        `, [fullPhone, otp, expiresAt]);
+      }
 
       // Send via WhatsApp/SMS
       let sendResult = null;
@@ -202,6 +286,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
 
   router.post(
     '/otp/verify',
+    otpPhoneScope, otpVerifyCap,
     [
       body('phone').trim().notEmpty(),
       body('countryCode').trim().notEmpty(),
@@ -268,14 +353,23 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
 
       if (!user) {
         // Auto-create patient account from OTP login (signup-by-phone).
-        // country_code='EG' (not just country) keeps web/mobile-created patients
+        // country_code (not just country) keeps web/mobile-created patients
         // consistent — the web session JWT (signUserToken) embeds country_code.
+        //
+        // AUDIT-APP-H10: the market was HARDCODED 'EG' here, so every OTP
+        // signup — the app's primary signup path — became an Egyptian-market
+        // patient and was quoted EGP prices no matter where they were. Seed it
+        // from the dialling code they just verified against instead; the app
+        // sends the ISO explicitly on the password-register path, and this is
+        // the closest signal available on the OTP path. coerceCountry() clamps
+        // anything outside the 9 launch markets back to EG.
+        const seededCountry = coerceCountry(marketFromDialCode(countryCode));
         const userId = randomUUID();
         await safeRun(`
           INSERT INTO users (id, phone, role, country, country_code, lang, created_at)
-          VALUES ($1, $2, 'patient', 'EG', 'EG', 'en', NOW())
+          VALUES ($1, $2, 'patient', $3, $3, 'en', NOW())
           ON CONFLICT (phone) WHERE phone IS NOT NULL DO NOTHING
-        `, [userId, normalizedPhone]);
+        `, [userId, normalizedPhone, seededCountry]);
         user = await safeGet('SELECT * FROM users WHERE phone = $1', [normalizedPhone]);
       }
 
@@ -295,13 +389,43 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
   );
 
   // ─── GET /me ─────────────────────────────────────────────
-  // NOTE: This route needs requireJWT — mounted separately in api_v1.js
-
-  router.get('/me', async (req, res) => {
+  // AUDIT-APP-C3 — this genuinely does need requireJWT, and it never got it:
+  // api_v1.js mounts this whole router at '/auth' BEFORE its
+  // `router.use(requireJWT)` line, so req.user was always undefined and the
+  // route returned 401 unconditionally. The patient app calls this on every
+  // cold start to restore the session, so a patient with valid tokens was
+  // logged out on EVERY launch.
+  //
+  // The handler is exported so api_v1.js can mount it with requireJWT
+  // explicitly, rather than re-dispatching into this router.
+  async function meHandler(req, res) {
     if (!req.user) return res.fail('Not authenticated', 401);
     const user = await safeGet('SELECT * FROM users WHERE id = $1', [req.user.id]);
     if (!user) return res.fail('User not found', 404);
     return res.ok(sanitizeUser(user));
+  }
+  router.meHandler = meHandler;
+
+  // ─── POST /logout ────────────────────────────────────────
+  // AUDIT-APP-H7 — there was no server-side logout at all. The app only wiped
+  // local storage, so the 30-day refresh token minted by requireJWT stayed
+  // redeemable for a month after the patient signed out — on a medical account,
+  // recoverable from a device backup. This also clears push_token so a
+  // signed-out device stops receiving that patient's case/report pushes
+  // (AUDIT-APP-H6).
+  //
+  // Mounted under the public /auth router, so it authenticates explicitly.
+  router.post('/logout', requireJWT, async (req, res) => {
+    try {
+      await safeRun(
+        'UPDATE users SET refresh_token = NULL, push_token = NULL WHERE id = $1',
+        [req.user.id]
+      );
+    } catch (err) {
+      // Never fail a logout — the client is signing out regardless.
+      console.error('[auth/logout] failed:', err && err.message);
+    }
+    return res.ok({ message: 'Signed out' });
   });
 
   // ─── POST /forgot-password ───────────────────────────────

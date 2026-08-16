@@ -40,6 +40,11 @@ function stripDrPrefix(name) {
  * notification template -> email .hbs file (without extension)
  */
 const TEMPLATE_TO_EMAIL = {
+  // AUDIT-P1-4: magic_login_link had no mapping and no .hbs file, so every
+  // magic-login request queued a notification that failed three retries and
+  // died — getMagicLink returned the URL to its caller while the user's
+  // email never arrived.
+  magic_login_link: 'magic-login-link',
   order_created_patient: 'case-submitted',
   public_order_created_patient: 'case-submitted',
   order_assigned_doctor: 'case-assigned',
@@ -486,6 +491,21 @@ async function runNotificationWorker(limit = 50) {
           JSON.stringify(result),
           n.id
         ]);
+      } else if (result.permanent) {
+        // AUDIT-P0-3 — a permanent, non-transient failure (e.g. no WhatsApp
+        // template registered for this event). Retrying cannot help, but it
+        // must NOT be filed as 'skipped' either: this is an undelivered
+        // message and ops needs to see it in the failure pill.
+        const attempts = (n.attempts || 0) + 1;
+        await execute('UPDATE notifications SET status = $1, response = $2, attempts = $3 WHERE id = $4', [
+          'failed',
+          JSON.stringify({ error: result.error || 'permanent_failure', permanent: true, attempts }),
+          attempts,
+          n.id
+        ]);
+        console.error('[notify-worker] PERMANENT failure — not retrying', {
+          id: n.id, template: n.template, channel, error: result.error
+        });
       } else {
         // Handle failure with retry
         const attempts = (n.attempts || 0) + 1;

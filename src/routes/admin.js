@@ -781,6 +781,11 @@ async function renderAdminProfile(req, res) {
 // First services route removed — consolidated into single route below (line ~1432)
 
 
+// AUDIT-P0-5 — renderAdminProfile() was fully implemented but never routed.
+// The admin topbar links to /admin/profile and server.js redirects GET /profile
+// there for role='admin', so both landed on the 404 page.
+router.get('/admin/profile', requireAdmin, renderAdminProfile);
+
 // Redirect entry
 router.get('/admin', requireAdmin, async (req, res) => {
   // Fire-and-forget; sweep failures must never bubble into UnhandledRejection.
@@ -1107,7 +1112,11 @@ router.get('/admin', requireAdmin, async (req, res) => {
       s.name as specialties
     FROM users u
     LEFT JOIN specialties s ON s.id = u.specialty_id
-    WHERE u.role = 'doctor' AND (u.pending_approval = true OR u.status = 'pending')
+    WHERE u.role = 'doctor' AND u.pending_approval = true
+        -- AUDIT-P0-5: the disjunct "OR u.status = 'pending'" was removed.
+        -- The users table has no status column, so this query threw and
+        -- safeAll swallowed the error into []. The Pending Doctor Approvals
+        -- widget showed 0 forever and applications were never reviewed.
     ORDER BY u.created_at DESC
   `, [], []);
 
@@ -2711,9 +2720,18 @@ router.post('/admin/chat-moderation/:reportId/resolve', requireAdmin, async func
         const flaggedMsg = await safeGet('SELECT sender_id FROM messages WHERE id = $1', [report.message_id], null);
         if (flaggedMsg) {
           await execute(`
-            INSERT INTO notifications (id, user_id, type, title, message, created_at)
-            VALUES ($1, $2, 'chat_warning', 'Chat Conduct Warning', 'Your message was reported and reviewed by our team. Please maintain professional conduct in all communications.', NOW())
-          `, [randomUUID(), flaggedMsg.sender_id]);
+            -- AUDIT-P1-2: the notifications table has to_user_id and at.
+            -- There is no user_id and no created_at column, so this INSERT
+            -- threw on every warn action — and both call sites wrapped it in a
+            -- bare catch(_){} with no logging. The report was marked resolved,
+            -- the mute applied, and the warned user was never notified, with
+            -- zero signal anywhere.
+            INSERT INTO notifications (id, to_user_id, channel, template, status, response, at)
+            VALUES ($1, $2, 'internal', 'chat_conduct_warning', 'queued', $3, NOW())
+          `, [randomUUID(), flaggedMsg.sender_id, JSON.stringify({
+            title: 'Chat Conduct Warning',
+            message: 'Your message was reported and reviewed by our team. Please maintain professional conduct in all communications.'
+          })]);
         }
       }
     } catch(_) {}

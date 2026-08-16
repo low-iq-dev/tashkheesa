@@ -12,9 +12,18 @@ const { eligibleDoctorClause } = require('./services/doctor_eligibility');
 // Keep this resilient even if older code uses a string literal for rejected_files.
 const SCAN_STATUSES = [CASE_STATUS.IN_REVIEW, (CASE_STATUS.REJECTED_FILES || 'rejected_files')];
 const SCAN_INTERVAL_MS = 5 * 60 * 1000;
-// Doctor must accept within N hours after assignment, otherwise auto-reassign.
-// Configurable via env; defaults to 24 hours.
-const DOCTOR_RESPONSE_TIMEOUT_HOURS = Number(process.env.DOCTOR_RESPONSE_TIMEOUT_HOURS || 24);
+// AUDIT-ACCEPT-1 — fallback acceptance cutoff for LEGACY rows only: assignments
+// written before doctor_assignments.accept_by_at existed. Every new assignment
+// carries an explicit per-tier accept_by_at from src/acceptance_window.js
+// (urgent 15m / vip 45m / standard 2h) and takes the branch above this one.
+//
+// The default was 24 hours, which was a fourth answer to the acceptance-window
+// question and nine times looser than the agreed standard-tier policy. It now
+// tracks the standard tier so a legacy row cannot sit unaccepted for a day.
+const { ACCEPTANCE_MINUTES_BY_TIER } = require('./acceptance_window');
+const DOCTOR_RESPONSE_TIMEOUT_HOURS = Number(
+  process.env.DOCTOR_RESPONSE_TIMEOUT_HOURS || (ACCEPTANCE_MINUTES_BY_TIER.standard / 60)
+);
 // Cap how many active (non-terminal) cases a doctor can hold.
 // Configurable via env; defaults to 4.
 const MAX_ACTIVE_CASES_PER_DOCTOR = Number(process.env.MAX_ACTIVE_CASES_PER_DOCTOR || 4);
@@ -28,6 +37,13 @@ let workerStarted = false;
 // in-place to 'REJECTED_FILES'; new code never writes 'awaiting_files'.
 // Removed in a follow-up cleanup PR after 30 days of stable behaviour.
 const ACTIVE_STATUSES = ['assigned', 'in_review', 'awaiting_files', 'rejected_files', 'sla_breach'];
+
+// Local lowercase normaliser — case_lifecycle's canonical statuses are
+// UPPERCASE but legacy rows and some call sites are not. Kept local so this
+// worker does not grow another import cycle with case_lifecycle.
+function normalizeStatusLocal(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
 
 function normalizeSpecialtyId(value) {
   if (value === null || value === undefined) return null;
@@ -187,11 +203,37 @@ function logNoAlternateDoctor({ candidate, selection, trigger }) {
 }
 
 async function fetchSlaCandidates() {
-  // Use server-side NOW()::timestamp rather than a parameterized ISO-Z
-  // string. With Africa/Cairo session TZ on prod Supabase, the param
-  // form applies a TZ offset to the implicit timestamp coercion and
-  // silently filters out rows past deadline by less than the offset
-  // (~3h). Mirrors the fix in sweepSlaBreaches (commit f8b11c0).
+  // AUDIT-TZ-1 — CORRECTION. This comment used to claim the parameterized
+  // ISO-Z form was the buggy one and NOW()::timestamp the fix (commit f8b11c0).
+  // That is backwards, and it made the problem worse.
+  //
+  // deadline_at is `timestamp WITHOUT time zone` and EVERY application write
+  // to it is a JS .toISOString() — so the digits on disk are UTC. The ISO-Z
+  // param compared UTC against UTC and was CORRECT. NOW()::timestamp yields the
+  // SESSION's wall clock, which on prod was Africa/Cairo, so this comparison
+  // read every deadline as 2-3h further past than it was and selected cases
+  // that were not remotely due.
+  //
+  // The idiom is now safe because src/pg.js pins every session to UTC — read
+  // the comment there before touching either. It is left as NOW()::timestamp
+  // rather than reverted so there is exactly one clock in play (the DB's)
+  // instead of two that have to be kept in agreement.
+  //
+  // NOTE for whoever picks up P3-WORKER-48 in
+  // docs/audits/COMPREHENSIVE_PRE_LAUNCH_AUDIT_2026-05-06.md: that ticket asks
+  // for this idiom to be copied to sla_watcher / runSlaReminderJob /
+  // appointment_reminders on the strength of the wrong comment above. With the
+  // session pinned it is harmless, but it is not a fix and it was never the
+  // reason anything worked.
+  //
+  // AUDIT-P0-4 — `sla_paused_at IS NULL` added here and in
+  // fetchPreBreachCandidates. SCAN_STATUSES includes REJECTED_FILES, and
+  // pauseSla stores sla_remaining_seconds but deliberately leaves the stale
+  // deadline_at in place. Without this filter a paused case was selected on
+  // every tick once its old deadline passed, handleBreach called
+  // transitionCase(SLA_BREACH), and transitionCase rejected it with
+  // "Only active review cases can escalate to SLA breach" — caught, logged,
+  // breached_at never set, re-selected 5 minutes later, forever.
   const statuses = SCAN_STATUSES.map((s) => String(s).toLowerCase());
   return await queryAll(
     `SELECT o.id AS case_id,
@@ -202,6 +244,7 @@ async function fetchSlaCandidates() {
      WHERE LOWER(COALESCE(o.status, '')) IN ($1, $2)
        AND o.deadline_at IS NOT NULL
        AND o.breached_at IS NULL
+       AND o.sla_paused_at IS NULL
        AND o.deadline_at <= NOW()::timestamp`,
     statuses
   );
@@ -231,6 +274,7 @@ async function fetchPreBreachCandidates() {
      WHERE LOWER(COALESCE(o.status, '')) IN ($1, $2)
        AND o.deadline_at IS NOT NULL
        AND o.breached_at IS NULL
+       AND o.sla_paused_at IS NULL
        AND o.deadline_at > NOW()::timestamp
        AND o.deadline_at <= (NOW() + INTERVAL '${reminderMinutes} minutes')::timestamp`,
     statuses
@@ -342,7 +386,30 @@ async function handleBreach(candidate) {
   // UnhandledRejection. Also ensures the breach is recorded before the
   // reassignCase calls below — without await, the reassignment can race
   // ahead of the breach mark.
-  await markSlaBreach(candidate.case_id);
+  const breached = await markSlaBreach(candidate.case_id);
+
+  // AUDIT-TZ-2 — markSlaBreach has three guards that DECLINE to breach: the
+  // acceptance-based deadline has not actually passed, the case is unpaid, or
+  // the case is already terminal. Each returns the case untouched. This
+  // function ignored the return value and reassigned UNCONDITIONALLY, so a
+  // case the guard had just protected was still stripped from its doctor —
+  // and reassignCase → markPartialPayOnReassignment clawed that doctor back to
+  // 10% partial pay for an SLA they had not missed.
+  //
+  // Under the Cairo/UTC skew (see src/pg.js) the sweep selected every case ~3h
+  // early, so the not-yet-due guard fired constantly and this was the common
+  // path, not the edge case. Pinning the session to UTC stops the early
+  // selection; this stops the wrongful reassignment even if a candidate
+  // reaches here by some other route.
+  if (!breached || normalizeStatusLocal(breached.status) !== 'sla_breach') {
+    logCaseEvent(candidate.case_id, 'SLA_BREACH_DECLINED', {
+      reason: 'not_breached_on_recheck',
+      status: breached ? breached.status : null,
+      trigger: 'sla_sweep'
+    });
+    return 0;
+  }
+
   const selection = await findAlternateDoctor({
     specialtyId: candidate.specialty_id,
     excludeDoctorId: candidate.doctor_id,
@@ -435,7 +502,28 @@ async function handleDoctorTimeout(candidate) {
   return 1;
 }
 
+// AUDIT-P1-4 — re-entrancy guard. notification_worker and acceptance_watcher
+// both have one; this sweep did not, and fetchSlaCandidates does not use
+// FOR UPDATE SKIP LOCKED. On the in-process fallback path (pg-boss
+// unavailable, server.js registers a 5-minute setInterval) a sweep that runs
+// long enough for a backlog gets a second tick selecting the SAME
+// still-unbreached rows, so handleBreach / handleDoctorTimeout run twice per
+// case — duplicate reassignment and duplicate notifications.
+let _slaSweepRunning = false;
+
 async function runCaseSlaSweep(runAt = new Date()) {
+  if (_slaSweepRunning) {
+    return { ok: true, skipped: 'already_running' };
+  }
+  _slaSweepRunning = true;
+  try {
+    return await _runCaseSlaSweepInner(runAt);
+  } finally {
+    _slaSweepRunning = false;
+  }
+}
+
+async function _runCaseSlaSweepInner(runAt = new Date()) {
   const now = runAt instanceof Date ? runAt : new Date(runAt);
   const nowIso = now.toISOString();
   const cutoffIso = new Date(now.getTime() - DOCTOR_RESPONSE_TIMEOUT_HOURS * 60 * 60 * 1000)

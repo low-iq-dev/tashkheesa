@@ -89,29 +89,18 @@ async function sendReminder(appt, timing) {
     { hour: '2-digit', minute: '2-digit' });
 
   var APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
-  var joinUrl = APP_URL + '/portal/patient/appointments';
-
-  // Send email reminder to patient
-  if (sendEmailFn && appt.patient_email) {
-    try {
-      sendEmailFn({
-        to: appt.patient_email,
-        subject: timing === '1h'
-          ? 'Your appointment starts in 1 hour'
-          : 'Appointment reminder - tomorrow',
-        template: 'appointment-reminder',
-        lang: patientLang,
-        data: {
-          patientName: appt.patient_name || 'Patient',
-          doctorName: appt.doctor_name || 'Doctor',
-          appointmentDate: patientDateStr,
-          appointmentTime: patientTimeStr,
-          joinUrl: joinUrl,
-          timing: timing
-        }
-      }).catch(function() { /* fire and forget */ });
-    } catch (_) {}
-  }
+  // AUDIT-P1-4 — the direct sendEmailFn call here was REMOVED.
+  //
+  // It sent template 'appointment-reminder' to the patient, and then the queued
+  // multi-channel notification below includes the 'email' channel with template
+  // 'appointment_reminder', which TEMPLATE_TO_EMAIL maps to the SAME
+  // appointment-reminder.hbs file. Every patient therefore received two
+  // identical reminder emails at 24h and two more at 1h. The dedupe_key does
+  // not help — it only dedupes the queued copy against itself.
+  //
+  // The queued path is the one to keep: it is dedupe-keyed, retried, recorded
+  // in the notifications table, visible on /ops, and also delivers WhatsApp and
+  // the in-app bell.
 
   // Queue multi-channel notification to patient (uses patientLang-formatted strings)
   try {

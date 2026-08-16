@@ -344,9 +344,19 @@
 
           <div class="v2-fieldgroup">
             <div class="v2-fieldgroup-title"><%= tt('Consents', 'Consents', 'الموافقات') %></div>
+            <%#
+              AUDIT-P0-5 — consent links.
+              These pointed at /legal/terms and /legal/code-of-conduct; neither
+              route exists, so a legally load-bearing required consent linked to
+              two 404s. /legal/terms is repointed at the real /terms page.
+              There is NO Code of Conduct document anywhere in the repo, so the
+              broken link is removed rather than misdirected at the (patient-
+              facing) Terms page. ACTION REQUIRED: author a specialist Code of
+              Conduct, route it, and restore the anchor here.
+            %>
             <fieldset class="v2-consents">
               <label><input type="checkbox" name="consent_accuracy" required /> <span><%= tt('I confirm all the information I provided is accurate and complete.', 'I confirm all the information I provided is accurate and complete.', 'أؤكد أن جميع المعلومات المقدّمة صحيحة وكاملة.') %></span></label>
-              <label><input type="checkbox" name="consent_terms" required /> <span><%= tt('I agree to the', 'I agree to the', 'أوافق على') %> <a href="/legal/terms" target="_blank"><%= tt('Specialist Terms', 'Specialist Terms', 'شروط الاستشاريين') %></a> <%= tt('and', 'and', 'و') %> <a href="/legal/code-of-conduct" target="_blank"><%= tt('Code of Conduct', 'Code of Conduct', 'ميثاق السلوك المهني') %></a>.</span></label>
+              <label><input type="checkbox" name="consent_terms" required /> <span><%= tt('I agree to the', 'I agree to the', 'أوافق على') %> <a href="/terms" target="_blank"><%= tt('Specialist Terms', 'Specialist Terms', 'شروط الاستشاريين') %></a> <%= tt('and', 'and', 'و') %> <%= tt('Code of Conduct', 'Code of Conduct', 'ميثاق السلوك المهني') %>.</span></label>
               <label><input type="checkbox" name="consent_audit_log" required /> <span><%= tt('I consent to all PHI access being audit-logged for compliance.', 'I consent to all PHI access being audit-logged for compliance.', 'أوافق على تسجيل كل وصول لبيانات المرضى لأغراض الامتثال.') %></span></label>
               <label><input type="checkbox" name="consent_pii" required /> <span><%= tt('I consent to my National ID being stored encrypted, used solely for credentialing.', 'I consent to my National ID being stored encrypted, used solely for credentialing.', 'أوافق على تخزين رقمي القومي مشفّراً واستخدامه فقط لأغراض التحقق.') %></span></label>
             </fieldset>

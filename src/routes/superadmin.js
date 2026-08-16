@@ -1055,12 +1055,24 @@ router.post('/superadmin/chat-moderation/:reportId/resolve', requireSuperadmin, 
         const flaggedMsg = await safeGet('SELECT sender_id FROM messages WHERE id = $1', [report.message_id], null);
         if (flaggedMsg) {
           await execute(`
-            INSERT INTO notifications (id, user_id, type, title, message, created_at)
-            VALUES ($1, $2, 'chat_warning', 'Chat Conduct Warning', 'Your message was reported and reviewed by our team. Please maintain professional conduct in all communications.', NOW())
-          `, [randomUUID(), flaggedMsg.sender_id]);
+            -- AUDIT-P1-2: the notifications table has to_user_id and at.
+            -- There is no user_id and no created_at column, so this INSERT
+            -- threw on every warn action — and both call sites wrapped it in a
+            -- bare catch(_){} with no logging. The report was marked resolved,
+            -- the mute applied, and the warned user was never notified, with
+            -- zero signal anywhere.
+            INSERT INTO notifications (id, to_user_id, channel, template, status, response, at)
+            VALUES ($1, $2, 'internal', 'chat_conduct_warning', 'queued', $3, NOW())
+          `, [randomUUID(), flaggedMsg.sender_id, JSON.stringify({
+            title: 'Chat Conduct Warning',
+            message: 'Your message was reported and reviewed by our team. Please maintain professional conduct in all communications.'
+          })]);
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      // AUDIT-P1-2: was catch(_){} — a swallowed failure here is invisible.
+      console.error('[chat-moderation] conduct warning notification failed:', e && e.message);
+    }
   }
 
   // CHAT MODERATION POLICY — mute duration: 7 days.
@@ -1466,7 +1478,7 @@ function getLatestAdditionalFilesRequestEvent(orderId) {
      FROM order_events
      WHERE order_id = $1
        AND (
-         label = 'doctor_requested_additional_files'
+         label IN ('doctor_requested_additional_files', 'doctor_rejected_files')
          OR (
            (LOWER(label) LIKE '%request%' AND (LOWER(label) LIKE '%file%' OR LOWER(label) LIKE '%upload%' OR LOWER(label) LIKE '%re-upload%' OR LOWER(label) LIKE '%reupload%'))
            OR LOWER(label) LIKE '%reject file%'
@@ -1541,9 +1553,13 @@ async function getPendingAdditionalFilesRequests(limit = 20) {
   const lim = Number(limit) || 20;
 
   // Match request-like events (fuzzy) AND the canonical label.
-  // NOTE: doctor route now writes `doctor_requested_additional_files` exactly.
+  // AUDIT-P0-4: the doctor route wrote `doctor_rejected_files`, which matched
+  // NEITHER the exact label NOR the fuzzy fallback ('%reject file%' has a space,
+  // the label has an underscore) — so this queue was permanently empty. The
+  // writer now emits the canonical label; the legacy one is matched here so
+  // historical requests still surface.
   const requestMatch = `(
-    e1.label = 'doctor_requested_additional_files'
+    e1.label IN ('doctor_requested_additional_files', 'doctor_rejected_files')
     OR (
       (LOWER(e1.label) LIKE '%request%' AND (LOWER(e1.label) LIKE '%file%' OR LOWER(e1.label) LIKE '%upload%' OR LOWER(e1.label) LIKE '%re-upload%' OR LOWER(e1.label) LIKE '%reupload%'))
       OR LOWER(e1.label) LIKE '%reject file%'
@@ -1582,7 +1598,7 @@ async function getPendingAdditionalFilesRequests(limit = 20) {
                 OR LOWER(e2.label) LIKE '%additional files request denied%'
               )
               AND (
-                e2.label = 'doctor_requested_additional_files'
+                e2.label IN ('doctor_requested_additional_files', 'doctor_rejected_files')
                 OR (
                   (LOWER(e2.label) LIKE '%request%' AND (LOWER(e2.label) LIKE '%file%' OR LOWER(e2.label) LIKE '%upload%' OR LOWER(e2.label) LIKE '%re-upload%' OR LOWER(e2.label) LIKE '%reupload%'))
                   OR LOWER(e2.label) LIKE '%reject file%'
@@ -4435,7 +4451,7 @@ router.get('/superadmin/analytics', requireSuperadmin, async (req, res) => {
     let notificationStats = [];
     if (await tableExists('notifications')) {
       notificationStats = await safeAll(
-        "SELECT COALESCE(channel, 'unknown') as channel, status, COUNT(*) as count FROM notifications WHERE created_at >= $1 GROUP BY channel, status ORDER BY channel, status",
+        "SELECT COALESCE(channel, 'unknown') as channel, status, COUNT(*) as count FROM notifications WHERE at >= $1 GROUP BY channel, status ORDER BY channel, status",
         [startDate], []
       );
     }

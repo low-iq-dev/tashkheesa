@@ -239,7 +239,6 @@ var superadminRoutes = require('./routes/superadmin').router;
 var exportRoutes = require('./routes/exports');
 var adminRoutes = require('./routes/admin');
 var publicOrdersRoutes = require('./routes/public_orders');
-var intakeRoutes = require('./routes/intake');
 var orderFlowRoutes = require('./routes/order_flow');
 // Side issue #47 — sla_worker.js + sla_watcher.js removed. Their
 // runSlaSweep was already a `return;` no-op; case_sla_worker.js is
@@ -323,9 +322,29 @@ app.use('/js', express.static(path.join(__dirname, '..', 'public', 'js')));
 app.use('/css', express.static(path.join(__dirname, '..', 'public', 'css')));
 app.use('/vendor', express.static(path.join(__dirname, '..', 'public', 'vendor')));
 app.use('/uploads', express.static(path.join(__dirname, '..', 'public', 'uploads')));
+// AUDIT-P0-5 — /fonts and /icons were referenced everywhere but served nowhere.
+//   * public/css/fonts.css declares every @font-face src as
+//     url('/fonts/cormorant-garamond/...'), and partials/patient/head.ejs
+//     preloads two of them. With no mount, every one 404'd and the brand
+//     display serif silently fell back to sans across the whole patient portal.
+//   * portal_doctor_cases.ejs, portal_doctor_earnings.ejs and
+//     portal_doctor_case.ejs reference /icons/... — broken-image placeholders
+//     in the doctor empty states and Documents/Earnings panels.
+// The files were present on disk the whole time (public/fonts, public/icons).
+app.use('/fonts', express.static(path.join(__dirname, '..', 'public', 'fonts'), {
+  maxAge: '1y',
+  immutable: true
+}));
+app.use('/icons', express.static(path.join(__dirname, '..', 'public', 'icons'), {
+  maxAge: '7d'
+}));
 app.use('/styles.css', express.static(path.join(__dirname, '..', 'public', 'styles.css')));
 app.use('/favicon.ico', express.static(path.join(__dirname, '..', 'public', 'favicon.ico')));
 app.use('/favicon.svg', express.static(path.join(__dirname, '..', 'public', 'assets', 'favicon.svg')));
+// AUDIT-P0-5 — partials/patient/head.ejs asks for /apple-touch-icon.png and
+// /site.webmanifest at the public root; neither had a mount.
+app.use('/apple-touch-icon.png', express.static(path.join(__dirname, '..', 'public', 'apple-touch-icon.png')));
+app.use('/site.webmanifest', express.static(path.join(__dirname, '..', 'public', 'site.webmanifest')));
 app.use('/annotator.html', express.static(path.join(__dirname, '..', 'public', 'annotator.html')));
 
 // ----------------------------------------------------
@@ -389,7 +408,13 @@ app.use(function(req, res, next) {
       // relaxes the eval() *function*. Tracked for migration to Uploadcare Blocks
       // v1.x (CSP-strict compatible) in a follow-up.
       "script-src 'self' 'unsafe-eval' 'nonce-" + nonce + "' https://ucarecdn.com https://cdn.jsdelivr.net https://media.twiliocdn.com https://unpkg.com",
-      "connect-src 'self' https://upload.uploadcare.com https://api.uploadcare.com https://ucarecdn.com",
+      // AUDIT-P0-5 — Twilio Video added. media.twiliocdn.com was already in
+      // script-src so the SDK loaded, and the token fetch is same-origin so it
+      // succeeded — but Twilio.Video.connect() opens a WebSocket to
+      // wss://global.vss.twilio.com and an HTTPS call to ecs.*.twilio.com, both
+      // governed by connect-src. Every paid video consultation rendered its UI
+      // and then failed at connect time, looking like a Twilio outage.
+      "connect-src 'self' https://upload.uploadcare.com https://api.uploadcare.com https://ucarecdn.com https://*.twilio.com wss://*.twilio.com",
       "frame-src 'self' https://uploadcare.com https://ucarecdn.com",
     ].join('; ');
 
@@ -689,11 +714,39 @@ app.use('/', setupVerifyRoutes({
   CSRF_MODE: CSRF_MODE, safeAll: safeAll, safeGet: safeGet, tableExists: tableExists
 }));
 
+// AUDIT-TZ-1 — the JS half of the clock contract. Every SLA deadline in this
+// codebase is written as a JS .toISOString() (UTC) into a `timestamp WITHOUT
+// time zone` column, and src/pg.js pins the DB session to UTC so SQL-side
+// comparisons agree. If the NODE process is not also UTC, the JS-side halves
+// (secondsUntilDeadline, sla_status.js, the doctor countdown) drift by the
+// process offset and the two halves disagree again. Render defaults to UTC;
+// this makes it explicit rather than inherited, and must run before anything
+// constructs a Date.
+if (process.env.TZ && process.env.TZ !== 'UTC') {
+  logMajor('[tz] WARNING: TZ=' + process.env.TZ + ' — forcing UTC. SLA maths assumes a UTC process.');
+}
+process.env.TZ = 'UTC';
+
 // Database initialization
 var _dbReady = (async function initDatabase() {
   try {
     await migrate();
     logMajor('Database migration complete');
+
+    // AUDIT-TZ-1 — report the clock contract at boot so nobody has to open a
+    // psql session to answer "is the deadline skew fixed on this deploy?".
+    // Both values must read UTC. A non-UTC TimeZone here means the SET in
+    // src/pg.js did not take, and every SLA deadline on that instance is
+    // skewed by the difference.
+    try {
+      const { rows: tzRows } = await pool.query('SHOW TimeZone');
+      const dbTz = tzRows && tzRows[0] ? (tzRows[0].TimeZone || tzRows[0].timezone) : 'unknown';
+      const nodeTz = Intl.DateTimeFormat().resolvedOptions().timeZone || process.env.TZ;
+      logMajor('[tz] db=' + dbTz + ' node=' + nodeTz +
+               (String(dbTz).toUpperCase() === 'UTC' ? ' (ok)' : ' (SKEWED — SLA deadlines are wrong on this instance)'));
+    } catch (tzErr) {
+      logMajor('[tz] could not read session TimeZone: ' + tzErr.message);
+    }
   } catch (err) {
     logFatal('DB migrate failed — refusing to start', err);
     process.exit(1);
@@ -903,7 +956,10 @@ app.use('/', superadminRoutes);
 app.use('/', exportRoutes);
 app.use('/', adminRoutes);
 app.use('/', publicOrdersRoutes);
-app.use('/', intakeRoutes);
+// AUDIT-P0-7: routes/intake.js unmounted and deleted — orphaned guest
+// funnel with its own 72h/24h SLA map (contradicting the 48/18/4 policy)
+// and its own deadline_at-at-creation semantics, which produced phantom
+// breaches on unpaid cases. The canonical funnel is the patient wizard.
 app.use('/', orderFlowRoutes);
 app.use('/payments', paymentRoutes);
 app.use('/', videoRoutes);
@@ -1108,6 +1164,12 @@ var SLA_ENFORCEMENT_INTERVAL_MS = Number(process.env.SLA_ENFORCEMENT_INTERVAL_MS
 // SIGTERM hits the 10s force-exit timer on every Render redeploy because
 // every worker except slaSweepIntervalId pinned the event loop.
 var intervalIds = [];
+// AUDIT-P1-4 — node-cron task registry. intervalIds only holds setInterval
+// handles; the four cron.schedule() tasks below were never captured and never
+// .stop()ed, and node-cron keeps its own timers alive without unref. Every
+// SIGTERM therefore hit the 10s force-exit path in gracefulShutdown, so every
+// Render redeploy reported as a failed shutdown.
+var cronTasks = [];
 // Track the IG scheduler instance for shutdown cleanup (it owns its own
 // interval inside instagram/scheduler.js and exposes a .stop() method).
 var igSchedulerInstance = null;
@@ -1137,11 +1199,17 @@ async function runSlaEnforcementSweep(source) {
     // (registered via pg-boss) is the canonical SLA sweep path.
     try { await runSlaReminderJob(); } catch (err) { logFatal('SLA reminder job error', err); }
     try { await dispatchUnpaidCaseReminders(); } catch (err) { logFatal('Unpaid reminder sweep error', err); }
-    try {
-      if (typeof caseLifecycle.sweepExpiredDoctorAccepts === 'function') {
-        await caseLifecycle.sweepExpiredDoctorAccepts();
-      }
-    } catch (err) { logFatal('Doctor accept sweep failed', err); }
+    // AUDIT-P0-2b — caseLifecycle.sweepExpiredDoctorAccepts removed.
+    // It selected exactly the same rows as case_sla_worker.handleDoctorTimeout
+    // (doctor_assignments WHERE completed_at IS NULL AND accept_by_at < now)
+    // and raced it, but picked the replacement via pickNextAvailableDoctor —
+    // `role='doctor' ... ORDER BY RANDOM()`, with no specialty, pause,
+    // approval, onboarding or service filter. Whichever sweep won the race
+    // decided whether a case went to a matched specialist or to a paused,
+    // unapproved doctor in the wrong discipline. This is the same reasoning
+    // that already removed the inline pickNextAvailableDoctor call from
+    // markSlaBreach (see case_lifecycle.js, B11). handleDoctorTimeout, which
+    // routes through findAlternateDoctor, is now the single owner.
     try { logVerbose('[SLA] enforcement sweep ran (' + srcLabel + ')'); } catch (e) {}
   } catch (err) {
     logFatal('SLA enforcement sweep failed', err);
@@ -1248,9 +1316,9 @@ _dbReady.then(async function() {
     try {
       var cron = require('node-cron');
       var runAppointmentReminders = require('./jobs/appointment_reminders').runAppointmentReminders;
-      cron.schedule('*/15 * * * *', function() {
+      cronTasks.push(cron.schedule('*/15 * * * *', function() {
         try { runAppointmentReminders(); } catch (_) {}
-      });
+      }));
       logMajor('Appointment reminder cron registered (every 15 min, primary-only)');
     } catch (cronErr) {
       logMajor('Appointment reminder cron registration failed: ' + cronErr.message);
@@ -1264,9 +1332,9 @@ _dbReady.then(async function() {
     try {
       var whatsappHealthCron = require('node-cron');
       var checkWhatsAppHealth = require('./jobs/whatsapp_health_check').checkWhatsAppHealth;
-      whatsappHealthCron.schedule('*/15 * * * *', function() {
+      cronTasks.push(whatsappHealthCron.schedule('*/15 * * * *', function() {
         try { checkWhatsAppHealth(); } catch (_) {}
-      });
+      }));
       logMajor('WhatsApp 401-detector cron registered (every 15 min, primary-only)');
     } catch (waHealthErr) {
       logMajor('WhatsApp health cron registration failed: ' + waHealthErr.message);
@@ -1280,9 +1348,9 @@ _dbReady.then(async function() {
     try {
       var errorRateCron = require('node-cron');
       var checkErrorRate = require('./jobs/error_rate_check').checkErrorRate;
-      errorRateCron.schedule('*/15 * * * *', function() {
+      cronTasks.push(errorRateCron.schedule('*/15 * * * *', function() {
         try { checkErrorRate(); } catch (_) {}
-      });
+      }));
       logMajor('Error-rate 5x cron registered (every 15 min, primary-only)');
     } catch (errRateErr) {
       logMajor('Error-rate cron registration failed: ' + errRateErr.message);
@@ -1292,7 +1360,7 @@ _dbReady.then(async function() {
     try {
       var campaignCron = require('node-cron');
       var processCampaign = require('./routes/campaigns').processCampaign;
-      campaignCron.schedule('*/5 * * * *', async function() {
+      cronTasks.push(campaignCron.schedule('*/5 * * * *', async function() {
         try {
           var now = new Date().toISOString();
           // B2 (April 29 audit): require human approval. Cron only fires
@@ -1337,7 +1405,7 @@ _dbReady.then(async function() {
             logMajor('[campaigns] Triggered ' + scheduled.length + ' scheduled campaign(s)');
           }
         } catch (_) {}
-      });
+      }));
       logMajor('Campaign scheduler cron registered (every 5 min, primary-only)');
     } catch (campaignCronErr) {
       logMajor('Campaign scheduler cron registration failed: ' + campaignCronErr.message);
@@ -1459,6 +1527,20 @@ function gracefulShutdown(signal) {
     intervalIds.length = 0;
   } catch (e) {}
 
+  // AUDIT-P1-4 — stop the node-cron tasks. These are not setInterval handles,
+  // so the loop above never touched them, and node-cron keeps its own timers
+  // alive: the event loop never drained and every shutdown hit the 10s
+  // force-exit above.
+  try {
+    for (var ci2 = 0; ci2 < cronTasks.length; ci2++) {
+      try {
+        var task = cronTasks[ci2];
+        if (task && typeof task.stop === 'function') task.stop();
+      } catch (_) {}
+    }
+    cronTasks.length = 0;
+  } catch (e) {}
+
   // Theme 6 §4-A — stop the Instagram scheduler if it was started.
   try {
     if (igSchedulerInstance && typeof igSchedulerInstance.stop === 'function') {
@@ -1474,12 +1556,18 @@ function gracefulShutdown(signal) {
     if (typeof stopMacMiniProbe === 'function') stopMacMiniProbe();
   } catch (e) {}
 
-  // Stop pg-boss job queue
-  try { stopJobQueue(); } catch (e) {}
+  // Stop pg-boss job queue.
+  // AUDIT-P1-4: was fire-and-forget, so pg-boss's graceful drain never got a
+  // chance to finish before process.exit. Chain the close on it instead.
+  var jobQueueStopped;
+  try { jobQueueStopped = Promise.resolve(stopJobQueue()); }
+  catch (e) { jobQueueStopped = Promise.resolve(); }
+  jobQueueStopped = jobQueueStopped.catch(function () { /* never block shutdown */ });
 
   var server = module.exports._server;
   if (server) {
     server.close(async function() {
+      try { await jobQueueStopped; } catch (e) {}
       try { if (pool && typeof pool.end === 'function') await pool.end(); } catch (e) { logFatal('Error closing DB pool during shutdown', e); }
       logMajor('Graceful shutdown complete');
       process.exit(0);
@@ -1583,9 +1671,12 @@ async function seedDemoData() {
       }
 
       if (tableExists('order_additional_files')) {
-        var INSERT_ADDL_FILE_SQL = 'INSERT INTO order_additional_files (id, order_id, url, label, uploaded_by, created_at) VALUES ($1, $2, $3, $4, $5, $6)';
-        await client.query(INSERT_ADDL_FILE_SQL, [randomUUID(), inReviewOrderId, 'uploads/demo/patient-notes.pdf', 'Patient Notes', patientId, inReviewCreated.toISOString()]);
-        await client.query(INSERT_ADDL_FILE_SQL, [randomUUID(), breachedOrderId, 'uploads/demo/previous-scans.pdf', 'Previous Scans', patientId, breachedCreated.toISOString()]);
+        // AUDIT-P1-2: order_additional_files has file_url / label / uploaded_at and
+        // no uploaded_by. The old column list aborted the whole SEED_DEMO_DATA
+        // transaction, so staging never got its demo fixtures.
+        var INSERT_ADDL_FILE_SQL = 'INSERT INTO order_additional_files (id, order_id, file_url, label, uploaded_at) VALUES ($1, $2, $3, $4, $5)';
+        await client.query(INSERT_ADDL_FILE_SQL, [randomUUID(), inReviewOrderId, 'uploads/demo/patient-notes.pdf', 'Patient Notes', inReviewCreated.toISOString()]);
+        await client.query(INSERT_ADDL_FILE_SQL, [randomUUID(), breachedOrderId, 'uploads/demo/previous-scans.pdf', 'Previous Scans', breachedCreated.toISOString()]);
       }
 
       if (tableExists('notifications')) {

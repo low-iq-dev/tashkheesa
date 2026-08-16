@@ -60,6 +60,53 @@ const pool = new Pool({
 // it only when the underlying socket is recreated). Failure to SET is
 // logged but non-fatal — the connection still works, just without the cap.
 pool.on('connect', function (client) {
+  // AUDIT-TZ-1 — SET TIME ZONE 'UTC' is the single most load-bearing line in
+  // this file. Read the whole comment before changing it.
+  //
+  // orders.deadline_at / sla_deadline / acceptance_deadline_at / accepted_at /
+  // completed_at / breached_at are `TIMESTAMP` — WITHOUT time zone (see
+  // migrations 001, 010, 080). Every application write to them is a JS
+  // `.toISOString()` string, i.e. UTC wall clock; PostgreSQL stores a naive
+  // column by DISCARDING the offset, so the digits on disk are UTC.
+  //
+  // The session TimeZone, however, was never pinned — it inherited the server
+  // role default, which on production is Africa/Cairo (UTC+2, or UTC+3 under
+  // DST). So `deadline_at <= NOW()::timestamp` (case_sla_worker.js,
+  // case_lifecycle.js) compared UTC digits against a CAIRO wall clock, and
+  // every deadline looked 2-3 hours further into the past than it was.
+  //
+  // Measured consequences, all live before this line existed:
+  //   * The SLA breach sweep selected cases ~3h early. handleBreach then
+  //     reassigned the case and clawed the original doctor back to 10%
+  //     partial pay for an SLA they had NOT missed.
+  //   * Acceptance windows are 10 / 60 / 240 minutes — ALL shorter than the
+  //     skew — so acceptance_watcher saw every broadcast order as already
+  //     expired on the first 2-minute tick. The doctor broadcast/accept
+  //     handshake never actually ran.
+  //   * Doctor queue and admin dashboards understated remaining time by 3h,
+  //     and disagreed with the patient-facing countdown (which is computed in
+  //     JS on the same rows and was always right).
+  //   * Where the JS re-check in markSlaBreach fell through (accepted_at or
+  //     sla_hours NULL), issueBreachRefund opened a real refund obligation 3h
+  //     early.
+  //
+  // Pinning the SESSION to UTC makes NOW()::timestamp produce UTC wall clock,
+  // which is exactly what the writes put on disk. Both worlds agree.
+  //
+  // Deliberately chosen over converting the columns to timestamptz: this is
+  // one line, needs no data migration, is instantly reversible, and is a
+  // NO-OP if the database was already UTC. The column-type migration is the
+  // right long-term fix and is tracked separately — but it has to reckon with
+  // the handful of columns written by SQL-side NOW() (created_at, updated_at,
+  // reassigned_at), which hold Cairo digits and would need a different USING
+  // clause from the JS-written ones. Do not attempt it in a hotfix.
+  //
+  // Node itself must also be UTC for the JS-side halves to agree — see the
+  // assertion in src/server.js.
+  client.query("SET TIME ZONE 'UTC'").catch(function (err) {
+    logMajor('[pg] FAILED to SET TIME ZONE UTC on new client: ' + err.message +
+             ' — SLA deadlines on this connection will be skewed by the DB default offset');
+  });
   client.query('SET statement_timeout = ' + PG_STATEMENT_TIMEOUT_MS).catch(function (err) {
     logMajor('[pg] failed to SET statement_timeout on new client: ' + err.message);
   });
@@ -136,16 +183,31 @@ async function execute(sql, params = []) {
  */
 async function withTransaction(fn) {
   const client = await pool.connect();
+  let released = false;
   try {
     await client.query('BEGIN');
     const result = await fn(client);
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    await client.query('ROLLBACK');
+    // AUDIT-P1-4: a failing ROLLBACK used to (a) replace the original error and
+    // (b) still release the client back to the pool. node-pg does not reset a
+    // released connection, so a client left inside an aborted transaction was
+    // handed to the next borrower, who got "current transaction is aborted,
+    // commands ignored until end of transaction block" — and the real cause was
+    // already lost. Swallow the rollback failure, keep the original error, and
+    // pass it to release() so the pool DESTROYS the connection instead of
+    // reusing it.
+    let rollbackFailed = null;
+    try { await client.query('ROLLBACK'); }
+    catch (rollbackErr) { rollbackFailed = rollbackErr; }
+    if (rollbackFailed) {
+      try { client.release(rollbackFailed); } catch (_) {}
+      released = true;
+    }
     throw err;
   } finally {
-    client.release();
+    if (!released) client.release();
   }
 }
 
