@@ -2046,6 +2046,23 @@ module.exports = function (db, helpers, deploy, deps) {
   // notEmpty + Expo format), but this is superadmin-gated and does NOT touch
   // that patient route. requireJWT + requireRole('superadmin') inherited gate.
   router.post('/push-token', async (req, res) => {
+    // AUDIT-P1-5 — an explicit null clears the registration.
+    //
+    // The Command app had no way to unregister, and logout() cleared only the
+    // local tokens. users.push_token therefore kept pointing at a signed-out
+    // device, and middleware/push.notifySuperadmins (fired by
+    // services/worker_watchdog) kept pushing production worker-down alerts to
+    // whoever now held that phone.
+    if (req.body && req.body.token === null) {
+      try {
+        await safeRun('UPDATE users SET push_token = NULL WHERE id = $1', [req.user.id]);
+        return res.ok({ message: 'Push token cleared' });
+      } catch (err) {
+        console.error('[admin/push-token] clear failed:', err && err.message);
+        return res.fail('Failed to clear push token', 500, 'PUSH_TOKEN_ERROR');
+      }
+    }
+
     const token = req.body && typeof req.body.token === 'string' ? req.body.token.trim() : '';
     if (!token) {
       return res.fail('Push token required', 400, 'INVALID_PUSH_TOKEN');
@@ -2060,6 +2077,77 @@ module.exports = function (db, helpers, deploy, deps) {
     } catch (err) {
       console.error('[admin/push-token] failed:', err && err.message);
       return res.fail('Failed to register push token', 500, 'PUSH_TOKEN_ERROR');
+    }
+  });
+
+  // ─── GET /files/:fileId (Bearer-authenticated case-file download) ──────────
+  //
+  // AUDIT-P1-5 — the Command app's lib/files.ts fetched
+  // `${ROOT_BASE}/files/:id` with an Authorization: Bearer header, but that
+  // root route (server.js) reads req.user from the SESSION COOKIE only — it
+  // never looks at the Authorization header. With no cookie, req.user was null
+  // and the route 302'd to /login?next=... . React Native's fetch follows
+  // redirects, so res.ok came back true and Linking.openURL() opened the
+  // portal's LOGIN PAGE instead of the patient's scan, with no error raised
+  // anywhere. The comments at lib/files.ts and in the case-detail handler both
+  // asserted the route was "superadmin-gated"; it is not, it is cookie-gated.
+  //
+  // This is the Bearer-authenticated equivalent, inheriting the router-level
+  // requireJWT + requireRole('superadmin') gate. Superadmins can already read
+  // every case file through the portal, so this adds no new authority — it
+  // only makes that authority reachable with a token instead of a cookie.
+  router.get('/files/:fileId', async (req, res) => {
+    const fileId = String(req.params.fileId || '').trim();
+    if (!fileId) return res.fail('Missing file id', 400, 'INVALID_FILE_ID');
+
+    let key = '';
+    let url = '';
+    let label = '';
+
+    // Same three-table lookup order as server.js /files/:fileId.
+    const ofRow = await safeGet('SELECT id, url, label FROM order_files WHERE id = $1 LIMIT 1', [fileId], null);
+    if (ofRow) {
+      url = String(ofRow.url || '').trim();
+      label = ofRow.label || '';
+    } else {
+      const adfRow = await safeGet(
+        'SELECT id, file_url, file_key, label FROM order_additional_files WHERE id = $1 LIMIT 1',
+        [fileId], null
+      );
+      if (adfRow) {
+        url = String(adfRow.file_url || '').trim();
+        key = String(adfRow.file_key || '').trim();
+        label = adfRow.label || '';
+      } else {
+        const msgRow = await safeGet(
+          'SELECT id, file_url, file_key, file_name FROM messages WHERE id = $1 AND (file_url IS NOT NULL OR file_key IS NOT NULL) LIMIT 1',
+          [fileId], null
+        );
+        if (msgRow) {
+          url = String(msgRow.file_url || '').trim();
+          key = String(msgRow.file_key || '').trim();
+          label = msgRow.file_name || '';
+        }
+      }
+    }
+
+    // Legacy rows store a full HTTP URL; newer rows store an R2 key.
+    if (!key && /^https?:\/\//i.test(url)) {
+      return res.ok({ url, name: label || null });
+    }
+    const objectKey = key || url;
+    if (!objectKey) return res.fail('File not found', 404, 'FILE_NOT_FOUND');
+
+    try {
+      const { getSignedDownloadUrl } = require('../../storage');
+      const signed = await getSignedDownloadUrl(objectKey, 3600, { downloadName: label || undefined });
+      // Returns the URL in the standard envelope rather than 302-ing, so the
+      // app can hand a real, resolvable URL to Linking.openURL and surface a
+      // proper error when there isn't one.
+      return res.ok({ url: signed, name: label || null });
+    } catch (err) {
+      console.error('[admin/files] signing failed:', err && err.message);
+      return res.fail('Could not prepare download', 500, 'FILE_SIGN_ERROR');
     }
   });
 
