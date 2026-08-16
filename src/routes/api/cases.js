@@ -517,8 +517,10 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     const { rating, comment } = req.body;
     const reviewId = randomUUID();
 
+    // AUDIT-P1-2: the reviews table column is review_text, not comment — this
+    // INSERT threw on every mobile review submission.
     await safeRun(`
-      INSERT INTO reviews (id, order_id, patient_id, doctor_id, rating, comment, created_at)
+      INSERT INTO reviews (id, order_id, patient_id, doctor_id, rating, review_text, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, NOW())
     `, [reviewId, caseData.id, req.user.id, caseData.doctor_id, rating, comment || null]);
 

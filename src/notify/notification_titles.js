@@ -65,6 +65,10 @@ const TEMPLATE_TITLES = {
   case_auto_deleted_unpaid_patient: { en: 'Case removed', ar: 'تم حذف الحالة' },
   payment_success_patient: { en: 'Payment confirmed — case in motion', ar: 'تم تأكيد الدفع — تشخيصة بدأت العمل' },
   payment_success_doctor: { en: 'Payment received', ar: 'تم استلام الدفع' },
+  // AUDIT-P1-2: chat-moderation conduct warning (routes/admin.js,
+  // routes/superadmin.js). Previously written with a column list the
+  // notifications table does not have, so it never reached the bell at all.
+  chat_conduct_warning: { en: 'Chat conduct warning', ar: 'تنبيه بخصوص آداب المحادثة' },
   payment_marked_paid_patient: { en: 'Payment confirmed — case in motion', ar: 'تم تأكيد الدفع — تشخيصة بدأت العمل' },
   payment_marked_paid: { en: 'Payment confirmed', ar: 'تم تأكيد الدفع' },
   payment_failed_patient: { en: "Payment didn't go through — let's try again", ar: 'لم تتم عملية الدفع — لنحاول مرة أخرى' },

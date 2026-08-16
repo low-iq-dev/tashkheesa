@@ -1617,9 +1617,12 @@ async function seedDemoData() {
       }
 
       if (tableExists('order_additional_files')) {
-        var INSERT_ADDL_FILE_SQL = 'INSERT INTO order_additional_files (id, order_id, url, label, uploaded_by, created_at) VALUES ($1, $2, $3, $4, $5, $6)';
-        await client.query(INSERT_ADDL_FILE_SQL, [randomUUID(), inReviewOrderId, 'uploads/demo/patient-notes.pdf', 'Patient Notes', patientId, inReviewCreated.toISOString()]);
-        await client.query(INSERT_ADDL_FILE_SQL, [randomUUID(), breachedOrderId, 'uploads/demo/previous-scans.pdf', 'Previous Scans', patientId, breachedCreated.toISOString()]);
+        // AUDIT-P1-2: order_additional_files has file_url / label / uploaded_at and
+        // no uploaded_by. The old column list aborted the whole SEED_DEMO_DATA
+        // transaction, so staging never got its demo fixtures.
+        var INSERT_ADDL_FILE_SQL = 'INSERT INTO order_additional_files (id, order_id, file_url, label, uploaded_at) VALUES ($1, $2, $3, $4, $5)';
+        await client.query(INSERT_ADDL_FILE_SQL, [randomUUID(), inReviewOrderId, 'uploads/demo/patient-notes.pdf', 'Patient Notes', inReviewCreated.toISOString()]);
+        await client.query(INSERT_ADDL_FILE_SQL, [randomUUID(), breachedOrderId, 'uploads/demo/previous-scans.pdf', 'Previous Scans', breachedCreated.toISOString()]);
       }
 
       if (tableExists('notifications')) {

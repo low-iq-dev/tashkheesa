@@ -2720,9 +2720,18 @@ router.post('/admin/chat-moderation/:reportId/resolve', requireAdmin, async func
         const flaggedMsg = await safeGet('SELECT sender_id FROM messages WHERE id = $1', [report.message_id], null);
         if (flaggedMsg) {
           await execute(`
-            INSERT INTO notifications (id, user_id, type, title, message, created_at)
-            VALUES ($1, $2, 'chat_warning', 'Chat Conduct Warning', 'Your message was reported and reviewed by our team. Please maintain professional conduct in all communications.', NOW())
-          `, [randomUUID(), flaggedMsg.sender_id]);
+            -- AUDIT-P1-2: the notifications table has to_user_id and at.
+            -- There is no user_id and no created_at column, so this INSERT
+            -- threw on every warn action — and both call sites wrapped it in a
+            -- bare catch(_){} with no logging. The report was marked resolved,
+            -- the mute applied, and the warned user was never notified, with
+            -- zero signal anywhere.
+            INSERT INTO notifications (id, to_user_id, channel, template, status, response, at)
+            VALUES ($1, $2, 'internal', 'chat_conduct_warning', 'queued', $3, NOW())
+          `, [randomUUID(), flaggedMsg.sender_id, JSON.stringify({
+            title: 'Chat Conduct Warning',
+            message: 'Your message was reported and reviewed by our team. Please maintain professional conduct in all communications.'
+          })]);
         }
       }
     } catch(_) {}
