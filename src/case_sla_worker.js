@@ -29,6 +29,13 @@ let workerStarted = false;
 // Removed in a follow-up cleanup PR after 30 days of stable behaviour.
 const ACTIVE_STATUSES = ['assigned', 'in_review', 'awaiting_files', 'rejected_files', 'sla_breach'];
 
+// Local lowercase normaliser — case_lifecycle's canonical statuses are
+// UPPERCASE but legacy rows and some call sites are not. Kept local so this
+// worker does not grow another import cycle with case_lifecycle.
+function normalizeStatusLocal(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
 function normalizeSpecialtyId(value) {
   if (value === null || value === undefined) return null;
   const normalized = String(value).trim().toLowerCase();
@@ -187,11 +194,28 @@ function logNoAlternateDoctor({ candidate, selection, trigger }) {
 }
 
 async function fetchSlaCandidates() {
-  // Use server-side NOW()::timestamp rather than a parameterized ISO-Z
-  // string. With Africa/Cairo session TZ on prod Supabase, the param
-  // form applies a TZ offset to the implicit timestamp coercion and
-  // silently filters out rows past deadline by less than the offset
-  // (~3h). Mirrors the fix in sweepSlaBreaches (commit f8b11c0).
+  // AUDIT-TZ-1 — CORRECTION. This comment used to claim the parameterized
+  // ISO-Z form was the buggy one and NOW()::timestamp the fix (commit f8b11c0).
+  // That is backwards, and it made the problem worse.
+  //
+  // deadline_at is `timestamp WITHOUT time zone` and EVERY application write
+  // to it is a JS .toISOString() — so the digits on disk are UTC. The ISO-Z
+  // param compared UTC against UTC and was CORRECT. NOW()::timestamp yields the
+  // SESSION's wall clock, which on prod was Africa/Cairo, so this comparison
+  // read every deadline as 2-3h further past than it was and selected cases
+  // that were not remotely due.
+  //
+  // The idiom is now safe because src/pg.js pins every session to UTC — read
+  // the comment there before touching either. It is left as NOW()::timestamp
+  // rather than reverted so there is exactly one clock in play (the DB's)
+  // instead of two that have to be kept in agreement.
+  //
+  // NOTE for whoever picks up P3-WORKER-48 in
+  // docs/audits/COMPREHENSIVE_PRE_LAUNCH_AUDIT_2026-05-06.md: that ticket asks
+  // for this idiom to be copied to sla_watcher / runSlaReminderJob /
+  // appointment_reminders on the strength of the wrong comment above. With the
+  // session pinned it is harmless, but it is not a fix and it was never the
+  // reason anything worked.
   //
   // AUDIT-P0-4 — `sla_paused_at IS NULL` added here and in
   // fetchPreBreachCandidates. SCAN_STATUSES includes REJECTED_FILES, and
@@ -353,7 +377,30 @@ async function handleBreach(candidate) {
   // UnhandledRejection. Also ensures the breach is recorded before the
   // reassignCase calls below — without await, the reassignment can race
   // ahead of the breach mark.
-  await markSlaBreach(candidate.case_id);
+  const breached = await markSlaBreach(candidate.case_id);
+
+  // AUDIT-TZ-2 — markSlaBreach has three guards that DECLINE to breach: the
+  // acceptance-based deadline has not actually passed, the case is unpaid, or
+  // the case is already terminal. Each returns the case untouched. This
+  // function ignored the return value and reassigned UNCONDITIONALLY, so a
+  // case the guard had just protected was still stripped from its doctor —
+  // and reassignCase → markPartialPayOnReassignment clawed that doctor back to
+  // 10% partial pay for an SLA they had not missed.
+  //
+  // Under the Cairo/UTC skew (see src/pg.js) the sweep selected every case ~3h
+  // early, so the not-yet-due guard fired constantly and this was the common
+  // path, not the edge case. Pinning the session to UTC stops the early
+  // selection; this stops the wrongful reassignment even if a candidate
+  // reaches here by some other route.
+  if (!breached || normalizeStatusLocal(breached.status) !== 'sla_breach') {
+    logCaseEvent(candidate.case_id, 'SLA_BREACH_DECLINED', {
+      reason: 'not_breached_on_recheck',
+      status: breached ? breached.status : null,
+      trigger: 'sla_sweep'
+    });
+    return 0;
+  }
+
   const selection = await findAlternateDoctor({
     specialtyId: candidate.specialty_id,
     excludeDoctorId: candidate.doctor_id,

@@ -714,11 +714,39 @@ app.use('/', setupVerifyRoutes({
   CSRF_MODE: CSRF_MODE, safeAll: safeAll, safeGet: safeGet, tableExists: tableExists
 }));
 
+// AUDIT-TZ-1 — the JS half of the clock contract. Every SLA deadline in this
+// codebase is written as a JS .toISOString() (UTC) into a `timestamp WITHOUT
+// time zone` column, and src/pg.js pins the DB session to UTC so SQL-side
+// comparisons agree. If the NODE process is not also UTC, the JS-side halves
+// (secondsUntilDeadline, sla_status.js, the doctor countdown) drift by the
+// process offset and the two halves disagree again. Render defaults to UTC;
+// this makes it explicit rather than inherited, and must run before anything
+// constructs a Date.
+if (process.env.TZ && process.env.TZ !== 'UTC') {
+  logMajor('[tz] WARNING: TZ=' + process.env.TZ + ' — forcing UTC. SLA maths assumes a UTC process.');
+}
+process.env.TZ = 'UTC';
+
 // Database initialization
 var _dbReady = (async function initDatabase() {
   try {
     await migrate();
     logMajor('Database migration complete');
+
+    // AUDIT-TZ-1 — report the clock contract at boot so nobody has to open a
+    // psql session to answer "is the deadline skew fixed on this deploy?".
+    // Both values must read UTC. A non-UTC TimeZone here means the SET in
+    // src/pg.js did not take, and every SLA deadline on that instance is
+    // skewed by the difference.
+    try {
+      const { rows: tzRows } = await pool.query('SHOW TimeZone');
+      const dbTz = tzRows && tzRows[0] ? (tzRows[0].TimeZone || tzRows[0].timezone) : 'unknown';
+      const nodeTz = Intl.DateTimeFormat().resolvedOptions().timeZone || process.env.TZ;
+      logMajor('[tz] db=' + dbTz + ' node=' + nodeTz +
+               (String(dbTz).toUpperCase() === 'UTC' ? ' (ok)' : ' (SKEWED — SLA deadlines are wrong on this instance)'));
+    } catch (tzErr) {
+      logMajor('[tz] could not read session TimeZone: ' + tzErr.message);
+    }
   } catch (err) {
     logFatal('DB migrate failed — refusing to start', err);
     process.exit(1);

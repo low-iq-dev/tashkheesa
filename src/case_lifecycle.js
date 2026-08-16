@@ -1705,12 +1705,12 @@ async function sweepSlaBreaches() {
 
   let candidates;
   try {
-    // deadline_at is timestamp without time zone. Comparing it to a
-    // parameterized ISO-with-Z string does the wrong thing once you mix
-    // in the pg session timezone (Africa/Cairo on prod) — the cast
-    // semantics shift the wall-clock by the session offset and rows
-    // get silently filtered out. Use NOW() directly so the comparison
-    // is timezone-symmetric within pg.
+    // AUDIT-TZ-1 — CORRECTION, see the long note in
+    // case_sla_worker.js fetchSlaCandidates and src/pg.js. The claim that the
+    // ISO-Z param was wrong is backwards: deadline_at holds UTC digits (every
+    // write is a JS .toISOString()), so the param form was right and
+    // NOW()::timestamp was reading a Cairo wall clock against them, selecting
+    // cases ~3h early. Safe now only because src/pg.js pins the session to UTC.
     candidates = await queryAll(
       `SELECT o.id AS case_id
          FROM ${CASE_TABLE} o

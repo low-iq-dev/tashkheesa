@@ -257,3 +257,72 @@ try {
   }
   t.pass('payment webhooks derive outcome from HMAC-signed fields only');
 } catch (e) { t.fail('payment webhook signed-field guard', e); }
+
+// ── 6. The clock contract: DB session and Node process are both UTC ───────
+//
+// Real instance, found 2026-08-16. orders.deadline_at / sla_deadline /
+// acceptance_deadline_at are `timestamp WITHOUT time zone`, and every write to
+// them is a JS .toISOString() — so the digits on disk are UTC. The pg session
+// TimeZone was never pinned and inherited the prod role default, Africa/Cairo
+// (UTC+2, +3 under DST). `deadline_at <= NOW()::timestamp` therefore compared
+// UTC digits against a Cairo wall clock and read every deadline as 2-3h
+// further past than it was.
+//
+// Live consequences: the SLA sweep breached and reassigned cases ~3h early and
+// clawed the original doctor back to 10% partial pay for an SLA they had not
+// missed; acceptance windows (10/60/240 min — all shorter than the skew) were
+// expired the instant they were written, so the doctor broadcast/accept
+// handshake never ran at all; and where markSlaBreach's JS re-check fell
+// through, issueBreachRefund opened a real refund obligation 3h early.
+//
+// Two halves, both required. Remove either and the skew comes straight back.
+try {
+  const pgSrc = fs.readFileSync(path.join(SRC, 'pg.js'), 'utf8');
+  if (!/SET TIME ZONE\s+'UTC'/i.test(pgSrc)) {
+    throw new Error(
+      "src/pg.js no longer pins the session with SET TIME ZONE 'UTC'. Every " +
+      'deadline_at comparison in case_sla_worker.js and case_lifecycle.js uses ' +
+      'NOW()::timestamp, which is the SESSION wall clock; the column holds UTC ' +
+      'digits. Without the pin they disagree by the DB default offset and cases ' +
+      'breach early.'
+    );
+  }
+  if (!/pool\.on\(\s*['"]connect['"]/.test(pgSrc)) {
+    throw new Error('src/pg.js SET TIME ZONE is no longer applied per-connection — a pooled client can escape it');
+  }
+
+  const srvSrc = fs.readFileSync(path.join(SRC, 'server.js'), 'utf8');
+  if (!/process\.env\.TZ\s*=\s*'UTC'/.test(srvSrc)) {
+    throw new Error(
+      'src/server.js no longer forces process.env.TZ = UTC. The JS-side halves ' +
+      '(secondsUntilDeadline, sla_status.js, the doctor countdown) build Dates ' +
+      'in process-local time and would drift from the DB by the process offset.'
+    );
+  }
+  t.pass('clock contract: DB session pinned to UTC and Node process forced to UTC');
+} catch (e) { t.fail('timezone clock contract', e); }
+
+// ── 7. SLA breach reassignment only fires when a breach was actually recorded
+//
+// markSlaBreach declines to breach in three cases (deadline not actually
+// passed, case unpaid, case terminal) and returns the case untouched.
+// handleBreach ignored the return value and reassigned unconditionally, so a
+// case the guard had just protected was still stripped from its doctor and
+// that doctor was clawed back to 10% partial pay.
+try {
+  const wSrc = fs.readFileSync(path.join(SRC, 'case_sla_worker.js'), 'utf8');
+  const fn = wSrc.slice(wSrc.indexOf('async function handleBreach'), wSrc.indexOf('async function handleDoctorTimeout'));
+  if (!fn) throw new Error('could not locate handleBreach');
+  if (!/=\s*await markSlaBreach\(/.test(fn)) {
+    throw new Error(
+      'handleBreach discards markSlaBreach\'s return value again. That return is ' +
+      'the ONLY signal that the breach was actually recorded rather than declined ' +
+      'by one of its three guards; without it, reassignCase runs on cases that ' +
+      'were never breached and partial-pays their doctor.'
+    );
+  }
+  if (!/sla_breach'\s*\)\s*\{[\s\S]{0,400}?return 0;/.test(fn) && !/return 0;/.test(fn)) {
+    throw new Error('handleBreach no longer has an early return for the not-breached path');
+  }
+  t.pass('SLA reassignment gated on a confirmed breach');
+} catch (e) { t.fail('breach-before-reassign guard', e); }
