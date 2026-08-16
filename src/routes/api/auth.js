@@ -8,7 +8,7 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { randomUUID, randomInt } = require('crypto');
-const { coerceCountry } = require('../../launch-market');
+const { coerceCountry, marketFromDialCode } = require('../../launch-market');
 // Lazy-load express-validator — top-level require takes ~120s (validator.js regex compilation)
 // and starves the DB connection pool timeout during boot.
 let _ev;
@@ -128,9 +128,14 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       const userId = randomUUID();
       const hashedPassword = await bcrypt.hash(password, 10);
 
+      // AUDIT-APP-H10: country_code is written alongside country. It was
+      // omitted here, so app-registered patients had a NULL country_code while
+      // web- and OTP-created ones did not — and the web session JWT
+      // (signUserToken) embeds country_code, so pricing resolved inconsistently
+      // depending on which surface created the account.
       await safeRun(`
-        INSERT INTO users (id, name, email, phone, password_hash, country, lang, role, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'patient', NOW())
+        INSERT INTO users (id, name, email, phone, password_hash, country, country_code, lang, role, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $6, $7, 'patient', NOW())
       `, [userId, name, email, normalizedPhone, hashedPassword, coerceCountry(country), lang || 'en']);
 
       const user = await safeGet('SELECT * FROM users WHERE id = $1', [userId]);
@@ -348,14 +353,23 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
 
       if (!user) {
         // Auto-create patient account from OTP login (signup-by-phone).
-        // country_code='EG' (not just country) keeps web/mobile-created patients
+        // country_code (not just country) keeps web/mobile-created patients
         // consistent — the web session JWT (signUserToken) embeds country_code.
+        //
+        // AUDIT-APP-H10: the market was HARDCODED 'EG' here, so every OTP
+        // signup — the app's primary signup path — became an Egyptian-market
+        // patient and was quoted EGP prices no matter where they were. Seed it
+        // from the dialling code they just verified against instead; the app
+        // sends the ISO explicitly on the password-register path, and this is
+        // the closest signal available on the OTP path. coerceCountry() clamps
+        // anything outside the 9 launch markets back to EG.
+        const seededCountry = coerceCountry(marketFromDialCode(countryCode));
         const userId = randomUUID();
         await safeRun(`
           INSERT INTO users (id, phone, role, country, country_code, lang, created_at)
-          VALUES ($1, $2, 'patient', 'EG', 'EG', 'en', NOW())
+          VALUES ($1, $2, 'patient', $3, $3, 'en', NOW())
           ON CONFLICT (phone) WHERE phone IS NOT NULL DO NOTHING
-        `, [userId, normalizedPhone]);
+        `, [userId, normalizedPhone, seededCountry]);
         user = await safeGet('SELECT * FROM users WHERE phone = $1', [normalizedPhone]);
       }
 

@@ -59,7 +59,15 @@ module.exports = function (db, { safeGet, safeRun }) {
     if (req.body.name) { updates.push(`name = $${paramIndex++}`); values.push(req.body.name); }
     if (req.body.email) { updates.push(`email = $${paramIndex++}`); values.push(req.body.email); }
     if (req.body.phone) { updates.push(`phone = $${paramIndex++}`); values.push(req.body.phone); }
-    if (req.body.country) { updates.push(`country = $${paramIndex++}`); values.push(coerceCountry(req.body.country)); }
+    // AUDIT-APP-H10: country_code moves with country. Pricing reads country_code
+    // on the web session path and country on the API path; letting them drift
+    // meant a patient who switched market saw one price list in the app and a
+    // different one in the portal.
+    if (req.body.country) {
+      const iso = coerceCountry(req.body.country);
+      updates.push(`country = $${paramIndex++}`); values.push(iso);
+      updates.push(`country_code = $${paramIndex++}`); values.push(iso);
+    }
     if (req.body.lang) { updates.push(`lang = $${paramIndex++}`); values.push(req.body.lang); }
 
     if (updates.length === 0) {

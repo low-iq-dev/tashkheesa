@@ -179,6 +179,18 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       [caseData.id]
     );
 
+    // AUDIT-APP-M5: whether this patient has already rated the case. The review
+    // endpoint has existed since launch with ZERO call sites in the app — there
+    // was no rating UI at all, so `reviews` is empty and doctor quality is
+    // unmeasurable. The app now renders the prompt on completed cases, and
+    // needs this flag to avoid offering it a second time (the POST 409s).
+    const review = await safeGet(
+      'SELECT id, rating FROM reviews WHERE order_id = $1 AND patient_id = $2',
+      [caseData.id, req.user.id]
+    );
+    caseData.hasReview = !!review;
+    caseData.reviewRating = review ? review.rating : null;
+
     caseData.paymentStatus = payment?.status || 'pending';
     caseData.paymentLink = payment?.paymentLink || null;
     caseData.timeline = timeline;
@@ -576,6 +588,19 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
           requestId: req.requestId
         });
         // Leave payment.paymentLink null — endpoint still returns 200.
+        //
+        // AUDIT-APP-C6: but tell the app WHY. The single most common mint
+        // failure is PATIENT_PROFILE_INCOMPLETE (OTP signup captures a phone
+        // and nothing else; Paymob's intention API requires a billing name and
+        // e-mail). Without a reason code the app rendered a generic "payment
+        // link unavailable" dead end for a condition the patient can fix in
+        // fifteen seconds. .fields lists exactly what is missing.
+        payment.paymentLinkError = mintErr && mintErr.code === 'PATIENT_PROFILE_INCOMPLETE'
+          ? 'PATIENT_PROFILE_INCOMPLETE'
+          : 'PAYMENT_LINK_UNAVAILABLE';
+        if (mintErr && Array.isArray(mintErr.fields)) {
+          payment.paymentLinkErrorFields = mintErr.fields;
+        }
       }
     }
 

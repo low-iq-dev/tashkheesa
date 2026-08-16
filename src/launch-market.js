@@ -29,4 +29,28 @@ function coerceCountry(code) {
   return LAUNCH_MARKETS.has(u) ? u : 'EG';
 }
 
-module.exports = { LAUNCH_MARKETS, isLaunchMarket, coerceCountry };
+// AUDIT-APP-H10: dialling code → ISO market. Used by the OTP signup path,
+// which has no explicit country field — the verified dialling code is the only
+// market signal available at account creation. Mirrors the app-side table in
+// constants/countries.ts; keep the two in sync. Codes that are not themselves
+// launch markets (+962 JO, +961 LB) intentionally return null so the caller
+// falls back rather than guessing.
+const DIAL_TO_ISO = {
+  '+20': 'EG',
+  '+966': 'SA',
+  '+971': 'AE',
+  '+965': 'KW',
+  '+974': 'QA',
+  '+973': 'BH',
+  '+968': 'OM',
+  '+44': 'GB',
+  '+1': 'US',
+};
+
+function marketFromDialCode(dialCode) {
+  const raw = String(dialCode || '').trim();
+  const key = raw.startsWith('+') ? raw : `+${raw.replace(/^0+/, '')}`;
+  return DIAL_TO_ISO[key] || null;
+}
+
+module.exports = { LAUNCH_MARKETS, isLaunchMarket, coerceCountry, marketFromDialCode };
