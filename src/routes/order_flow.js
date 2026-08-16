@@ -53,10 +53,23 @@ function getOrderIdFromReq(req) {
 // these routes are the older checkout. Gate the chain behind a logged-in patient
 // who owns the order — closing the anonymous surface WITHOUT touching the
 // pricing/urgency logic the payments batch relies on.
-const { requireRole } = require('../middleware');
-// AUDIT-P0-7: ensureOrderOwner removed with the /order/* funnel. It also
-// treated a NULL patient_id as authorised, which let any logged-in patient
-// read and mutate any unclaimed draft order.
+// AUDIT-P0-7 FOLLOW-UP (boot crash): requireAuth is imported HERE.
+//
+// It used to be imported far lower in the file, on the line immediately above
+// the two /api/cases/:id/intelligence routes that use it. Deleting the
+// /order/* funnel removed a contiguous block that happened to contain that
+// import line while leaving those two routes in place — so `requireAuth()` was
+// evaluated at module load with nothing bound to the name.
+//
+// The failure mode: ReferenceError thrown while server.js was requiring this
+// router, which kills the process before it listens. `node --check` cannot see
+// it (the file parses fine — the name is simply never declared), which is
+// exactly why it survived to a deploy.
+//
+// requireRole is kept even though the routes that used it went with the
+// funnel: middleware.js exports it, other files import it the same way, and
+// removing it here saves nothing.
+const { requireAuth, requireRole } = require('../middleware');
 
 // File upload middleware (memory storage — see src/middleware/upload.js).
 // File contents are pushed to Cloudflare R2 in attachFileToOrder() below.

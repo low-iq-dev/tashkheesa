@@ -374,3 +374,53 @@ try {
   }
   t.pass('acceptance window has one source of truth (urgent 15m / vip 45m / standard 2h)');
 } catch (e) { t.fail('acceptance window policy', e); }
+
+// ── 9. Every module actually LOADS ───────────────────────────────────────
+//
+// Real instance, and it took production down: deleting the /order/* funnel
+// removed a contiguous block of src/routes/order_flow.js that happened to
+// contain `var { requireAuth } = require('../middleware');`, while leaving the
+// two /api/cases/:id/intelligence routes that call requireAuth() at module
+// scope. The file still PARSED — the name was simply never declared — so
+// `node --check` was clean, every static test passed, and the first thing that
+// noticed was Render, when `require('./routes/order_flow')` threw a
+// ReferenceError and the process died before it could listen.
+//
+// This guard executes every module with external dependencies stubbed, which
+// is the only way to see that class of defect without a full boot.
+try {
+  const { execFileSync } = require('child_process');
+  const files = [];
+  (function walk(d) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const f = path.join(d, e.name);
+      // src/public is browser code (window/document); server.js boots a listener.
+      if (e.isDirectory()) { if (e.name !== 'public' && e.name !== 'node_modules') walk(f); }
+      else if (e.name.endsWith('.js') && f !== path.join(SRC, 'server.js')) files.push(f);
+    }
+  })(SRC);
+
+  const out = execFileSync(
+    process.execPath,
+    [path.join(__dirname, '..', 'helpers', 'stub-loader.js'), path.dirname(SRC), ...files],
+    {
+      encoding: 'utf8',
+      maxBuffer: 1e8,
+      env: Object.assign({}, process.env, {
+        MODE: 'development',
+        JWT_SECRET: process.env.JWT_SECRET || 'test',
+        DATABASE_URL: process.env.DATABASE_URL || 'postgres://u:p@localhost:5432/d',
+        ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || 'test',
+      }),
+    }
+  );
+
+  const crashes = out.split('\n').filter((l) => l.startsWith('LOAD-CRASH'));
+  if (crashes.length) {
+    throw new Error(
+      crashes.length + ' module(s) throw while being require()d — the server will not boot:\n  ' +
+      crashes.join('\n  ')
+    );
+  }
+  t.pass(`all ${files.length} server modules load without throwing`);
+} catch (e) { t.fail('module load smoke test', e); }
