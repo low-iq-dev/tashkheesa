@@ -8,19 +8,17 @@ const { sanitizeString } = require('../validators/sanitize');
 const { validatePhoneE164 } = require('../validators/phone');
 const { refreshSessionCookie } = require('../auth');
 const { logErrorToDb } = require('../logger');
-
-const router = express.Router();
-
 // P0-FORM-1: only allow ?next= redirects to in-app paths to prevent
 // open-redirect via /portal/patient/onboarding?next=https://evil.com.
-function _safeNext(raw) {
-  if (!raw) return null;
-  var s = String(raw);
-  // Must be a same-origin absolute path. Reject //evil.com, http://, etc.
-  if (s.length > 500) return null;
-  if (s.charAt(0) !== '/' || s.charAt(1) === '/') return null;
-  return s;
-}
+//
+// The local _safeNext duplicate that used to live here has been DELETED: it
+// only rejected '//' (s.charAt(1) === '/') and therefore let '/\evil.com'
+// through, which browsers resolve to https://evil.com. There is now exactly one
+// implementation, exported from routes/auth.js (no require cycle — auth.js does
+// not require this module).
+const { safeNextPath } = require('./auth');
+
+const router = express.Router();
 
 // GET /portal/patient/onboarding — Show onboarding wizard
 async function _handleOnboardingGet(req, res) {
@@ -35,7 +33,7 @@ async function _handleOnboardingGet(req, res) {
     );
 
     var forcePhone = String(req.query.force_phone || '') === '1';
-    var nextPath = _safeNext(req.query.next);
+    var nextPath = safeNextPath(req.query.next);
 
     // P0-FORM-1: allow re-entry into the wizard when phone is missing,
     // even if onboarding_complete=true. The original early-exit only
@@ -117,7 +115,7 @@ router.post('/portal/patient/onboarding/profile', requireRole('patient'), async 
 
     // P0-FORM-1: honor ?next so backfill-redirected users land back at
     // their original destination (e.g. /portal/patient/orders/:id).
-    var nextPath = _safeNext(req.body.next || req.query.next);
+    var nextPath = safeNextPath(req.body.next || req.query.next);
     return res.json({ ok: true, redirect: nextPath || undefined, message: isAr ? 'تم حفظ البيانات' : 'Profile saved' });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });

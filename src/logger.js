@@ -1,6 +1,23 @@
 const crypto = require('crypto');
 
-const MODE = (process.env.MODE || 'development').trim().toLowerCase();
+// MODE must fall back to NODE_ENV. server.js requires this module BEFORE
+// bootCheck() normalises process.env.MODE from NODE_ENV, so on a host that sets
+// only NODE_ENV=production this constant was frozen at 'development' for the
+// life of the process — leaving verbose() logging enabled in production. This
+// now matches src/server.js:63, which already resolves the same way; the two
+// previously disagreed.
+const MODE = (process.env.MODE || process.env.NODE_ENV || 'development').trim().toLowerCase();
+
+// Reset / magic-login / welcome tokens travel as PATH SEGMENTS, not query
+// params (e.g. GET /reset-password/<token>), so the query-param scrubber below
+// never touched them and full, still-valid credentials were written to stdout
+// and to error_logs.url. Anyone with log read access could redeem them.
+const SENSITIVE_PATH_PATTERN = /\/(reset-password|magic-login|set-password|welcome)\/[^/?#]+/gi;
+
+function scrubUrl(url) {
+  if (!url) return url;
+  return String(url).replace(SENSITIVE_PATH_PATTERN, '/$1/[REDACTED]');
+}
 
 const verbose = MODE === 'development'
   ? (...args) => console.log(`[${MODE}]`, ...args)
@@ -94,9 +111,10 @@ function accessLogger() {
       const rid = req.requestId || '-';
       const status = res.statusCode;
 
-      // Strip sensitive query params before logging
+      // Strip sensitive query params AND secret path segments before logging.
       let logUrl = req.originalUrl || req.url;
       logUrl = logUrl.replace(sensitiveParamPattern, '$1$2=[REDACTED]');
+      logUrl = scrubUrl(logUrl);
 
       console.log(`${req.method} ${logUrl} ${status} ${ms.toFixed(3)}ms ${rid}`);
     });
@@ -119,6 +137,11 @@ function logError(err, context = {}) {
   try {
     const { maskObject } = require('./utils/mask');
     safeContext = maskObject(context);
+    // maskObject has no 'url' rule — scrub secret path segments (reset /
+    // magic-login tokens) out of the copy before it reaches stdout.
+    if (safeContext && safeContext.url) {
+      safeContext = Object.assign({}, safeContext, { url: scrubUrl(safeContext.url) });
+    }
   } catch (e) {
     // mask module not loaded yet, log raw (safe fallback)
   }
@@ -155,7 +178,11 @@ async function logErrorToDb(err, context = {}) {
     const level = context.level || 'error';
     const requestId = context.requestId || context.req?.requestId || null;
     const userId = context.userId || context.req?.user?.id || null;
-    const url = context.url || context.req?.originalUrl || null;
+    // Same scrub as the access logger: error_logs.url is read back in the
+    // /ops/errors UI, so an unredacted /reset-password/<token> stored here is a
+    // live account-takeover credential sitting in a queryable table.
+    const rawUrl = context.url || context.req?.originalUrl || null;
+    const url = scrubUrl(rawUrl);
     const method = context.method || context.req?.method || null;
     // Theme 8 Phase 1 — populate the category column added by migration 035.
     // Pre-fix the canonical INSERT omitted this column, so the partial index
@@ -172,6 +199,10 @@ async function logErrorToDb(err, context = {}) {
     Object.keys(context).forEach(k => {
       if (!skipKeys.has(k)) filteredContext[k] = context[k];
     });
+    // maskObject() has no 'url' rule, so an unscrubbed context.url would still
+    // carry the token into error_logs.context even though the url COLUMN above
+    // is now clean. Scrub the copy too.
+    if (filteredContext.url) filteredContext.url = scrubUrl(filteredContext.url);
     let safeContext = filteredContext;
     try {
       const { maskObject } = require('./utils/mask');

@@ -23,6 +23,7 @@
 
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const { randomUUID } = require('crypto');
 const { execute, queryAll } = require('../pg');
 const { validatePhoneE164 } = require('../validators/phone');
@@ -37,9 +38,23 @@ if ((!OPENCLAW_SEND_KEY || !OPENCLAW_SEND_KEY.trim()) && process.env.NODE_ENV ==
   console.warn('[openclaw-api] OPENCLAW_SEND_KEY is unset — opt-in/opt-out endpoints will reject all requests until configured.');
 }
 
+// Constant-time secret comparison — same pattern as src/routes/ops.js:243-247.
+// `!==` leaks a byte-by-byte prefix-match timing oracle. The length check is
+// required because timingSafeEqual throws on unequal lengths; the try/catch
+// fails CLOSED on any Buffer.from edge case (non-string / array-valued header).
+function safeKeyEqual(provided, expected) {
+  try {
+    const a = Buffer.from(String(provided), 'utf8');
+    const b = Buffer.from(String(expected), 'utf8');
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch (_) {
+    return false;
+  }
+}
+
 function requireOpenClawKey(req, res, next) {
   const key = req.headers['x-openclaw-key'];
-  if (!OPENCLAW_SEND_KEY || !key || key !== OPENCLAW_SEND_KEY) {
+  if (!OPENCLAW_SEND_KEY || !key || !safeKeyEqual(key, OPENCLAW_SEND_KEY)) {
     return res.status(401).json({ ok: false, error: 'Unauthorized' });
   }
   next();

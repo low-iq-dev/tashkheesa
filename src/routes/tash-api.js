@@ -1,6 +1,24 @@
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 const { safeAll, safeGet } = require('../sql-utils');
+
+// Constant-time secret comparison — same pattern as src/routes/ops.js:243-247.
+// `!==` short-circuits on the first differing byte, so response time leaks a
+// prefix-match oracle that lets an attacker recover the key byte-by-byte. The
+// length check is required because timingSafeEqual throws on unequal lengths
+// (key length is not itself a meaningful secret); the try/catch keeps any
+// Buffer.from edge case (non-string header, array-valued duplicate header)
+// failing CLOSED rather than throwing a 500.
+function safeKeyEqual(provided, expected) {
+  try {
+    const a = Buffer.from(String(provided), 'utf8');
+    const b = Buffer.from(String(expected), 'utf8');
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch (_) {
+    return false;
+  }
+}
 
 // Secret key for Tash API access - set TASH_API_KEY in your .env
 const TASH_API_KEY = process.env.TASH_API_KEY;
@@ -16,7 +34,7 @@ if (!TASH_API_KEY || TASH_API_KEY === TASH_API_KEY_DEFAULT) {
 
 function requireTashKey(req, res, next) {
   const key = req.headers['x-tash-key'];
-  if (!key || !TASH_API_KEY || key !== TASH_API_KEY) {
+  if (!key || !TASH_API_KEY || !safeKeyEqual(key, TASH_API_KEY)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   next();

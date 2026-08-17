@@ -7,6 +7,13 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { coerceCountry } = require('../../launch-market');
+// Every other writer of users.phone goes through this validator (web /register,
+// the onboarding wizard, api/v1/auth register + otp/verify). This route did not,
+// so the app's own profile screen was the one path that could write a
+// non-E.164 — or entirely junk — phone. That matters beyond formatting: phone is
+// a LOGIN IDENTIFIER for both OTP paths, and WhatsApp/SMS dispatch matches on an
+// exact E.164 string.
+const { validatePhoneE164 } = require('../../validators/phone');
 // Lazy-load express-validator — top-level require takes ~120s and starves DB pool on boot.
 let _ev;
 function ev() { if (!_ev) _ev = require('express-validator'); return _ev; }
@@ -52,13 +59,39 @@ module.exports = function (db, { safeGet, safeRun }) {
       return res.fail(errors.array()[0].msg, 422);
     }
 
+    // Validate + normalise the phone BEFORE building the UPDATE, and persist the
+    // normalised E.164 string (not the raw input) so this route stores exactly
+    // what the OTP login lookups search for.
+    let normalizedPhone = null;
+    if (req.body.phone) {
+      const phoneCheck = validatePhoneE164(req.body.phone, req.body.lang === 'ar' ? 'ar' : 'en');
+      if (!phoneCheck.ok) {
+        return res.fail(phoneCheck.error, 422, 'PHONE_INVALID');
+      }
+      normalizedPhone = phoneCheck.normalized;
+    }
+
+    // users.email is UNIQUE (migration 001). Writing a taken address raised a
+    // raw constraint violation, which surfaced as a 500 on the one screen an
+    // OTP-created account must use before it can pay. Pre-check and return the
+    // same 409/EMAIL_EXISTS shape /api/v1/auth/register uses.
+    if (req.body.email) {
+      const taken = await safeGet(
+        'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND id <> $2',
+        [req.body.email, req.user.id]
+      );
+      if (taken) {
+        return res.fail('An account with this email already exists.', 409, 'EMAIL_EXISTS');
+      }
+    }
+
     const updates = [];
     const values = [];
     let paramIndex = 1;
 
     if (req.body.name) { updates.push(`name = $${paramIndex++}`); values.push(req.body.name); }
     if (req.body.email) { updates.push(`email = $${paramIndex++}`); values.push(req.body.email); }
-    if (req.body.phone) { updates.push(`phone = $${paramIndex++}`); values.push(req.body.phone); }
+    if (normalizedPhone) { updates.push(`phone = $${paramIndex++}`); values.push(normalizedPhone); }
     // AUDIT-APP-H10: country_code moves with country. Pricing reads country_code
     // on the web session path and country on the API path; letting them drift
     // meant a patient who switched market saw one price list in the app and a

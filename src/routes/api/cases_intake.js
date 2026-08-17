@@ -61,22 +61,38 @@ router.post('/intake', async (req, res) => {
     await client.query('BEGIN');
 
     // 1) Upsert user by email (case-insensitive)
+    //
+    // SECURITY (anonymous superadmin takeover): this endpoint is
+    // unauthenticated AND CSRF-exempt. The lookup below previously matched
+    // ANY row — including admin/superadmin — so posting a staff email here
+    // selected the staff row and the enrichment UPDATE wrote attacker-supplied
+    // data onto it. `AND role = 'patient'` (mirrored in the UPDATE's WHERE, so
+    // the row cannot change role between the two statements) confines this
+    // endpoint to patient rows, which is the only kind of row it is allowed to
+    // create in the else-branch below.
     let userId;
     const existing = await client.query(
-      'SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
+      "SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND role = 'patient' LIMIT 1",
       [email]
     );
     if (existing.rows.length > 0) {
       userId = existing.rows[0].id;
       // Best-effort enrichment: only fill blanks, don't overwrite existing data.
+      //
+      // SECURITY: `phone` is deliberately NOT in this SET list. phone is a
+      // LOGIN IDENTIFIER — /login/otp/verify and /api/v1/auth/otp/verify both
+      // resolve an account from it — so an unauthenticated form must never be
+      // able to write it. Filling a blank phone on someone else's account is
+      // enough to receive their OTP. The value is still captured on the
+      // auto-create path below, where the row is brand new and the submitter
+      // is the account's originator.
       await client.query(
         `UPDATE users
          SET name  = COALESCE(NULLIF(name, ''), $1),
-             phone = COALESCE(NULLIF(phone, ''), $2),
-             country = COALESCE(NULLIF(country, ''), $3),
-             date_of_birth = COALESCE(NULLIF(date_of_birth, ''), $4)
-         WHERE id = $5`,
-        [full_name, phone, country, age, userId]
+             country = COALESCE(NULLIF(country, ''), $2),
+             date_of_birth = COALESCE(NULLIF(date_of_birth, ''), $3)
+         WHERE id = $4 AND role = 'patient'`,
+        [full_name, country, age, userId]
       );
     } else {
       userId = randomUUID();

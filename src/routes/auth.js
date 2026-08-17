@@ -72,6 +72,11 @@ function authCopy(req) {
     reset_pw_success: isAr ? 'تم تغيير كلمة المرور بنجاح. الرجاء تسجيل الدخول.' : 'Password reset successful. Please log in.',
 
     register_required: isAr ? 'الاسم والبريد الإلكتروني وكلمة المرور والدولة مطلوبة.' : 'Name, email, password, and country are required.',
+    // Same 8-character rule /set-password and /reset-password/:token enforce
+    // (see reset_pw_rule), minus the "must match" clause — /register has no
+    // confirm-password field, so reset_pw_rule's wording would be wrong here.
+    register_pw_short: isAr ? 'يجب أن تكون كلمة المرور 8 أحرف على الأقل.' : 'Password must be at least 8 characters.',
+    register_terms_required: isAr ? 'يجب الموافقة على الشروط والأحكام وسياسة الخصوصية.' : 'You must accept the Terms & Conditions and the Privacy Policy.',
     register_country_invalid: isAr ? 'يرجى اختيار دولة صحيحة.' : 'Please select a valid country.',
     register_email_exists: isAr ? 'هذا البريد الإلكتروني مسجل بالفعل.' : 'Email already registered.',
 
@@ -204,13 +209,25 @@ function getHomeByRole(role) {
   return '/login';
 }
 
-// Prevent open redirects — allow ONLY same-site relative paths
+// Prevent open redirects — allow ONLY same-site relative paths.
+// Exported (see module.exports at the bottom of this file) so onboarding.js and
+// any future caller share ONE implementation; the previous duplicate
+// (_safeNext in onboarding.js) drifted and was missing the backslash case.
 function safeNextPath(candidate) {
   if (!candidate) return null;
   const raw = String(candidate).trim();
   if (!raw) return null;
+  // Bound the length (carried over from onboarding.js's _safeNext).
+  if (raw.length > 500) return null;
+  // Control characters (incl. CR/LF/NUL/TAB) — header-splitting and
+  // browser-normalisation tricks such as "/\tevil.com" or "/\r\n...".
+  if (/[\x00-\x1f\x7f]/.test(raw)) return null;
   if (!raw.startsWith('/')) return null;
-  if (raw.startsWith('//')) return null;
+  // Scheme-relative in BOTH spellings. Browsers normalise backslashes to
+  // forward slashes in the authority position, so `Location: /\evil.com`
+  // resolves to https://evil.com exactly like `//evil.com` does. Checking only
+  // '//' left the `/\` (and `\/`, `\\`) spellings wide open.
+  if (/^\/[\\/]/.test(raw)) return null;
   // Block obvious protocol attempts
   if (/^\/\/(?:https?:)?/i.test(raw)) return null;
   if (/^https?:/i.test(raw)) return null;
@@ -394,17 +411,43 @@ router.post('/login/otp/verify', parseOtpPhone, otpIpLimiter, otpVerifyCap, asyn
     // is race/constraint-safe under the users(phone) WHERE phone IS NOT NULL
     // partial unique index (migration 069) — two concurrent verifies converge on
     // one row. Stores the SAME normalized E.164 string the mobile path stores.
-    let user = await queryOne('SELECT * FROM users WHERE phone = $1', [phone]);
+    //
+    // SECURITY: the lookup is role-gated to ('patient','doctor'), matching the
+    // hardening idiom already used by /magic-login/:token (line ~524) and
+    // /forgot-password (line ~448). Possession of an SMS code must never mint a
+    // session for an admin/superadmin — those accounts sign in with a password
+    // only. Pre-fix this SELECT was unfiltered and establishWebSession() below
+    // happily issued an admin session for whatever row came back; the role check
+    // a few lines down is post-auth and gates nothing.
+    let user = await queryOne(
+      "SELECT * FROM users WHERE phone = $1 AND role IN ('patient', 'doctor')",
+      [phone]
+    );
     if (!user) {
-      await execute(
-        // country_code='EG' (not just country) so signUserToken() embeds it in the JWT,
-        // matching password-registered patients (FIX #12 — avoids a per-request lookup).
-        `INSERT INTO users (id, phone, role, country, country_code, lang, created_at)
-         VALUES ($1, $2, 'patient', 'EG', 'EG', $3, NOW())
-         ON CONFLICT (phone) WHERE phone IS NOT NULL DO NOTHING`,
-        [randomUUID(), phone, getReqLang(req)]
+      // The number may still be attached to an admin/superadmin row. Do not
+      // auto-create a shadow patient account for it (that would put an
+      // attacker-controlled login identifier next to a staff number, and would
+      // depend on the partial unique index to fail closed). Both this case and
+      // a genuinely failed create fall through to the SINGLE generic exit
+      // below, so the response is not an oracle for "this number is staff".
+      const staffOwned = await queryOne(
+        "SELECT 1 AS x FROM users WHERE phone = $1 AND role NOT IN ('patient', 'doctor')",
+        [phone]
       );
-      user = await queryOne('SELECT * FROM users WHERE phone = $1', [phone]);
+      if (!staffOwned) {
+        await execute(
+          // country_code='EG' (not just country) so signUserToken() embeds it in the JWT,
+          // matching password-registered patients (FIX #12 — avoids a per-request lookup).
+          `INSERT INTO users (id, phone, role, country, country_code, lang, created_at)
+           VALUES ($1, $2, 'patient', 'EG', 'EG', $3, NOW())
+           ON CONFLICT (phone) WHERE phone IS NOT NULL DO NOTHING`,
+          [randomUUID(), phone, getReqLang(req)]
+        );
+        user = await queryOne(
+          "SELECT * FROM users WHERE phone = $1 AND role IN ('patient', 'doctor')",
+          [phone]
+        );
+      }
     }
     if (!user) {
       return res.status(500).json({ ok: false, error: c.login_unexpected });
@@ -767,7 +810,7 @@ router.post('/register', async (req, res) => {
     - POST /register with invalid country_code -> error; name/email/country preserved.
     - POST /register with valid country_code -> user row has country_code; /login returns req.user.country_code.
   */
-  const { name, email, password, country_code, phone } = req.body || {};
+  const { name, email, password, country_code, phone, terms } = req.body || {};
   const normalizedCountry = String(country_code || '').trim().toUpperCase();
   const form = { name, email, phone, country_code: normalizedCountry || '' };
   const c = authCopy(req);
@@ -777,6 +820,27 @@ router.post('/register', async (req, res) => {
     return res
       .status(400)
       .render('register', { error: c.register_required, form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
+  }
+
+  // Server-side password minimum. The other password-setting routes
+  // (/set-password, /reset-password/:token) both enforce >= 8; /register
+  // checked presence only, so a one-character password created a real,
+  // immediately-usable patient account holding medical records.
+  if (String(password).length < 8) {
+    return res
+      .status(400)
+      .render('register', { error: c.register_pw_short, form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
+  }
+
+  // Terms + Privacy acceptance. register.ejs renders a `required` checkbox, but
+  // `required` is a CLIENT-side hint only — any direct POST (curl, disabled JS,
+  // a stripped form) created an account with no acceptance at all. An unchecked
+  // checkbox is simply omitted from the body, so presence is the whole test.
+  const termsAccepted = terms === true || ['on', 'true', '1', 'yes'].includes(String(terms || '').trim().toLowerCase());
+  if (!termsAccepted) {
+    return res
+      .status(400)
+      .render('register', { error: c.register_terms_required, form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
   }
 
   if (!isLaunchMarket(normalizedCountry)) {   // LAUNCH GATE (src/launch-market.js): EG-only at launch
@@ -1229,3 +1293,9 @@ router.post('/logout', (req, res) => {
 });
 
 module.exports = router;
+
+// Single source of truth for same-site redirect validation. Attached to the
+// router (rather than replacing the export with an object) because server.js
+// mounts this module directly: `app.use('/', require('./routes/auth'))`.
+// Consumers: src/routes/onboarding.js.
+module.exports.safeNextPath = safeNextPath;

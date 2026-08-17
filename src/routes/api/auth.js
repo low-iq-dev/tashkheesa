@@ -202,9 +202,19 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       return res.fail('Invalid refresh token', 401, 'INVALID_REFRESH');
     }
 
-    // Verify token matches stored token (rotation check)
+    // Verify token matches stored token (rotation check).
+    //
+    // SECURITY: `role <> 'superadmin'` — users.refresh_token is a SINGLE shared
+    // column, so the token the superadmin console stores (12h, via
+    // /api/v1/admin/refresh, which already filters role = 'superadmin') is the
+    // very same string this patient endpoint would accept. Without the filter a
+    // lifted superadmin refresh token could be laundered here into a 30-day
+    // patient-lifetime pair still carrying role=superadmin. The two endpoints
+    // now partition the role space: admin.js:292 serves superadmin only, this
+    // one serves everyone else. Same REFRESH_REVOKED shape on no match, so the
+    // client cannot tell a role rejection from a rotated/revoked token.
     const user = await safeGet(
-      'SELECT * FROM users WHERE id = $1 AND refresh_token = $2',
+      "SELECT * FROM users WHERE id = $1 AND refresh_token = $2 AND role <> 'superadmin'",
       [decoded.id, refreshToken]
     );
     if (!user) {
@@ -349,7 +359,31 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       // race/constraint-safe under the users(phone) WHERE phone IS NOT NULL
       // partial unique index (migration 069): if our insert no-ops on a concurrent
       // create, the re-SELECT returns the existing row (which has a different id).
-      let user = await safeGet('SELECT * FROM users WHERE phone = $1', [normalizedPhone]);
+      //
+      // SECURITY: role-gated to ('patient','doctor'), mirroring the web twin in
+      // src/routes/auth.js POST /login/otp/verify and the existing hardening on
+      // /magic-login + /forgot-password. generateTokens() below mints a Bearer
+      // JWT carrying the row's role — unfiltered, an SMS code sent to a staff
+      // number produced a token that satisfies requireRole('superadmin') on the
+      // whole admin API. Admin/superadmin sign in with a password only.
+      let user = await safeGet(
+        "SELECT * FROM users WHERE phone = $1 AND role IN ('patient', 'doctor')",
+        [normalizedPhone]
+      );
+
+      if (!user) {
+        // The number may belong to an admin/superadmin row. Never auto-create a
+        // shadow patient account against a staff number; fall through to the
+        // single generic failure below so the response cannot be used to
+        // fingerprint which numbers belong to staff.
+        const staffOwned = await safeGet(
+          "SELECT 1 AS x FROM users WHERE phone = $1 AND role NOT IN ('patient', 'doctor')",
+          [normalizedPhone]
+        );
+        if (staffOwned) {
+          return res.fail('Could not complete sign-in. Please try again.', 500, 'OTP_USER_LOOKUP_FAILED');
+        }
+      }
 
       if (!user) {
         // Auto-create patient account from OTP login (signup-by-phone).
@@ -370,7 +404,10 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
           VALUES ($1, $2, 'patient', $3, $3, 'en', NOW())
           ON CONFLICT (phone) WHERE phone IS NOT NULL DO NOTHING
         `, [userId, normalizedPhone, seededCountry]);
-        user = await safeGet('SELECT * FROM users WHERE phone = $1', [normalizedPhone]);
+        user = await safeGet(
+          "SELECT * FROM users WHERE phone = $1 AND role IN ('patient', 'doctor')",
+          [normalizedPhone]
+        );
       }
 
       if (!user) {
