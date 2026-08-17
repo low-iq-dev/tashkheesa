@@ -454,20 +454,32 @@ router.post('/callback', async (req, res, next) => {
     // `amount_cents`. That combination cleared the amount check (same amount,
     // opposite direction) AND the per-transaction-id unique index (new id), so
     // "we gave the money back" was processed as "the patient just paid".
-    // has_parent_transaction is included because every refund/void is a CHILD
-    // of the original authorisation — it is the general "this is not a fresh
-    // sale" signal.
+    // ── AUDIT 2026-08-17 (regression F4): has_parent_transaction does NOT
+    // gate the paid path.
+    //
+    // The first cut treated it as a third refund signal. It is not one. Paymob
+    // sets has_parent_transaction on ANY transaction derived from an earlier
+    // one, which includes the two cases that are ordinary money coming IN:
+    // the CAPTURE of a prior authorisation, and a token / recurring charge off
+    // a saved card. And it short-circuited BEFORE the B5 amount check, so such
+    // a transaction was refused outright — patient charged, order left unpaid,
+    // no amount-mismatch record, and (with CRITICAL_ALERT_TEMPLATE_NAME unset)
+    // no alert either. That is strictly worse than the bug it replaced.
+    //
+    // is_refunded / is_voided are the actual "money went back" flags and are
+    // both HMAC-signed. has_parent_transaction stays as an AUDIT signal only:
+    // recorded on every event payload, and paged on below when it appears on a
+    // transaction we are about to mark paid — but it never blocks.
     const isRefundOrVoid = (txnBody.is_refunded === true)
-      || (txnBody.is_voided === true)
-      || (txnBody.has_parent_transaction === true);
+      || (txnBody.is_voided === true);
+    const hasParentTxn = (txnBody.has_parent_transaction === true);
 
     const status =
         (txnBody.pending === true) ? 'pending'
       : (txnBody.error_occured === true) ? 'failed'
       : (txnBody.success === true
           && txnBody.is_refunded !== true
-          && txnBody.is_voided !== true
-          && txnBody.has_parent_transaction !== true) ? 'success'
+          && txnBody.is_voided !== true) ? 'success'
       : (txnBody.success === false) ? 'failed'
       : null;
     // Paymob transaction id (signed by HMAC) — used for per-txn-id idempotency.
@@ -576,6 +588,38 @@ router.post('/callback', async (req, res, next) => {
     return res.json({ ok: true, refund_or_void: true });
   }
 
+  // ── FIX 4 (regression F4): has_parent_transaction is an AUDIT signal ──────
+  //
+  // We are past the refund/void gate, so this transaction is a legitimate
+  // inbound payment that happens to descend from an earlier one — a capture of
+  // a prior authorisation, or a token/recurring charge. Those must settle
+  // normally (and still have to clear the amount check below). But a child
+  // transaction on a platform that only ever creates one-shot intentions is
+  // unusual enough to want a human to look, so it is recorded on the timeline
+  // and paged. Non-blocking by construction: nothing below reads hasParentTxn.
+  if (hasParentTxn) {
+    logOrderEvent({
+      orderId,
+      label: 'Paymob child transaction (has_parent_transaction) — processed normally, review',
+      meta: JSON.stringify({
+        paymob_transaction_id: paymobTxnId,
+        paymob_order_id: paymobOrderId,
+        signed_status: status,
+        amount_cents: txnBody.amount_cents != null ? Number(txnBody.amount_cents) : null,
+        current_payment_status: order.payment_status || null
+      }),
+      actorRole: 'system'
+    });
+    try {
+      sendCriticalAlert(
+        'Paymob child transaction (has_parent_transaction=true, not a refund/void) on order ' +
+        orderId + ' (txn ' + (paymobTxnId || 'n/a') + ', status ' + (status || 'unknown') +
+        ') — processed normally, verify it is a capture and not an unexpected flow',
+        'paymob_child_transaction'
+      );
+    } catch (_) {}
+  }
+
   // ── AUDIT-P0-6: bind the transaction to the intention we created ────────
   //
   // `orderId` above comes from obj.order.merchant_order_id, which is NOT in
@@ -606,12 +650,41 @@ router.post('/callback', async (req, res, next) => {
   // A missing intention id only blocks the path that MOVES MONEY (marking the
   // order paid) — blocking it on a `failed`/`pending` callback would suppress
   // the patient's "payment failed, try again" notification and page on-call for
-  // an event that costs nothing. PAYMOB_REQUIRE_INTENTION_BINDING=false is the
-  // break-glass switch if Paymob's live payload turns out not to carry
-  // obj.intention at all (VERIFY THIS WITH ONE REAL TEST-MODE PAYMENT BEFORE
-  // LAUNCH — see the handoff notes).
+  // an event that costs nothing.
+  //
+  // ── AUDIT 2026-08-17 (regression F3): DEFAULTS TO OFF ─────────────────────
+  //
+  // The MISSING branch rests on an unverified assumption: that Paymob's live
+  // callback carries obj.intention.id at all. It is NOT in the HMAC-signed
+  // 19-field set, no captured live payload in this repo demonstrates it, and
+  // the comment above literally says to verify it against one real payment
+  // first. Defaulting it ON inverted the blast radius: if the assumption is
+  // wrong, EVERY payment on an order that has a stored intention id is parked
+  // UNPAID while the patient's card is charged — and the operator is not even
+  // told, because sendCriticalAlert is a no-op while CRITICAL_ALERT_TEMPLATE_NAME
+  // is unset. A whole-platform payment outage, silently, on the first live card.
+  //
+  // Defaulting OFF costs only the narrow seam this branch closes (an attacker
+  // who has a valid signed body AND deletes obj.intention from it), which is
+  // still covered by: the per-transaction-id unique index on payment_events,
+  // the signed-outcome derivation above, and the B5 amount check below. The
+  // MISMATCH branch is unaffected by this flag and stays on — it only fires
+  // when BOTH ids are present and differ, which is never an innocent state and
+  // cannot be triggered by a payload that simply omits the field.
+  //
+  // TO TURN IT ON (do this after launch, not before):
+  //   1. Take one real test-mode payment end to end.
+  //   2. Confirm the callback carried obj.intention.id — the idempotency INSERT
+  //      above persists exactly that value into the paymob_intention_id COLUMN:
+  //        SELECT received_at, paymob_transaction_id, paymob_intention_id
+  //          FROM payment_events WHERE event_type = 'payment_succeeded'
+  //          ORDER BY received_at DESC LIMIT 5;
+  //   3. paymob_intention_id non-null on every row → set
+  //      PAYMOB_REQUIRE_INTENTION_BINDING=true. If it is NULL, the assumption
+  //      was wrong and this branch must stay off.
+  // Documented at the same three steps in .env.example.
   const _requireBinding =
-    String(process.env.PAYMOB_REQUIRE_INTENTION_BINDING || 'true').toLowerCase() !== 'false';
+    String(process.env.PAYMOB_REQUIRE_INTENTION_BINDING || 'false').toLowerCase() === 'true';
   const _wouldMarkPaid = normalizeStatus(status) === 'paid';
 
   // The stored id is only the LATEST intention for this order. FIX 11b makes a

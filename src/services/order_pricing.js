@@ -46,9 +46,20 @@ function parseSelectedAddons(order) {
   // still have the video flag/price on dedicated columns.
   if (!sel.video_consultation && order.video_consultation_selected) {
     sel.video_consultation = true;
-    if (!sel.video_consultation_price) {
-      sel.video_consultation_price = Number(order.video_consultation_price) || 0;
-    }
+  }
+
+  // AUDIT (2026-08-17, regression F8) — the price fallback used to be NESTED
+  // inside the flag fallback above, so it only fired for an order whose
+  // addons_json carried NO video flag at all. The pre-fix write path produced
+  // `{"video_consultation": true}` with NO video_consultation_price key, which
+  // takes the json branch (flag true, price 0) and then skipped the fallback
+  // entirely — parsing as "selected, worth nothing". Those are exactly the rows
+  // this whole helper was written to rescue: their refund ceiling
+  // (refund_eligibility.maxRefundableEgp) came out short by the add-on value,
+  // and so did every ratio computed against it. The fallback is therefore
+  // keyed on the PRICE being missing, independent of where the flag came from.
+  if (sel.video_consultation && !sel.video_consultation_price) {
+    sel.video_consultation_price = Number(order.video_consultation_price) || 0;
   }
   return sel;
 }

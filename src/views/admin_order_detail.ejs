@@ -42,6 +42,25 @@
             </div>
           </div>
 
+          <%
+            // AUDIT (2026-08-17, regression F7) — render the ?reassign= /
+            // ?payment= / ?lifecycle= redirect codes the POST handlers emit.
+            // Before this, a FAILED reassign redirected here and looked
+            // identical to a success: the operator got the order page back with
+            // no indication anything had gone wrong. Resolved to text in
+            // routes/admin.js (GET /admin/orders/:id); this only paints it.
+            var _flashes = (typeof flashes !== 'undefined' && Array.isArray(flashes)) ? flashes : [];
+          %>
+          <% _flashes.forEach(function (f) { %>
+            <div role="status"
+                 style="margin-block-end:16px; padding:12px 14px; border-radius:8px; font-size:14px; line-height:1.5;
+                        background: var(<%= f.type === 'success' ? '--alert-success-bg' : '--alert-error-bg' %>);
+                        color: var(<%= f.type === 'success' ? '--alert-success-text' : '--alert-error-text' %>);
+                        border: 1px solid var(<%= f.type === 'success' ? '--alert-success-border' : '--alert-error-border' %>);">
+              <strong><%= f.type === 'success' ? 'Done' : 'Action failed' %>:</strong> <%= f.text %>
+            </div>
+          <% }); %>
+
           <div class="admin-grid-2">
             <div class="admin-card">
               <div class="card-header">

@@ -28,6 +28,36 @@ BEGIN;
 --
 -- 'denied' and 'cancelled' are deliberately excluded: a denied request must be
 -- re-submittable.
+--
+-- PRE-FLIGHT (added 2026-08-17). The paragraph above says production probably
+-- ALREADY contains the duplicates this index is meant to prevent — that is the
+-- entire reason the index is being added. Without a pre-flight the bare
+-- CREATE UNIQUE INDEX raises 23505, migrate() propagates, and server.js exits 1
+-- on EVERY boot with a raw Postgres error naming a row id and nothing else: an
+-- unbootable deploy with no actionable diagnostic. Same shape as the
+-- doctor_earnings guard below — abort deliberately, with the reconciliation
+-- query in the message. No data is deleted here; deciding which of two open
+-- refund rows for one order is the real one is an accounting judgement.
+DO $$
+DECLARE
+    dupe_count integer;
+BEGIN
+    SELECT COUNT(*) INTO dupe_count
+    FROM (
+        SELECT order_id
+        FROM refunds
+        WHERE status IN ('pending', 'auto_approved', 'approved', 'paid')
+        GROUP BY order_id
+        HAVING COUNT(*) > 1
+    ) d;
+
+    IF dupe_count > 0 THEN
+        RAISE EXCEPTION
+            'Migration 082 aborted: % order(s) already have more than one refund row in an open-or-settled status. uniq_refunds_open_per_order cannot be created until each order has at most one. These are the double-refund rows the widened status set is meant to prevent. Reconcile them (cancel or deny the duplicates) before retrying: SELECT order_id, count(*) AS refund_row_count, array_agg(id) AS refund_ids, array_agg(status) AS statuses, sum(COALESCE(amount_egp, approved_amount, requested_amount, 0)) AS total_egp FROM refunds WHERE status IN (''pending'', ''auto_approved'', ''approved'', ''paid'') GROUP BY 1 HAVING count(*) > 1 ORDER BY 2 DESC;',
+            dupe_count;
+    END IF;
+END $$;
+
 DROP INDEX IF EXISTS uniq_refunds_pending_per_order;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_refunds_open_per_order

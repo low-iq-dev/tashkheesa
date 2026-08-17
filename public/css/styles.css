@@ -1116,29 +1116,14 @@ h1, h2, h3, h4, h5, h6 {
   padding: var(--space-4);
 }
 
-/* Contact form result banners. Rendered by contact.ejs from contactState;
-   the success one is role="status", the failure one role="alert". Logical
-   inset properties only (see tests/lint/no-physical-margin-padding-in-css). */
-.contact-banner {
-  border-radius: var(--radius-md);
-  padding: var(--space-3);
-  margin-block: var(--space-3);
-  border-inline-start: 4px solid transparent;
-  font-size: 15px;
-  line-height: 1.55;
-}
-
-.contact-banner--success {
-  background: #e8f5ee;
-  border-inline-start-color: #1a7f4b;
-  color: #14532d;
-}
-
-.contact-banner--error {
-  background: #fdecec;
-  border-inline-start-color: #c53030;
-  color: #7f1d1d;
-}
+/* The .contact-banner rules that were here have MOVED to public/styles.css.
+   They were unreachable from this file: contact.ejs renders through
+   layouts/public.ejs, which loads /styles.css -> public/styles.css. This file
+   is served at /site/css/styles.css (server.js mounts /site on public/ because
+   public/site does not exist) and is referenced by exactly one view,
+   index.ejs — the marketing homepage, which has no contact form. The banners
+   therefore rendered completely unstyled: a bare paragraph of text where a
+   green success / red error block was intended. Do not re-add them here. */
 
 .contact-info-item {
   display: flex;

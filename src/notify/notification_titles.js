@@ -117,6 +117,26 @@ const TEMPLATE_TITLES = {
   // the chosen specialty differs from the patient's original submission.
   case_routing_updated: { en: 'We updated your case routing',                 ar: 'تم تحديث توجيه حالتك' },
 
+  // ── AUDIT-PAY-1 (regression F2) — urgent case paid outside the Cairo window
+  //
+  // case_lifecycle.markCasePaid queues this on the 'internal' channel when an
+  // URGENT case is confirmed outside 07:00–19:00 Cairo: the SLA clock is
+  // anchored to 07:00 the next morning, so the deadline the patient sees is
+  // NOT "now + 4h" as the urgent tier implies. The fix that introduced the
+  // queue call never registered the template anywhere, so getNotificationTitles
+  // fell through to humanizeTemplate() and the bell literally read "Urgent Case
+  // Window Deferred Patient" over an empty body — as the sole explanation to
+  // someone who had just paid an urgency premium at 19:02.
+  //
+  // Deliberately reassuring, not apologetic: the turnaround they paid for is
+  // intact, only its start is calendar-anchored. The concrete deadline is in
+  // the body (notify.renderNotificationMessage), which can format a timestamp;
+  // titles only do flat {var} interpolation.
+  urgent_case_window_deferred_patient: {
+    en: 'Your urgent review begins at 7 AM Cairo time',
+    ar: 'مراجعتك العاجلة هتبدأ 7 الصبح بتوقيت القاهرة'
+  },
+
   // ══════════════════════════════════════════════════════════════════════
   // AUDIT (FIX 3) — 26 events were queued with NO entry here.
   //

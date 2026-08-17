@@ -187,15 +187,40 @@ try {
   const admin = readSrc('routes/admin.js');
   const superadmin = readSrc('routes/superadmin.js');
 
+  // The two matchers used to be independent copies, and they diverged: the
+  // queue's decisionMatch still looked for '%additional files request
+  // approved%' -- a phrase neither writer emits -- so an approved request
+  // never left the admin inbox. They now share one exported predicate
+  // (superadmin.additionalFilesDecisionPredicate), which is the fix. So assert
+  // recognition wherever the labels are actually matched: inline in the file,
+  // or in the shared predicate the file imports.
+  const SHARED = 'additionalFilesDecisionPredicate';
+  const predicateBody = (() => {
+    const m = superadmin.match(
+      new RegExp('function\\s+' + SHARED + '\\s*\\([\\s\\S]*?\\n\\}', 'm')
+    );
+    if (!m) throw new Error('superadmin.js no longer defines ' + SHARED);
+    return m[0];
+  })();
+
   for (const [file, content] of [['routes/admin.js', admin], ['routes/superadmin.js', superadmin]]) {
-    if (!/label\s*=\s*['"]admin_approved_files_request['"]/.test(content)) {
-      throw new Error(file + " does not explicitly match label='admin_approved_files_request'");
-    }
-    if (!/label\s*=\s*['"]superadmin_approved_files_request['"]/.test(content)) {
-      throw new Error(file + " does not explicitly match label='superadmin_approved_files_request'");
+    // A file may match inline, or delegate by importing the shared predicate.
+    const delegates =
+      content.includes(SHARED) &&
+      (file === 'routes/superadmin.js' ||
+        new RegExp('\\{[^}]*\\b' + SHARED + '\\b[^}]*\\}\\s*=\\s*require\\(').test(content));
+    const effective = delegates ? content + '\n' + predicateBody : content;
+
+    for (const label of ['admin_approved_files_request', 'superadmin_approved_files_request']) {
+      if (!new RegExp('label\\s*=\\s*[\'"]' + label + '[\'"]|[\'"]' + label + '[\'"]').test(effective)) {
+        throw new Error(
+          file + ' does not recognize ' + label +
+          (delegates ? ' (checked inline and via the shared ' + SHARED + ')' : '')
+        );
+      }
     }
   }
-  t.pass('both decision-event matchers explicitly recognize the new short identifiers');
+  t.pass('both decision-event matchers recognize the new short identifiers (inline or via the shared predicate)');
 } catch (e) { t.fail('matchers-explicit-recognition', e); }
 
 // 7. View files explicitly recognize the new approved-state labels.

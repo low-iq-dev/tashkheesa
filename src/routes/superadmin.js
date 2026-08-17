@@ -38,6 +38,10 @@ const { sendCriticalAlert } = require('../critical-alert');
 // Refund ceiling — the single source of truth for "how much of this order may
 // be returned to the patient". See services/refund_eligibility.maxRefundableEgp.
 const { maxRefundableEgp } = require('../services/refund_eligibility');
+// Refund → orders.payment_status. Shared with the Command API's mark-paid
+// (routes/api/admin.js → services/admin_refund_mark_paid.setRefundPaid) so the
+// two mark-paid surfaces cannot diverge on when an order becomes 'refunded'.
+const { applyRefundedPaymentStatus } = require('../services/admin_refund_mark_paid');
 // Mailer helpers shared with routes/campaigns.js (do not duplicate — see the
 // "Used by:" comments above each function definition in campaigns.js).
 const { populateRecipients, processCampaign } = require('./campaigns');
@@ -2085,19 +2089,31 @@ router.post('/superadmin/orders', requireSuperadmin, async (req, res) => {
   // holds with uplift NULL. These rows are created as payment_status='paid'
   // outright, which makes them immediately refund-eligible — precisely the
   // population that needs a non-zero ceiling.
+  //
+  // AUDIT (2026-08-17, regression F6) — paid_at was never written either, and
+  // payment_status='paid' with paid_at NULL is not a state the rest of the
+  // system accepts. It is the pair, not the column, that means "paid":
+  // routes/admin.js force-assign now refuses on `!order.paid_at`, so EVERY
+  // operator-created order became unassignable by the one recovery path a human
+  // drives (before this series force-assign was a raw UPDATE and did not care).
+  // Written as created_at, the same instant the order is declared paid, so the
+  // paid_at-based revenue/aging reads see a real timestamp rather than a NULL
+  // they must COALESCE around.
   await execute(
     `INSERT INTO orders (
       id, patient_id, doctor_id, specialty_id, service_id,
       sla_hours, status, price, base_price, doctor_fee,
       created_at, accepted_at, deadline_at, completed_at,
       breached_at, reassigned_count, report_url, notes,
-      payment_status, payment_method, payment_reference, payment_link
+      payment_status, payment_method, payment_reference, payment_link,
+      paid_at
     ) VALUES (
       $1, $2, $3, $4, $5,
       $6, $7, $8, $18, $9,
       $10, $11, $12, NULL,
       NULL, 0, NULL, $13,
-      $14, $15, $16, $17
+      $14, $15, $16, $17,
+      $10
     )`,
     [
       orderId,
@@ -3932,14 +3948,29 @@ router.post('/superadmin/orders/:id/payment', requireSuperadmin, async (req, res
     return res.redirect('/superadmin/refunds?prefill_order=' + encodeURIComponent(orderId));
   }
 
+  // AUDIT (2026-08-17, regression F6) — the paid_at half. This route could set
+  // payment_status='paid' while leaving paid_at NULL, and "paid" is the PAIR:
+  // routes/admin.js force-assign refuses on `!order.paid_at`, and the
+  // paid_at-based revenue/aging reads would see a NULL. The sibling routes
+  // already get this right (/mark-paid COALESCEs it in, /mark-unpaid NULLs it),
+  // so this one was the odd path out. CASE-guarded rather than unconditional:
+  // flipping to 'unpaid' here must not stamp a payment time. COALESCE keeps the
+  // ORIGINAL payment instant when an already-paid order is re-saved with a new
+  // method/reference.
   await execute(
     `UPDATE orders
      SET payment_status = $1,
          payment_method = $2,
          payment_reference = $3,
+         paid_at = CASE WHEN $1 = 'paid' THEN COALESCE(paid_at, $6) ELSE paid_at END,
          updated_at = $4
      WHERE id = $5`,
-    [status, payment_method || null, payment_reference || null, nowIso, orderId]
+    // $4 and $6 are the same instant but SEPARATE placeholders on purpose:
+    // orders.updated_at is TIMESTAMP while orders.paid_at is TIMESTAMPTZ, and
+    // one shared placeholder would make the parameter's deduced type depend on
+    // which context Postgres resolves first. Same split the /mark-paid route
+    // above already uses.
+    [status, payment_method || null, payment_reference || null, nowIso, orderId, nowIso]
   );
 
   let label = null;
@@ -5315,18 +5346,40 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
   // create-refund form) agrees without needing its own refunds lookup.
   // Best-effort by design — the refund IS paid from the patient's POV, so a
   // failure here must not 500 the operator; it is logged for reconciliation.
+  //
+  // AUDIT (2026-08-17, regression F1) — this and the Command service's
+  // in-txn write are now ONE implementation
+  // (services/admin_refund_mark_paid.applyRefundedPaymentStatus): same
+  // full-vs-partial test, same rounding, same updated_at, and a rowCount check
+  // that neither had. Critically it only flips on a FULL refund — a partial
+  // one leaves the order 'paid', because every consumer of payment_status
+  // treats "not 'paid'" as "unpaid", which soft-deletes the case at the 48h
+  // unpaid hard stop and erases the whole order value from revenue.
+  let psOutcome = { flipped: false, reason: 'not_attempted' };
   try {
-    await execute(
-      "UPDATE orders SET payment_status = 'refunded' WHERE id = $1",
-      [refund.order_id]
-    );
+    psOutcome = await applyRefundedPaymentStatus(execute, refund.order_id);
   } catch (e) {
+    psOutcome = { flipped: false, reason: 'error' };
     logErrorToDb(e, {
       context: 'superadmin.refund_mark_paid.order_payment_status',
       orderId: refund.order_id,
       refundId: refundId,
       category: 'refund'
     });
+  }
+  if (!psOutcome.flipped && !['partial_refund', 'already_refunded'].includes(psOutcome.reason)) {
+    // 'partial_refund' and 'already_refunded' are correct no-ops. Anything else
+    // means the double-refund eligibility loop is still open on this order and
+    // a human needs to reconcile it (migration 082's
+    // uniq_refunds_open_per_order remains the DB-level backstop meanwhile).
+    try {
+      logErrorToDb(new Error('refund mark-paid did not close orders.payment_status: ' + psOutcome.reason), {
+        context: 'superadmin.refund_mark_paid.order_payment_status_not_closed',
+        orderId: refund.order_id,
+        refundId: refundId,
+        category: 'refund'
+      });
+    } catch (_) { /* best-effort */ }
   }
 
   logOrderEvent({
@@ -5336,7 +5389,11 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
       refund_id: refundId,
       amount_egp: finalAmount,
       instapay_reference: reference,
-      payer_id: payerId
+      payer_id: payerId,
+      order_payment_status: psOutcome.flipped ? 'refunded' : 'unchanged',
+      order_payment_status_reason: psOutcome.reason,
+      total_refunded_egp: psOutcome.refundedEgp != null ? psOutcome.refundedEgp : null,
+      refund_ceiling_egp: psOutcome.ceilingEgp != null ? psOutcome.ceilingEgp : null
     },
     actorUserId: payerId,
     actorRole: 'superadmin'

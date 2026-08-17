@@ -134,7 +134,14 @@ try {
   if (!/recomputeOnRefund/.test(paidBody)) {
     throw new Error('mark-paid no longer calls recomputeOnRefund — the doctor-earnings clawback (Side issue #43) would never run.');
   }
-  if (!/SELECT reason FROM refunds/.test(paidBody)) {
+  // STALE-TEST FIX (2026-08-17): the literal was `SELECT reason FROM refunds`.
+  // The route now reads `SELECT reason, approved_amount, requested_amount FROM
+  // refunds` — the amount columns are what let recomputeOnRefund scale a
+  // PARTIAL refund's clawback instead of gutting the doctor's whole fee. The
+  // assertion's intent (the reason IS read) still holds; only its literal was
+  // outrun. Widened to tolerate extra projected columns rather than pinning the
+  // exact select list, which is what made it stale in the first place.
+  if (!/SELECT\s+reason\b[\s\S]{0,120}?\bFROM refunds/.test(paidBody)) {
     throw new Error('mark-paid does not read the refund reason — recomputeOnRefund cannot apply the per-reason clawback policy without it.');
   }
   if (/await\s+recomputeOnBreach\s*\(/.test(paidBody)) {

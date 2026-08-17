@@ -268,6 +268,17 @@ async function queueSlaReminder({ caseId, level, toUserId, channel, role, second
   try {
     const { queueNotification } = require('./notify');
     return queueNotification({
+      // REGRESSION FIX (F4) — `orderId` was omitted, so notifications.order_id
+      // was NULL on every SLA reminder. notification_worker joins the order row
+      // off that column, so the whole downstream enrichment collapsed:
+      //   * email  — `caseUrl` resolved to '' and `{{#if caseUrl}}` dropped the
+      //              "Open Case" button, leaving the doctor's deadline email
+      //              with no call to action at all. `slaHours` was empty too.
+      //   * whatsapp — the OpenClaw doctor body rendered
+      //              `/portal/doctor/case/` with no id: a dead link.
+      // The case id IS the order id everywhere else in this module (see
+      // dispatchUnpaidCaseReminders, markCasePaid), so pass it.
+      orderId: caseId,
       channel,
       toUserId: userId,
       template: `sla_reminder_${level}`,
@@ -358,9 +369,30 @@ async function dispatchSlaReminders(caseIdOrRow, opts = {}, client) {
 
   // If a case was previously marked as breached under the old model,
   // but the acceptance-based deadline is still in the future, un-breach it.
+  //
+  // ── REGRESSION FIX (F11) — clear `breached_at` in the same transition. ───
+  //
+  // This path was dormant for as long as nothing called runSlaReminderSweep.
+  // Wiring the sweep onto a 5-minute cadence activated it, and it flipped
+  // SLA_BREACH -> IN_REVIEW while LEAVING breached_at set. case_sla_worker's
+  // fetchSlaCandidates filters `breached_at IS NULL`, so a case un-breached
+  // here became permanently un-breachable: the doctor could then miss the
+  // deadline by any margin and there would be no breach, no escalation, no
+  // reassignment and no breach refund — for the rest of that case's life.
+  //
+  // The stamp is meaningless once the status it recorded has been reverted;
+  // this is the same reset assignDoctor performs on a REASSIGNED -> ASSIGNED
+  // hop (AUDIT-SLA-6) and admin's SLA-extension endpoint performs on extend.
+  // Nulling it restores the case to a normal, sweepable IN_REVIEW row.
   if (!force && canonStatus === CASE_STATUS.SLA_BREACH && secondsRemaining > 0) {
     try {
-      await transitionCase(caseId, CASE_STATUS.IN_REVIEW, {}, client);
+      await transitionCase(caseId, CASE_STATUS.IN_REVIEW, { breached_at: null }, client);
+      orderRow.breached_at = null;
+      orderRow.status = CASE_STATUS.IN_REVIEW;
+      await logCaseEvent(caseId, 'SLA_BREACH_CLEARED', {
+        reason: 'deadline_in_future_under_acceptance_model',
+        seconds_remaining: secondsRemaining
+      }, client);
     } catch (e) {
       // best-effort
     }
@@ -530,6 +562,54 @@ function secondsSinceCreated(orderRow) {
   return Math.floor((Date.now() - createdMs) / 1000);
 }
 
+// ── REGRESSION FIX (F12) — what "unpaid" means for the sweep. ─────────────
+//
+// The unpaid sweep is destructive: it sends payment chasers, expires the case
+// at 24h and SOFT-DELETES it at 48h with a "your unpaid case was deleted"
+// notification. Its eligibility test keyed on a `!= 'paid'` blacklist, so ANY
+// payment_status that is not the literal string 'paid' read as "never paid" —
+// including 'refunded' and 'captured'. A patient who paid and was then
+// refunded therefore received payment reminders for a case they had already
+// settled, and at 48h had it deleted out from under them with copy blaming
+// them for not paying.
+//
+// Two independent gates now, and BOTH must say unpaid:
+//
+//   1. `paid_at IS NULL`. This is the primary gate because it cannot drift:
+//      it is stamped exactly once, by markCasePaid, and no later state change
+//      (refund, chargeback, partial refund, capture-vs-settle) rewrites it.
+//      A blacklist of payment_status values has to be extended every time a
+//      new value is introduced, and F12 is the second time that has been
+//      missed.
+//   2. The payment_status set below, kept as a backstop for any row whose
+//      paid_at was never stamped by a legacy or third-party write path.
+//
+// Listing values that mean "money moved" is deliberately broader than 'paid':
+// every one of them describes a case that must never be chased for payment.
+const PAYMENT_STATUSES_MEANING_MONEY_MOVED = Object.freeze([
+  'paid',
+  'captured',
+  'refunded',
+  'partially_refunded'
+]);
+
+// The same list as a SQL literal list, so the JS guard and every SQL predicate
+// in the sweep are generated from ONE array and cannot drift apart. Values are
+// hardcoded lowercase identifiers above — no interpolation risk.
+const UNPAID_SWEEP_STATUS_SQL_LIST = PAYMENT_STATUSES_MEANING_MONEY_MOVED
+  .map((s) => `'${s}'`)
+  .join(', ');
+
+function hasMoneyMoved(orderRow) {
+  if (!orderRow) return false;
+  if (orderRow.paid_at) return true;
+  if (HAS_PAYMENT_STATUS_COLUMN) {
+    const ps = String(orderRow.payment_status || '').trim().toLowerCase();
+    if (PAYMENT_STATUSES_MEANING_MONEY_MOVED.includes(ps)) return true;
+  }
+  return false;
+}
+
 function isUnpaidReminderEligible(orderRow) {
   if (!orderRow) return false;
   const canonStatus = normalizeStatus(orderRow.status);
@@ -542,12 +622,7 @@ function isUnpaidReminderEligible(orderRow) {
   // receiving payment reminders. (EXPIRED is now an alias, so both work.)
   if (canonStatus === CASE_STATUS.EXPIRED_UNPAID) return false;
 
-  if (HAS_PAYMENT_STATUS_COLUMN) {
-    const ps = String(orderRow.payment_status || '').trim().toLowerCase();
-    if (ps === 'paid') return false;
-  } else if (orderRow.paid_at) {
-    return false;
-  }
+  if (hasMoneyMoved(orderRow)) return false;
 
   return true;
 }
@@ -601,8 +676,16 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
 
   if (!caseIdOrRow) {
     try {
+      // REGRESSION FIX (F12) — `paid_at IS NULL` is now unconditional, and the
+      // payment_status test is a NOT IN over every value that means money
+      // moved (see PAYMENT_STATUSES_MEANING_MONEY_MOVED). The old form was
+      // `!= 'paid'` OR-else-paid_at, so with the column present a refunded
+      // order passed the filter and entered the destructive sweep. Mirrors
+      // isUnpaidReminderEligible exactly, so the SQL pre-filter and the JS
+      // per-row check cannot disagree.
       const paymentClause = HAS_PAYMENT_STATUS_COLUMN
-        ? " AND (LOWER(COALESCE(payment_status,'')) != 'paid')"
+        ? ' AND paid_at IS NULL' +
+          ` AND (payment_status IS NULL OR LOWER(TRIM(payment_status)) NOT IN (${UNPAID_SWEEP_STATUS_SQL_LIST}))`
         : ' AND paid_at IS NULL';
 
       const terminalStatuses = [
@@ -660,12 +743,20 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
     return { ok: true, sentCount: 0, skipped: 'missing_created_at' };
   }
   // HARD STOP #1: expire unpaid cases between 24h and 48h
+  //
+  // REGRESSION FIX (F12) — the predicate was `payment_status != 'paid'`, which
+  // is true for 'refunded'. These two HARD STOP statements are the last line of
+  // defence: they re-assert the unpaid condition inside the UPDATE so a stale
+  // in-memory orderRow cannot expire or delete a case that has since been paid.
+  // That guarantee only holds if the predicate agrees with
+  // isUnpaidReminderEligible — it now does, on both gates.
   if (!force && elapsedSeconds >= 24 * 60 * 60 && elapsedSeconds < 48 * 60 * 60) {
     await execute(`
       UPDATE ${CASE_TABLE}
       SET status = 'expired_unpaid'
       WHERE id = $1
-        AND (payment_status IS NULL OR payment_status != 'paid')
+        AND paid_at IS NULL
+        AND (payment_status IS NULL OR LOWER(TRIM(payment_status)) NOT IN (${UNPAID_SWEEP_STATUS_SQL_LIST}))
         AND status NOT IN ('completed','expired_unpaid')
     `, [orderRow.id]);
 
@@ -691,7 +782,8 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
           updated_at = $2
       WHERE id = $3
         AND deleted_at IS NULL
-        AND (payment_status IS NULL OR payment_status != 'paid')
+        AND paid_at IS NULL
+        AND (payment_status IS NULL OR LOWER(TRIM(payment_status)) NOT IN (${UNPAID_SWEEP_STATUS_SQL_LIST}))
     `, [ts, ts, orderRow.id]);
 
     if (result && result.rowCount > 0) {
@@ -1813,13 +1905,22 @@ async function markCasePaid(caseId) {
   // Post-commit and fire-and-forget, same rationale as the hook above: a
   // notification failure must never roll back a confirmed payment.
   //
-  // Channel is 'internal' deliberately. There is no existing template for
-  // "your urgent case starts at 7am" (checked notify/templates.js and
-  // notify/notification_titles.js — the closest, CASE_ASSIGNED_URGENT, means
-  // something else), and a WhatsApp send would need a Meta-approved template
-  // that does not exist yet. Internal degrades gracefully: an unknown template
-  // renders via humanizeTemplate() in the bell. Copy for
-  // notification_titles.js / notify.js is specified in the handoff notes.
+  // Channel is 'internal' deliberately: a WhatsApp send would need a
+  // Meta-approved template that does not exist yet.
+  //
+  // REGRESSION FIX (F2) — the comment that used to sit here said the bell
+  // "degrades gracefully" via humanizeTemplate() and that the copy was
+  // "specified in the handoff notes". It does not degrade gracefully: the bell
+  // rendered the literal slug "Urgent Case Window Deferred Patient" with an
+  // empty body, and that was the ONLY thing telling a patient who paid an
+  // urgency premium at 19:02 why their deadline is now tomorrow morning. The
+  // template is now registered for real in notify/notification_titles.js
+  // (bilingual title) and notify.renderNotificationMessage (bilingual body,
+  // which formats deadline_at in Cairo time).
+  //
+  // `lang` rides in the payload because queueNotification resolves BOTH the
+  // title and the body against `response.lang` — without it an Arabic patient
+  // gets the English copy for a case they paid a premium on.
   if (urgentDeferredTo) {
     try {
       const { queueNotification } = require('./notify');
@@ -1833,7 +1934,8 @@ async function markCasePaid(caseId) {
           response: {
             case_id: caseId,
             deadline_at: urgentDeferredTo,
-            reason: 'paid_outside_cairo_urgent_window'
+            reason: 'paid_outside_cairo_urgent_window',
+            lang: String((result && result.language) || '').toLowerCase() === 'ar' ? 'ar' : 'en'
           },
           dedupe_key: 'urgent_deferred:' + caseId
         })).catch(function (err) {

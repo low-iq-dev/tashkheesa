@@ -85,6 +85,28 @@ module.exports = function (db, { safeGet, safeRun }) {
       }
     }
 
+    // AUDIT (2026-08-17, regression F10) — the email pre-check landed without
+    // its phone twin. users.phone carries users_phone_unique_idx (migration
+    // 069: UNIQUE WHERE phone IS NOT NULL), so writing a number another account
+    // already holds still raised a raw 23505 → 500, on the SAME screen the
+    // email check was added to rescue. An OTP-created account fixing up its
+    // profile before checkout hits both fields in one form; guarding one of
+    // them just moves the dead end one field to the right.
+    //
+    // Matched on the NORMALISED value, because that is what the UPDATE below
+    // writes and therefore what the index will actually see. The index is on
+    // the exact stored string, so an exact `=` is the right comparison — the
+    // legacy non-E.164 rows migration 069 left alone are outside it either way.
+    if (normalizedPhone) {
+      const phoneTaken = await safeGet(
+        'SELECT id FROM users WHERE phone = $1 AND id <> $2',
+        [normalizedPhone, req.user.id]
+      );
+      if (phoneTaken) {
+        return res.fail('An account with this phone number already exists.', 409, 'PHONE_EXISTS');
+      }
+    }
+
     const updates = [];
     const values = [];
     let paramIndex = 1;

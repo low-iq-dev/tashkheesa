@@ -1394,6 +1394,38 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
 
   const additionalFilesRequest = await computeAdditionalFilesRequestState(orderId);
 
+  // AUDIT (2026-08-17, regression F7) — the ?reassign= / ?payment= redirect
+  // codes the POST handlers emit were rendered by NO view. A failed reassign
+  // (ineligible doctor, or reassignCase throwing) bounced the operator back to
+  // this page looking exactly like a success: same URL path, same layout, the
+  // doctor simply unchanged. Operators re-submit, or worse, believe it worked
+  // and stop chasing the case. Resolve them to a banner here so every redirect
+  // code the handlers can produce is actually visible.
+  const FLASH_CODES = {
+    'reassign:ineligible_doctor': {
+      type: 'error',
+      text: 'Reassign failed — that doctor is not eligible for this case (inactive, paused, pending approval, onboarding incomplete, or not registered for this service). The case is unchanged.'
+    },
+    'reassign:failed': {
+      type: 'error',
+      text: 'Reassign failed — the case lifecycle refused the change and nothing was written. The case is unchanged; check the activity log below, then retry or escalate.'
+    },
+    'payment:marked_paid': { type: 'success', text: 'Payment marked as paid.' },
+    'payment:failed': { type: 'error', text: 'Marking the payment failed — the order is unchanged.' },
+    'lifecycle:failed': {
+      type: 'error',
+      text: 'Payment was recorded, but putting the case into the assignment queue FAILED. It is paid and unassigned — escalate.'
+    }
+  };
+  const flashes = [];
+  for (const key of ['reassign', 'payment', 'lifecycle']) {
+    const raw = req.query && req.query[key];
+    if (!raw) continue;
+    const hit = FLASH_CODES[key + ':' + String(raw)];
+    if (hit) flashes.push(hit);
+    else flashes.push({ type: 'error', text: key + ': ' + String(raw).slice(0, 80) });
+  }
+
   const langCode = (req.user && req.user.lang) ? req.user.lang : 'en';
   return res.render('admin_order_detail', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
@@ -1402,6 +1434,7 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
     order,
     events,
     doctors,
+    flashes,
     additionalFilesRequest,
     portalFrame: true,
     portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
@@ -1782,20 +1815,65 @@ router.post('/admin/orders/:id/force-assign', requireAdmin, async (req, res) => 
   // queue. eligibleDoctorClause is the shared fragment every other assignment
   // site uses — auto_assign, the SLA worker's alternate-doctor query and the
   // acceptance watcher — so using it here makes "who may receive a case" one
-  // answer instead of four. NB: the fragment's service-match EXISTS means an
-  // order with a NULL service_id matches no doctor; that is deliberate
-  // fail-closed behaviour and the error below names it so ops can diagnose.
-  const doctor = await queryOne(
-    `SELECT u.id, u.name FROM users u
-      WHERE u.id = $1 AND ${eligibleDoctorClause({ alias: 'u', serviceIdParam: '$2' })}`,
-    [doctorId, order.service_id || null]
+  // answer instead of four.
+  //
+  // ── AUDIT (2026-08-17, regression F7): ?override=1 BREAK-GLASS ────────────
+  //
+  // Tightening this to the shared fragment closed the ONLY manual recovery
+  // path, for exactly the cases that need recovering:
+  //   * the fragment's service-match is `EXISTS (… ds.service_id = $2)`, and
+  //     `= NULL` is never true — so an order with NO service_id matches ZERO
+  //     doctors, forever. Website-intake orders (routes/api/cases_intake.js)
+  //     are created with no service_id at all, and they are precisely the
+  //     stuck-in-triage cases ops force-assigns.
+  //   * onboarding_complete is false on every doctor an operator creates by
+  //     hand — those accounts never walk the self-serve wizard that sets it.
+  // Both are correct as AUTOMATED-assignment predicates and wrong as a gate on
+  // a deliberate human action. So the strict clause stays the default and
+  // ?override=1 drops those two predicates only.
+  //
+  // What the override does NOT drop: role='doctor', is_active, is_paused and
+  // pending_approval. Those encode "this account is not allowed to work right
+  // now" (suspended, on leave, not yet approved) and no operator convenience
+  // justifies routing a paid case to one. The payment gate below is likewise
+  // unaffected.
+  //
+  // Loudly audited: an override writes its own order_events row naming the
+  // operator and the predicates waived, plus an error_logs admin_audit entry
+  // and a critical alert — a break-glass that nobody can use quietly.
+  const overrideRequested = ['1', 'true', 'yes'].includes(
+    String((req.query && req.query.override) || (req.body && req.body.override) || '').toLowerCase()
   );
+
+  // Mirrors services/doctor_eligibility.eligibleDoctorClause minus the
+  // service-match EXISTS and onboarding_complete. Kept inline (rather than
+  // parameterising the shared builder) so the shared fragment stays the single,
+  // unweakenable answer for every AUTOMATED assignment site.
+  const overrideDoctorClause =
+    `u.role = 'doctor' ` +
+    `AND COALESCE(u.is_active, true) = true ` +
+    `AND COALESCE(u.is_paused, false) = false ` +
+    `AND COALESCE(u.pending_approval, false) = false`;
+
+  const doctor = overrideRequested
+    ? await queryOne(
+        `SELECT u.id, u.name FROM users u WHERE u.id = $1 AND ${overrideDoctorClause}`,
+        [doctorId]
+      )
+    : await queryOne(
+        `SELECT u.id, u.name FROM users u
+          WHERE u.id = $1 AND ${eligibleDoctorClause({ alias: 'u', serviceIdParam: '$2' })}`,
+        [doctorId, order.service_id || null]
+      );
   if (!doctor) {
     return res.status(404).json({
       ok: false,
-      error: order && !order.service_id
-        ? 'Doctor not eligible: this order has no service_id, so no doctor can be service-matched to it'
-        : 'Doctor not found or not eligible (inactive, paused, pending approval, onboarding incomplete, or not registered for this service)'
+      error: overrideRequested
+        ? 'Doctor not found or not assignable even with override (inactive, paused, or pending approval)'
+        : (order && !order.service_id
+          ? 'Doctor not eligible: this order has no service_id, so no doctor can be service-matched to it. Retry with ?override=1 to force-assign anyway (audited).'
+          : 'Doctor not found or not eligible (inactive, paused, pending approval, onboarding incomplete, or not registered for this service). Retry with ?override=1 to waive the service-match and onboarding checks (audited).'),
+      override_available: !overrideRequested
     });
   }
 
@@ -1844,10 +1922,54 @@ router.post('/admin/orders/:id/force-assign', requireAdmin, async (req, res) => 
     });
   }
 
+  // Break-glass audit (regression F7). Deliberately AFTER assignDoctor: the
+  // payment gate and the lifecycle's own from-state guard can both still refuse
+  // the assignment, and an audit row + on-call page for an override that never
+  // took effect is misleading noise. This fires only when the waiver actually
+  // moved a case.
+  if (overrideRequested) {
+    logOrderEvent({
+      orderId,
+      label: 'admin_force_assign_eligibility_override',
+      meta: {
+        doctor_id: doctor.id,
+        doctor_name: doctor.name,
+        admin_id: req.user.id,
+        order_service_id: order.service_id || null,
+        waived: ['doctor_services_match', 'onboarding_complete'],
+        still_enforced: ['role', 'is_active', 'is_paused', 'pending_approval', 'payment_confirmed']
+      },
+      actorUserId: req.user.id,
+      actorRole: req.user.role,
+    });
+    try {
+      logErrorToDb(new Error('force-assign eligibility override used on order ' + orderId), {
+        context: 'admin.force_assign.eligibility_override',
+        orderId,
+        userId: req.user && req.user.id,
+        category: 'assignment',
+        level: 'audit'
+      });
+    } catch (_) { /* best-effort */ }
+    try {
+      sendCriticalAlert(
+        'Force-assign ELIGIBILITY OVERRIDE by admin ' + req.user.id + ' on order ' + orderId +
+        ' → doctor ' + doctor.id + ' (service-match and onboarding checks waived)',
+        'force_assign_override'
+      );
+    } catch (_) { /* best-effort */ }
+  }
+
   logOrderEvent({
     orderId,
     label: 'admin_force_assigned',
-    meta: { doctor_id: doctor.id, doctor_name: doctor.name, admin_id: req.user.id, note: 'force_assigned' },
+    meta: {
+      doctor_id: doctor.id,
+      doctor_name: doctor.name,
+      admin_id: req.user.id,
+      note: 'force_assigned',
+      eligibility_override: !!overrideRequested
+    },
     actorUserId: req.user.id,
     actorRole: req.user.role,
   });
@@ -1891,7 +2013,10 @@ router.post('/admin/orders/:id/force-assign', requireAdmin, async (req, res) => 
     },
   });
 
-  return res.json({ ok: true, orderId, doctorId: doctor.id, doctorName: doctor.name });
+  return res.json({
+    ok: true, orderId, doctorId: doctor.id, doctorName: doctor.name,
+    eligibilityOverride: !!overrideRequested
+  });
 });
 
 // DOCTORS

@@ -97,21 +97,33 @@ async function runDataFixups() {
     var breakdown = preFixupOffenders
       .map(function (r) { return r.status + '=' + r.c; })
       .join(', ') || 'unavailable';
-    // logFatal, not logMajor: this is an alertable invariant violation, not an
-    // informational boot line. Some writer is storing non-lowercase statuses
-    // and those rows were invisible to every LOWER(status) worker query until
-    // this boot healed them.
-    var fixupMsg =
-      '[boot-fixup] ORDERS STATUS INVARIANT VIOLATED: healed ' + fixedRows +
+    // ── REGRESSION FIX (F7) — downgraded from logFatal to logMajor. ────────
+    //
+    // The previous version raised a FATAL-level error_logs row here, on the
+    // grounds that "some writer is storing non-lowercase statuses". That is
+    // true — and the comment three paragraphs above names the writer:
+    // case_lifecycle.updateCase writes CANONICAL UPPERCASE ('ASSIGNED') by
+    // design, via assertCanonicalDbStatus. So on any live system this
+    // condition is not an anomaly, it is the guaranteed steady state: every
+    // boot finds the rows written since the last restart and alarms about
+    // intended behaviour. A fatal alert that fires on 100% of deploys, forever,
+    // trains everyone to ignore the channel it fires on — which costs more
+    // than the invariant it is guarding.
+    //
+    // The count and the per-status breakdown are still logged in full, so the
+    // evidence needed to find and change the writer is not lost; it is simply
+    // not paging anyone. Restore the error_logs write (and the alert) only
+    // once updateCase writes lowercase and this condition becomes genuinely
+    // exceptional — at which point the first hit is worth waking up for.
+    logMajor(
+      '[boot-fixup] normalised ' + fixedRows +
       ' non-lowercase orders.status row(s) on boot [' + breakdown + ']. ' +
-      'Between the write and this restart those rows were invisible to every ' +
-      'worker query that filters on LOWER(status) — SLA sweeps, doctor queues, ' +
-      'acceptance watcher. Find the writer; the fixup is a net, not a fix.';
-    // logFatal only writes an error_logs row when it can find an Error in its
-    // args (logger.js:55) — console-only would keep this invisible to
-    // /ops/errors and to anything alerting off error_logs, which is the whole
-    // point of the change. Pass a real Error.
-    logFatal(fixupMsg, new Error('orders.status lowercase invariant violated (' + fixedRows + ' rows)'));
+      'EXPECTED while case_lifecycle.updateCase writes canonical UPPERCASE — ' +
+      'between the write and this restart those rows were invisible to every ' +
+      'worker query that filters on LOWER(status) (SLA sweeps, doctor queues, ' +
+      'acceptance watcher). Not alerting: this fires on every deploy until the ' +
+      'writer is changed. The fixup is a net, not a fix.'
+    );
   }
 
   // The unpriced-specialty hide (spec-ent, spec-general-surgery, spec-pediatrics)

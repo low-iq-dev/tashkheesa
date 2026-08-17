@@ -5,6 +5,9 @@ const { queryOne, queryAll, execute } = require('./pg');
 const { logErrorToDb } = require('./logger');
 const { sendWhatsApp } = require('./notify/whatsapp');
 const { getNotificationTitles } = require('./notify/notification_titles');
+// AUDIT-PAY-1 — one locale table for the whole product (ar-EG / en-GB).
+// utils/formatNumber has no requires of its own, so this cannot cycle.
+const { pickLocale } = require('./utils/formatNumber');
 
 // ---------------------------------------------------------------------------
 // Theme 8 Phase 3 (§3-C) — emit a NOTIFICATION_DROPPED case_event whenever
@@ -142,19 +145,62 @@ async function normalizeToUserId(toUserId) {
  * - All failures are logged; no exceptions thrown
  */
 /**
+ * Format an ISO timestamp as a Cairo-local date + time for patient-facing copy.
+ *
+ * AUDIT-PAY-1 needs to state a concrete deadline, and the stored value is a UTC
+ * ISO string while every patient reads it as a Cairo wall clock. Africa/Cairo is
+ * pinned explicitly (Egypt observes DST again since 2023, so a fixed +2 offset
+ * would be wrong for half the year). Returns '' on any bad input so the caller
+ * can degrade to copy without a timestamp rather than printing "Invalid Date".
+ *
+ * Locale comes from utils/formatNumber.pickLocale so this matches the rest of
+ * the product (ar-EG → Arabic-Indic numerals, en-GB → "18 August"); a private
+ * locale table here would be the fourth one in the codebase.
+ *
+ * @param {string} iso
+ * @param {string} [lang='en']
+ * @returns {string}
+ */
+function formatCairoDateTime(iso, lang) {
+  try {
+    const d = new Date(iso);
+    if (!Number.isFinite(d.getTime())) return '';
+    return new Intl.DateTimeFormat(pickLocale(lang), {
+      timeZone: 'Africa/Cairo',
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    }).format(d);
+  } catch (_) {
+    return '';
+  }
+}
+
+/**
  * Render a short in-app notification body for the given template + payload.
  * The mobile app shows this directly as the notification's message line.
  * Kept intentionally terse — titles carry the primary meaning; messages
  * just add the one piece of context the user cares about (which case,
  * which doctor, etc.). Falls back to null when nothing meaningful can be
  * said, and the mobile app will show title alone.
+ *
+ * @param {string} template
+ * @param {Object|null} payload
+ * @param {string} [lang='en'] - Recipient language. Most entries are English-
+ *   only for historical reasons; entries added from AUDIT-PAY-1 onward are
+ *   bilingual, because a body that is the ONLY explanation of a money-relevant
+ *   decision cannot be delivered in a language the patient may not read.
  */
-function renderNotificationMessage(template, payload) {
+function renderNotificationMessage(template, payload, lang) {
   const p = (payload && typeof payload === 'object') ? payload : {};
   const ref = p.reference_id || p.reference_code || p.case_ref || null;
   const caseLabel = ref ? `Case ${ref}` : (p.case_id ? 'Your case' : null);
   const doctor = p.doctor_name || null;
   const service = p.service_name || null;
+  const isAr = String(lang || 'en').toLowerCase() === 'ar';
 
   switch (template) {
     case 'order_created_patient':
@@ -216,6 +262,28 @@ function renderNotificationMessage(template, payload) {
 
     case 'case_auto_deleted_unpaid_patient':
       return `${caseLabel || 'Your case'} was removed because payment wasn't completed within 48 hours. You can submit a new case anytime.`;
+
+    // AUDIT-PAY-1 (regression F2) — urgent case confirmed outside the Cairo
+    // urgent window (07:00–19:00). This body is the ONLY thing that explains to
+    // someone who paid an urgency premium at 19:02 why their deadline reads as
+    // tomorrow. It previously did not exist: the template was queued but never
+    // registered, so the bell showed the humanized slug over an empty message.
+    //
+    // Three things it must do, in order: name the hours so the deferral looks
+    // like a policy and not a fault, give the concrete deadline so the patient
+    // can stop calculating, and say plainly that the turnaround they paid for
+    // is unchanged — otherwise this reads as a downgrade of a paid upgrade.
+    case 'urgent_case_window_deferred_patient': {
+      const when = formatCairoDateTime(p.deadline_at, isAr ? 'ar' : 'en');
+      if (isAr) {
+        return when
+          ? `المراجعة العاجلة بتشتغل من 7 الصبح لـ 7 بالليل بتوقيت القاهرة. الدفع تم بعد المواعيد دي، فالطبيب هيبدأ 7 الصبح وتقريرك موعده ${when}. مدة المراجعة العاجلة اللي دفعتها زي ما هي.`
+          : 'المراجعة العاجلة بتشتغل من 7 الصبح لـ 7 بالليل بتوقيت القاهرة. الدفع تم بعد المواعيد دي، فالطبيب هيبدأ 7 الصبح. مدة المراجعة العاجلة اللي دفعتها زي ما هي.';
+      }
+      return when
+        ? `Urgent reviews run 7 AM–7 PM Cairo time. Your payment came in after hours, so your specialist starts at 7 AM and your report is due by ${when}. The urgent turnaround you paid for is unchanged.`
+        : 'Urgent reviews run 7 AM–7 PM Cairo time. Your payment came in after hours, so your specialist starts at 7 AM. The urgent turnaround you paid for is unchanged.';
+    }
 
     case 'sla_reminder_doctor':
     case 'order_sla_pre_breach':
@@ -320,6 +388,11 @@ async function queueNotification({
     }
   }
 
+  // Set when the dedupe pre-check finds an existing row that is 'failed'. The
+  // event is then RE-ARMED in place (see the UPDATE below) rather than
+  // re-INSERTed, because the unique index makes a second row impossible.
+  let requeueRowId = null;
+
   if (normalizedDedupeKey) {
     // queueNotification is documented as "never throws" and is invoked
     // fire-and-forget from many callers. A transient DB error on this dedupe
@@ -327,35 +400,49 @@ async function queueNotification({
     // process.exit(1) guard. Degrade to "skip dedupe, proceed": a possible
     // duplicate is far cheaper than a crash.
     try {
-      // AUDIT — `AND status <> 'failed'` added.
-      //
-      // Without it a single historical 'failed' row suppressed the event
+      // AUDIT — a historical 'failed' row used to suppress the event
       // permanently: the pre-check matched, queueNotification returned
       // { skipped: 'deduped' }, and that (dedupe_key, channel, to_user_id)
       // triple could never be re-queued again for the rest of the row's
       // lifetime. A doctor whose case-assigned WhatsApp failed three times
       // during a provider outage was never re-notified, for that case, ever.
       //
-      // ORDERING DEPENDENCY — this requires migration 082 to have widened
-      // idx_notifications_dedupe_key from UNIQUE (dedupe_key) to
-      // UNIQUE (dedupe_key, channel, to_user_id). Under the current
-      // single-column index (migrations/003_indexes.sql:19) letting a
-      // second row through raises 23505 on INSERT. That failure is caught
-      // by the insert try/catch below and returns { ok:false,
-      // db_insert_failed } rather than throwing, so the pre-082 blast
-      // radius is "still not re-queued, now with an error_logs row" —
-      // no worse than today, but the fix is inert until 082 lands.
-      const exists = await queryOne(`
-        SELECT 1 FROM notifications
+      // ── REGRESSION FIX (F3) ──────────────────────────────────────────────
+      //
+      // The first attempt at that fix was `AND status <> 'failed'` on this
+      // pre-check alone. It cannot work, and it is strictly worse than the bug
+      // it replaced. Skipping the failed row here just falls through to the
+      // INSERT below, which carries the IDENTICAL (dedupe_key, channel,
+      // to_user_id) triple — exactly what migration 082's index constrains.
+      // There is no ON CONFLICT, so it raises 23505 on EVERY attempt, and the
+      // catch writes both an error_logs row and a NOTIFICATION_DROPPED
+      // case_event. On a 5-minute cron that is a permanent, self-renewing
+      // false-positive feed into /ops/errors and /ops/silent-failures — the
+      // dashboards this whole series exists to make trustworthy.
+      //
+      // The retry is now expressed as what it actually is: re-arming the
+      // EXISTING row. Deliberately NOT `INSERT ... ON CONFLICT DO UPDATE`:
+      // 082's index is PARTIAL (`WHERE dedupe_key IS NOT NULL`), so the
+      // inference clause would have to repeat that predicate, and on any
+      // instance where 082 has not yet run Postgres answers 42P10 ("no unique
+      // or exclusion constraint matching the ON CONFLICT specification") —
+      // which would break EVERY notification insert, including the ones that
+      // work today. An UPDATE keyed on the row's own id is correct against
+      // either index shape, so this fix is safe in both migration orders.
+      const existing = await queryOne(`
+        SELECT id, status FROM notifications
         WHERE dedupe_key = $1
           AND channel = $2
           AND to_user_id = $3
-          AND status <> 'failed'
+        ORDER BY at DESC NULLS LAST
         LIMIT 1
       `, [normalizedDedupeKey, channel, uid]);
 
-      if (exists) {
+      if (existing && String(existing.status || '').toLowerCase() !== 'failed') {
         return { ok: true, skipped: 'deduped', dedupe_key: normalizedDedupeKey };
+      }
+      if (existing) {
+        requeueRowId = existing.id;
       }
     } catch (err) {
       logErrorToDb(err, {
@@ -400,7 +487,60 @@ async function queueNotification({
     (parsedResponse && (parsedResponse.lang || parsedResponse.language)) || ''
   ).toLowerCase();
   const inAppTitle = (_notifLang === 'ar' ? (titles?.title_ar || titles?.title_en) : titles?.title_en) || null;
-  const inAppMessage = renderNotificationMessage(template, parsedResponse);
+  // AUDIT-PAY-1 — the body is resolved against the same language as the title.
+  // It was called without a language, so a bilingual body had no way to reach
+  // an Arabic patient even once one existed.
+  const inAppMessage = renderNotificationMessage(template, parsedResponse, _notifLang);
+
+  // REGRESSION FIX (F3) — re-arm a previously-failed row in place.
+  //
+  // The unique index means the retry cannot be a second row, so it is an
+  // UPDATE of the one that is already there: status back to 'queued', the
+  // attempt counter cleared so the worker gets a full budget again (a fresh
+  // lifecycle event deserves one; the old count belongs to the old attempt),
+  // retry_after cleared so it is picked up on the next tick, and the payload /
+  // title / message refreshed from THIS call rather than left stale from the
+  // failed one. `at` is bumped so the bell surfaces it as new instead of
+  // burying it at the original timestamp.
+  if (requeueRowId) {
+    try {
+      await execute(
+        `UPDATE notifications
+            SET status = $1,
+                response = $2,
+                order_id = COALESCE($3, order_id),
+                template = $4,
+                type = $4,
+                title = $5,
+                message = $6,
+                attempts = 0,
+                retry_after = NULL,
+                is_read = false,
+                at = NOW()
+          WHERE id = $7`,
+        [status, responseJson, orderId, template, inAppTitle, inAppMessage, requeueRowId]
+      );
+      return { ok: true, id: requeueRowId, requeued: true, dedupe_key: normalizedDedupeKey };
+    } catch (err) {
+      // Same contract as the insert path: never throw, always leave a trace.
+      logErrorToDb(err, {
+        context: 'queueNotification.requeue_failed_row',
+        category: 'notification_queue_failure',
+        orderId,
+        toUserId: uid,
+        channel,
+        template
+      });
+      emitNotificationDropped({ orderId, reason: 'requeue_failed', channel, template, toUserId: uid });
+      console.error('[notify] queueNotification requeue of failed row failed', err);
+      return {
+        ok: false,
+        skipped: true,
+        reason: 'requeue_failed',
+        error: err && err.message ? err.message : String(err)
+      };
+    }
+  }
 
   try {
     await execute(
@@ -432,6 +572,22 @@ async function queueNotification({
 
     return { ok: true, id: notifId };
   } catch (err) {
+    // REGRESSION FIX (F3) — a unique violation on the dedupe index is a
+    // DEDUPE, not an incident. Two concurrent callers can both clear the
+    // pre-check above and race to insert; the loser lands here. Logging that
+    // as an error_logs row plus a NOTIFICATION_DROPPED case_event reports a
+    // notification as lost when the winner has in fact queued it, which is a
+    // false positive on both /ops/errors and /ops/silent-failures.
+    //
+    // Narrow on purpose: 23505 is claimed as benign ONLY when this row carried
+    // a dedupe key, i.e. only where a conflict is the documented behaviour. A
+    // 23505 on the primary key, or any other constraint, still reports.
+    if (err && err.code === '23505' && normalizedDedupeKey) {
+      console.warn('[notify] queueNotification lost a dedupe race; the winning row is already queued', {
+        template, channel, to: uid, dedupe_key: normalizedDedupeKey
+      });
+      return { ok: true, skipped: 'deduped_race', dedupe_key: normalizedDedupeKey };
+    }
     logErrorToDb(err, {
       context: 'queueNotification.db_insert',
       category: 'notification_queue_failure',

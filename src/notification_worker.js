@@ -12,6 +12,9 @@ const { sendEmail, renderEmail, EMAIL_ENABLED } = require('./services/emailServi
 const { sendWhatsApp, whatsappTransport } = require('./notify/whatsapp');
 const { getNotificationTitles } = require('./notify/notification_titles');
 const { getWhatsAppTemplate } = require('./notify/whatsappTemplateMap');
+// FIX 13 — bilingual countdown rendering (minutes under the hour, correct
+// Arabic number agreement). Shared with notify/openclawTemplates.js.
+const { formatTimeRemaining } = require('./notify/duration');
 const { emitNotificationDropped } = require('./notify');
 // Always-charge-EGP receipt figures (read-only over the stored EGP charge).
 const { isIntlOrder, primaryPrice, egpCharge } = require('./utils/money_display');
@@ -246,6 +249,19 @@ async function processEmail(notification, user, order) {
     : '';
   const slaRole = String(data.role || '').toLowerCase();
 
+  // REGRESSION FIX (F13) — `slaHoursRemaining` is the string "0" for the whole
+  // final hour, and "0" is TRUTHY, so `{{#if hoursRemaining}}` passed and the
+  // 1h reminder rendered "Time Left: 0 hours". `timeRemaining` is a fully
+  // localised phrase that drops to minutes under the hour, carries the correct
+  // Arabic number agreement (6 → "ساعات", not "ساعة"), and is '' when there is
+  // nothing meaningful to say — so the template row disappears instead of
+  // printing a zero. sla-reminder.hbs renders this; `hoursRemaining` is left
+  // untouched for the payment-reminder templates that still use it.
+  const timeRemaining = formatTimeRemaining(
+    Number.isFinite(slaSecondsRemaining) ? slaSecondsRemaining : NaN,
+    lang
+  );
+
   const templateData = {
     ...data,
     isDoctorRecipient: slaRole === 'doctor',
@@ -257,6 +273,7 @@ async function processEmail(notification, user, order) {
       || (caseIdResolved ? String(caseIdResolved).slice(0, 12).toUpperCase() : ''),
     paymentUrl: paymentUrlResolved,
     hoursRemaining: data.hoursRemaining || data.hours_remaining || slaHoursRemaining || '',
+    timeRemaining,
     specialty: data.specialty || '',
     slaHours: data.slaHours || (order ? order.sla_hours : ''),
     dashboardUrl: data.dashboardUrl || `${process.env.APP_URL || 'https://tashkheesa.com'}/dashboard`,
@@ -365,9 +382,6 @@ async function processWhatsApp(notification, user, order) {
   // branch composes a free-form body, the Meta branch looks up the
   // HSM template via whatsappTemplateMap.
   //
-  // For the Meta branch's paramBuilder contract we still need to honor
-  // the historical shape — but enrichment above doesn't break it
-  // (paramBuilders read `data.caseReference || data.case_id`, etc).
   // FIX 9 — the recipient's language is now an INPUT to template resolution
   // instead of being overridden by a hardcoded `lang:'en'` on every map entry.
   // getWhatsAppTemplate returns the approved name for `userLang` when one
@@ -375,32 +389,69 @@ async function processWhatsApp(notification, user, order) {
   // English-only event never gets submitted to Meta under an 'ar' code.
   const userLang = user.lang === 'ar' ? 'ar' : 'en';
   const fallbackLang = userLang === 'ar' ? 'ar' : 'en_US';
-  const mapped = getWhatsAppTemplate(notification.template, userLang);
-  const wa = mapped
-    ? {
-        to: user.phone,
-        template: mapped.templateName,
-        lang: mapped.lang || fallbackLang,
-        vars: typeof mapped.paramBuilder === 'function' ? mapped.paramBuilder(vars) : vars,
-        orderId: notification.order_id || (order && order.id) || null,
-        userId: user.id
-      }
-    : {
-        to: user.phone,
-        template: notification.template,
-        lang: fallbackLang,
-        vars,
-        orderId: notification.order_id || (order && order.id) || null,
-        userId: user.id
-      };
+  const orderIdForSend = notification.order_id || (order && order.id) || null;
 
-  // OpenClaw transport keys on the internal event name, not the Meta
-  // template name. When the map has rewritten `template` for Meta, the
-  // OpenClaw branch in sendWhatsApp won't find a body. Pass the
-  // original internal name as `template` when transport is OpenClaw.
-  if (whatsappTransport() === 'openclaw') {
-    wa.template = notification.template;
-    wa.lang = userLang;
+  // ── REGRESSION FIX (F1) — the Meta paramBuilder must never touch the
+  // OpenClaw payload. ────────────────────────────────────────────────────
+  //
+  // This block used to build `wa` from the Meta map unconditionally and then
+  // patch `template` + `lang` back for OpenClaw — but NOT `vars`. A
+  // paramBuilder returns only the ordered HSM parameters (e.g.
+  // `{ case_ref, hours_remaining }`), so every field the OpenClaw composer
+  // reads and the builder does not emit was silently dropped on the way to
+  // getOpenClawBody:
+  //
+  //   sla_reminder_24h/_6h/_1h  lost `role`  → v.role === 'doctor' was false
+  //                             for the DOCTOR too, so 100% of doctor SLA
+  //                             reminders rendered the patient body ("Nothing
+  //                             needed from you") with a patient-portal link,
+  //                             at 24h/6h/1h before a medical deadline.
+  //   appointment_reminder      lost `appointmentTime` (builder emits
+  //   appointment_booked        `date_time`) → "your appointment is at ."
+  //   appointment_rescheduled
+  //   appointment_cancelled
+  //   addon_purchased_video
+  //   payment_reminder_*        lost `link`/`paymentUrl` → CTA fell back to
+  //                             the generic order URL instead of checkout.
+  //
+  // The map is now consulted ONLY on the Meta branch. OpenClaw gets the full
+  // enriched `vars` object it was always documented to receive, and there is
+  // no patch-up step left to forget a field in.
+  const useOpenClaw = whatsappTransport() === 'openclaw';
+
+  let wa;
+  if (useOpenClaw) {
+    // OpenClaw keys on the internal event name (openclawTemplates.js), not the
+    // Meta HSM name, and composes a free-form bilingual body from `vars`.
+    wa = {
+      to: user.phone,
+      template: notification.template,
+      lang: userLang,
+      vars,
+      orderId: orderIdForSend,
+      userId: user.id
+    };
+  } else {
+    const mapped = getWhatsAppTemplate(notification.template, userLang);
+    wa = mapped
+      ? {
+          to: user.phone,
+          template: mapped.templateName,
+          lang: mapped.lang || fallbackLang,
+          // Meta's Cloud API takes ordered positional body parameters, so the
+          // paramBuilder projection is required here (and only here).
+          vars: typeof mapped.paramBuilder === 'function' ? mapped.paramBuilder(vars) : vars,
+          orderId: orderIdForSend,
+          userId: user.id
+        }
+      : {
+          to: user.phone,
+          template: notification.template,
+          lang: fallbackLang,
+          vars,
+          orderId: orderIdForSend,
+          userId: user.id
+        };
   }
 
   const result = await sendWhatsApp(wa);

@@ -47,10 +47,15 @@
           <td style="padding:6px 0;font-size:14px;font-weight:600;color:#2d3748;">{{caseReference}}</td>
         </tr>
         {{/if}}
-        {{#if hoursRemaining}}
+        {{! `timeRemaining` is a pre-rendered, already-localised phrase from
+            notification_worker (notify/duration.js) — "6 hours", "50 minutes".
+            It is NOT `hoursRemaining`: that value floors to the string "0" for
+            the whole final hour, and "0" is truthy in Handlebars, so this row
+            used to read "Time Left: 0 hours" on the 1h reminder. }}
+        {{#if timeRemaining}}
         <tr>
           <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Time Left:</td>
-          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#c05621;">{{hoursRemaining}} hours</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#c05621;">{{timeRemaining}}</td>
         </tr>
         {{/if}}
       </table>

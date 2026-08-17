@@ -26,6 +26,7 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
+const { maxRefundableEgp } = require('./refund_eligibility');
 
 // Throw-to-reject: carries an HTTP status + code out of the txn to the route,
 // which maps err.http/err.code → res.fail (same as admin_refund_approve.js).
@@ -34,6 +35,108 @@ function af(msg, http, code) {
   e.http = http;
   e.code = code;
   return e;
+}
+
+// ── Refund → orders.payment_status, ONE implementation for BOTH mark-paid
+//    sites (this service and the web route at routes/superadmin.js) ─────────
+//
+// AUDIT (2026-08-17, regression F1). Two problems with the first cut:
+//
+//   1. It flipped payment_status to 'refunded' on ANY refund, including a
+//      partial one. Everything downstream that asks "is this order paid?"
+//      does so with a `!= 'paid'` blacklist rather than a whitelist, so a
+//      50-EGP goodwill refund on a 2000-EGP case:
+//        * made case_lifecycle's unpaid-case sweep treat the order as unpaid
+//          and, at the 48h hard stop, SOFT-DELETE it out of orders_active
+//          while telling the patient their "unpaid case" was deleted;
+//        * pulled the case out of the doctor pool;
+//        * removed the WHOLE order value from collected revenue
+//          (every reporting query filters payment_status IN ('paid','captured'));
+//        * hid the order from the refund queue.
+//      The refunded FACT is what closes the double-refund loop, and that fact
+//      is only true for a genuinely FULL refund. A partial refund must leave
+//      the order 'paid'.
+//   2. It existed twice, and differently: in-txn with updated_at here,
+//      best-effort without it there, and neither checked rowCount.
+//
+// "Full" = the total of every PAID refund on the order has reached the refund
+// ceiling (services/refund_eligibility.maxRefundableEgp = price + the add-ons
+// locked at intention time — literally what Paymob charged), within one cent.
+// Summing the paid rows rather than looking at just this one also covers the
+// legacy multi-partial case, where two partials add up to the whole charge.
+//
+// `exec` is any (sql, params) => Promise<pg.Result>: pass `client.query` bound
+// to a txn client to run in-transaction, or pg.execute for the pool. Both call
+// sites therefore get identical semantics, identical rounding and an identical
+// rowCount check.
+//
+// Returns a describable outcome — it never throws and never rolls a caller
+// back. The refund itself is already paid from the patient's point of view, so
+// a failure to close this loop is a reconciliation item (logged by the caller),
+// not a reason to fail the operator's action. Migration 082's
+// uniq_refunds_open_per_order is the independent backstop against the second
+// refund request this column is guarding.
+const FULL_REFUND_EPSILON_CENTS = 1;
+
+async function applyRefundedPaymentStatus(exec, orderId) {
+  if (typeof exec !== 'function' || !orderId) {
+    return { flipped: false, reason: 'missing_args' };
+  }
+
+  // include-deleted-ok: the order this refund belongs to may ALREADY have been
+  // soft-deleted (that is precisely the bug this guard exists to stop
+  // repeating), and we must still read and correct its payment state.
+  const ordRes = await exec(
+    `SELECT id, payment_status, price, base_price, urgency_uplift_amount,
+            addons_json, video_consultation_selected, video_consultation_price
+       FROM orders -- include-deleted-ok: see the comment above this query
+      WHERE id = $1`,
+    [orderId]
+  );
+  const order = (ordRes && ordRes.rows) ? ordRes.rows[0] : null;
+  if (!order) return { flipped: false, reason: 'order_not_found' };
+
+  if (String(order.payment_status || '').toLowerCase() === 'refunded') {
+    return { flipped: false, reason: 'already_refunded' };
+  }
+
+  const ceilingEgp = maxRefundableEgp(order);
+  const ceilingCents = Math.round(Number(ceilingEgp) * 100);
+
+  // amount_egp is the settled figure; the COALESCE chain covers legacy paid
+  // rows written before slice 4 kept amount_egp in step with approved_amount.
+  const sumRes = await exec(
+    `SELECT COALESCE(SUM(COALESCE(amount_egp, approved_amount, requested_amount, 0)), 0) AS total
+       FROM refunds
+      WHERE order_id = $1 AND status = 'paid'`,
+    [orderId]
+  );
+  const refundedEgp = Number((sumRes && sumRes.rows && sumRes.rows[0] && sumRes.rows[0].total) || 0);
+  const refundedCents = Math.round(refundedEgp * 100);
+
+  if (!Number.isFinite(ceilingCents) || ceilingCents <= 0) {
+    // No establishable charge on the order — we cannot prove the refund is
+    // full, so we leave payment_status alone rather than guess. Failing this
+    // way keeps the case alive; the opposite failure deletes it.
+    return { flipped: false, reason: 'no_refundable_total', refundedEgp, ceilingEgp };
+  }
+  if (refundedCents < ceilingCents - FULL_REFUND_EPSILON_CENTS) {
+    return { flipped: false, reason: 'partial_refund', refundedEgp, ceilingEgp };
+  }
+
+  const upd = await exec(
+    `UPDATE orders
+        SET payment_status = 'refunded', updated_at = NOW()
+      WHERE id = $1
+        AND LOWER(COALESCE(payment_status, '')) <> 'refunded'`,
+    [orderId]
+  );
+  if (!upd || !upd.rowCount) {
+    // Raced with another writer, or the row vanished between the two
+    // statements. Report it so the caller can log/alert; do not throw.
+    return { flipped: false, reason: 'update_no_rows', refundedEgp, ceilingEgp };
+  }
+  return { flipped: true, reason: 'full_refund', refundedEgp, ceilingEgp };
 }
 
 /**
@@ -91,18 +194,33 @@ async function setRefundPaid(client, opts) {
     // partial unique index to cover 'paid' as the backstop; this is the
     // eligibility half. In-txn is correct here because this service owns
     // BEGIN/COMMIT — the web route does the same write post-UPDATE.
-    await client.query(
-      "UPDATE orders SET payment_status = 'refunded', updated_at = NOW() WHERE id = $1",
-      [row.order_id]
+    //
+    // ONLY on a genuinely full refund — see applyRefundedPaymentStatus above
+    // for why a partial refund must leave the order 'paid'. The refunds UPDATE
+    // ran first, so the sum inside the helper already includes THIS refund.
+    const paymentStatusOutcome = await applyRefundedPaymentStatus(
+      (sql, params) => client.query(sql, params),
+      row.order_id
     );
 
     // (5) order_events timeline — in-txn (house style, matches admin_refund_approve.js;
-    //     same meta keys the web's logOrderEvent uses).
+    //     same meta keys the web's logOrderEvent uses). The payment_status
+    //     outcome rides along so "why is this order still 'paid'?" is answerable
+    //     from the case timeline alone.
     await client.query(
       `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
          VALUES ($1, $2, 'superadmin_refund_marked_paid', $3, NOW(), $4, 'superadmin')`,
       [randomUUID(), row.order_id,
-        JSON.stringify({ refund_id: refundId, amount_egp: finalAmount, instapay_reference: instapayReference, payer_id: actorId }),
+        JSON.stringify({
+          refund_id: refundId,
+          amount_egp: finalAmount,
+          instapay_reference: instapayReference,
+          payer_id: actorId,
+          order_payment_status: paymentStatusOutcome.flipped ? 'refunded' : 'unchanged',
+          order_payment_status_reason: paymentStatusOutcome.reason,
+          total_refunded_egp: paymentStatusOutcome.refundedEgp != null ? paymentStatusOutcome.refundedEgp : null,
+          refund_ceiling_egp: paymentStatusOutcome.ceilingEgp != null ? paymentStatusOutcome.ceilingEgp : null
+        }),
         actorId]
     );
 
@@ -111,7 +229,14 @@ async function setRefundPaid(client, opts) {
       `INSERT INTO error_logs (id, level, category, message, user_id, context)
          VALUES ($1, 'audit', 'admin_audit', $2, $3, $4)`,
       [randomUUID(), `marked_paid_refund: ${refundId}`, actorId,
-        JSON.stringify({ action: 'marked_paid_refund', target: refundId, instapay_reference: instapayReference, final_amount: finalAmount })]
+        JSON.stringify({
+          action: 'marked_paid_refund',
+          target: refundId,
+          instapay_reference: instapayReference,
+          final_amount: finalAmount,
+          order_payment_status_flipped: !!paymentStatusOutcome.flipped,
+          order_payment_status_reason: paymentStatusOutcome.reason
+        })]
     );
 
     await client.query('COMMIT');
@@ -126,6 +251,11 @@ async function setRefundPaid(client, opts) {
       orderId: row.order_id,
       finalAmount,
       reason: r.reason || null,
+      // Exposed so the route can report / alert on a payment_status flip that
+      // did not happen. `false` with reason 'partial_refund' is the normal,
+      // correct outcome for a partial refund — not an error.
+      orderPaymentStatusFlipped: !!paymentStatusOutcome.flipped,
+      orderPaymentStatusReason: paymentStatusOutcome.reason,
     };
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch (_) { /* already aborted */ }
@@ -133,4 +263,4 @@ async function setRefundPaid(client, opts) {
   }
 }
 
-module.exports = { setRefundPaid };
+module.exports = { setRefundPaid, applyRefundedPaymentStatus };

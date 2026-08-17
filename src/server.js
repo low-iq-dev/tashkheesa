@@ -542,6 +542,30 @@ app.use(function(req, res, next) {
     if (typeof res.locals.isAr !== 'boolean') {
       res.locals.isAr = res.locals.lang === 'ar';
     }
+    // REGRESSION FIX (F10) — jsonForScript belongs in this guaranteed-defined
+    // set too. The canonical definition is in src/middleware.js alongside t/tt;
+    // this block exists precisely so a render that bypasses baseMiddlewares
+    // cannot hit an undefined helper. jsonForScript was added to middleware.js
+    // but not here, and the two views that call it disagree about whether that
+    // matters: superadmin_manual_queue_detail.ejs wraps it in a
+    // `typeof === 'function'` guard, patient_onboarding.ejs calls it bare — so
+    // on any such route one view degrades and the other throws a ReferenceError
+    // mid-render. Defining it here makes the disagreement unable to matter.
+    //
+    // Must stay byte-identical in behaviour to the middleware.js copy: '<' and
+    // '>' escaped so a value containing "</script>" cannot close the enclosing
+    // inline script, '&' for HTML-escaping contexts, U+2028/U+2029 because JSON
+    // permits them raw where pre-ES2019 JS treats them as line terminators.
+    if (typeof res.locals.jsonForScript !== 'function') {
+      res.locals.jsonForScript = function (v) {
+        return JSON.stringify(v === undefined ? null : v)
+          .replace(/</g, '\\u003c')
+          .replace(/>/g, '\\u003e')
+          .replace(/&/g, '\\u0026')
+          .replace(/\u2028/g, '\\u2028')
+          .replace(/\u2029/g, '\\u2029');
+      };
+    }
   }
   return next();
 });

@@ -49,10 +49,16 @@
           <td style="padding:6px 0;font-size:14px;font-weight:600;color:#2d3748;">{{caseReference}}</td>
         </tr>
         {{/if}}
-        {{#if hoursRemaining}}
+        {{! timeRemaining صيغة جاهزة ومترجمة من notification_worker
+            (notify/duration.js) — "6 ساعات" / "50 دقيقة". ليست hoursRemaining:
+            تلك القيمة تُقرّب لأسفل إلى النص "0" طوال الساعة الأخيرة، و"0" قيمة
+            صادقة في Handlebars، فكان السطر يظهر "الوقت المتبقي: 0 ساعة". كما أن
+            "ساعة" الثابتة كانت خاطئة مع الرقم 6 (الصواب "ساعات") — التوافق
+            العددي صار في الكود. }}
+        {{#if timeRemaining}}
         <tr>
           <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">الوقت المتبقي:</td>
-          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#c05621;">{{hoursRemaining}} ساعة</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#c05621;">{{timeRemaining}}</td>
         </tr>
         {{/if}}
       </table>

@@ -20,12 +20,26 @@
 // the case reference for traceability, and signs off as Tashkheesa
 // (Arabic: تشخيصة, English: Tashkheesa).
 
+// FIX 13 — shared with notification_worker's email path so the two surfaces
+// render the same countdown with the same Arabic number agreement.
+const { formatTimeRemaining } = require('./duration');
+
 function appUrl() {
   return process.env.APP_URL || 'https://tashkheesa.com';
 }
 
 function patientOrderUrl(orderId) {
   return orderId ? `${appUrl()}/portal/patient/orders/${orderId}` : appUrl();
+}
+
+// FIX 4 (regression F4) — the SLA-reminder bodies interpolated
+// `/portal/doctor/case/${v.orderId}` directly. queueSlaReminder passed no
+// orderId, so the doctor's only call to action was a URL ending in a bare
+// slash. The id is now always queued, but a link with a missing segment is a
+// dead end either way: fall back to the doctor's queue, which at least lands
+// them somewhere they can find the case.
+function doctorCaseUrl(orderId) {
+  return orderId ? `${appUrl()}/portal/doctor/case/${orderId}` : `${appUrl()}/portal/doctor`;
 }
 
 // All composers receive an enriched `vars` object:
@@ -142,28 +156,36 @@ const OPENCLAW_TEMPLATES = {
   // the doctor's "action needed" wording to a patient would read as though
   // the patient were late on something. AR is gender-neutral per the file
   // conventions above (passive voice, nominal phrases, team 1pl).
+  //
+  // FIX 13 — the countdown is `v.timeRemaining`, a pre-formatted localised
+  // phrase (notify/duration.js), not a bare number with a hardcoded unit. The
+  // old form interpolated `${v.hoursRemaining || 6} ساعات`, which renders
+  // "1 ساعات" whenever the 6h tier fires with an hour or less left on the
+  // clock — Arabic uses a different form for 1, 2, 3–10 and 11+. The tier
+  // wording ("خلال حوالي") stays approximate, so a fallback per tier is kept
+  // for the case where the payload carries no countdown at all.
   sla_reminder_24h: {
     en: (v) => v.role === 'doctor'
-      ? `Reminder — case ${v.caseReference} is due in about ${v.hoursRemaining || 24}h. Complete your review here: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`
-      : `Update on case ${v.caseReference} — your second opinion is due within about ${v.hoursRemaining || 24}h. Nothing needed from you; we'll notify you the moment it's ready. ${v.link}\n— Tashkheesa`,
+      ? `Reminder — case ${v.caseReference} is due in about ${v.timeRemaining || '24 hours'}. Complete your review here: ${doctorCaseUrl(v.orderId)}\n— Tashkheesa`
+      : `Update on case ${v.caseReference} — your second opinion is due within about ${v.timeRemaining || '24 hours'}. Nothing needed from you; we'll notify you the moment it's ready. ${v.link}\n— Tashkheesa`,
     ar: (v) => v.role === 'doctor'
-      ? `تذكير — موعد تسليم حالة ${v.caseReference} خلال حوالي ${v.hoursRemaining || 24} ساعة. لإكمال المراجعة: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
-      : `تحديث عن حالة ${v.caseReference} — رأيك الطبي الثاني موعده خلال حوالي ${v.hoursRemaining || 24} ساعة. مفيش أي إجراء مطلوب منك، وهنبلغك أول ما يجهز. ${v.link}\n— تشخيصة`
+      ? `تذكير — موعد تسليم حالة ${v.caseReference} خلال حوالي ${v.timeRemaining || '24 ساعة'}. لإكمال المراجعة: ${doctorCaseUrl(v.orderId)}\n— تشخيصة`
+      : `تحديث عن حالة ${v.caseReference} — رأيك الطبي الثاني موعده خلال حوالي ${v.timeRemaining || '24 ساعة'}. مفيش أي إجراء مطلوب منك، وهنبلغك أول ما يجهز. ${v.link}\n— تشخيصة`
   },
   sla_reminder_6h: {
     en: (v) => v.role === 'doctor'
-      ? `Case ${v.caseReference} is due in about ${v.hoursRemaining || 6}h. Please complete your review: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`
-      : `Case ${v.caseReference} — your second opinion is due in about ${v.hoursRemaining || 6}h. Your specialist is working on it; we'll send it as soon as it's ready. ${v.link}\n— Tashkheesa`,
+      ? `Case ${v.caseReference} is due in about ${v.timeRemaining || '6 hours'}. Please complete your review: ${doctorCaseUrl(v.orderId)}\n— Tashkheesa`
+      : `Case ${v.caseReference} — your second opinion is due in about ${v.timeRemaining || '6 hours'}. Your specialist is working on it; we'll send it as soon as it's ready. ${v.link}\n— Tashkheesa`,
     ar: (v) => v.role === 'doctor'
-      ? `موعد تسليم حالة ${v.caseReference} خلال حوالي ${v.hoursRemaining || 6} ساعات. برجاء إكمال المراجعة: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
-      : `حالة ${v.caseReference} — رأيك الطبي الثاني موعده خلال حوالي ${v.hoursRemaining || 6} ساعات. الطبيب المختص شغال عليه وهيوصلك أول ما يجهز. ${v.link}\n— تشخيصة`
+      ? `موعد تسليم حالة ${v.caseReference} خلال حوالي ${v.timeRemaining || '6 ساعات'}. برجاء إكمال المراجعة: ${doctorCaseUrl(v.orderId)}\n— تشخيصة`
+      : `حالة ${v.caseReference} — رأيك الطبي الثاني موعده خلال حوالي ${v.timeRemaining || '6 ساعات'}. الطبيب المختص شغال عليه وهيوصلك أول ما يجهز. ${v.link}\n— تشخيصة`
   },
   sla_reminder_1h: {
     en: (v) => v.role === 'doctor'
-      ? `URGENT — case ${v.caseReference} is due within the hour. Submit your review now: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`
+      ? `URGENT — case ${v.caseReference} is due within the hour. Submit your review now: ${doctorCaseUrl(v.orderId)}\n— Tashkheesa`
       : `Case ${v.caseReference} — your second opinion is due within the hour. Your specialist is finalising it now. ${v.link}\n— Tashkheesa`,
     ar: (v) => v.role === 'doctor'
-      ? `عاجل — موعد تسليم حالة ${v.caseReference} خلال ساعة. لإرسال المراجعة الآن: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+      ? `عاجل — موعد تسليم حالة ${v.caseReference} خلال ساعة. لإرسال المراجعة الآن: ${doctorCaseUrl(v.orderId)}\n— تشخيصة`
       : `حالة ${v.caseReference} — رأيك الطبي الثاني موعده خلال ساعة. الطبيب المختص بينهيه دلوقتي. ${v.link}\n— تشخيصة`
   },
 
@@ -358,6 +380,19 @@ function getOpenClawBody(eventName, lang, rawVars, opts) {
         ? String(Math.max(0, Math.floor(Number(vars.seconds_remaining) / 3600)))
         : '')
       || '',
+    // FIX 13 — the localised countdown PHRASE, as opposed to the bare number
+    // above. `hoursRemaining` cannot be interpolated safely into Arabic: the
+    // unit word depends on the value (1 / 2 / 3–10 / 11+), and it floors to
+    // "0" inside the final hour. formatTimeRemaining handles both, and returns
+    // '' when there is nothing sensible to say so the composer falls back to
+    // its approximate tier wording. Prefers the exact seconds when queued,
+    // otherwise reconstructs from an hours field (payment reminders).
+    timeRemaining: formatTimeRemaining(
+      Number.isFinite(Number(vars.seconds_remaining))
+        ? Number(vars.seconds_remaining)
+        : Number(vars.hoursRemaining || vars.hours_remaining) * 3600,
+      lang
+    ),
     // FIX 4 — recipient role. dispatchSlaReminders queues the SAME template
     // to the doctor and to the patient; the composers branch on this to pick
     // action-oriented vs reassurance copy. Defaults to '' (→ patient copy),

@@ -78,6 +78,13 @@ const DOCTOR_RESPONSE_TIMEOUT_HOURS = Number(
 const MAX_ACTIVE_CASES_PER_DOCTOR = Number(process.env.MAX_ACTIVE_CASES_PER_DOCTOR || 4);
 let workerStarted = false;
 
+// FIX 8 — throttle for the legacy NULL-accept_by_at backlog report. The sweep
+// runs every 5 minutes against a static condition; without this it wrote 288
+// error_logs rows a day and poisoned the error-rate cron's baseline. 0 means
+// "log on the first sweep after boot", so a deploy always gets one report.
+const LEGACY_BACKLOG_LOG_INTERVAL_MS = 60 * 60 * 1000;
+let _lastLegacyBacklogLogMs = 0;
+
 // Pick the least-loaded eligible doctor, excluding doctors at/over capacity.
 // Note: we treat these statuses as "active workload".
 //
@@ -686,21 +693,42 @@ async function _runCaseSlaSweepInner(runAt = new Date()) {
   // they would be invisible to ops as well.
   const legacyStranded = await countLegacyAcceptanceRows({ cutoffIso });
   if (legacyStranded > 0) {
+    // The stdout line is unthrottled — it is free, and it keeps the count
+    // visible on every tick for anyone tailing logs.
     logMajor(
       `[case-sla] ${legacyStranded} legacy assignment(s) unaccepted >${DOCTOR_RESPONSE_TIMEOUT_HOURS}h with NULL ` +
       'doctor_assignments.accept_by_at — NOT reassigned (would partial-pay against a deadline that was never ' +
       'recorded). Backfill accept_by_at = assigned_at + the tier window to hand them back to the sweep.'
     );
-    try {
-      const { logErrorToDb } = require('./logger');
-      logErrorToDb(new Error('legacy doctor_assignments rows with NULL accept_by_at are stranded (' + legacyStranded + ')'), {
-        context: 'case_sla_worker.legacy_accept_by_at_backlog',
-        category: 'sla',
-        level: 'warn',
-        legacyStranded,
-        cutoffHours: DOCTOR_RESPONSE_TIMEOUT_HOURS
-      });
-    } catch (_) { /* fire-and-forget */ }
+    // ── REGRESSION FIX (F8) — throttle the error_logs write to hourly. ─────
+    //
+    // This sweep runs every 5 minutes and the condition it reports is a STATIC
+    // backlog: a fixed set of legacy rows that nothing in this worker ever
+    // acts on, and that only a manual backfill can clear. Writing an
+    // error_logs row per tick produced 288 identical rows a day for a
+    // situation that has not changed since the last deploy. That is not
+    // reporting, it is a leak: it inflates the denominator of the error-rate
+    // cron, sits near its alert threshold on volume alone, and buries real
+    // errors in /ops/errors under a repeating one.
+    //
+    // Hourly is enough for a backlog measured in days. The counter resets on
+    // process restart, so a fresh deploy always reports once immediately —
+    // the first sweep after a deploy is exactly when someone is looking.
+    const nowMs = Date.now();
+    if (nowMs - _lastLegacyBacklogLogMs >= LEGACY_BACKLOG_LOG_INTERVAL_MS) {
+      _lastLegacyBacklogLogMs = nowMs;
+      try {
+        const { logErrorToDb } = require('./logger');
+        logErrorToDb(new Error('legacy doctor_assignments rows with NULL accept_by_at are stranded (' + legacyStranded + ')'), {
+          context: 'case_sla_worker.legacy_accept_by_at_backlog',
+          category: 'sla',
+          level: 'warn',
+          legacyStranded,
+          cutoffHours: DOCTOR_RESPONSE_TIMEOUT_HOURS,
+          throttledToEveryMs: LEGACY_BACKLOG_LOG_INTERVAL_MS
+        });
+      } catch (_) { /* fire-and-forget */ }
+    }
   }
 
   pingOps('case_sla_worker', 'SLA sweep completed — prebreaches=' + preBreachCount + ' breaches=' + breachCount + ' timeouts=' + timeoutCount);

@@ -23,9 +23,11 @@
 const { randomUUID } = require('crypto');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { computeDoctorEarnings } = require('./earnings_calc');
-// Refund ceiling helper — doubles as "what the patient actually paid", the
-// denominator of the scaled clawback in recomputeOnRefund (Site 4).
-const { maxRefundableEgp } = require('./refund_eligibility');
+// AUDIT (2026-08-17, regression F5): refund_eligibility.maxRefundableEgp is
+// deliberately NOT imported here any more. It is the refund CEILING
+// (price + add-ons) and was standing in as the clawback denominator, mixing
+// add-on money into a ratio that scales a case-fee-only earning. The
+// denominator is caseFeeCollectedEgp() below.
 
 const MAIN_EARNINGS_PREFIX = 'earn-main-';
 // P1-FIN-2: distinct prefix for partial-pay rows on reassignment.
@@ -37,6 +39,26 @@ const REASSIGN_EARNINGS_PREFIX = 'earn-reassign-';
 // time spent reviewing. Platform absorbs this — new doctor still gets
 // 100% baseShare.
 const REASSIGN_PARTIAL_PCT = 10;
+
+// The CASE-FEE portion of what the patient paid, in EGP to 2dp — i.e.
+// maxRefundableEgp minus the add-on lines. This, not the full invoice, is the
+// denominator of the refund ratio in recomputeOnRefund: `doctor_earnings` only
+// ever holds the doctor's share of the case fee (doctor_fee + urgency uplift
+// share); add-on revenue is settled in `addon_earnings` by
+// services/addons/*.onPurchase and is untouched by this file. See the
+// regression-F5 note at the call site.
+//
+// Per migration 037, base_price + urgency_uplift_amount = price, so `price`
+// already contains the uplift — the two branches are alternatives, never a sum.
+function caseFeeCollectedEgp(order) {
+  if (!order) return 0;
+  const price = Number(order.price);
+  if (Number.isFinite(price) && price > 0) return Math.round(price * 100) / 100;
+  const base = Number(order.base_price) || 0;
+  const uplift = Number(order.urgency_uplift_amount) || 0;
+  const sum = base + uplift;
+  return sum > 0 ? Math.round(sum * 100) / 100 : 0;
+}
 
 async function loadEarningsInputs(orderId) {
   const order = await queryOne(
@@ -253,7 +275,9 @@ async function recomputeOnBreach(orderId) {
 //
 //   reason='patient_request' OR 'operator_refund' + earnings row exists
 //     → earned_amount = full × (1 − 0.9 × refundRatio), where
-//         refundRatio = min(1, refundAmountEgp / totalCollectedEgp)
+//         refundRatio = min(1, refundAmountEgp / caseFeeCollectedEgp(order))
+//       The denominator is the CASE FEE (orders.price, or base_price + uplift
+//       on legacy rows) — NOT the refund ceiling. See regression F5 below.
 //       i.e. the 90% claw-back SCALES LINEARLY with how much of the
 //       order was actually returned to the patient. A full refund
 //       leaves the doctor 10% (the historical behaviour); a 50%
@@ -287,9 +311,12 @@ async function recomputeOnRefund(orderId, opts) {
   const reason = opts && opts.reason;
   if (!orderId || !reason) return { skipped: 'missing_args' };
 
-  // price / addons_json / video_consultation_* feed maxRefundableEgp, which
-  // supplies the denominator of the refund ratio when the caller doesn't pass
-  // an explicit totalCollectedEgp. orders_active projects every orders column
+  // price / base_price / urgency_uplift_amount feed caseFeeCollectedEgp, the
+  // denominator of the refund ratio when the caller doesn't pass an explicit
+  // totalCollectedEgp. The addons_json / video_consultation_* columns are kept
+  // in the projection deliberately: they are no longer part of the denominator
+  // (regression F5) but they are what a future scope-aware caller will need,
+  // and they cost nothing here. orders_active projects every orders column
   // (migrations 069 / 077 assert full parity), so these are safe to select.
   const order = await queryOne(
     `SELECT id, doctor_id, doctor_fee, urgency_uplift_amount,
@@ -318,6 +345,35 @@ async function recomputeOnRefund(orderId, opts) {
     };
   }
 
+  // ── ADD-ON-ONLY REFUNDS (regression F5, second half) ──────────────────────
+  //
+  // A refund of ONLY an add-on (the video consultation, the prescription) must
+  // not touch doctor_earnings at all: that table holds the doctor's share of
+  // the CASE FEE, while add-on revenue lives in addon_earnings. Clawing the
+  // report fee because a 200 EGP prescription was refunded is simply wrong.
+  //
+  // It CANNOT be detected from the data. The refunds table (migration 028 +
+  // 048) has no add-on linkage — no line items, no scope column — and both
+  // create-refund paths (routes/superadmin.js and services/admin_refund.js)
+  // write a single free-typed amount bounded by maxRefundableEgp. "800 EGP of
+  // an 1800 EGP invoice" is therefore genuinely ambiguous between "the add-on"
+  // and "most of the case fee", and guessing by matching the amount against
+  // the add-on prices would silently skip real clawbacks whenever the two
+  // numbers happen to coincide.
+  //
+  // So: an explicit opt-in, and no inference. A caller that KNOWS the refund is
+  // add-on-only (a future add-on-refund flow, or an operator form that captures
+  // scope) passes { scope: 'addon' } and this returns without writing.
+  // Everything else keeps the case-fee policy below.
+  //
+  // Residual, documented: until the refund form captures scope, an operator
+  // refunding only an add-on through the generic form WILL claw back a
+  // proportional slice of the doctor's case fee. Handing this file a scope is
+  // the fix; see the handoff notes.
+  if (opts && (opts.scope === 'addon' || opts.addonOnly === true)) {
+    return { skipped: 'addon_only_refund', orderId, earningsId: existing.id };
+  }
+
   let newEarned;
   let policyApplied;
   let refundRatio = null;
@@ -339,14 +395,31 @@ async function recomputeOnRefund(orderId, opts) {
     });
     const full = fullEarning.baseShare + fullEarning.upliftShare;
 
-    // Denominator: what the patient actually paid for this order. Callers may
-    // override (opts.totalCollectedEgp); otherwise derive it from the order
-    // with the same helper the refund ceiling uses, so the ratio can never
-    // exceed 1 for a within-ceiling refund.
+    // Denominator: the CASE-FEE money, not the whole invoice.
+    //
+    // AUDIT (2026-08-17, regression F5) — this used to fall back to
+    // maxRefundableEgp(order), which is `price + add-ons` (the refund ceiling).
+    // `full` above is the doctor's share of the CASE FEE only; add-on revenue
+    // is settled separately in addon_earnings and never contributes to it. Two
+    // numerators over the wrong denominator, both wrong in opposite
+    // directions:
+    //   * Refund 800 of an add-on on a 1000 case (ceiling 1800): ratio 0.44,
+    //     clawing ~40% of a report fee that was fully earned and is not being
+    //     refunded at all.
+    //   * Refund the whole 1000 case fee (ceiling 1800): ratio 0.56, leaving
+    //     the doctor ~50% when the policy floor for a full case refund is 10%.
+    // Using the case portion makes "the patient got the case fee back" come
+    // out at exactly ratio 1, which is what the 90%/10% policy is defined on.
+    //
+    // price is the canonical case charge (migration 037:
+    // base_price + urgency_uplift_amount = price, so price ALREADY includes the
+    // uplift and must not have it added again). base_price + uplift is the
+    // reconstruction for legacy rows that carry no price — the same two-step
+    // maxRefundableEgp uses for the case portion, minus the add-on lines.
     const optTotal = Number(opts && opts.totalCollectedEgp);
     totalCollectedEgp = (Number.isFinite(optTotal) && optTotal > 0)
       ? optTotal
-      : maxRefundableEgp(order);
+      : caseFeeCollectedEgp(order);
 
     const optRefund = Number(opts && opts.refundAmountEgp);
     refundAmountEgp = (Number.isFinite(optRefund) && optRefund > 0) ? optRefund : null;

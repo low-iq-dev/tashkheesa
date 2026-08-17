@@ -95,12 +95,93 @@ router.post('/intake', async (req, res) => {
         [full_name, country, age, userId]
       );
     } else {
+      // AUDIT (2026-08-17, regression F9) — the `role = 'patient'` filter above
+      // is a real security fix (it stops this anonymous, CSRF-exempt endpoint
+      // writing attacker-supplied data onto a staff account), but it turned a
+      // non-patient email into a hard 500 and a LOST LEAD: users.email is
+      // UNIQUE (users_email_key, migration 001), so the INSERT below raised
+      // 23505, the catch rolled the whole transaction back, and the submitter
+      // saw "Something went wrong. Please try again." — forever, on every
+      // retry, with no hint that the address is the problem.
+      //
+      // ON CONFLICT DO NOTHING + a RETURNING check distinguishes the two ways
+      // the INSERT can fail to produce a row:
+      //   * a concurrent request created the SAME patient between our SELECT
+      //     and this INSERT — re-read and carry on, the lead is fine;
+      //   * the address belongs to a NON-patient (doctor/admin/superadmin) —
+      //     we must not attach a case to that account and we must not touch it,
+      //     so answer 409 with an actionable message instead of a 500.
+      //
+      // Same class, second unique index: users_phone_unique_idx (migration 069,
+      // UNIQUE WHERE phone IS NOT NULL). ON CONFLICT can only infer ONE index,
+      // so a phone already held by another account would raise 23505 straight
+      // past the email clause and land in the same rollback-and-500. phone is
+      // pure enrichment on this endpoint (the case is keyed on email), so drop
+      // it rather than lose the lead over it. Dropping is also the safer
+      // outcome on its own terms — see the SECURITY note above: phone is a
+      // login identifier and this form is anonymous.
+      let insertPhone = phone;
+      if (insertPhone) {
+        const phoneTaken = await client.query(
+          'SELECT 1 FROM users WHERE phone = $1 LIMIT 1',
+          [insertPhone]
+        );
+        if (phoneTaken.rows.length) insertPhone = null;
+      }
+
       userId = randomUUID();
-      await client.query(
+      const ins = await client.query(
         `INSERT INTO users (id, email, name, phone, role, country, date_of_birth, signup_notes, is_active)
-         VALUES ($1, $2, $3, $4, 'patient', $5, $6, 'website_portal_intake', true)`,
-        [userId, email, full_name, phone, country, age]
+         VALUES ($1, $2, $3, $4, 'patient', $5, $6, 'website_portal_intake', true)
+         ON CONFLICT (email) DO NOTHING
+         RETURNING id`,
+        [userId, email, full_name, insertPhone, country, age]
       );
+
+      if (!ins.rows.length) {
+        // The address is taken. Re-read WITHOUT the role filter to find out by
+        // whom — this is a read only; nothing is written to the row either way.
+        const owner = await client.query(
+          'SELECT id, role FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
+          [email]
+        );
+        const ownerRow = owner.rows[0];
+
+        if (ownerRow && String(ownerRow.role) === 'patient') {
+          // Raced with a concurrent intake/registration for the same patient.
+          userId = ownerRow.id;
+        } else {
+          // A staff account owns this address (or the row is unreadable).
+          // Roll back cleanly and tell the submitter something they can act on.
+          // The 409/"already registered" shape matches what
+          // /api/v1/auth/register already returns for a taken address, so this
+          // reveals nothing new; and it is a far better outcome than a generic
+          // 500 that makes the lead unrecoverable on every retry.
+          await client.query('ROLLBACK');
+          try {
+            logErrorToDb(
+              new Error('cases_intake: email belongs to a non-patient account'),
+              {
+                url: req.originalUrl,
+                method: req.method,
+                context: 'cases_intake_email_role_conflict',
+                level: 'warn',
+                // Lead-recovery breadcrumbs only. Deliberately NOT the clinical
+                // question or the file URLs — this is a general error log, not
+                // a clinical store.
+                submitted_email: email,
+                submitted_name: full_name,
+                test_type,
+                existing_role: ownerRow ? ownerRow.role : 'unknown'
+              }
+            );
+          } catch (_) { /* best-effort */ }
+          return res.status(409).json({
+            error: 'This email address is already registered to an existing account. Please sign in and submit your case from your dashboard, or use a different email address.',
+            code: 'EMAIL_ALREADY_REGISTERED',
+          });
+        }
+      }
     }
 
     // 2) Insert the order

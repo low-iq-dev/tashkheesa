@@ -352,16 +352,24 @@ router.post('/portal/video/payment/callback', async (req, res) => {
   // and the per-transaction-id idempotency index (the id is new). Paymob
   // telling us "this money went back to the cardholder" was being processed as
   // "this appointment is paid".
+  //
+  // ── AUDIT 2026-08-17 (regression F4): has_parent_transaction is NOT a refund
+  // signal and must not gate the paid path. It is equally true of a CAPTURE of
+  // a prior authorisation and of a token/recurring charge — money coming IN.
+  // Because it short-circuited before the amount check, such a transaction was
+  // rejected outright: patient charged, appointment left unpaid, and the
+  // "reconcile manually" alert is itself a no-op while
+  // CRITICAL_ALERT_TEMPLATE_NAME is unset. Kept as a pure audit signal below
+  // (logged + paged, never blocking) — mirrors routes/payments.js /callback.
   const isRefundOrVoid = (txn.is_refunded === true)
-    || (txn.is_voided === true)
-    || (txn.has_parent_transaction === true);
+    || (txn.is_voided === true);
+  const hasParentTxn = (txn.has_parent_transaction === true);
 
   const isSuccess = (txn.success === true)
     && (txn.pending !== true)
     && (txn.error_occured !== true)
     && (txn.is_refunded !== true)
-    && (txn.is_voided !== true)
-    && (txn.has_parent_transaction !== true);
+    && (txn.is_voided !== true);
 
   // Theme 9 Sub-issue C: kill-switch gate on the webhook. ACK Paymob (200) so
   // they don't retry, but trigger a critical alert — the patient already
@@ -428,6 +436,24 @@ router.post('/portal/video/payment/callback', async (req, res) => {
 
   if (!isSuccess) {
     return res.json({ ok: true, note: 'non-success status' });
+  }
+
+  // FIX 4 (regression F4) — audit-only. Past the refund/void gate this is real
+  // money coming in on a transaction descended from an earlier one (a capture,
+  // or a token charge). Settle it normally — it still has to clear the amount
+  // check below — but record and page, because this platform only mints
+  // one-shot intentions and a child transaction is unexpected here.
+  if (hasParentTxn) {
+    console.warn('[video-callback] child transaction (has_parent_transaction) — processing normally', {
+      payment_id, paymobTxnId, amount_cents: txn.amount_cents
+    });
+    try {
+      sendCriticalAlert(
+        'Paymob child transaction (has_parent_transaction=true, not a refund/void) on video payment_id=' +
+        payment_id + ' (txn ' + (paymobTxnId || 'n/a') + ') — processed normally, verify it is a capture',
+        'video_paymob_child_transaction'
+      );
+    } catch (_) {}
   }
 
   if (payment.status === 'paid') return res.json({ ok: true, note: 'already paid' });

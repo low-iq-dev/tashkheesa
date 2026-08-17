@@ -5780,6 +5780,38 @@ table tbody tr:last-child td {
 
 /* ====== CONTACT PAGE ====== */
 
+/* Contact form result banners. Rendered by src/views/contact.ejs from
+   contactState; the success one is role="status", the failure one role="alert".
+
+   These rules live HERE, not in public/css/styles.css, because contact.ejs
+   renders through layouts/public.ejs which loads /styles.css -> this file.
+   public/css/styles.css is served at /site/css/styles.css and is loaded only
+   by index.ejs (the marketing homepage). Putting them there left the banner
+   unstyled on the only page that renders it.
+
+   Logical inset properties only, so the 4px accent bar sits on the correct
+   side under [dir="rtl"] without a mirrored override. */
+.contact-banner {
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-block: 16px;
+  border-inline-start: 4px solid transparent;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.contact-banner--success {
+  background: #e8f5ee;
+  border-inline-start-color: #1a7f4b;
+  color: #14532d;
+}
+
+.contact-banner--error {
+  background: #fdecec;
+  border-inline-start-color: #c53030;
+  color: #7f1d1d;
+}
+
 .contact-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));

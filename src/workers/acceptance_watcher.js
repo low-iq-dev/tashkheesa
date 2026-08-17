@@ -18,9 +18,25 @@ async function runAcceptanceWatcherSweep() {
   running = true;
 
   try {
+    // REGRESSION FIX (F6) — `o.urgency_tier` and `o.sla_hours` added.
+    //
+    // acceptanceMinutesForOrder resolves `order.tier || order.urgency_tier`,
+    // then falls back to `order.sla_hours`. This SELECT fetched NONE of the
+    // last two — only `tier`, which is written by exactly one writer,
+    // notify/broadcast.js. So every case that reached assignment WITHOUT a
+    // broadcast (superadmin mark-paid, the auto_assign job, a manual admin
+    // assign) arrived here with tier NULL, urgency_tier undefined and
+    // sla_hours undefined, and the resolver fell all the way through to
+    // `standard` — handing an URGENT 4h case the 120-minute standard window
+    // instead of 15 minutes. Eight times policy, on the tier that pays the
+    // largest premium for speed, on the busiest assignment path in the system.
+    //
+    // REGRESSION FIX (F5) — `o.status` added so the rollback below can restore
+    // the status the row actually had, instead of forcing every row to 'paid'.
     const expiredOrders = await queryAll(`
       SELECT o.id, o.specialty_id, o.service_id, o.reference_id, o.patient_id,
-             o.tier, o.urgency_flag, o.sla_24hr_selected
+             o.tier, o.urgency_tier, o.sla_hours, o.status,
+             o.urgency_flag, o.sla_24hr_selected
       FROM orders_active o
       WHERE o.doctor_id IS NULL
         AND o.acceptance_deadline_at IS NOT NULL
@@ -221,12 +237,28 @@ async function autoAssignOrder(order) {
   // ROLLBACK, and why: the doctor_id claim IS rolled back on failure. The
   // alternative (keep the claim, log the error) leaves precisely the stranded
   // state described above and needs a human to notice a log line. Rolling back
-  // to status='paid' / doctor_id=NULL restores the exact shape this sweep
+  // doctor_id=NULL and the prior status restores the exact shape this sweep
   // selects on, so the next 2-minute tick retries — the failure becomes
   // self-healing instead of terminal. reassigned_count is decremented back so
-  // a retry loop cannot inflate a case's reassignment history. The
-  // acceptance_deadline_at deliberately stays in the past: that is what makes
-  // the row eligible again on the next tick.
+  // a retry loop cannot inflate a case's reassignment history.
+  //
+  // ── REGRESSION FIX (F5) ────────────────────────────────────────────────
+  //
+  // This comment used to claim "the acceptance_deadline_at deliberately stays
+  // in the past: that is what makes the row eligible again on the next tick."
+  // That was simply not true of the code. The assign UPDATE above had ALREADY
+  // moved acceptance_deadline_at forward to `now + acceptMinutes`, and the
+  // rollback never touched it — so the row failed the sweep's
+  // `acceptance_deadline_at < NOW()` predicate for the whole of the new
+  // window. The advertised "self-healing retry in 2 minutes" was in reality a
+  // retry in up to 2 HOURS on a standard case, on a paid case with no doctor.
+  // It is now explicitly reset, which is what the comment always described.
+  //
+  // Status is restored to the row's PRIOR value rather than forced to 'paid'.
+  // The sweep accepts five statuses ('pending','available','submitted','new',
+  // 'paid'); forcing 'paid' silently rewrote the lifecycle state of the other
+  // four on a path whose entire purpose is to leave no trace. COALESCE keeps
+  // 'paid' as the fallback for the impossible case of a NULL status.
   //
   // If the INSERT actually committed and only the ack was lost, the rollback
   // leaves an orphan doctor_assignments row on an unassigned case. That is
@@ -250,17 +282,19 @@ async function autoAssignOrder(order) {
 
     let rolledBack = null;
     try {
+      const rollbackTs = new Date().toISOString();
       rolledBack = await execute(
         `UPDATE orders
             SET doctor_id = NULL,
-                status = 'paid',
+                status = COALESCE($4, 'paid'),
+                acceptance_deadline_at = $1,
                 reassigned_count = GREATEST(COALESCE(reassigned_count, 1) - 1, 0),
                 updated_at = $1
           WHERE id = $2
             AND doctor_id = $3
             AND LOWER(COALESCE(status, '')) = 'assigned'
             AND accepted_at IS NULL`,
-        [new Date().toISOString(), order.id, doctor.id]
+        [rollbackTs, order.id, doctor.id, order.status || null]
       );
     } catch (rollbackErr) {
       logErrorToDb(rollbackErr, {
