@@ -1,0 +1,91 @@
+<!-- SLA Reminder — 24h / 6h / 1h tiers. Shared by sla_reminder_24h,
+     sla_reminder_6h and sla_reminder_1h (see TEMPLATE_TO_EMAIL in
+     src/notification_worker.js). Branches on isDoctorRecipient /
+     isPatientRecipient because dispatchSlaReminders queues the SAME
+     template to both audiences, who need very different copy. -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#1a365d;">
+  {{#if isDoctorRecipient}}Review deadline approaching{{else}}An update on your case{{/if}}
+</h2>
+
+{{#if isDoctorRecipient}}
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+  Hi Dr. {{doctorName}},
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+  {{#if (eq level "1h")}}
+    This case is due within the hour. Please complete and submit your review now so the patient receives it on time.
+  {{else if (eq level "6h")}}
+    This case is due in a few hours. Please make time to complete your review so the patient receives it on time.
+  {{else}}
+    This case is due within the next day. A reminder so you can plan your review before the deadline.
+  {{/if}}
+</p>
+{{else}}
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+  Hi {{patientName}},
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+  {{#if (eq level "1h")}}
+    Your second opinion is due shortly. Your specialist is finishing the review and we'll let you know the moment the report is ready.
+  {{else if (eq level "6h")}}
+    Your second opinion is due soon. Your specialist is working through the review and we'll notify you as soon as the report is ready.
+  {{else}}
+    Your second opinion is due within the next day. Your specialist is reviewing your case and we'll notify you as soon as the report is ready.
+  {{/if}}
+</p>
+{{/if}}
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#fffaf0;border-radius:8px;border:1px solid #feebc8;">
+  <tr>
+    <td style="padding:20px 24px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        {{#if caseReference}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Case Reference:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#2d3748;">{{caseReference}}</td>
+        </tr>
+        {{/if}}
+        {{#if hoursRemaining}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Time Left:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#c05621;">{{hoursRemaining}} hours</td>
+        </tr>
+        {{/if}}
+      </table>
+    </td>
+  </tr>
+</table>
+
+{{#if isDoctorRecipient}}
+{{#if caseUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px auto;">
+  <tr>
+    <td align="center" style="background-color:#dd6b20;border-radius:8px;">
+      <a href="{{caseUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        Open Case
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
+<p style="margin:24px 0 0 0;font-size:13px;color:#718096;line-height:1.5;">
+  If something is blocking your review — missing files, or you need more time — reply to this email and our team will help.
+</p>
+{{else}}
+{{#if dashboardUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px auto;">
+  <tr>
+    <td align="center" style="background-color:#dd6b20;border-radius:8px;">
+      <a href="{{dashboardUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        View Your Case
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
+<p style="margin:24px 0 0 0;font-size:13px;color:#718096;line-height:1.5;">
+  There's nothing you need to do right now — this is just a status update. If you have a question about your case, reply to this email and our team will help.
+</p>
+{{/if}}

@@ -1,0 +1,93 @@
+<!-- تذكير مهلة المراجعة — 24 ساعة / 6 ساعات / ساعة واحدة.
+     مشترك بين sla_reminder_24h و sla_reminder_6h و sla_reminder_1h
+     (راجع TEMPLATE_TO_EMAIL في src/notification_worker.js). النص يتفرع
+     حسب isDoctorRecipient / isPatientRecipient لأن dispatchSlaReminders
+     يرسل نفس القالب للطبيب وللمريض، وكل منهما يحتاج صياغة مختلفة.
+     الصياغة محايدة من حيث الجنس (صيغة المبني للمجهول وأسماء بدل الأوامر)
+     اتساقاً مع بقية قوالب تشخيصة. -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#1a365d;">
+  {{#if isDoctorRecipient}}اقتراب موعد إنهاء المراجعة{{else}}تحديث بخصوص حالتك{{/if}}
+</h2>
+
+{{#if isDoctorRecipient}}
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  مرحباً د. {{doctorName}}،
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  {{#if (eq level "1h")}}
+    موعد تسليم هذه الحالة خلال ساعة. برجاء إنهاء المراجعة وإرسالها الآن ليصل التقرير إلى المريض في موعده.
+  {{else if (eq level "6h")}}
+    موعد تسليم هذه الحالة خلال ساعات قليلة. برجاء تخصيص وقت لإنهاء المراجعة ليصل التقرير إلى المريض في موعده.
+  {{else}}
+    موعد تسليم هذه الحالة خلال اليوم القادم. هذا تذكير لتنظيم وقت المراجعة قبل انتهاء المهلة.
+  {{/if}}
+</p>
+{{else}}
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  أهلاً {{patientName}}،
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  {{#if (eq level "1h")}}
+    موعد تسليم رأيك الطبي الثاني قريب جداً. الطبيب المختص بينهي المراجعة دلوقتي، وهنبلغك أول ما التقرير يجهز.
+  {{else if (eq level "6h")}}
+    موعد تسليم رأيك الطبي الثاني قرب. الطبيب المختص بيراجع حالتك، وهنبلغك أول ما التقرير يجهز.
+  {{else}}
+    موعد تسليم رأيك الطبي الثاني خلال اليوم القادم. الطبيب المختص بيراجع حالتك، وهنبلغك أول ما التقرير يجهز.
+  {{/if}}
+</p>
+{{/if}}
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#fffaf0;border-radius:8px;border:1px solid #feebc8;">
+  <tr>
+    <td style="padding:20px 24px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        {{#if caseReference}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">رقم الحالة:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#2d3748;">{{caseReference}}</td>
+        </tr>
+        {{/if}}
+        {{#if hoursRemaining}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">الوقت المتبقي:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#c05621;">{{hoursRemaining}} ساعة</td>
+        </tr>
+        {{/if}}
+      </table>
+    </td>
+  </tr>
+</table>
+
+{{#if isDoctorRecipient}}
+{{#if caseUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px auto;">
+  <tr>
+    <td align="center" style="background-color:#dd6b20;border-radius:8px;">
+      <a href="{{caseUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        فتح الحالة
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
+<p style="margin:24px 0 0 0;font-size:13px;color:#718096;line-height:1.6;">
+  لو في ما يعوق المراجعة — ملفات ناقصة أو حاجة لوقت إضافي — الرد على هذا الإيميل وفريقنا هيساعد.
+</p>
+{{else}}
+{{#if dashboardUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px auto;">
+  <tr>
+    <td align="center" style="background-color:#dd6b20;border-radius:8px;">
+      <a href="{{dashboardUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        عرض حالتك
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
+<p style="margin:24px 0 0 0;font-size:13px;color:#718096;line-height:1.6;">
+  مفيش أي إجراء مطلوب منك دلوقتي — الرسالة دي للعلم فقط. لأي استفسار عن الحالة، الرد على هذا الإيميل وفريقنا هيساعد.
+</p>
+{{/if}}

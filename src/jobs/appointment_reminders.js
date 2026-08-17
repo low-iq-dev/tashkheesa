@@ -35,9 +35,7 @@ async function runAppointmentReminders() {
 
     for (const appt of appts24h) {
       await sendReminder(appt, '24h');
-      try {
-        await execute('UPDATE appointments SET reminder_24h_sent = true WHERE id = $1', [appt.id]);
-      } catch (_) {}
+      await markReminderSent(appt, '24h', 'reminder_24h_sent');
     }
 
     // 1-hour reminders: appointments within next 1 hour that haven't been reminded
@@ -57,9 +55,7 @@ async function runAppointmentReminders() {
 
     for (const appt of appts1h) {
       await sendReminder(appt, '1h');
-      try {
-        await execute('UPDATE appointments SET reminder_1h_sent = true WHERE id = $1', [appt.id]);
-      } catch (_) {}
+      await markReminderSent(appt, '1h', 'reminder_1h_sent');
     }
 
     if (appts24h.length > 0 || appts1h.length > 0) {
@@ -67,6 +63,65 @@ async function runAppointmentReminders() {
     }
   } catch (err) {
     logErrorToDb(err, { context: 'appointment_reminders', type: 'cron_job' });
+  }
+}
+
+/**
+ * Flip the reminder_{24h,1h}_sent flag AFTER the reminder has been queued.
+ *
+ * AUDIT (FIX 10) — both call sites used to be `try { await execute(...) }
+ * catch (_) {}`. That swallow sits AFTER delivery, on the only piece of
+ * state that stops the sweep re-selecting this appointment: the WHERE
+ * clause above filters on `reminder_Nh_sent = false`. If the UPDATE fails
+ * — connection blip, statement timeout, pool exhaustion during a spike —
+ * the flag stays false, the next tick re-selects the same row, and the
+ * patient is re-reminded every 15 minutes until the appointment passes,
+ * with not one line written anywhere an operator would look.
+ *
+ * Two changes:
+ *   1. The failure is written to error_logs via logErrorToDb, so a stuck
+ *      flag surfaces on /ops/errors instead of only in the patient's
+ *      WhatsApp thread.
+ *   2. One in-process retry. The realistic failure here is transient, and
+ *      a single immediate retry closes most of the window without adding
+ *      a backoff loop to a cron that already runs every 15 minutes.
+ *
+ * Note on blast radius: the queued notifications carry a stable dedupe_key
+ * ('appt:reminder:<timing>:<id>'), so queueNotification dedupes the repeat
+ * and the patient does NOT actually receive duplicate messages once the
+ * first copy exists. The damage is a permanently re-processed row and a
+ * hidden write failure — real, but not a duplicate-send. Do not "fix" this
+ * by weakening the dedupe key.
+ */
+async function markReminderSent(appt, timing, column) {
+  // `column` is a fixed internal literal ('reminder_24h_sent' /
+  // 'reminder_1h_sent'), never caller/user input — safe to interpolate.
+  const sql = 'UPDATE appointments SET ' + column + ' = true WHERE id = $1';
+  try {
+    await execute(sql, [appt.id]);
+    return true;
+  } catch (firstErr) {
+    try {
+      await execute(sql, [appt.id]);
+      return true;
+    } catch (err) {
+      logErrorToDb(err, {
+        context: 'appointment_reminders.mark_sent',
+        category: 'cron_job',
+        type: 'cron_job',
+        appointmentId: appt.id,
+        orderId: appt.order_id || null,
+        userId: appt.patient_id || null,
+        timing: timing,
+        column: column
+      });
+      console.error(
+        '[reminders] FAILED to set ' + column + ' for appointment ' + appt.id +
+        ' — this appointment will be re-processed every sweep until the write succeeds',
+        err && err.message ? err.message : err
+      );
+      return false;
+    }
   }
 }
 
@@ -118,7 +173,22 @@ async function sendReminder(appt, timing) {
       },
       dedupe_key: 'appt:reminder:' + timing + ':' + appt.id
     });
-  } catch (_) {}
+  } catch (err) {
+    // AUDIT (FIX 10) — was `catch (_) {}`. queueMultiChannelNotification is
+    // documented as non-throwing, so reaching here means something upstream
+    // of it broke (module load, normalizeToUserId). Either way the patient
+    // was not reminded and the caller then sets reminder_Nh_sent = true, so
+    // this is the last chance to record that the reminder is gone.
+    logErrorToDb(err, {
+      context: 'appointment_reminders.queue_patient',
+      category: 'cron_job',
+      type: 'cron_job',
+      appointmentId: appt.id,
+      orderId: appt.order_id || null,
+      userId: appt.patient_id || null,
+      timing: timing
+    });
+  }
 
   // Queue multi-channel notification to doctor (uses doctorLang-formatted strings)
   try {
@@ -136,7 +206,18 @@ async function sendReminder(appt, timing) {
       },
       dedupe_key: 'appt:reminder:doctor:' + timing + ':' + appt.id
     });
-  } catch (_) {}
+  } catch (err) {
+    // AUDIT (FIX 10) — see the patient branch above.
+    logErrorToDb(err, {
+      context: 'appointment_reminders.queue_doctor',
+      category: 'cron_job',
+      type: 'cron_job',
+      appointmentId: appt.id,
+      orderId: appt.order_id || null,
+      userId: appt.doctor_id || null,
+      timing: timing
+    });
+  }
 }
 
 module.exports = { runAppointmentReminders };

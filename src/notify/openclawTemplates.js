@@ -129,6 +129,44 @@ const OPENCLAW_TEMPLATES = {
     ar: (v) => `تنبيه عن حالة ${v.caseReference}: عدّت 24 ساعة وهي محفوظة. الحالات بتفضل ${v.hoursRemaining || '24'} ساعة كمان قبل ما المكان يتفتح. ممكن الدفع من هنا: ${v.link}\n— تشخيصة`
   },
 
+  // ── h2. SLA reminder tiers — 24h / 6h / 1h (FIX 4) ─────────────────
+  // Queued by case_lifecycle.dispatchSlaReminders on the 'whatsapp' channel
+  // to BOTH the assigned doctor and the patient (role is in the payload).
+  // Without these three bodies getOpenClawBody returned null, whatsapp.js
+  // took the `no_openclaw_template` branch, and every reminder was written
+  // straight to 'failed' as a permanent failure — the exact class of silent
+  // gap that hid the doctor new-case broadcast.
+  //
+  // One composer per tier, branching on role: a doctor needs an action and a
+  // case link, a patient needs reassurance and explicitly no action. Sending
+  // the doctor's "action needed" wording to a patient would read as though
+  // the patient were late on something. AR is gender-neutral per the file
+  // conventions above (passive voice, nominal phrases, team 1pl).
+  sla_reminder_24h: {
+    en: (v) => v.role === 'doctor'
+      ? `Reminder — case ${v.caseReference} is due in about ${v.hoursRemaining || 24}h. Complete your review here: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`
+      : `Update on case ${v.caseReference} — your second opinion is due within about ${v.hoursRemaining || 24}h. Nothing needed from you; we'll notify you the moment it's ready. ${v.link}\n— Tashkheesa`,
+    ar: (v) => v.role === 'doctor'
+      ? `تذكير — موعد تسليم حالة ${v.caseReference} خلال حوالي ${v.hoursRemaining || 24} ساعة. لإكمال المراجعة: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+      : `تحديث عن حالة ${v.caseReference} — رأيك الطبي الثاني موعده خلال حوالي ${v.hoursRemaining || 24} ساعة. مفيش أي إجراء مطلوب منك، وهنبلغك أول ما يجهز. ${v.link}\n— تشخيصة`
+  },
+  sla_reminder_6h: {
+    en: (v) => v.role === 'doctor'
+      ? `Case ${v.caseReference} is due in about ${v.hoursRemaining || 6}h. Please complete your review: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`
+      : `Case ${v.caseReference} — your second opinion is due in about ${v.hoursRemaining || 6}h. Your specialist is working on it; we'll send it as soon as it's ready. ${v.link}\n— Tashkheesa`,
+    ar: (v) => v.role === 'doctor'
+      ? `موعد تسليم حالة ${v.caseReference} خلال حوالي ${v.hoursRemaining || 6} ساعات. برجاء إكمال المراجعة: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+      : `حالة ${v.caseReference} — رأيك الطبي الثاني موعده خلال حوالي ${v.hoursRemaining || 6} ساعات. الطبيب المختص شغال عليه وهيوصلك أول ما يجهز. ${v.link}\n— تشخيصة`
+  },
+  sla_reminder_1h: {
+    en: (v) => v.role === 'doctor'
+      ? `URGENT — case ${v.caseReference} is due within the hour. Submit your review now: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`
+      : `Case ${v.caseReference} — your second opinion is due within the hour. Your specialist is finalising it now. ${v.link}\n— Tashkheesa`,
+    ar: (v) => v.role === 'doctor'
+      ? `عاجل — موعد تسليم حالة ${v.caseReference} خلال ساعة. لإرسال المراجعة الآن: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+      : `حالة ${v.caseReference} — رأيك الطبي الثاني موعده خلال ساعة. الطبيب المختص بينهيه دلوقتي. ${v.link}\n— تشخيصة`
+  },
+
   // ── i. Theme 14 Phase 5 — case routing updated by ops ──────────────
   // Sent ONLY when the manual-queue approve flow chose a specialty
   // different from the patient's original submission. AR voice is
@@ -310,7 +348,22 @@ function getOpenClawBody(eventName, lang, rawVars, opts) {
     // #66: hoursRemaining is set by case_lifecycle for payment-reminder
     // events (48h hard-stop minus elapsed). Falls back to '' for any
     // composer that reads it but wasn't queued with the field.
-    hoursRemaining: vars.hoursRemaining || vars.hours_remaining || '',
+    hoursRemaining: vars.hoursRemaining || vars.hours_remaining
+      // FIX 4 — case_lifecycle.queueSlaReminder queues `seconds_remaining`
+      // and no hours field, so the SLA-reminder composers would otherwise
+      // fall back to their hardcoded tier default instead of the real
+      // countdown. Floored and clamped at 0 so a late sweep never renders a
+      // negative "due in -3h" to a patient.
+      || (Number.isFinite(Number(vars.seconds_remaining))
+        ? String(Math.max(0, Math.floor(Number(vars.seconds_remaining) / 3600)))
+        : '')
+      || '',
+    // FIX 4 — recipient role. dispatchSlaReminders queues the SAME template
+    // to the doctor and to the patient; the composers branch on this to pick
+    // action-oriented vs reassurance copy. Defaults to '' (→ patient copy),
+    // which is the safe side: a doctor shown the patient wording loses an
+    // action prompt, a patient shown the doctor wording is told they are late.
+    role: String(vars.role || '').toLowerCase(),
     link: vars.link || patientOrderUrl(orderId),
     orderId: orderId || ''
   };

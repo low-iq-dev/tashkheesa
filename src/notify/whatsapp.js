@@ -27,11 +27,32 @@ function isNotificationsWhatsAppEnabled() {
   return String(process.env.NOTIFICATIONS_WHATSAPP_ENABLED || '').toLowerCase() === 'true';
 }
 
-// 'meta' (default) | 'openclaw'. Decides which transport sendWhatsApp
-// routes to when NOTIFICATIONS_WHATSAPP_ENABLED=true.
+// AUDIT — default flipped 'meta' → 'openclaw', and centralised here.
+//
+// Two reasons the old default was wrong at launch:
+//   1. .env.example itself documents the Meta Cloud API path as "currently
+//      blocked pending Meta Business verification" — so the default
+//      transport was the one that cannot deliver.
+//   2. Every entry in whatsappTemplateMap.js pinned lang:'en' (see FIX 9),
+//      so even once Meta clears, Arabic recipients — the primary market —
+//      could not receive Arabic. OpenClaw carries per-language bodies
+//      (openclawTemplates.js) and is the transport actually in service.
+//
+// DEFAULT_WHATSAPP_TRANSPORT is exported so there is exactly ONE string
+// literal for this default in the repo. notification_worker.js previously
+// re-derived it with its own inline `|| 'meta'`, which is precisely the
+// kind of duplicate that drifts: flipping one and not the other makes the
+// worker rewrite `wa.template` for a transport sendWhatsApp isn't using.
+const DEFAULT_WHATSAPP_TRANSPORT = 'openclaw';
+
+// 'openclaw' (default) | 'meta'. Decides which transport sendWhatsApp
+// routes to when NOTIFICATIONS_WHATSAPP_ENABLED=true. Read at call time so
+// flipping the env on Render doesn't require a redeploy.
 function whatsappTransport() {
-  const t = String(process.env.NOTIFICATIONS_WHATSAPP_TRANSPORT || 'meta').toLowerCase();
-  return t === 'openclaw' ? 'openclaw' : 'meta';
+  const t = String(
+    process.env.NOTIFICATIONS_WHATSAPP_TRANSPORT || DEFAULT_WHATSAPP_TRANSPORT
+  ).toLowerCase();
+  return t === 'meta' ? 'meta' : 'openclaw';
 }
 
 function isStubMode() {
@@ -262,4 +283,4 @@ async function sendWhatsApp({ to, template, lang = 'en_US', vars = {}, orderId =
   }
 }
 
-module.exports = { sendWhatsApp };
+module.exports = { sendWhatsApp, whatsappTransport, DEFAULT_WHATSAPP_TRANSPORT };

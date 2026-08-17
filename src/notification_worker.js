@@ -4,7 +4,12 @@
 const { queryAll, queryOne, execute } = require('./pg');
 const { logErrorToDb } = require('./logger');
 const { sendEmail, renderEmail, EMAIL_ENABLED } = require('./services/emailService');
-const { sendWhatsApp } = require('./notify/whatsapp');
+// FIX 8 — `whatsappTransport()` is imported rather than re-deriving
+// `process.env.NOTIFICATIONS_WHATSAPP_TRANSPORT || '<default>'` inline. The
+// default now lives in exactly one place (notify/whatsapp.js
+// DEFAULT_WHATSAPP_TRANSPORT); previously this file and whatsapp.js each
+// carried their own `|| 'meta'` literal and could disagree after a flip.
+const { sendWhatsApp, whatsappTransport } = require('./notify/whatsapp');
 const { getNotificationTitles } = require('./notify/notification_titles');
 const { getWhatsAppTemplate } = require('./notify/whatsappTemplateMap');
 const { emitNotificationDropped } = require('./notify');
@@ -62,6 +67,25 @@ const TEMPLATE_TO_EMAIL = {
   sla_warning_urgent: 'sla-warning',
   order_sla_pre_breach: 'sla-warning',
   order_sla_pre_breach_doctor: 'sla-warning',
+  // FIX 4 — the 24h/6h/1h SLA reminder sweep (case_lifecycle.dispatchSlaReminders
+  // → queueSlaReminder, template `sla_reminder_${level}`) is being wired on for
+  // launch. It queues on BOTH the 'email' and 'whatsapp' channels, to BOTH the
+  // assigned doctor and the patient. With no mapping here, processEmail returned
+  // `no_email_template_mapping_for_sla_reminder_24h` and every single reminder
+  // burned three retries into 'failed'.
+  //
+  // All three levels share one .hbs file: the body branches on {{role}}
+  // (doctor vs patient — the two audiences need different copy and different
+  // CTAs) and on {{level}} for the urgency wording. Both fields are already in
+  // the queued payload (case_lifecycle.js queueSlaReminder response). One file
+  // rather than three keeps the copy from drifting across tiers.
+  //
+  // Deliberately NOT reusing 'sla-warning': that template is doctor-addressed
+  // ("Hi Dr. {{doctorName}}", "Missing the SLA deadline affects service quality
+  // metrics") and would be actively wrong sent to a patient.
+  sla_reminder_24h: 'sla-reminder',
+  sla_reminder_6h:  'sla-reminder',
+  sla_reminder_1h:  'sla-reminder',
   order_reassigned_doctor: 'case-reassigned',
   order_reassigned_to_doctor: 'case-reassigned',
   // P1-FIN-2: explainer to the BOOTED doctor (the one removed from the case)
@@ -208,15 +232,31 @@ async function processEmail(notification, user, order) {
     }
   }
 
+  // FIX 4 — SLA-reminder enrichment. case_lifecycle.queueSlaReminder queues
+  // { case_id, role, level, seconds_remaining } and nothing else, so the
+  // shared sla-reminder.hbs would otherwise render an empty "time left" and
+  // have no way to pick doctor vs patient copy. Derive both here rather than
+  // in the template: Handlebars has no arithmetic, and the recipient-role
+  // branch belongs in code where it can be read at a glance.
+  // Floored to whole hours and clamped at 0 so a late sweep can never render
+  // a negative countdown to a patient.
+  const slaSecondsRemaining = Number(data.seconds_remaining);
+  const slaHoursRemaining = Number.isFinite(slaSecondsRemaining)
+    ? String(Math.max(0, Math.floor(slaSecondsRemaining / 3600)))
+    : '';
+  const slaRole = String(data.role || '').toLowerCase();
+
   const templateData = {
     ...data,
+    isDoctorRecipient: slaRole === 'doctor',
+    isPatientRecipient: slaRole === 'patient',
     patientName: data.patientName || user.name || 'Patient',
     doctorName: stripDrPrefix(data.doctorName),
     caseId: caseIdResolved,
     caseReference: data.caseReference
       || (caseIdResolved ? String(caseIdResolved).slice(0, 12).toUpperCase() : ''),
     paymentUrl: paymentUrlResolved,
-    hoursRemaining: data.hoursRemaining || data.hours_remaining || '',
+    hoursRemaining: data.hoursRemaining || data.hours_remaining || slaHoursRemaining || '',
     specialty: data.specialty || '',
     slaHours: data.slaHours || (order ? order.sla_hours : ''),
     dashboardUrl: data.dashboardUrl || `${process.env.APP_URL || 'https://tashkheesa.com'}/dashboard`,
@@ -328,8 +368,14 @@ async function processWhatsApp(notification, user, order) {
   // For the Meta branch's paramBuilder contract we still need to honor
   // the historical shape — but enrichment above doesn't break it
   // (paramBuilders read `data.caseReference || data.case_id`, etc).
-  const fallbackLang = user.lang === 'ar' ? 'ar' : 'en_US';
-  const mapped = getWhatsAppTemplate(notification.template);
+  // FIX 9 — the recipient's language is now an INPUT to template resolution
+  // instead of being overridden by a hardcoded `lang:'en'` on every map entry.
+  // getWhatsAppTemplate returns the approved name for `userLang` when one
+  // exists and the `en` name (with language code 'en') otherwise, so an
+  // English-only event never gets submitted to Meta under an 'ar' code.
+  const userLang = user.lang === 'ar' ? 'ar' : 'en';
+  const fallbackLang = userLang === 'ar' ? 'ar' : 'en_US';
+  const mapped = getWhatsAppTemplate(notification.template, userLang);
   const wa = mapped
     ? {
         to: user.phone,
@@ -352,9 +398,9 @@ async function processWhatsApp(notification, user, order) {
   // template name. When the map has rewritten `template` for Meta, the
   // OpenClaw branch in sendWhatsApp won't find a body. Pass the
   // original internal name as `template` when transport is OpenClaw.
-  if (String(process.env.NOTIFICATIONS_WHATSAPP_TRANSPORT || 'meta').toLowerCase() === 'openclaw') {
+  if (whatsappTransport() === 'openclaw') {
     wa.template = notification.template;
-    wa.lang = user.lang === 'ar' ? 'ar' : 'en';
+    wa.lang = userLang;
   }
 
   const result = await sendWhatsApp(wa);
@@ -379,14 +425,67 @@ async function runNotificationWorker(limit = 50) {
 
   // B10 (launch audit): recover rows a crashed worker left stuck in 'sending'
   // past their claim lease, so they get re-dispatched instead of lost forever.
+  //
+  // AUDIT — the recovery UPDATE used to flip every expired-lease row straight
+  // back to 'queued' WITHOUT touching `attempts`. A poison-pill payload that
+  // kills the worker mid-send therefore looped forever: claim → crash →
+  // lease expires → re-queue at attempts=N → claim → crash. It could never
+  // reach MAX_RETRIES because only the normal failure paths below increment
+  // the counter, and this row never reaches them.
+  //
+  // Now the recovery pass owns the increment: each lease expiry costs one
+  // attempt, and a row already at the cap is retired to 'failed' instead of
+  // being handed back to the worker. Two statements rather than one CASE
+  // expression so the retire path can be counted and logged distinctly.
   try {
+    const retired = await queryAll(
+      `UPDATE notifications
+          SET status = 'failed',
+              attempts = COALESCE(attempts, 0) + 1,
+              retry_after = NULL,
+              response = $2
+        WHERE status = 'sending'
+          AND (retry_after IS NULL OR retry_after <= $1)
+          AND COALESCE(attempts, 0) + 1 >= $3
+        RETURNING id, order_id, template, channel, to_user_id, attempts`,
+      [nowIso, JSON.stringify({ error: 'stuck_sending_max_retries_exceeded' }), MAX_RETRIES]
+    );
+
     await execute(
       `UPDATE notifications
-          SET status = 'queued', retry_after = NULL
+          SET status = 'queued',
+              attempts = COALESCE(attempts, 0) + 1,
+              retry_after = NULL
         WHERE status = 'sending'
           AND (retry_after IS NULL OR retry_after <= $1)`,
       [nowIso]
     );
+
+    for (const r of (retired || [])) {
+      // Same visibility contract as the max-retries branch in the dispatch
+      // loop: /ops/silent-failures reads NOTIFICATION_DROPPED case_events and
+      // /ops/errors reads error_logs. A row that died by repeated worker
+      // crashes is exactly as undelivered as one that died by provider errors.
+      emitNotificationDropped({
+        orderId: r.order_id,
+        reason: 'stuck_sending_max_retries_exceeded',
+        channel: r.channel,
+        template: r.template,
+        toUserId: r.to_user_id
+      });
+      logErrorToDb(new Error('stuck_sending_max_retries_exceeded'), {
+        context: 'notification_worker.recover_stuck_sending',
+        category: 'notification_worker',
+        candidateId: r.id,
+        template: r.template,
+        channel: r.channel,
+        attempts: r.attempts,
+        workerPhase: 'interval'
+      });
+      console.error('[notify-worker] retiring poison-pill row stuck in sending', {
+        id: r.id, template: r.template, channel: r.channel, attempts: r.attempts
+      });
+    }
   } catch (err) {
     logErrorToDb(err, {
       context: 'notification_worker.recover_stuck_sending',

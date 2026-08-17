@@ -327,11 +327,30 @@ async function queueNotification({
     // process.exit(1) guard. Degrade to "skip dedupe, proceed": a possible
     // duplicate is far cheaper than a crash.
     try {
+      // AUDIT — `AND status <> 'failed'` added.
+      //
+      // Without it a single historical 'failed' row suppressed the event
+      // permanently: the pre-check matched, queueNotification returned
+      // { skipped: 'deduped' }, and that (dedupe_key, channel, to_user_id)
+      // triple could never be re-queued again for the rest of the row's
+      // lifetime. A doctor whose case-assigned WhatsApp failed three times
+      // during a provider outage was never re-notified, for that case, ever.
+      //
+      // ORDERING DEPENDENCY — this requires migration 082 to have widened
+      // idx_notifications_dedupe_key from UNIQUE (dedupe_key) to
+      // UNIQUE (dedupe_key, channel, to_user_id). Under the current
+      // single-column index (migrations/003_indexes.sql:19) letting a
+      // second row through raises 23505 on INSERT. That failure is caught
+      // by the insert try/catch below and returns { ok:false,
+      // db_insert_failed } rather than throwing, so the pre-082 blast
+      // radius is "still not re-queued, now with an error_logs row" —
+      // no worse than today, but the fix is inert until 082 lands.
       const exists = await queryOne(`
         SELECT 1 FROM notifications
         WHERE dedupe_key = $1
           AND channel = $2
           AND to_user_id = $3
+          AND status <> 'failed'
         LIMIT 1
       `, [normalizedDedupeKey, channel, uid]);
 
@@ -365,7 +384,14 @@ async function queueNotification({
   const parsedResponse = (typeof response === 'object' && response !== null)
     ? response
     : (() => { try { return JSON.parse(responseJson); } catch { return null; } })();
-  const titles = getNotificationTitles(template);
+  // AUDIT — `vars` was omitted here, so every `{caseReference}` /
+  // `{doctorName}` / `{patientName}` placeholder in TEMPLATE_TITLES
+  // interpolated to '' and interpolate() then stripped the dangling
+  // punctuation: the bell showed "New case in your specialty" with the
+  // reference gone. `parsedResponse` is the same payload the email path
+  // feeds getNotificationTitles (notification_worker.js:235), so titles
+  // now render identically on both surfaces.
+  const titles = getNotificationTitles(template, parsedResponse);
   // AUDIT-APP — was hardcoded to title_en, so Arabic patients (the primary
   // market) saw English titles throughout the app's notification list, with the
   // title_ar variant never used anywhere. Resolve against the recipient's
@@ -477,30 +503,17 @@ async function doctorNotify({ doctor, template, order }) {
   });
 }
 
-async function processCaseEvent(event) {
-  if (!event || event.event_type !== 'SLA_BREACHED') return;
-
-  // Prevent duplicate alerts (unique by dedupe_key index)
-  const dedupeKey = `sla:breach:${event.case_id}`;
-  const exists = await queryOne(`
-    SELECT 1 FROM notifications
-    WHERE dedupe_key = $1
-    LIMIT 1
-  `, [dedupeKey]);
-
-  if (exists) return;
-
-  await queueNotification({
-    channel: 'whatsapp',
-    toUserId: 'superadmin-1',
-    template: 'sla_breach',
-    dedupe_key: dedupeKey,
-    response: {
-      case_id: event.case_id,
-      status: 'breached'
-    }
-  });
-}
+// AUDIT — `processCaseEvent` was DELETED here.
+//
+// It queued the SLA-breach WhatsApp alert to the literal user id
+// 'superadmin-1' — a demo-seed id that does not exist in production, so
+// normalizeToUserId returned it verbatim, the INSERT hit the FK/trigger
+// guard, and the alert went nowhere. It had zero callers repo-wide (only
+// its own definition and its module.exports entry), and the live SLA-breach
+// path is `dispatchSlaBreach` below, which fans out to every active
+// superadmin via notifyAdmins. Keeping a dead second implementation of the
+// same escalation, wired to a fake recipient, was a trap for the next
+// person to grep for 'sla_breach'.
 
 /**
  * Fan out an admin notification to every active superadmin.
@@ -688,7 +701,9 @@ module.exports = {
   queueNotification,
   queueMultiChannelNotification,
   doctorNotify,
-  processCaseEvent,
+  // `processCaseEvent` removed with its definition — see the comment above
+  // dispatchSlaBreach. It had no callers and targeted the demo-seed id
+  // 'superadmin-1'.
   dispatchSlaBreach,
   notifyAdmins,
   sendSlaReminder,

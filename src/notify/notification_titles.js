@@ -115,7 +115,121 @@ const TEMPLATE_TITLES = {
 
   // Theme 14 Phase 5 — patient notification on manual-queue approve when
   // the chosen specialty differs from the patient's original submission.
-  case_routing_updated: { en: 'We updated your case routing',                 ar: 'تم تحديث توجيه حالتك' }
+  case_routing_updated: { en: 'We updated your case routing',                 ar: 'تم تحديث توجيه حالتك' },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // AUDIT (FIX 3) — 26 events were queued with NO entry here.
+  //
+  // getNotificationTitles fell through to humanizeTemplate(), so the bell
+  // rendered the raw event name title-cased: patients saw "Video Slot Auto
+  // Cancelled Patient" and admins saw "Acceptance Timeout Auto Assigned
+  // Admin" as the user-visible title of a medical notification.
+  //
+  // Placeholder policy for this block: most of these call sites queue a
+  // payload with no case reference at all (e.g. new_case_assigned_doctor and
+  // order_sla_prebreach pass no `response` whatsoever; the video_* events
+  // pass appointment_id / slot times), and the bell path interpolates the
+  // RAW payload — not the worker's enriched templateData. A `{caseReference}`
+  // that resolves to '' would just reproduce the truncated-title bug FIX 2
+  // exists to remove, so these titles are self-contained. `{caseReference}`
+  // is used only where the queued payload is verified to carry that key.
+  // ══════════════════════════════════════════════════════════════════════
+
+  // ── Admin / ops queue ─────────────────────────────────────────────────
+  // src/workers/acceptance_watcher.js — doctor never accepted in the
+  // acceptance window, so the case was force-assigned. Admin-facing.
+  acceptance_timeout_auto_assigned_admin: { en: 'Case auto-assigned after acceptance timeout', ar: 'إسناد تلقائي للحالة بعد انتهاء مهلة القبول' },
+  // src/routes/admin.js — receipt to the admin who force-assigned a case.
+  admin_force_assigned_confirmation:      { en: 'Case assigned to doctor',                     ar: 'تم إسناد الحالة إلى الطبيب' },
+  // src/routes/doctor.js — doctor asked the patient for more files; ops is
+  // copied so the request can be chased. Payload carries caseReference.
+  admin_additional_files_requested:       { en: 'Doctor requested additional files: {caseReference}', ar: 'الطبيب طلب ملفات إضافية: {caseReference}' },
+  // src/routes/payments.js — Paymob callback amount ≠ amount owed. This is a
+  // money-integrity alert; the title must say so plainly.
+  payment_amount_mismatch:                { en: 'Payment amount mismatch — review required',   ar: 'اختلاف في قيمة الدفع — مطلوب مراجعة' },
+  // src/case_sla_worker.js — superadmin pre-breach escalation (no payload).
+  order_sla_prebreach:                    { en: 'Case approaching SLA deadline',               ar: 'حالة تقترب من الموعد النهائي' },
+  // src/notify.js dispatchSlaBreach — LIVE (called from case_lifecycle.js on
+  // every SLA breach). Fans out to every active superadmin on the whatsapp
+  // channel. Not a dead path; see the note in the task write-up.
+  sla_breach:                             { en: 'SLA breached — immediate action needed',      ar: 'تم تجاوز المهلة — مطلوب إجراء فوري' },
+
+  // ── Doctor / patient assignment ───────────────────────────────────────
+  // src/routes/superadmin.js — auto-assign after superadmin marks paid.
+  new_case_assigned_doctor:               { en: 'New case assigned to you',                    ar: 'تم إسناد حالة جديدة إليك' },
+  // src/routes/api/admin.js — payload carries caseReference + doctorName.
+  order_assigned_patient:                 { en: 'Dr. {doctorName} is reviewing your case',     ar: 'د. {doctorName} بيراجع حالتك' },
+
+  // ── Auth / onboarding ─────────────────────────────────────────────────
+  // src/routes/auth.js — passwordless sign-in link, queued on the email
+  // channel. Deliberately says nothing about the case or the account state.
+  magic_login_link:                       { en: 'Your sign-in link',                           ar: 'رابط تسجيل الدخول' },
+
+  // ── Appointments ──────────────────────────────────────────────────────
+  // src/jobs/appointment_reminders.js — queued to BOTH patient and doctor at
+  // 24h and 1h. Role-neutral wording because one template serves both.
+  appointment_reminder:                   { en: 'Appointment reminder',                        ar: 'تذكير بالموعد' },
+
+  // ── Video consultation (routes/video.js, video_scheduler.js) ──────────
+  // Patient-facing unless the name ends in _doctor / _admin.
+  video_payment_confirmed:                { en: 'Video consultation confirmed',                ar: 'تم تأكيد الاستشارة المرئية' },
+  video_slot_proposed:                    { en: 'A time was proposed for your video consultation', ar: 'تم اقتراح موعد لاستشارتك المرئية' },
+  video_slot_accepted:                    { en: 'Video consultation time accepted',            ar: 'تم قبول موعد الاستشارة المرئية' },
+  video_slot_confirmed:                   { en: 'Your video consultation is confirmed',        ar: 'تم تأكيد استشارتك المرئية' },
+  video_appointment_reminder:             { en: 'Your video consultation is coming up',        ar: 'استشارتك المرئية قربت' },
+  video_appointment_rescheduled:          { en: 'Your video consultation was rescheduled',     ar: 'تم تغيير موعد استشارتك المرئية' },
+  video_appointment_cancelled:            { en: 'Video consultation cancelled',                ar: 'تم إلغاء الاستشارة المرئية' },
+  video_call_started:                     { en: 'Your video consultation has started',         ar: 'بدأت استشارتك المرئية' },
+  video_call_ended:                       { en: 'Your video consultation has ended',           ar: 'انتهت استشارتك المرئية' },
+  // Proposed slot expired without patient confirmation and was released.
+  video_slot_auto_cancelled_patient:      { en: 'Video consultation time released — please pick a new one', ar: 'تم إلغاء الموعد المقترح — برجاء اختيار موعد جديد' },
+  video_no_show_patient:                  { en: "We couldn't connect for your video consultation", ar: 'تعذّر الاتصال بخصوص استشارتك المرئية' },
+  // Doctor-facing.
+  video_slot_review_requested:            { en: 'Video consultation time needs your review',   ar: 'مطلوب مراجعتك لموعد استشارة مرئية' },
+  video_no_show_doctor:                   { en: 'Patient did not join the video consultation', ar: 'المريض لم ينضم للاستشارة المرئية' },
+  // Admin-facing (video_scheduler sweeps).
+  video_slot_auto_cancelled_admin:        { en: 'Video slot auto-cancelled — no confirmation', ar: 'إلغاء تلقائي لموعد مرئي — لم يتم التأكيد' },
+  video_slot_stale_admin:                 { en: 'Video slot pending too long',                 ar: 'موعد مرئي معلّق منذ فترة طويلة' },
+
+  // ── Doctor broadcast + assignment over WhatsApp (notify/templates.js) ─
+  // These are queued as `template: TEMPLATES.X`, i.e. via a constant rather
+  // than a string literal, so they do not show up in a grep for
+  // `template: '<name>'` — but they are inserted into `notifications` like
+  // any other row and hit the same humanizeTemplate fallback
+  // ("Tashkheesa New Case Urgent").
+  tashkheesa_new_case_urgent:             { en: 'Urgent case available in your specialty',     ar: 'حالة عاجلة متاحة في تخصصك' },
+  tashkheesa_new_case_fasttrack:          { en: 'Fast-track case available in your specialty', ar: 'حالة سريعة متاحة في تخصصك' },
+  tashkheesa_new_case_standard:           { en: 'New case available in your specialty',        ar: 'حالة جديدة متاحة في تخصصك' },
+  tashkheesa_case_assigned:               { en: 'Your case has been assigned to a doctor',     ar: 'تم إسناد حالتك إلى طبيب' },
+  tashkheesa_case_auto_assigned:          { en: 'Case auto-assigned to you',                   ar: 'تم إسناد حالة إليك تلقائيًا' },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // FIX 4 — SLA reminder tiers (case_lifecycle.dispatchSlaReminders).
+  //
+  // Queued at 24h / 6h / 1h of REMAINING SLA on the 'whatsapp' and 'email'
+  // channels, to BOTH the assigned doctor and the patient. Because one
+  // template serves both audiences, the copy has to be true for both: the
+  // doctor's action prompt lives in the body (sla-reminder.hbs and the
+  // OpenClaw composers branch on `role`), not in the title. A title like
+  // "Action needed" would be wrong on the patient's phone.
+  // ══════════════════════════════════════════════════════════════════════
+  sla_reminder_24h: { en: 'Case due within 24 hours', ar: 'موعد تسليم الحالة خلال 24 ساعة' },
+  sla_reminder_6h:  { en: 'Case due within 6 hours',  ar: 'موعد تسليم الحالة خلال 6 ساعات' },
+  sla_reminder_1h:  { en: 'Case due within the hour', ar: 'موعد تسليم الحالة خلال ساعة' },
+
+  // ── Dead-path today, registered defensively ───────────────────────────
+  // notify.sendSlaReminder maps level '75'/'90' to these two names, but its
+  // only live caller (case_lifecycle.js:1700) passes level 'breach' and
+  // nothing else — so neither is currently reachable. Copy below is COPIED
+  // VERBATIM from the semantically identical, live `order_sla_pre_breach`
+  // entry above rather than newly written, so registering them asserts
+  // nothing about a flow that does not exist; it only stops the bell
+  // rendering "Sla Warning 75" if someone wires those levels on.
+  //
+  // NOTE: both are still queued on the 'whatsapp' channel by sendSlaReminder
+  // and have NO OpenClaw body — see the "Not done" note in the write-up.
+  sla_warning_75:     { en: 'Action needed: case approaching deadline', ar: 'إجراء مطلوب: حالة تقترب من الموعد النهائي' },
+  sla_warning_urgent: { en: 'Action needed: case approaching deadline', ar: 'إجراء مطلوب: حالة تقترب من الموعد النهائي' }
 };
 
 function getNotificationTitles(template, vars) {
