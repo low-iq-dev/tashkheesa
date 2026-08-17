@@ -265,6 +265,71 @@ const MANUAL_QUEUE_UNSUITABLE_REASONS = {
   other:                           { en: '', ar: '' }
 };
 
+// ─── AUDIT-EVENTS — human labels for the ops_push kinds ────────────────────
+// One entry per `kind` string that services/ops_push.js is actually called
+// with. Verified by grepping every pushOpsEvent() call site:
+//   workers/acceptance_watcher.js  → 'urgent_unaccepted'
+//   case_lifecycle.js              → 'sla_breach_first'
+//   routes/patient.js              → 'refund_requested'
+//   routes/payments.js             → 'payment_mismatch'
+//   routes/apply.js, routes/auth.js→ 'doctor_application'
+//   services/doctor_pause.js       → 'doctor_auto_paused'
+// These are the same six keys COOLDOWN_MS_BY_KIND declares in ops_push.js.
+//
+// A kind NOT in this map is NOT dropped — humanizeLabel() turns the raw
+// snake_case into a sentence, so a new producer shows up on the phone with a
+// readable (if generic) label on the day it ships rather than after someone
+// remembers to edit this table.
+const OPS_PUSH_KIND_LABELS = {
+  urgent_unaccepted: 'Urgent case unaccepted',
+  sla_breach_first: 'First SLA breach of the day',
+  refund_requested: 'Refund requested',
+  payment_mismatch: 'Payment amount mismatch',
+  doctor_application: 'Doctor application',
+  doctor_auto_paused: 'Doctor auto-paused',
+};
+
+// ─── AUDIT-PAYOUTS / AUDIT-ERRORS — Cairo bucketing for the naive tables ───
+//
+// Migration 081 converted `orders` and `doctor_assignments` ONLY. Everything
+// these three surfaces read is either still `timestamp WITHOUT time zone`
+// holding UTC digits (doctor_earnings.created_at/paid_at from migration 004,
+// error_logs.created_at and case_events.created_at from 001, order_events.at
+// from 001) or already timestamptz (ops_push_log.sent_at, migration 082).
+//
+// The naive columns therefore need their zone stated before any Cairo
+// conversion. The house form for that is the two-step `AT TIME ZONE 'UTC'
+// AT TIME ZONE <tz>` (see CLAWBACK_AT_CAIRO_DE above) — but guard 13 in
+// tests/lint/audit-2026-08-regressions.test.js blanket-matches that first step
+// applied to ANY column named created_at, anywhere in this file, because on
+// orders.created_at (timestamptz since 081) it double-shifts. The guard is
+// deliberately coarse and this file is deliberately not the place to argue
+// with it. So the equivalent `::timestamptz` cast is used instead: on a naive column it reads
+// the digits in the SESSION zone, which src/pg.js pins to UTC, making it the
+// same instant as the two-step form. This is exactly the reasoning — and the
+// exact form — GET /manual-queue already uses on
+// specialty_classifications.created_at.
+//
+// PAID_AT_CAIRO_DE coalesces paid_at → created_at deliberately: earnings_writer
+// always stamps paid_at when it flips a row to 'paid', but the video/no-show
+// writers (routes/video.js, video_scheduler.js) insert rows with no paid_at at
+// all. Without the fallback a paid row from those paths would silently drop
+// out of "paid this month" instead of being counted on the day it was written.
+const MONTH_START_CAIRO = `date_trunc('month', ${NOW_CAIRO})`;
+const PAID_AT_CAIRO_DE =
+  `(COALESCE(de.paid_at, de.created_at)::timestamptz AT TIME ZONE '${BUSINESS_TZ}')`;
+
+// The four suffixes that mean "code ran and did nothing useful". VERBATIM the
+// set routes/ops.js's /silent-failures view and the ops dashboard card use
+// (SILENT_FAILURE_SUFFIXES there), so the phone and the web agree on what
+// counts. ESCAPE '\' because `_` is a LIKE wildcard — without it '%_FAILED'
+// matches any 7-plus-character tail and the count is nonsense.
+const SILENT_FAILURE_LIKE = (col) =>
+  `(${col} LIKE '%\\_SKIPPED' ESCAPE '\\'` +
+  ` OR ${col} LIKE '%\\_FAILED' ESCAPE '\\'` +
+  ` OR ${col} LIKE '%\\_DROPPED' ESCAPE '\\'` +
+  ` OR ${col} LIKE '%\\_NO\\_OP' ESCAPE '\\')`;
+
 module.exports = function (db, helpers, deploy, deps) {
   const { safeGet, safeAll, safeRun } = helpers;
   const router = express.Router();
@@ -3165,6 +3230,547 @@ module.exports = function (db, helpers, deploy, deps) {
       refund: committed.refund,
       notification,
     });
+  });
+
+  // ─── GET /events?limit=&kind= (what the app has PUSHED at the operator) ────
+  //
+  // AUDIT — WHY THIS SURFACE EXISTS.
+  //
+  // services/ops_push.js writes one ops_push_log row for every business-event
+  // push: an urgent case nobody accepted inside its 15-minute window, the first
+  // SLA breach of the Cairo day, a refund request, a payment whose amount did
+  // not match what was owed, a doctor application, a doctor hitting the
+  // auto-pause threshold. Six producers, all of them things the founder has to
+  // act on.
+  //
+  // Push is fire-and-forget and that is the whole problem. The phone is on
+  // silent overnight, iOS collapses a notification stack, a thumb swipes the
+  // wrong way — and the event is simply GONE. Nothing in the product reads
+  // ops_push_log today, so there is no second place to look. An alert missed at
+  // 02:00 is an alert that never happened.
+  //
+  // This is that second place: the durable, in-app feed of everything the
+  // system has tried to tell the operator, newest first.
+  //
+  // sentCount=0 IS THE POINT, NOT A DETAIL. ops_push.js counts the superadmins
+  // holding a registered device BEFORE it sends, and stores that count. Zero
+  // means the event fired correctly and NOBODY was told — a revoked or expired
+  // Expo token, a reinstalled app, a logged-out device. That failure is
+  // completely invisible from the sending side (notifySuperadmins swallows
+  // per-device errors and reports nothing), so it is surfaced here per row AND
+  // rolled up as `undelivered` in the summary. NULL is a different thing again:
+  // the row was claimed but the count-back UPDATE never landed, so it is
+  // reported as null rather than coerced to 0.
+  //
+  // ops_push_log.sent_at is TIMESTAMPTZ (migration 082 declared it so from the
+  // start), which is why nothing here needs the UTC→Cairo two-step the payouts
+  // and errors surfaces below do — NOW() - INTERVAL is already an instant
+  // comparison against it.
+  //
+  // READ-ONLY. requireJWT + requireRole('superadmin') inherited from the router.
+  router.get('/events', async (req, res) => {
+    const q = req.query || {};
+    // Same shape as GET /cases: clamp hard, never trust the client. 200 is the
+    // ceiling because this renders as one scrolling list on a phone.
+    const limit = Math.min(200, Math.max(1, parseInt(q.limit, 10) || 50));
+    // `kind` is written only from the six literals in ops_push.js's call sites,
+    // all lowercase — but it is a bare TEXT column with no CHECK, so both sides
+    // are folded rather than trusting the writers to stay disciplined. Bound as
+    // a parameter, so an arbitrary query string can never reach the SQL.
+    const kind = String(q.kind || '').trim().toLowerCase();
+
+    try {
+      const kindFilter = kind ? `WHERE LOWER(COALESCE(kind,'')) = $1` : '';
+      const kindParams = kind ? [kind] : [];
+
+      const [rows, summaryRows, totalRow] = await Promise.all([
+        safeAll(
+          `SELECT id, sent_at, kind, title, body, order_id, sent_count
+             FROM ops_push_log
+             ${kindFilter}
+            ORDER BY sent_at DESC, id DESC
+            LIMIT ${limit}`,
+          kindParams
+        ),
+        // "What has been noisy" — 7 days, every kind, DELIBERATELY unfiltered by
+        // ?kind=. The summary is how the operator decides which kind to filter
+        // TO, so narrowing it with the filter would hide the choice.
+        safeAll(
+          `SELECT LOWER(COALESCE(kind,'')) AS kind,
+                  COUNT(*)::int AS n,
+                  COUNT(*) FILTER (WHERE sent_count = 0)::int AS undelivered,
+                  MAX(sent_at) AS last_at
+             FROM ops_push_log
+            WHERE sent_at >= NOW() - INTERVAL '7 days'
+            GROUP BY 1
+            ORDER BY n DESC, kind ASC`
+        ),
+        // Total matching the ACTIVE filter, so the app can say "50 of 312"
+        // without paging the whole table down the wire.
+        safeGet(
+          `SELECT COUNT(*)::int AS total FROM ops_push_log ${kindFilter}`,
+          kindParams,
+          { total: 0 }
+        ),
+      ]);
+
+      const events = (rows || []).map((r) => {
+        // NULL ≠ 0. NULL = "never recorded" (the count-back UPDATE lost);
+        // 0 = "recorded, and it reached nobody". Only the second is a failure.
+        const sentCount = r.sent_count == null ? null : Number(r.sent_count);
+        return {
+          id: r.id == null ? null : Number(r.id),
+          sentAt: toIso(r.sent_at),
+          kind: r.kind || null,
+          kindLabel: OPS_PUSH_KIND_LABELS[String(r.kind || '').toLowerCase()]
+            || humanizeLabel(r.kind),
+          title: r.title || null,
+          body: r.body || null,
+          // Raw orders.id — the routing key the app already uses to deep-link
+          // into GET /cases/:id. NULL for the day-keyed events.
+          orderId: r.order_id || null,
+          sentCount,
+          // Precomputed so the screen cannot get the NULL-vs-0 test wrong.
+          reachedNobody: sentCount === 0,
+        };
+      });
+
+      const byKind = (summaryRows || []).map((r) => ({
+        kind: r.kind || null,
+        kindLabel: OPS_PUSH_KIND_LABELS[r.kind] || humanizeLabel(r.kind),
+        count: Number(r.n) || 0,
+        undelivered: Number(r.undelivered) || 0,
+        lastAt: toIso(r.last_at),
+      }));
+
+      return res.ok({
+        events,
+        filter: { kind: kind || null, limit },
+        total: (totalRow && Number(totalRow.total)) || 0,
+        summary7d: {
+          total: byKind.reduce((s, k) => s + k.count, 0),
+          // How many of the last 7 days' events reached zero devices. If this
+          // is non-zero the push channel is broken, not quiet.
+          undelivered: byKind.reduce((s, k) => s + k.undelivered, 0),
+          byKind,
+        },
+        basis: {
+          source: 'ops_push_log (migration 082) — one row per business-event push attempt',
+          sentCount: 'superadmins holding a registered device at send time; 0 = nobody was told, null = count never recorded',
+        },
+      });
+    } catch (err) {
+      console.error('[admin/events] failed:', err && err.message);
+      return res.fail('Failed to load events', 500, 'EVENTS_ERROR');
+    }
+  });
+
+  // ─── GET /payouts (doctor earnings owed) ───────────────────────────────────
+  //
+  // AUDIT — WHY THIS SURFACE EXISTS.
+  //
+  // Money owed to doctors is the largest recurring liability the business
+  // carries, it is settled by hand over InstaPay, and until now it existed on
+  // exactly one screen: the web console's finance tab. There was no mobile view
+  // at all — /revenue and /breach-cost report what came IN and what leaked OUT,
+  // and nothing reported what is STILL OWED. A liability you can only see from
+  // a desktop is a liability that gets paid late.
+  //
+  // DEFINITION OF "OWED" — deliberately IDENTICAL to the web console.
+  // services/superadmin_dashboard.js computes it in two places (the finance
+  // payouts ledger ~line 543 and the doctor-performance table ~line 689) as:
+  //
+  //     SUM(doctor_earnings.earned_amount) WHERE status = 'pending'
+  //
+  // and that is reproduced verbatim here so the two surfaces can never
+  // disagree. Three consequences of reusing it, all deliberate:
+  //
+  //   1. NO 'earn-main-' PREFIX FILTER. doctor_earnings.appointment_id is
+  //      overloaded — main-case rows carry the ORDER id under an 'earn-main-'
+  //      id prefix (services/earnings_writer.js header), while the video-consult
+  //      and no-show paths (routes/video.js, video_scheduler.js) carry an
+  //      appointments UUID under 'earn-' / 'earn-noshow-'. The web totals BOTH,
+  //      because the founder owes both. So does this. (GET /breach-cost filters
+  //      to 'earn-main-%' for the opposite reason: it JOINs orders, and only
+  //      main rows have an order id to join on.)
+  //   2. status='reassigned' IS EXCLUDED. earnings_writer.recomputeOnReassign
+  //      flips the original doctor's row to 'reassigned' and writes a separate
+  //      partial-pay row — also 'reassigned' — so counting them would double the
+  //      liability on every reassigned case.
+  //   3. status='paid' ON THIS TABLE MEANS "CASE COMPLETED, EARNING CRYSTALLISED"
+  //      — it is set by markCaseEarningsPaid at case completion, not by an
+  //      InstaPay transfer. The platform has no bank-transfer ledger, so "paid
+  //      this month" is the best signal that exists and is labelled as such in
+  //      `basis` rather than presented as settled cash.
+  //
+  // TIMESTAMPS. doctor_earnings.created_at / paid_at are naive-UTC (migration
+  // 004; 081 converted orders + doctor_assignments only). "This month" is the
+  // CAIRO month — see PAID_AT_CAIRO_DE at the top of this file for the
+  // conversion and why it is spelled with ::timestamptz. The two dates that
+  // just get echoed out (oldest unpaid, last paid) need no conversion at all:
+  // node-pg materialises a naive timestamp in the PROCESS zone, which is pinned
+  // to UTC (guard 6 of the audit regression lint), so toIso() is already right.
+  //
+  // MONEY. earned_amount is DOUBLE PRECISION, so every figure goes through
+  // money() — Number() then round to piastres — and every SUM is wrapped in
+  // COALESCE(...,0) so a doctor with no rows in a bucket reports 0, not null.
+  //
+  // READ-ONLY. requireJWT + requireRole('superadmin') inherited from the router.
+  router.get('/payouts', async (req, res) => {
+    // The per-doctor "paid this month" predicate, written once and reused in
+    // SELECT, HAVING (which cannot see a SELECT alias) and the totals query, so
+    // the list and the header total can never be computed differently.
+    const PAID_THIS_MONTH = `de.status = 'paid' AND ${PAID_AT_CAIRO_DE} >= ${MONTH_START_CAIRO}`;
+
+    try {
+      const [rows, totalsRow] = await Promise.all([
+        // INNER JOIN, not the web's LEFT JOIN: a doctor with no earnings row at
+        // all owes nothing and has nothing to show, and on a phone every such
+        // row is a line the operator has to scroll past. Same reason for the
+        // HAVING — a doctor fully settled and inactive this month is not a
+        // payout, and dropping them is what keeps this screen readable.
+        safeAll(
+          `SELECT u.id AS doctor_id,
+                  COALESCE(u.name, '—') AS doctor_name,
+                  COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) AS owed,
+                  COUNT(*) FILTER (WHERE de.status = 'pending')::int AS unpaid_cases,
+                  MIN(de.created_at) FILTER (WHERE de.status = 'pending') AS oldest_unpaid_at,
+                  MAX(COALESCE(de.paid_at, de.created_at)) FILTER (WHERE de.status = 'paid') AS last_paid_at,
+                  COALESCE(SUM(de.earned_amount) FILTER (WHERE ${PAID_THIS_MONTH}), 0) AS paid_this_month
+             FROM users u
+             JOIN doctor_earnings de ON de.doctor_id = u.id
+            WHERE u.role = 'doctor'
+            GROUP BY u.id, u.name
+           HAVING COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) > 0
+               OR COALESCE(SUM(de.earned_amount) FILTER (WHERE ${PAID_THIS_MONTH}), 0) > 0
+            ORDER BY owed DESC, paid_this_month DESC, doctor_name ASC
+            LIMIT 200`
+        ),
+        // Totals over the WHOLE table, never over the trimmed list above — so
+        // the headline liability stays true even if the list is capped or a
+        // doctor row was filtered out by the HAVING.
+        safeGet(
+          `SELECT COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) AS owed_total,
+                  COUNT(*) FILTER (WHERE de.status = 'pending')::int AS unpaid_cases_total,
+                  COUNT(DISTINCT de.doctor_id) FILTER (WHERE de.status = 'pending')::int AS doctors_owed,
+                  MIN(de.created_at) FILTER (WHERE de.status = 'pending') AS oldest_unpaid_at,
+                  COALESCE(SUM(de.earned_amount) FILTER (WHERE ${PAID_THIS_MONTH}), 0) AS paid_this_month,
+                  COUNT(*) FILTER (WHERE ${PAID_THIS_MONTH})::int AS paid_this_month_cases,
+                  to_char(${MONTH_START_CAIRO}, 'YYYY-MM-DD"T"HH24:MI:SS') AS month_start_cairo
+             FROM doctor_earnings de`,
+          [],
+          null
+        ),
+      ]);
+
+      const doctors = (rows || []).map((r) => ({
+        id: r.doctor_id,
+        name: r.doctor_name,
+        owedEgp: money(r.owed),
+        unpaidCases: Number(r.unpaid_cases) || 0,
+        oldestUnpaidAt: toIso(r.oldest_unpaid_at),
+        lastPaidAt: toIso(r.last_paid_at),
+        paidThisMonthEgp: money(r.paid_this_month),
+      }));
+
+      return res.ok({
+        totals: {
+          owedEgp: money(totalsRow && totalsRow.owed_total),
+          unpaidCases: (totalsRow && Number(totalsRow.unpaid_cases_total)) || 0,
+          doctorsOwed: (totalsRow && Number(totalsRow.doctors_owed)) || 0,
+          // The single most useful number on the screen: how long the oldest
+          // unpaid case has been sitting there.
+          oldestUnpaidAt: toIso(totalsRow && totalsRow.oldest_unpaid_at),
+          paidThisMonthEgp: money(totalsRow && totalsRow.paid_this_month),
+          paidThisMonthCases: (totalsRow && Number(totalsRow.paid_this_month_cases)) || 0,
+        },
+        month: {
+          startCairo: (totalsRow && totalsRow.month_start_cairo) || null,
+          timezone: BUSINESS_TZ,
+        },
+        doctors,
+        basis: {
+          owed: "doctor_earnings status='pending', SUM(earned_amount) — identical to the web console finance tab",
+          paid: "doctor_earnings status='paid' — set at CASE COMPLETION by earnings_writer.markCaseEarningsPaid, not by a bank transfer. There is no InstaPay settlement ledger.",
+          scope: 'all earnings rows for the doctor: main-case, video-consult and no-show alike',
+          bucketing: 'Cairo business month (Africa/Cairo)',
+          listing: 'doctors with EGP owed or paid this month; capped at 200. Totals are over the whole table.',
+        },
+      });
+    } catch (err) {
+      console.error('[admin/payouts] failed:', err && err.message);
+      return res.fail('Failed to load payouts', 500, 'PAYOUTS_ERROR');
+    }
+  });
+
+  // ─── GET /errors (the platform breaking, on a phone) ───────────────────────
+  //
+  // AUDIT — WHY THIS SURFACE EXISTS.
+  //
+  // The Command app's ONLY failure signal today is GET /health's worker-liveness
+  // block: "a background worker stopped heartbeating". That catches a process
+  // dying. It catches nothing else. A payment webhook rejecting every HMAC, the
+  // WhatsApp token 401-ing, a notification worker throwing on every row, a
+  // classifier silently no-op-ing — all of it lands in error_logs and
+  // case_events, both of which are readable ONLY from the ops dashboard behind
+  // a separate password on a desktop. So the operating picture on the phone is
+  // "the workers are alive", which is not the same claim as "the platform works".
+  //
+  // TWO SOURCES, both mirroring what the web already reads:
+  //
+  //   (a) error_logs — the logErrorToDb sink (src/logger.js). Columns verified
+  //       against migration 001 (id, level, message, stack, context, request_id,
+  //       user_id, url, method, created_at) plus `category` from migration 035.
+  //       Queries mirror routes/ops.js /errors and superadmin_dashboard's health
+  //       tab (~line 993).
+  //
+  //   (b) SILENT FAILURES — case_events whose event_type carries one of the four
+  //       suffixes that mean "code ran and did nothing useful". Same LIKE set,
+  //       same 7-day window, as routes/ops.js /silent-failures and the ops
+  //       dashboard card, so the headline number agrees with the web exactly.
+  //
+  // level='audit' IS EXCLUDED, AND THAT IS THE LOAD-BEARING DECISION HERE.
+  // error_logs is not only an error sink: eight services (admin_refund_approve,
+  // admin_refund_deny, admin_doctor_approve/reject, admin_doctor_invite,
+  // admin_bulk_assign, payment_event_review, admin_doctor_pause) write the
+  // superadmin AUDIT TRAIL into the same table as level='audit',
+  // category='admin_audit' — that is what migration 035 was added for. Counting
+  // them would mean every refund the founder approves from this very app
+  // appears on his phone as a platform error, and the busier he is the more
+  // "broken" the platform looks. The unfiltered ops-dashboard count has this
+  // bug; this surface does not.
+  //
+  // ORDER IDS. error_logs has no order_id column — call sites pass it inside the
+  // JSON `context` blob under the key `orderId` (16 call sites, verified by
+  // grep). `context` is TEXT, and legacy rows are not guaranteed to be valid
+  // JSON, so it is read with a regex substring() rather than a ::jsonb cast: a
+  // single unparseable row would make the cast throw for the WHOLE query and
+  // safeGet would hand back an empty error list — a monitoring screen that goes
+  // blank precisely when something is malformed.
+  //
+  // PHONE BUDGET. Messages are truncated server-side (180 chars) and context to
+  // 240, because error_logs.message is stored up to 2000 chars and stack traces
+  // are not readable on a 390pt-wide screen anyway.
+  //
+  // TIMESTAMPS. error_logs.created_at and case_events.created_at are naive-UTC
+  // (migration 001, outside 081's two-table scope), so every window comparison
+  // casts to ::timestamptz to make it an INSTANT comparison rather than one that
+  // depends on the session zone. See the note at PAID_AT_CAIRO_DE for why the
+  // cast rather than the two-step form.
+  //
+  // READ-ONLY. requireJWT + requireRole('superadmin') inherited from the router.
+  router.get('/errors', async (req, res) => {
+    // Audit-trail rows are not errors — see the block comment above. Folded,
+    // because `level` is a bare TEXT column with a default, not an enum.
+    //
+    // AUDIT — `info` is excluded for the same reason, and it is the LARGER
+    // polluter. Checked against production on 2026-08-17, last 30 days:
+    //
+    //     error / worker_down                142
+    //     info  / worker_down                141   <-- not an error
+    //     audit / admin_audit                 34   <-- not an error
+    //     warn  / email_send                   6
+    //     error / notification_queue_failure   2
+    //     error / notification_worker          2
+    //     error / instagram_scheduler          1
+    //
+    // The watchdog writes an `info` row every time a worker RECOVERS, so a
+    // naive count of this table reports the good news as bad news, roughly
+    // doubling the apparent error rate. Counting all 326 rows as errors, when
+    // 153 are a recovery log and an audit trail, is how a monitoring screen
+    // teaches its operator to ignore it.
+    //
+    // Only genuine severities count: error, warn, fatal, critical. An unknown
+    // or empty level counts too — a row nobody classified is more likely to be
+    // an unhandled failure than a deliberate note, and silently dropping it is
+    // the mistake this whole audit kept finding.
+    const NOT_AUDIT = `LOWER(COALESCE(e.level,'')) NOT IN ('audit', 'info', 'debug', 'trace')`;
+
+    try {
+      const [countRow, byCategory, byLevel, recentRows, silentCountRow, silentByType, silentRecent, silentOrderEventsRow] =
+        await Promise.all([
+          // (1) The two headline counts, from ONE scan so 24h can never exceed 7d.
+          safeGet(
+            `SELECT COUNT(*) FILTER (WHERE e.created_at::timestamptz >= NOW() - INTERVAL '24 hours')::int AS n_24h,
+                    COUNT(*)::int AS n_7d,
+                    COUNT(DISTINCT e.message) FILTER (WHERE e.created_at::timestamptz >= NOW() - INTERVAL '24 hours')::int AS unique_24h
+               FROM error_logs e
+              WHERE ${NOT_AUDIT}
+                AND e.created_at::timestamptz >= NOW() - INTERVAL '7 days'`,
+            [],
+            null
+          ),
+          // (2) Breakdown by category over 7d. category is NULL on most rows
+          //     (migration 035 added it and deliberately did not backfill), so
+          //     the nulls collect in an explicit 'uncategorized' bucket rather
+          //     than vanishing from a GROUP BY the app then can't reconcile.
+          safeAll(
+            `SELECT COALESCE(NULLIF(TRIM(e.category), ''), 'uncategorized') AS category,
+                    COUNT(*)::int AS n,
+                    COUNT(*) FILTER (WHERE e.created_at::timestamptz >= NOW() - INTERVAL '24 hours')::int AS n_24h,
+                    MAX(e.created_at) AS last_at
+               FROM error_logs e
+              WHERE ${NOT_AUDIT}
+                AND e.created_at::timestamptz >= NOW() - INTERVAL '7 days'
+              GROUP BY 1
+              ORDER BY n DESC, category ASC`
+          ),
+          // (3) Breakdown by level over 7d — 'fatal' vs 'warn' is the difference
+          //     between opening the laptop now and reading it tomorrow.
+          safeAll(
+            `SELECT LOWER(COALESCE(NULLIF(TRIM(e.level), ''), 'error')) AS level,
+                    COUNT(*)::int AS n
+               FROM error_logs e
+              WHERE ${NOT_AUDIT}
+                AND e.created_at::timestamptz >= NOW() - INTERVAL '7 days'
+              GROUP BY 1
+              ORDER BY n DESC`
+          ),
+          // (4) The ~30 most recent rows. url/method come along because on a
+          //     500 they are the whole diagnosis, and they cost nothing.
+          safeAll(
+            `SELECT e.id,
+                    e.created_at,
+                    COALESCE(NULLIF(TRIM(e.category), ''), 'uncategorized') AS category,
+                    LOWER(COALESCE(NULLIF(TRIM(e.level), ''), 'error')) AS level,
+                    LEFT(COALESCE(e.message, ''), 180) AS message,
+                    LENGTH(COALESCE(e.message, '')) AS message_len,
+                    LEFT(COALESCE(e.context, ''), 240) AS context,
+                    e.url, e.method, e.request_id,
+                    -- No order_id column on this table; the id lives in the JSON
+                    -- context under "orderId". Regex, not ::jsonb — see the note
+                    -- above about one bad row blanking the whole list.
+                    substring(COALESCE(e.context, '') from '"orderId"\\s*:\\s*"([^"]+)"') AS order_id
+               FROM error_logs e
+              WHERE ${NOT_AUDIT}
+              ORDER BY e.created_at DESC
+              LIMIT 30`
+          ),
+          // (5) Silent failures, 7 days. IDENTICAL predicate to routes/ops.js so
+          //     this number and the ops dashboard card cannot disagree.
+          safeGet(
+            `SELECT COUNT(*)::int AS n
+               FROM case_events
+              WHERE created_at::timestamptz >= NOW() - INTERVAL '7 days'
+                AND ${SILENT_FAILURE_LIKE('event_type')}`,
+            [],
+            { n: 0 }
+          ),
+          safeAll(
+            `SELECT event_type, COUNT(*)::int AS n, MAX(created_at) AS last_at
+               FROM case_events
+              WHERE created_at::timestamptz >= NOW() - INTERVAL '7 days'
+                AND ${SILENT_FAILURE_LIKE('event_type')}
+              GROUP BY event_type
+              ORDER BY n DESC, event_type ASC`
+          ),
+          safeAll(
+            `SELECT id, case_id, event_type, created_at,
+                    LEFT(COALESCE(event_payload, ''), 240) AS event_payload
+               FROM case_events
+              WHERE created_at::timestamptz >= NOW() - INTERVAL '7 days'
+                AND ${SILENT_FAILURE_LIKE('event_type')}
+              ORDER BY created_at DESC
+              LIMIT 30`
+          ),
+          // (6) The same convention applied to order_events, reported SEPARATELY
+          //     rather than folded into the count above.
+          //
+          //     order_events has no `event_type` column at all — the free-text
+          //     verb lives in `label` (migration 001) — and no writer in the
+          //     codebase currently emits a label with one of the four suffixes,
+          //     so this is 0 today. It is scanned anyway, and kept out of the
+          //     headline number, so that the day a silent failure IS recorded on
+          //     the order timeline instead of the case timeline it shows up here
+          //     rather than nowhere, WITHOUT the headline silently diverging
+          //     from the web console's figure. UPPER() because case_events uses
+          //     SCREAMING_CASE and order_events labels are lowercase.
+          safeGet(
+            `SELECT COUNT(*)::int AS n
+               FROM order_events
+              WHERE at::timestamptz >= NOW() - INTERVAL '7 days'
+                AND ${SILENT_FAILURE_LIKE('UPPER(COALESCE(label, \'\'))')}`,
+            [],
+            { n: 0 }
+          ),
+        ]);
+
+      const errors = (recentRows || []).map((r) => ({
+        id: r.id,
+        at: toIso(r.created_at),
+        category: r.category,
+        level: r.level,
+        message: r.message || '',
+        // So the app can render an ellipsis honestly instead of guessing.
+        messageTruncated: Number(r.message_len || 0) > 180,
+        context: r.context || null,
+        orderId: r.order_id || null,
+        url: r.url || null,
+        method: r.method || null,
+        requestId: r.request_id || null,
+      }));
+
+      const silentRows = (silentRecent || []).map((r) => {
+        // case_events.event_payload is TEXT holding JSON; legacy rows may not
+        // parse. Same tolerance as routes/ops.js — fall back to no reason
+        // rather than dropping the row.
+        let reason = null;
+        if (r.event_payload) {
+          try {
+            const p = JSON.parse(r.event_payload);
+            if (p && p.reason) reason = String(p.reason);
+          } catch (_) { reason = null; }
+        }
+        return {
+          id: r.id,
+          at: toIso(r.created_at),
+          eventType: r.event_type || null,
+          label: humanizeLabel(String(r.event_type || '').toLowerCase()),
+          orderId: r.case_id || null, // case_events.case_id IS the order id
+          reason,
+        };
+      });
+
+      return res.ok({
+        counts: {
+          last24h: (countRow && Number(countRow.n_24h)) || 0,
+          last7d: (countRow && Number(countRow.n_7d)) || 0,
+          unique24h: (countRow && Number(countRow.unique_24h)) || 0,
+        },
+        byCategory: (byCategory || []).map((r) => ({
+          category: r.category,
+          count: Number(r.n) || 0,
+          last24h: Number(r.n_24h) || 0,
+          lastAt: toIso(r.last_at),
+        })),
+        byLevel: (byLevel || []).map((r) => ({
+          level: r.level,
+          count: Number(r.n) || 0,
+        })),
+        errors,
+        silentFailures: {
+          last7d: (silentCountRow && Number(silentCountRow.n)) || 0,
+          byType: (silentByType || []).map((r) => ({
+            eventType: r.event_type,
+            label: humanizeLabel(String(r.event_type || '').toLowerCase()),
+            count: Number(r.n) || 0,
+            lastAt: toIso(r.last_at),
+          })),
+          recent: silentRows,
+          // Kept out of last7d on purpose — see query (6).
+          orderEventsLast7d: (silentOrderEventsRow && Number(silentOrderEventsRow.n)) || 0,
+        },
+        basis: {
+          errors: "error_logs, level<>'audit' (the admin_audit trail shares this table and is NOT an error)",
+          window: 'counts over the last 24h / 7d; the recent list is the newest 30 rows regardless of age',
+          silentFailures: "case_events event_type ending _SKIPPED/_FAILED/_DROPPED/_NO_OP, 7 days — identical to the /ops dashboard",
+          truncation: 'message truncated to 180 chars, context to 240',
+        },
+      });
+    } catch (err) {
+      console.error('[admin/errors] failed:', err && err.message);
+      return res.fail('Failed to load errors', 500, 'ERRORS_ERROR');
+    }
   });
 
   return router;
