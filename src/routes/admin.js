@@ -12,11 +12,15 @@ const caseLifecycle = require('../case_lifecycle');
 const { requireRole } = require('../middleware');
 const { isLaunchMarket } = require('../launch-market');
 const { ensureConversation } = require('./messaging');
-const { buildFilters } = require('./superadmin');
+const { buildFilters, additionalFilesDecisionPredicate } = require('./superadmin');
 const { broadcastOrderToSpecialty } = require('../notify/broadcast');
 const { TEMPLATES } = require('../notify/templates');
 const { logErrorToDb } = require('../logger');
 const { getDecryptedNationalId } = require('../services/national-id');
+// Shared assignment safety gate (spec §4.6) — the single source of truth for
+// "which doctors may legally receive a case". See services/doctor_eligibility.js.
+const { eligibleDoctorClause } = require('../services/doctor_eligibility');
+const { sendCriticalAlert } = require('../critical-alert');
 
 const getStatusUi = caseLifecycle.getStatusUi || caseLifecycle;
 const toCanonStatus = caseLifecycle.toCanonStatus;
@@ -151,6 +155,21 @@ function t(lang, enText, arText) {
 }
 
 // ---- Admin alerts (in-app notifications) ----
+
+// AUDIT (2026-08-17) — see the note on getNotificationTitles below: the bell
+// titles carry {caseReference}-style placeholders and need the notification's
+// stored payload as `vars`, or every placeholder renders empty. Parse
+// defensively: `response` is TEXT that sometimes holds a worker debug payload.
+function parseNotificationVars(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'object') return raw;
+  try {
+    const parsed = JSON.parse(String(raw));
+    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 async function getNotificationTableColumns() {
   try {
@@ -287,7 +306,7 @@ function normalizeAdminNotification(row) {
       ? template
       : 'Notification';
 
-  const titles = getNotificationTitles(template);
+  const titles = getNotificationTitles(template, parseNotificationVars(response));
 
   return {
     id,
@@ -478,6 +497,13 @@ async function getLatestAdditionalFilesRequestEvent(orderId) {
          OR LOWER(label) ILIKE '%reject file%'
          OR LOWER(label) ILIKE '%reupload%'
        )
+       -- AUDIT (2026-08-17): the DECISION events must be excluded here.
+       -- 'admin_approved_files_request' contains both 'request' and 'files', so
+       -- it matched the fuzzy predicate above and was read as a NEW request
+       -- dated after the one it resolved — computeAdditionalFilesRequestState
+       -- then reported pending=true forever and the admin order page kept
+       -- showing an approve/reject prompt for an already-approved request.
+       AND NOT ${additionalFilesDecisionPredicate('label')}
      ORDER BY at DESC
      LIMIT 1`,
     [orderId],
@@ -490,20 +516,7 @@ async function getLatestAdditionalFilesDecisionEvent(orderId) {
     `SELECT id, label, meta, at, actor_user_id, actor_role
      FROM order_events
      WHERE order_id = $1
-       AND (
-         -- Theme 7 sub-issue D: explicit short identifiers written by
-         -- the admin/superadmin approve handlers as of 2026-05-10.
-         label = 'admin_approved_files_request'
-         OR label = 'superadmin_approved_files_request'
-         OR
-         -- Backward-compat for in-flight pre-Theme-7 rows (descriptive
-         -- English labels). The 'approved' substring also matches the
-         -- new short identifiers, so this branch is fully redundant for
-         -- post-migration rows but preserved as belt-and-suspenders.
-         LOWER(label) ILIKE '%additional files request approved%'
-         OR LOWER(label) ILIKE '%additional files request rejected%'
-         OR LOWER(label) ILIKE '%additional files request denied%'
-       )
+       AND ${additionalFilesDecisionPredicate('label')}
      ORDER BY at DESC
      LIMIT 1`,
     [orderId],
@@ -1448,6 +1461,39 @@ router.post('/admin/orders/:id/additional-files/approve', requireAdmin, async (r
     ]
   );
 
+
+  // AUDIT (2026-08-17) — approving the request must also UNLOCK uploads.
+  // orders.uploads_locked is set to true at payment (routes/payments.js webhook)
+  // and routes/patient.js hard-blocks the patient upload POST on it. So on a
+  // case locked at payment, the patient was told "your specialist needs more
+  // files", clicked upload, and was bounced with ?error=locked — the request
+  // could never be satisfied and the case sat in REJECTED_FILES with a paused
+  // SLA until someone found the separate manual unlock endpoint. Only that
+  // endpoint (POST /admin/orders/:id/uploads/unlock) ever cleared the flag.
+  // Same guard as the manual endpoint: never unlock a completed case.
+  if (currentLower !== 'completed') {
+    try {
+      await execute(
+        'UPDATE orders SET uploads_locked = false, updated_at = $1 WHERE id = $2',
+        [nowIso, orderId]
+      );
+      logOrderEvent({
+        orderId,
+        label: 'uploads_unlocked',
+        meta: JSON.stringify({ reason: 'additional_files_request_approved' }),
+        actorUserId: req.user && req.user.id,
+        actorRole: req.user && req.user.role
+      });
+    } catch (err) {
+      logErrorToDb(err, {
+        context: 'admin.additional_files_approve_unlock_uploads',
+        orderId,
+        userId: req.user && req.user.id,
+        category: 'patient_case'
+      });
+    }
+  }
+
   if (order.patient_id) {
     queueNotification({
       orderId,
@@ -1496,9 +1542,15 @@ router.post('/admin/orders/:id/mark-paid', requireAdmin, async (req, res) => {
   if (!order) return res.redirect('/admin');
 
   const nowIso = new Date().toISOString();
+  // AUDIT (2026-08-17) — paid_at was never written here. isPaymentConfirmed
+  // (case_lifecycle.js:147) requires BOTH paid_at and payment_status='paid', so
+  // an admin-marked-paid order failed the hard payment gate in assignDoctor and
+  // could not be assigned at all — by the operator, by auto-assign, or by the
+  // SLA worker's alternate-doctor path.
   await execute(
     `UPDATE orders
      SET payment_status = 'paid',
+         paid_at = COALESCE(paid_at, NOW()),
          payment_method = COALESCE($1, payment_method, 'manual'),
          payment_reference = COALESCE($2, payment_reference),
          updated_at = $3
@@ -1513,6 +1565,57 @@ router.post('/admin/orders/:id/mark-paid', requireAdmin, async (req, res) => {
     actorUserId: req.user.id,
     actorRole: req.user.role
   });
+
+  // AUDIT (2026-08-17) — the lifecycle transition was missing entirely. Setting
+  // payment_status alone leaves orders.status on SUBMITTED and never locks
+  // sla_hours, so:
+  //   * assertTransition('SUBMITTED','IN_REVIEW') throws the moment a doctor
+  //     clicks Accept — the case is permanently unacceptable;
+  //   * no PAYMENT_CONFIRMED / CASE_READY_FOR_ASSIGNMENT events, no SLA
+  //     reminders, no deadline;
+  //   * and markCasePaid's post-commit hook (enqueueAutoAssign +
+  //     broadcastOrderToSpecialty) never fires, so a manually-paid case is
+  //     never offered to anybody.
+  // Mirrors the Paymob webhook boundary in routes/payments.js:886 — including
+  // its classifier, which treats anything not recognisably a benign re-entry as
+  // a page-on-call event, because at this point the money is recorded as taken.
+  try {
+    await caseLifecycle.markCasePaid(orderId);
+  } catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    const benign = /already\s+(paid|assigned|processed)|idempotent|no[-\s]?op/i.test(msg);
+
+    logOrderEvent({
+      orderId,
+      label: benign
+        ? 'Payment lifecycle transition skipped (idempotent)'
+        : 'Payment lifecycle transition FAILED — case may not have entered the pipeline',
+      meta: JSON.stringify({ error: msg, benign, source: 'admin_mark_paid' }),
+      actorUserId: req.user.id,
+      actorRole: req.user.role
+    });
+
+    if (!benign) {
+      try {
+        logErrorToDb(e, {
+          context: 'admin.mark_paid.markCasePaid',
+          orderId,
+          requestId: req.requestId,
+          userId: req.user && req.user.id,
+          category: 'payment',
+          payment_captured: true
+        });
+      } catch (_) {}
+      try {
+        sendCriticalAlert(
+          'markCasePaid FAILED for order ' + orderId + ' after an ADMIN marked it paid: ' +
+          msg.slice(0, 300) + ' — case is paid but is not in the assignment queue',
+          'markcasepaid_failed'
+        );
+      } catch (_) {}
+      return res.redirect(`/admin/orders/${orderId}?payment=marked_paid&lifecycle=failed`);
+    }
+  }
 
   return res.redirect(`/admin/orders/${orderId}?payment=marked_paid`);
 });
@@ -1533,26 +1636,70 @@ router.post('/admin/orders/:id/reassign', requireAdmin, async (req, res) => {
     return res.redirect(`/admin/orders/${orderId}`);
   }
 
+  // AUDIT (2026-08-17) — same eligibility hole as force-assign: role + is_active
+  // only, so a paused / pending-approval / half-onboarded doctor, or one not
+  // registered for this service, was a legal reassignment target. Use the shared
+  // fragment so every assignment site answers "who may receive a case" the same
+  // way.
   const newDoctor = await queryOne(
-    "SELECT id, name FROM users WHERE id = $1 AND role = 'doctor' AND is_active = true",
-    [newDoctorId]
+    `SELECT u.id, u.name FROM users u
+      WHERE u.id = $1 AND ${eligibleDoctorClause({ alias: 'u', serviceIdParam: '$2' })}`,
+    [newDoctorId, order.service_id || null]
   );
   if (!newDoctor) {
-    return res.redirect(`/admin/orders/${orderId}`);
+    return res.redirect(`/admin/orders/${orderId}?reassign=ineligible_doctor`);
   }
 
   if (order.doctor_id === newDoctor.id) {
     return res.redirect(`/admin/orders/${orderId}`);
   }
 
-  await execute(
-    `UPDATE orders
-     SET doctor_id = $1,
-         reassigned_count = COALESCE(reassigned_count,0) + 1,
-         updated_at = $2
-     WHERE id = $3`,
-    [newDoctor.id, new Date().toISOString(), orderId]
-  );
+  // AUDIT (2026-08-17) — this was a bare
+  //   UPDATE orders SET doctor_id, reassigned_count = count + 1
+  // and nothing else. Everything reassignment actually means was skipped:
+  //   * finalizePreviousAssignment never ran, so the outgoing doctor's
+  //     doctor_assignments row stayed OPEN — the case still counted against
+  //     their capacity and still showed in their queue.
+  //   * markPartialPayOnReassignment never ran, so the outgoing doctor kept
+  //     100% of their pending earnings for a case they did not deliver, on top
+  //     of the incoming doctor's full fee. Direct double-pay on every admin
+  //     reassign.
+  //   * No new doctor_assignments row and no accept_by_at, and accepted_at was
+  //     never reset — so the incoming doctor inherited the previous doctor's
+  //     acceptance timestamp and expired deadline. fetchDoctorTimeouts requires
+  //     accepted_at IS NULL and fetchSlaCandidates requires breached_at IS NULL,
+  //     so the case was invisible to BOTH sweeps: the new doctor could ignore it
+  //     indefinitely with no escalation.
+  //   * Status stayed 'assigned'/'in_review' rather than passing through
+  //     REASSIGNED, so no CASE_REASSIGNED event and no reassignment audit
+  //     columns for month-end reconciliation.
+  // reassignCase does all of it and ends by calling assignDoctor, which is the
+  // same canonical writer force-assign now uses.
+  try {
+    await caseLifecycle.reassignCase(orderId, newDoctor.id, { reason: 'admin_manual' });
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'admin.reassign.reassignCase',
+      orderId,
+      userId: req.user && req.user.id,
+      category: 'assignment'
+    });
+    return res.redirect(`/admin/orders/${orderId}?reassign=failed`);
+  }
+
+  // reassignCase writes reassigned_to_doctor_id / reassigned_at /
+  // reassignment_reason but deliberately leaves the display counter alone
+  // (workers/acceptance_watcher owns its own bump). Keep the counter the admin
+  // list badges read.
+  try {
+    await execute(
+      `UPDATE orders
+          SET reassigned_count = COALESCE(reassigned_count,0) + 1,
+              updated_at = $1
+        WHERE id = $2`,
+      [new Date().toISOString(), orderId]
+    );
+  } catch (_) { /* non-fatal: the reassignment itself already succeeded */ }
 
   logOrderEvent({
     orderId,
@@ -1625,21 +1772,77 @@ router.post('/admin/orders/:id/force-assign', requireAdmin, async (req, res) => 
     return res.status(404).json({ ok: false, error: 'Order not found' });
   }
 
-  const doctor = await queryOne("SELECT id, name FROM users WHERE id = $1 AND role = 'doctor'", [doctorId]);
+  // AUDIT (2026-08-17) — the doctor lookup here checked role='doctor' and
+  // NOTHING else. Not is_active, not is_paused, not pending_approval, not
+  // onboarding_complete, and not whether the doctor is even signed up for this
+  // order's service. Force-assign is the one assignment path a human drives, so
+  // it was the one path with no safety gate at all: a suspended account, a
+  // half-onboarded signup, or a doctor still sitting in the approval queue could
+  // be handed a live paid case that then sits invisible in their (nonexistent)
+  // queue. eligibleDoctorClause is the shared fragment every other assignment
+  // site uses — auto_assign, the SLA worker's alternate-doctor query and the
+  // acceptance watcher — so using it here makes "who may receive a case" one
+  // answer instead of four. NB: the fragment's service-match EXISTS means an
+  // order with a NULL service_id matches no doctor; that is deliberate
+  // fail-closed behaviour and the error below names it so ops can diagnose.
+  const doctor = await queryOne(
+    `SELECT u.id, u.name FROM users u
+      WHERE u.id = $1 AND ${eligibleDoctorClause({ alias: 'u', serviceIdParam: '$2' })}`,
+    [doctorId, order.service_id || null]
+  );
   if (!doctor) {
-    return res.status(404).json({ ok: false, error: 'Doctor not found' });
+    return res.status(404).json({
+      ok: false,
+      error: order && !order.service_id
+        ? 'Doctor not eligible: this order has no service_id, so no doctor can be service-matched to it'
+        : 'Doctor not found or not eligible (inactive, paused, pending approval, onboarding incomplete, or not registered for this service)'
+    });
   }
 
-  const nowIso = new Date().toISOString();
-  await execute(
-    `UPDATE orders
-     SET doctor_id = $1,
-         status = 'assigned',
-         accepted_at = $2,
-         updated_at = $2
-     WHERE id = $3`,
-    [doctor.id, nowIso, orderId]
-  );
+  // AUDIT (2026-08-17) — payment gate. caseLifecycle.assignDoctor enforces this
+  // too (and throws), but checking here turns "500 Internal Server Error" into
+  // an actionable 400 for the operator, and keeps the invariant visible at the
+  // route: no doctor is ever put on the hook for a case the patient has not
+  // paid for.
+  const forceAssignPs = String(order.payment_status || '').trim().toLowerCase();
+  if (!order.paid_at || forceAssignPs !== 'paid') {
+    return res.status(400).json({
+      ok: false,
+      error: 'Cannot assign: payment is not confirmed for this order'
+    });
+  }
+
+  // AUDIT (2026-08-17) — this used to be a raw
+  //   UPDATE orders SET doctor_id, status='assigned', accepted_at = now
+  // which was wrong in three separate ways:
+  //   * accepted_at is the DOCTOR'S acceptance. Writing it here asserts a human
+  //     took responsibility when nobody has. case_sla_worker.fetchDoctorTimeouts
+  //     selects on `accepted_at IS NULL`, so a force-assigned case that the
+  //     doctor never opens is invisible to the timeout sweep forever — no
+  //     reassignment, no escalation, no recovery. It also starts the SLA clock
+  //     (deadlineFromAcceptance) against a doctor who has not looked at it.
+  //   * No doctor_assignments row and no accept_by_at, so even the assignment
+  //     history and the acceptance-expiry watcher had nothing to read.
+  //   * No CASE_ASSIGNED event, no case conversation, no patient email.
+  // assignDoctor is the canonical writer for all of it: status=ASSIGNED,
+  // assigned_at, a tier-proportional accept_by_at (src/acceptance_window.js) on
+  // both the order and the assignment row, the doctor_assignments insert, the
+  // event, the conversation and the patient notification — and it leaves
+  // accepted_at NULL, which is the truth. Same pattern as auto_assign.js:212.
+  try {
+    await caseLifecycle.assignDoctor(orderId, doctor.id);
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'admin.force_assign.assignDoctor',
+      orderId,
+      userId: req.user && req.user.id,
+      category: 'assignment'
+    });
+    return res.status(409).json({
+      ok: false,
+      error: 'Assignment refused: ' + (err && err.message ? err.message : 'lifecycle error')
+    });
+  }
 
   logOrderEvent({
     orderId,

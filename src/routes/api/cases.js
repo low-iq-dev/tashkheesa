@@ -323,13 +323,21 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       urgencyTier: urgencyTier,
       servicesRow: service
     });
-    // Display figures follow the same multiplier so the local-currency figure
-    // the patient was quoted stays consistent with the EGP amount charged.
-    const displayPricing = computeOrderPricing({
-      basePrice: Number(charge.displayPrice) || 0,
-      urgencyTier: urgencyTier,
-      servicesRow: service
-    });
+    // AUDIT (2026-08-17) — display_price is written UN-MULTIPLIED, deliberately.
+    //
+    // A `displayPricing = computeOrderPricing({ basePrice: charge.displayPrice,
+    // urgencyTier })` block used to sit here and its totalPrice was stored in
+    // display_price. That breaks the column's contract. Both readers assert the
+    // opposite invariant — display_price is the LOCAL BASE, and the tier
+    // multiplier is re-derived as (price / base_price) and applied at RENDER
+    // time:
+    //   * routes/patient.js:3087-3095 (pay page / order review)
+    //   * src/notification_worker.js:216-223 (payment-success receipt)
+    // Pre-multiplying here therefore made an app-created VIP order render at
+    // base × 1.3 × 1.3 — a 69% overstatement of what the patient is told they
+    // paid, against an EGP charge that is correctly base × 1.3. The web wizard
+    // (routes/patient.js persistTierPricing) stores charge.displayPrice raw;
+    // this path now matches it, so app and web agree.
 
     // AUDIT-APP-M2: derive specialty_id from the service row rather than
     // trusting the client. orders.specialty_id has no FK, so a stale client
@@ -382,7 +390,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       // (owedCentsForOrder reads `price`), and urgency_uplift_amount is the
       // delta the 30/70 doctor split applies to.
       charge.egpBase, pricing.totalPrice, pricing.upliftAmount,
-      charge.doctorFeeEgp, displayPricing.totalPrice, charge.displayCurrency,
+      charge.doctorFeeEgp, charge.displayPrice, charge.displayCurrency,
       slaDeadline, slaHours, urgencyFlag, urgencyTier
     ]);
 

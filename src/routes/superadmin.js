@@ -12,6 +12,9 @@ const { getNotificationTitles } = require('../notify/notification_titles');
 // removed. case_sla_worker.runCaseSlaSweep is the canonical sweep.
 const { logOrderEvent } = require('../audit');
 const { computeSla } = require('../sla_status');
+// NB: no longer used by POST /superadmin/orders/:id/mark-paid (that route's
+// hand-rolled inline assign was replaced by caseLifecycle.markCasePaid →
+// enqueueAutoAssign on 2026-08-17). Still used by the manual order-create form.
 const { pickDoctorForOrder } = require('../assign');
 const { recalcSlaBreaches } = require('../case_lifecycle'); // sla.js deleted, use case_lifecycle shim
 const { randomUUID: uuidv4 } = require('crypto');
@@ -31,6 +34,10 @@ const { getAiHealth } = require('../services/ai_health');
 // broadcast once admin clears the manual_queue state.
 const { enqueueAutoAssign } = require('../job_queue');
 const { broadcastOrderToSpecialty } = require('../notify/broadcast');
+const { sendCriticalAlert } = require('../critical-alert');
+// Refund ceiling — the single source of truth for "how much of this order may
+// be returned to the patient". See services/refund_eligibility.maxRefundableEgp.
+const { maxRefundableEgp } = require('../services/refund_eligibility');
 // Mailer helpers shared with routes/campaigns.js (do not duplicate — see the
 // "Used by:" comments above each function definition in campaigns.js).
 const { populateRecipients, processCampaign } = require('./campaigns');
@@ -145,6 +152,21 @@ function t(lang, enText, arText) {
 }
 
 // ---- Superadmin alerts (in-app notifications) ----
+
+// AUDIT (2026-08-17) — see the note on getNotificationTitles below: the bell
+// titles carry {caseReference}-style placeholders and need the notification's
+// stored payload as `vars`, or every placeholder renders empty. Parse
+// defensively: `response` is TEXT that sometimes holds a worker debug payload.
+function parseNotificationVars(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'object') return raw;
+  try {
+    const parsed = JSON.parse(String(raw));
+    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 async function getNotificationTableColumns() {
   try {
@@ -283,7 +305,7 @@ function normalizeSuperadminNotification(row) {
       ? template
       : 'Notification';
 
-  const titles = getNotificationTitles(template);
+  const titles = getNotificationTitles(template, parseNotificationVars(response));
 
   return {
     id,
@@ -1475,6 +1497,45 @@ async function getOrderKpis(whereSql, params) {
   };
 }
 
+// ── Additional-files DECISION predicate — one definition, three call sites ──
+//
+// AUDIT (2026-08-17). The approval writers emit the short canonical identifiers
+// 'admin_approved_files_request' (routes/admin.js) and
+// 'superadmin_approved_files_request' (below). getLatestAdditionalFilesDecisionEvent
+// matched those explicitly, but the /superadmin inbox queue
+// (getPendingAdditionalFilesRequests) carried its OWN copy of the predicate with
+// only the three descriptive `LIKE '%additional files request approved%'`
+// branches — which the short identifiers do not match. Consequences, both live:
+//
+//   * No decision row was ever found for an approved request, so `dec` stayed
+//     NULL, stage stayed 'awaiting_approval', and the pill stayed PENDING. An
+//     approved request never left the admin inbox.
+//   * Worse in the other direction: 'admin_approved_files_request' contains
+//     both 'request' and 'files', so it MATCHES the fuzzy REQUEST predicate,
+//     and the NOT(...) exclusion beside it only listed the three descriptive
+//     labels. The approval event was therefore also read as a brand-new
+//     additional-files request, dated after the real one — the queue
+//     re-pinned the row it had just resolved.
+//
+// Hoisted here so the decision vocabulary has exactly one definition. Used for
+// (a) matching decisions and (b) EXCLUDING decisions from the request match.
+// `col` is the qualified column expression at the call site ('label',
+// 'd.label', 'e2.label', ...).
+function additionalFilesDecisionPredicate(col) {
+  const c = String(col);
+  return `(
+         -- Theme 7 sub-issue D: explicit short identifiers written by the
+         -- admin/superadmin approve handlers as of 2026-05-10.
+         ${c} = 'admin_approved_files_request'
+         OR ${c} = 'superadmin_approved_files_request'
+         -- Backward-compat for in-flight pre-Theme-7 rows (descriptive
+         -- English labels written by the older handlers and the reject paths).
+         OR LOWER(${c}) LIKE '%additional files request approved%'
+         OR LOWER(${c}) LIKE '%additional files request rejected%'
+         OR LOWER(${c}) LIKE '%additional files request denied%'
+       )`;
+}
+
 // Finds the most recent "doctor requested additional files" style event.
 // We keep this fuzzy on purpose to avoid coupling to one exact label.
 function getLatestAdditionalFilesRequestEvent(orderId) {
@@ -1490,11 +1551,7 @@ function getLatestAdditionalFilesRequestEvent(orderId) {
            OR LOWER(label) LIKE '%reupload%'
          )
        )
-       AND NOT (
-         LOWER(label) LIKE '%additional files request approved%'
-         OR LOWER(label) LIKE '%additional files request rejected%'
-         OR LOWER(label) LIKE '%additional files request denied%'
-       )
+       AND NOT ${additionalFilesDecisionPredicate('label')}
      ORDER BY at DESC
      LIMIT 1`,
     [orderId],
@@ -1507,20 +1564,7 @@ function getLatestAdditionalFilesDecisionEvent(orderId) {
     `SELECT id, label, meta, at, actor_user_id, actor_role
      FROM order_events
      WHERE order_id = $1
-       AND (
-         -- Theme 7 sub-issue D: explicit short identifiers written by
-         -- the admin/superadmin approve handlers as of 2026-05-10.
-         label = 'admin_approved_files_request'
-         OR label = 'superadmin_approved_files_request'
-         OR
-         -- Backward-compat for in-flight pre-Theme-7 rows (descriptive
-         -- English labels). The 'approved' substring also matches the
-         -- new short identifiers, so this branch is fully redundant for
-         -- post-migration rows but preserved as belt-and-suspenders.
-         LOWER(label) LIKE '%additional files request approved%'
-         OR LOWER(label) LIKE '%additional files request rejected%'
-         OR LOWER(label) LIKE '%additional files request denied%'
-       )
+       AND ${additionalFilesDecisionPredicate('label')}
      ORDER BY at DESC
      LIMIT 1`,
     [orderId],
@@ -1572,12 +1616,10 @@ async function getPendingAdditionalFilesRequests(limit = 20) {
     )
   )`;
 
-  // Decision events (written by admin/superadmin flows).
-  const decisionMatch = `(
-    LOWER(d.label) LIKE '%additional files request approved%'
-    OR LOWER(d.label) LIKE '%additional files request rejected%'
-    OR LOWER(d.label) LIKE '%additional files request denied%'
-  )`;
+  // Decision events (written by admin/superadmin flows). Shared predicate —
+  // this used to be a local 3-branch copy that missed the short canonical
+  // identifiers, so an approved request never left this inbox.
+  const decisionMatch = additionalFilesDecisionPredicate('d.label');
 
   const rows = await safeAll(
     `WITH req AS (
@@ -1588,20 +1630,12 @@ async function getPendingAdditionalFilesRequests(limit = 20) {
                e1.meta AS request_meta
         FROM order_events e1
         WHERE ${requestMatch}
-          AND NOT (
-            LOWER(e1.label) LIKE '%additional files request approved%'
-            OR LOWER(e1.label) LIKE '%additional files request rejected%'
-            OR LOWER(e1.label) LIKE '%additional files request denied%'
-          )
+          AND NOT ${additionalFilesDecisionPredicate('e1.label')}
           AND e1.id = (
             SELECT e2.id
             FROM order_events e2
             WHERE e2.order_id = e1.order_id
-              AND NOT (
-                LOWER(e2.label) LIKE '%additional files request approved%'
-                OR LOWER(e2.label) LIKE '%additional files request rejected%'
-                OR LOWER(e2.label) LIKE '%additional files request denied%'
-              )
+              AND NOT ${additionalFilesDecisionPredicate('e2.label')}
               AND (
                 e2.label IN ('doctor_requested_additional_files', 'doctor_rejected_files')
                 OR (
@@ -1628,11 +1662,7 @@ async function getPendingAdditionalFilesRequests(limit = 20) {
             FROM order_events d2
             WHERE d2.order_id = d.order_id
               AND (d2.at > req.requested_at OR (d2.at = req.requested_at AND d2.id != req.request_event_id))
-              AND (
-                LOWER(d2.label) LIKE '%additional files request approved%'
-                OR LOWER(d2.label) LIKE '%additional files request rejected%'
-                OR LOWER(d2.label) LIKE '%additional files request denied%'
-              )
+              AND ${additionalFilesDecisionPredicate('d2.label')}
             ORDER BY d2.at DESC, d2.id DESC
             LIMIT 1
           )
@@ -2046,16 +2076,25 @@ router.post('/superadmin/orders', requireSuperadmin, async (req, res) => {
   const status = chosenDoctor ? 'accepted' : 'new';
   const acceptedAt = chosenDoctor ? createdAt : null;
 
+  // AUDIT (2026-08-17) — base_price was never written by this path, so every
+  // operator-created order had a refund ceiling of 0 and was PERMANENTLY
+  // UNREFUNDABLE (services/refund_eligibility.maxRefundableEgp, and the legacy
+  // base_price + urgency_uplift_amount formula it replaces, both read it). No
+  // urgency tier is applied here, so base_price = the order's charge base and
+  // the migration-037 invariant base_price + urgency_uplift_amount = price
+  // holds with uplift NULL. These rows are created as payment_status='paid'
+  // outright, which makes them immediately refund-eligible — precisely the
+  // population that needs a non-zero ceiling.
   await execute(
     `INSERT INTO orders (
       id, patient_id, doctor_id, specialty_id, service_id,
-      sla_hours, status, price, doctor_fee,
+      sla_hours, status, price, base_price, doctor_fee,
       created_at, accepted_at, deadline_at, completed_at,
       breached_at, reassigned_count, report_url, notes,
       payment_status, payment_method, payment_reference, payment_link
     ) VALUES (
       $1, $2, $3, $4, $5,
-      $6, $7, $8, $9,
+      $6, $7, $8, $18, $9,
       $10, $11, $12, NULL,
       NULL, 0, NULL, $13,
       $14, $15, $16, $17
@@ -2077,7 +2116,8 @@ router.post('/superadmin/orders', requireSuperadmin, async (req, res) => {
       'paid',
       null,
       null,
-      orderPaymentLink
+      orderPaymentLink,
+      orderPrice
     ]
   );
 
@@ -2583,9 +2623,12 @@ router.post('/superadmin/manual-queue/:id/mark-unsuitable', requireSuperadmin, a
     reasonForPatient = reasonRaw;
   }
 
+  // AUDIT (2026-08-17) — the SELECT now fetches everything maxRefundableEgp
+  // needs (price + the add-on columns), not just the two legacy snapshot fields.
   const order = await queryOne(
     `SELECT id, patient_id, assignment_status, status, payment_status,
-            base_price, urgency_uplift_amount
+            price, base_price, urgency_uplift_amount, addons_json,
+            video_consultation_selected, video_consultation_price
        FROM orders_active WHERE id = $1`,
     [orderId]
   );
@@ -2616,7 +2659,16 @@ router.post('/superadmin/manual-queue/:id/mark-unsuitable', requireSuperadmin, a
         [orderId]
       );
       if (!existing) {
-        const refundAmount = Number(order.base_price || 0) + Number(order.urgency_uplift_amount || 0);
+        // AUDIT (2026-08-17) — was `base_price + urgency_uplift_amount`, which
+        // is wrong twice over: it omits every add-on the patient actually paid
+        // for (video consultation, prescription — all priced into the Paymob
+        // intention by services/order_pricing.owedCentsForOrder), and it
+        // evaluates to 0 for the orders whose creation path never wrote
+        // base_price, opening a refund for nothing at all. maxRefundableEgp is
+        // the single source of truth: price + selected add-ons, i.e. literally
+        // what the gateway charged, with the base+uplift sum kept only as a
+        // legacy reconstruction fallback.
+        const refundAmount = maxRefundableEgp(order);
         await execute(
           `INSERT INTO refunds (
              id, order_id, amount_egp, requested_amount, approved_amount,
@@ -2801,6 +2853,40 @@ router.post('/superadmin/orders/:id/additional-files/approve', requireSuperadmin
       'superadmin'
     ]
   );
+
+  // AUDIT (2026-08-17) — approving the request must also UNLOCK uploads.
+  // orders.uploads_locked is set to true at payment (routes/payments.js webhook)
+  // and routes/patient.js hard-blocks the patient upload POST on it. So on a
+  // case locked at payment, the patient was told "your specialist needs more
+  // files", clicked upload, and was bounced with ?error=locked — the request
+  // could never be satisfied and the case sat in REJECTED_FILES with a paused
+  // SLA until someone found the separate manual unlock endpoint
+  // (POST /admin/orders/:id/uploads/unlock), which was the ONLY writer that
+  // cleared the flag. routes/admin.js's approve handler now does the same.
+  // Same guard as the manual endpoint: never unlock a completed case.
+  if (currentLower !== 'completed') {
+    try {
+      await execute(
+        'UPDATE orders SET uploads_locked = false, updated_at = $1 WHERE id = $2',
+        [nowIso, orderId]
+      );
+      logOrderEvent({
+        orderId,
+        label: 'uploads_unlocked',
+        meta: JSON.stringify({ reason: 'additional_files_request_approved' }),
+        actorUserId: req.user && req.user.id,
+        actorRole: 'superadmin'
+      });
+    } catch (err) {
+      logErrorToDb(err, {
+        context: 'superadmin.additional_files_approve_unlock_uploads',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        orderId,
+        category: 'superadmin_action'
+      });
+    }
+  }
 
   // Notify patient AFTER approval (routing rule)
   if (order.patient_id) {
@@ -3656,65 +3742,69 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
     }
   }
 
-  // Transition to "new" if the order was in an awaiting-payment style state (conservative).
+  // AUDIT (2026-08-17) — the canonical payment boundary. This route previously
+  // hand-rolled two substitutes for it, and both were wrong:
+  //
+  //   (1) A "conservative" transition to status='new'. 'new' aliases to the
+  //       canonical SUBMITTED, NOT PAID — so the case stayed pre-payment as far
+  //       as the state machine was concerned, sla_hours was never locked, and
+  //       assertTransition('SUBMITTED','IN_REVIEW') threw the instant the doctor
+  //       pressed Accept. The case was permanently unacceptable.
+  //   (2) An inline pickDoctorForOrder + `UPDATE orders SET doctor_id` assign
+  //       that bypassed caseLifecycle.assignDoctor entirely: it left status
+  //       untouched, wrote no doctor_assignments row, no accept_by_at, no
+  //       CASE_ASSIGNED event — exactly the orphaned-case shape AUDIT-P0-2
+  //       removed from auto_assign.js. Worse, it applied no eligibility gate at
+  //       all beyond whatever pickDoctorForOrder happens to do.
+  //
+  // markCasePaid replaces both. It transitions to PAID, locks sla_hours, writes
+  // PAYMENT_CONFIRMED / CASE_READY_FOR_ASSIGNMENT, handles the urgent-window
+  // deferral, and its post-commit hook fires enqueueAutoAssign +
+  // broadcastOrderToSpecialty — the same pipeline the Paymob webhook uses. So
+  // the auto-assign the deleted block was trying to do still happens, through
+  // the canonical writer.
+  //
+  // Failure handling mirrors routes/payments.js:886 — money is already recorded
+  // as taken, so anything that is not recognisably a benign re-entry is logged
+  // to error_logs and pages on-call.
   try {
-    const currentStatus = String(order.status || '').toLowerCase();
-    if (['awaiting_payment', 'pending_payment', 'unpaid', 'payment_pending'].includes(currentStatus)) {
-      await execute(
-        `UPDATE orders
-         SET status = 'new',
-             updated_at = $1
-         WHERE id = $2`,
-        [nowIso, orderId]
-      );
-    }
-  } catch (_) {}
+    await caseLifecycle.markCasePaid(orderId);
+  } catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    const benign = /already\s+(paid|assigned|processed)|idempotent|no[-\s]?op/i.test(msg);
 
-  // If no doctor assigned yet, attempt auto-assign (best-effort).
-  try {
-    const fresh = await safeGet(
-      `SELECT id, doctor_id, specialty_id, service_id, status, payment_status
-       FROM orders_active
-       WHERE id = $1`,
-      [orderId],
-      null
-    );
+    logOrderEvent({
+      orderId,
+      label: benign
+        ? 'Payment lifecycle transition skipped (idempotent)'
+        : 'Payment lifecycle transition FAILED — case may not have entered the pipeline',
+      meta: JSON.stringify({ error: msg, benign, source: 'superadmin_mark_paid' }),
+      actorUserId: req.user && req.user.id ? String(req.user.id) : null,
+      actorRole: 'superadmin'
+    });
 
-    const doctorId = fresh && fresh.doctor_id ? String(fresh.doctor_id) : '';
-    const pay = fresh && fresh.payment_status ? String(fresh.payment_status).toLowerCase() : '';
-    if (!doctorId && pay === 'paid') {
-      const picked = await pickDoctorForOrder({ specialtyId: fresh.specialty_id, serviceId: fresh.service_id });
-      const pickedId = picked && picked.id ? String(picked.id) : (picked ? String(picked) : '');
-      if (pickedId) {
-        await execute(
-          `UPDATE orders
-           SET doctor_id = $1,
-               updated_at = $2
-           WHERE id = $3`,
-          [pickedId, nowIso, orderId]
+    if (!benign) {
+      try {
+        logErrorToDb(e, {
+          context: 'superadmin.mark_paid.markCasePaid',
+          orderId,
+          requestId: req.requestId,
+          userId: req.user?.id,
+          url: req.originalUrl,
+          method: req.method,
+          category: 'payment',
+          payment_captured: true
+        });
+      } catch (_) {}
+      try {
+        sendCriticalAlert(
+          'markCasePaid FAILED for order ' + orderId + ' after a SUPERADMIN marked it paid: ' +
+          msg.slice(0, 300) + ' — case is paid but is not in the assignment queue',
+          'markcasepaid_failed'
         );
-
-        logOrderEvent({
-          orderId,
-          label: `Order auto-assigned to doctor ${pickedId} after payment marked paid (superadmin)`,
-          actorRole: 'system'
-        });
-
-        queueNotification({
-          orderId,
-          toUserId: pickedId,
-          channel: 'internal',
-          template: 'new_case_assigned_doctor',
-          status: 'queued'
-        });
-
-        // Auto-create conversation for case-scoped messaging
-        if (fresh.patient_id || order.patient_id) {
-          try { ensureConversation(orderId, fresh.patient_id || order.patient_id, pickedId); } catch (_) {}
-        }
-      }
+      } catch (_) {}
     }
-  } catch (_) {}
+  }
 
   // Audit log.
   try {
@@ -4049,10 +4139,44 @@ router.post('/superadmin/orders/:id/extend-sla', requireSuperadmin, async (req, 
     [newDeadline.toISOString(), extraHours, orderId]
   );
 
-  // If order was breached, un-breach it
-  if (String(order.status).toLowerCase() === 'breached') {
-    const prevStatus = order.doctor_id ? 'assigned' : 'submitted';
-    await execute("UPDATE orders SET status = $1 WHERE id = $2", [prevStatus, orderId]);
+  // AUDIT (2026-08-17) — un-breach, twice broken.
+  //
+  // (1) The test compared against the literal 'breached'. Nothing writes that
+  //     value: the canonical write is 'SLA_BREACH' (case_lifecycle.markSlaBreach
+  //     → DB_STATUS[CASE_STATUS.SLA_BREACH]). 'breached' is only a historical
+  //     ALIAS in DB_STATUS_VARIANTS. So this branch never fired and extending
+  //     the SLA on a breached case left it breached — the case stayed out of
+  //     fetchSlaCandidates (breached_at IS NOT NULL) with a deadline that had
+  //     just been moved, i.e. the extension did nothing the operator asked for.
+  //     dbStatusValuesFor('SLA_BREACH') is the whole alias list including the
+  //     canonical value, so the test now matches every historical spelling.
+  //
+  // (2) The restore target. `submitted` for a case with no doctor is a DEAD END
+  //     for a PAID case: SUBMITTED is the pre-payment state, so the doctor's
+  //     Accept throws on assertTransition('SUBMITTED','IN_REVIEW') and
+  //     assignDoctor refuses anything that is not PAID or REASSIGNED. The case
+  //     would be unassignable and unacceptable forever. Restore to the state
+  //     the case was actually in: IN_REVIEW when a doctor holds it, PAID when
+  //     it is back in the assignment pool (which is also what auto-assign and
+  //     the breach sweep expect to find). breached_at is cleared with it — it
+  //     is the flag fetchSlaCandidates uses to refuse to ever breach the case
+  //     again, and leaving it set would make the extension unenforceable.
+  const breachDbValues = lowerUniqStrings(statusDbValues('SLA_BREACH', ['sla_breach', 'breached']));
+  if (breachDbValues.includes(String(order.status || '').toLowerCase())) {
+    const restoreTo = order.doctor_id
+      ? caseLifecycle.toDbStatus('IN_REVIEW')
+      : caseLifecycle.toDbStatus('PAID');
+    await execute(
+      "UPDATE orders SET status = $1, breached_at = NULL, updated_at = NOW() WHERE id = $2",
+      [restoreTo, orderId]
+    );
+    logOrderEvent({
+      orderId,
+      label: 'sla_breach_cleared_by_superadmin',
+      meta: JSON.stringify({ from: order.status, to: restoreTo, reason: 'sla_extended' }),
+      actorRole: 'superadmin',
+      actorUserId: req.user.id
+    });
   }
 
   logOrderEvent({
@@ -4432,9 +4556,19 @@ router.get('/superadmin/analytics', requireSuperadmin, async (req, res) => {
     ) || {}).c || 0;
 
     // Attention counts (all-time)
+    // AUDIT (2026-08-17) — this compared status against the literal 'breached',
+    // which nothing writes (the canonical value is 'SLA_BREACH'; 'breached' is
+    // only a historical alias). The dashboard's "needs attention → breached"
+    // tile was therefore permanently 0, so the one place ops looks to notice a
+    // breached case never showed one. Match the full alias list, case-insensitively.
+    const breachedAttentionIn = sqlIn(
+      "LOWER(COALESCE(status, ''))",
+      lowerUniqStrings(statusDbValues('SLA_BREACH', ['sla_breach', 'breached'])),
+      1
+    );
     const breachedAttention = (await safeGet(
-      "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) = 'breached'",
-      [], { c: 0 }
+      `SELECT COUNT(*) as c FROM orders_active WHERE ${breachedAttentionIn.clause}`,
+      breachedAttentionIn.params, { c: 0 }
     ) || {}).c || 0;
 
     const unpaidAttention = (await safeGet(
@@ -4781,7 +4915,7 @@ router.get('/superadmin/refunds', requireSuperadmin, async (req, res) => {
   let prefillOrderRow = null;
   if (prefillOrder) {
     prefillOrderRow = await queryOne(
-      `SELECT id, base_price, urgency_uplift_amount FROM orders_active WHERE id = $1`,
+      `SELECT id, price, base_price, urgency_uplift_amount, addons_json, video_consultation_selected, video_consultation_price FROM orders_active WHERE id = $1`,
       [prefillOrder]
     );
   }
@@ -4827,8 +4961,11 @@ router.get('/superadmin/refunds/create', requireSuperadmin, async (req, res) => 
     return res.redirect('/superadmin/refunds?error=order_id_required');
   }
 
+  // AUDIT (2026-08-17) — widened for maxRefundableEgp (needs price + add-ons).
   const order = await queryOne(
-    `SELECT o.id, o.patient_id, o.payment_status, o.base_price, o.urgency_uplift_amount,
+    `SELECT o.id, o.patient_id, o.payment_status,
+            o.price, o.base_price, o.urgency_uplift_amount, o.addons_json,
+            o.video_consultation_selected, o.video_consultation_price,
             o.reference_id, u.name AS patient_name, u.email AS patient_email
        FROM orders_active o
        LEFT JOIN users u ON u.id = o.patient_id
@@ -4852,7 +4989,10 @@ router.get('/superadmin/refunds/create', requireSuperadmin, async (req, res) => 
 
   const lang = (res.locals && res.locals.lang) || 'en';
   const isAr = String(lang).toLowerCase() === 'ar';
-  const defaultAmount = Number(order.base_price || 0) + Number(order.urgency_uplift_amount || 0);
+  // AUDIT (2026-08-17) — same legacy formula as the manual-queue site: it
+  // omitted add-ons and returned 0 for every order whose creation path never
+  // wrote base_price, pre-filling the operator form with a zero refund.
+  const defaultAmount = maxRefundableEgp(order);
 
   res.render('superadmin_refund_create', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
@@ -4876,7 +5016,7 @@ router.post('/superadmin/refunds/create', requireSuperadmin, async (req, res) =>
   }
 
   const order = await queryOne(
-    `SELECT id, patient_id, payment_status, base_price, urgency_uplift_amount
+    `SELECT id, patient_id, payment_status, price, base_price, urgency_uplift_amount, addons_json, video_consultation_selected, video_consultation_price
        FROM orders_active WHERE id = $1`,
     [orderId]
   );
@@ -4904,8 +5044,12 @@ router.post('/superadmin/refunds/create', requireSuperadmin, async (req, res) =>
     );
   }
 
-  // Amount: required, > 0, <= full case price (base + uplift).
-  const maxAmount = Number(order.base_price || 0) + Number(order.urgency_uplift_amount || 0);
+  // Amount: required, > 0, <= everything the patient was actually charged.
+  // AUDIT (2026-08-17) — the old base+uplift ceiling both under-counted (no
+  // add-ons) and, on the several INSERT paths that never wrote base_price,
+  // evaluated to 0 — so `amountRaw > maxAmount` rejected EVERY amount and the
+  // operator could not create a refund for those orders at all.
+  const maxAmount = maxRefundableEgp(order);
   if (!Number.isFinite(amountRaw) || amountRaw <= 0) {
     return res.redirect(
       '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=invalid_amount'
@@ -5159,6 +5303,32 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
     return res.redirect('/superadmin/refunds?error=invalid_state');
   }
 
+  // AUDIT (2026-08-17) — DOUBLE-REFUND, second half. Marking a refund paid
+  // never touched the ORDER, so orders.payment_status stayed 'paid' forever.
+  // services/refund_eligibility.isEligibleForRefund gates purely on that
+  // column plus the case status, so a fully-refunded pre-accept case still
+  // read back as "eligible, auto-approve" and the patient could request a
+  // second full refund the moment this row left the ('pending','auto_approved')
+  // partial-unique index. Closing the money loop here makes the order itself
+  // carry the refunded fact: eligibility then returns 'not_paid' and every
+  // downstream reader (patient case page CTA, superadmin queue, the operator
+  // create-refund form) agrees without needing its own refunds lookup.
+  // Best-effort by design — the refund IS paid from the patient's POV, so a
+  // failure here must not 500 the operator; it is logged for reconciliation.
+  try {
+    await execute(
+      "UPDATE orders SET payment_status = 'refunded' WHERE id = $1",
+      [refund.order_id]
+    );
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'superadmin.refund_mark_paid.order_payment_status',
+      orderId: refund.order_id,
+      refundId: refundId,
+      category: 'refund'
+    });
+  }
+
   logOrderEvent({
     orderId: refund.order_id,
     label: 'superadmin_refund_marked_paid',
@@ -5208,11 +5378,22 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
   //   operator double-click or retry.
   try {
     const { recomputeOnRefund } = require('../services/earnings_writer');
+    // AUDIT (2026-08-17): recomputeOnRefund now scales the doctor's clawback
+    // LINEARLY by the refund ratio (a 25% partial refund claws back ~25% of
+    // the doctor's share, not the whole thing) — but only when it is handed
+    // refundAmountEgp. Without it the helper falls back to the old
+    // all-or-nothing clawback, so a partially-refunded case would still zero
+    // the doctor to the 10% floor. The SELECT below therefore re-reads the
+    // amount columns as well as the reason; it runs AFTER the UPDATE, so
+    // approved_amount has already been backfilled with finalAmount.
     const refundRow = await queryOne(
-      "SELECT reason FROM refunds WHERE id = $1", [refundId]
+      "SELECT reason, approved_amount, requested_amount FROM refunds WHERE id = $1", [refundId]
     );
     if (refundRow && refundRow.reason) {
-      await recomputeOnRefund(refund.order_id, { reason: refundRow.reason });
+      await recomputeOnRefund(refund.order_id, {
+        reason: refundRow.reason,
+        refundAmountEgp: Number(refundRow.approved_amount ?? refundRow.requested_amount) || null
+      });
     }
   } catch (e) {
     logErrorToDb(e, {
@@ -5247,4 +5428,8 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
   return res.redirect('/superadmin/refunds?flash=paid');
 });
 
-module.exports = { router, buildFilters };
+// additionalFilesDecisionPredicate is exported so routes/admin.js uses the SAME
+// definition rather than keeping the fourth copy of this vocabulary — the
+// divergence between copies is precisely what left approved file requests
+// pinned in the inbox forever (see the function's header).
+module.exports = { router, buildFilters, additionalFilesDecisionPredicate };

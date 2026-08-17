@@ -360,8 +360,30 @@ async function countPatientUnseenNotifications(userId, userEmail = '') {
   return 0;
 }
 
-function getPatientNotificationTitles(template) {
-  return getNotificationTitles(template);
+// AUDIT (2026-08-17) — getNotificationTitles takes a SECOND argument, `vars`,
+// and interpolates {caseReference} / {doctorName} / etc. from it. Every bell
+// call site passed only the template, so interpolate() replaced each
+// placeholder with the empty string: "New refund request: {caseReference}"
+// rendered as "New refund request" and the patient could not tell which case a
+// notification was about. The variables live in notifications.response, which
+// is the JSON payload the queue writer stored — the same object the
+// notification_worker hands to getNotificationTitles for emails.
+function getPatientNotificationTitles(template, vars) {
+  return getNotificationTitles(template, vars);
+}
+
+// notifications.response is TEXT holding JSON. Parse defensively — the queue
+// worker also writes debug payloads ({"ok":true}) there, and a non-object or
+// unparseable value must degrade to "no vars", never throw inside a render.
+function parseNotificationVars(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'object') return raw;
+  try {
+    const parsed = JSON.parse(String(raw));
+    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 function normalizePatientNotification(row) {
@@ -388,7 +410,7 @@ function normalizePatientNotification(row) {
   // column, surface it here instead.
   const message = '';
 
-  const titles = getPatientNotificationTitles(template);
+  const titles = getPatientNotificationTitles(template, parseNotificationVars(response));
 
   return {
     id,
@@ -1955,6 +1977,109 @@ router.post('/patient/new-case/step3', requireRole('patient'), async (req, res) 
   return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId));
 });
 
+// ── persistTierPricing — the ONE writer of a wizard tier price ─────────────
+//
+// AUDIT (2026-08-17). Step 4 and the urgency-resolve prompt are two doors into
+// the same decision ("which tier is this order?") and they had drifted into two
+// different implementations of it. Step 4 converted the regional catalog price
+// to the EGP charge base with fx.egpChargeFromLocal and wrote currency /
+// doctor_fee / display_price / display_currency. urgency-resolve did neither:
+// it handed the raw regional row — whose base_price is in the patient's LOCAL
+// currency — straight to buildStep4Persistence, and wrote only tier / sla /
+// base_price / uplift / price.
+//
+// For a Saudi patient that is catastrophic. The SAR catalog number was written
+// into orders.price with orders.currency left at whatever it was, so a 375 SAR
+// service (≈4,800 EGP) was charged as 375 EGP: roughly a 93% undercharge, on
+// the exact path a patient reaches by choosing "downgrade to VIP" at the
+// out-of-window prompt. doctor_fee was also left unset, so the doctor's 20%
+// never existed on those orders.
+//
+// Both handlers now call this. There is no second place where a tier price is
+// computed, so they cannot drift again.
+//
+// Contract: `service` MUST carry base_price AND currency in the SAME currency
+// (the cp-join local price + its currency). Returns { ok: true } on success, or
+// { ok: false, step, error } naming the wizard step to bounce to.
+async function persistTierPricing({ orderId, patientId, tier, service, slaDeadline = null }) {
+  // 1. LOCAL catalog price → EGP charge base. Identity for EGP, so the
+  //    domestic path stays byte-identical to what it wrote before.
+  let charge;
+  try {
+    charge = egpChargeFromLocal(service.base_price, service.currency);
+  } catch (fxErr) {
+    logErrorToDb(fxErr, {
+      context: 'patient.persist_tier_pricing_fx',
+      orderId,
+      userId: patientId,
+      category: 'patient_case'
+    });
+    return { ok: false, step: 4, error: 'unsupported_currency' };
+  }
+
+  // 2. Urgency math, run in EGP — every money column on orders is EGP.
+  const persist = buildStep4Persistence({
+    tier,
+    serviceRow: {
+      base_price: charge.egpBase,
+      vip_multiplier: service.vip_multiplier,
+      urgent_multiplier: service.urgent_multiplier
+    }
+  });
+  if (!persist.ok) {
+    return { ok: false, step: 4, error: persist.error };
+  }
+
+  // 3. The write. paymob_intention_id / payment_link are nulled with the price:
+  //    creating an intention does not require leaving DRAFT, and step 4 is
+  //    reachable again by going back in the funnel — so a stale link would
+  //    charge the OLD amount, owedCentsForOrder would refuse to settle, and the
+  //    patient would be charged for a case that stays unpaid. Same reasoning as
+  //    routes/referrals.js.
+  //
+  //    sla_deadline is only touched when the caller supplies one (the
+  //    urgency-resolve "wait" branch anchors it at next 7am Cairo + 4h). Passing
+  //    null leaves the column alone rather than clearing a value the caller did
+  //    not set.
+  const setSlaDeadline = slaDeadline != null;
+  await execute(
+    `UPDATE orders
+     SET urgency_tier = $1,
+         sla_hours = $2,
+         base_price = $3,
+         urgency_uplift_amount = $4,
+         price = $5,
+         currency = 'EGP',
+         doctor_fee = $6,
+         display_price = $7,
+         display_currency = $8,
+         urgency_flag = $9,
+         ${setSlaDeadline ? 'sla_deadline = $13,' : ''}
+         paymob_intention_id = NULL,
+         payment_link = NULL,
+         draft_step = GREATEST(COALESCE(draft_step, 0), 4),
+         updated_at = $10
+     WHERE id = $11 AND patient_id = $12 AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
+    [
+      persist.tier,
+      persist.slaHours,
+      persist.basePrice,
+      persist.upliftAmount,
+      persist.totalPrice,
+      charge.doctorFeeEgp,
+      charge.displayPrice,
+      charge.displayCurrency,
+      persist.urgencyFlag,
+      new Date().toISOString(),
+      orderId,
+      patientId,
+      ...(setSlaDeadline ? [slaDeadline] : [])
+    ]
+  );
+
+  return { ok: true };
+}
+
 // POST /patient/new-case/step4 — tier selection (canonical 'standard' / 'vip' / 'urgent').
 //
 // Server-side authority for pricing: the body carries ONLY tier. Base price,
@@ -2012,75 +2137,14 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
   }
 
   // ALWAYS-CHARGE-EGP: the cp-join gives the patient's LOCAL price + currency.
-  // Convert it to the EGP charge base ONCE here, then run the urgency-pricing math
-  // in EGP (buildStep4Persistence) exactly as the EG path does. orders.currency is
-  // pinned 'EGP'; doctor_fee = 20% of the EGP charge; display_* carry the local
-  // figures FOR SHOW. For EG the conversion is identity and display_* are NULL →
-  // price/currency/uplift byte-identical to before (doctor_fee, previously never
-  // set on the wizard path, is now correctly 20% of the EGP charge).
-  let charge;
-  try {
-    charge = egpChargeFromLocal(service.base_price, service.currency);
-  } catch (fxErr) {
-    logErrorToDb(fxErr, { context: 'patient.wizard_step4_fx', orderId, userId: patientId, category: 'patient_case' });
-    return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=unsupported_currency');
+  // persistTierPricing converts it to the EGP charge base once, runs the
+  // urgency math in EGP, and writes every money column (see its header).
+  const written = await persistTierPricing({ orderId, patientId, tier, service });
+  if (!written.ok) {
+    return res.redirect(
+      '/patient/new-case?step=' + written.step + '&id=' + encodeURIComponent(orderId) + '&err=' + written.error
+    );
   }
-
-  const persist = buildStep4Persistence({
-    tier,
-    serviceRow: {
-      base_price: charge.egpBase,             // EGP — every downstream money field is EGP
-      vip_multiplier: service.vip_multiplier,
-      urgent_multiplier: service.urgent_multiplier
-    }
-  });
-  if (!persist.ok) {
-    return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=' + persist.error);
-  }
-
-  // AUDIT — this UPDATE changes `price` but used to leave paymob_intention_id
-  // and payment_link untouched. Creating a Paymob intention does NOT require
-  // the order to have left DRAFT (routes/payments.js create-intention gates on
-  // payment_status != 'paid' only), and step 4 is reachable again by going back
-  // in the funnel. So: pick Urgent → open the pay page → Pay Now (intention for
-  // the urgent amount is stored) → go back → switch to Standard. The price
-  // dropped, but the stored link still charges the urgent amount. The webhook's
-  // owedCentsForOrder check catches the discrepancy and refuses to settle — the
-  // patient's card is charged and the case stays unpaid, which is the worst of
-  // both outcomes. Invalidate the stale intention with the price, in the same
-  // statement, exactly as routes/referrals.js does.
-  await execute(
-    `UPDATE orders
-     SET urgency_tier = $1,
-         sla_hours = $2,
-         base_price = $3,
-         urgency_uplift_amount = $4,
-         price = $5,
-         currency = 'EGP',
-         doctor_fee = $6,
-         display_price = $7,
-         display_currency = $8,
-         urgency_flag = $9,
-         paymob_intention_id = NULL,
-         payment_link = NULL,
-         draft_step = GREATEST(COALESCE(draft_step, 0), 4),
-         updated_at = $10
-     WHERE id = $11 AND patient_id = $12 AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
-    [
-      persist.tier,
-      persist.slaHours,
-      persist.basePrice,
-      persist.upliftAmount,
-      persist.totalPrice,
-      charge.doctorFeeEgp,
-      charge.displayPrice,
-      charge.displayCurrency,
-      persist.urgencyFlag,
-      new Date().toISOString(),
-      orderId,
-      patientId
-    ]
-  );
 
   return res.redirect('/patient/new-case?step=5&id=' + encodeURIComponent(orderId));
 });
@@ -2115,9 +2179,14 @@ router.post('/patient/new-case/step4/urgency-resolve', requireRole('patient'), a
   // Coming Soon guard (§4.5): urgency-resolve is still a wizard write step — a
   // service that became coming_soon between step3 and here must not proceed.
   const bookableClause = servicesBookableClause('sv');
+  // AUDIT (2026-08-17) — `sv.currency` added to the SELECT. Without it the row
+  // handed to the pricing helper had a base_price in the patient's LOCAL
+  // currency and no currency to identify it, so the local number was persisted
+  // as EGP. See persistTierPricing's header for the full failure.
   const service = await safeGet(
     () => `SELECT sv.id, sv.vip_multiplier, sv.urgent_multiplier,
-                  COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price
+                  COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
+                  COALESCE(cp.currency, sv.currency, 'EGP') AS currency
            FROM services sv
            LEFT JOIN service_regional_prices cp
              ON cp.service_id = sv.id AND cp.country_code = $1
@@ -2130,48 +2199,25 @@ router.post('/patient/new-case/step4/urgency-resolve', requireRole('patient'), a
   }
 
   const resolvedTier = choice === 'wait' ? 'urgent' : 'vip';
-  const persist = buildStep4Persistence({ tier: resolvedTier, serviceRow: service });
-  if (!persist.ok) {
-    return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=' + persist.error);
-  }
 
   // For the Wait branch, anchor sla_deadline at next 7am Cairo + 4h
-  // per policy §3.  For Downgrade, leave sla_deadline NULL — VIP cases
+  // per policy §3.  For Downgrade, leave sla_deadline untouched — VIP cases
   // use deadlineFromAcceptance like every other order.
   const slaDeadline = choice === 'wait'
     ? new Date(nextSevenAmCairoUtc().getTime() + 4 * 60 * 60 * 1000).toISOString()
     : null;
 
-  // AUDIT — same stale-payment-link hazard as the step-4 urgency UPDATE above:
-  // the Wait/Downgrade choice changes `price`, so any intention already created
-  // for the previous amount must die with it.
-  await execute(
-    `UPDATE orders
-     SET urgency_tier = $1,
-         sla_hours = $2,
-         base_price = $3,
-         urgency_uplift_amount = $4,
-         price = $5,
-         urgency_flag = $6,
-         sla_deadline = $7,
-         paymob_intention_id = NULL,
-         payment_link = NULL,
-         draft_step = GREATEST(COALESCE(draft_step, 0), 4),
-         updated_at = $8
-     WHERE id = $9 AND patient_id = $10 AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
-    [
-      persist.tier,
-      persist.slaHours,
-      persist.basePrice,
-      persist.upliftAmount,
-      persist.totalPrice,
-      persist.urgencyFlag,
-      slaDeadline,
-      new Date().toISOString(),
-      orderId,
-      patientId
-    ]
-  );
+  // Same writer as step 4: FX conversion, EGP urgency math, every money column
+  // (currency / doctor_fee / display_price / display_currency included), and the
+  // stale-intention invalidation.
+  const written = await persistTierPricing({
+    orderId, patientId, tier: resolvedTier, service, slaDeadline
+  });
+  if (!written.ok) {
+    return res.redirect(
+      '/patient/new-case?step=' + written.step + '&id=' + encodeURIComponent(orderId) + '&err=' + written.error
+    );
+  }
 
   return res.redirect('/patient/new-case?step=5&id=' + encodeURIComponent(orderId));
 });
@@ -2582,10 +2628,21 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
     await withTransaction(async (client) => {
       const ordersHasCountry = await hasColumn('orders', 'country_code');
 
+      // AUDIT (2026-08-17) — base_price was never written by this path. It is
+      // the snapshot of the EGP charge base at order time, and the refund
+      // ceiling reads it (services/refund_eligibility.maxRefundableEgp uses it
+      // as the reconstruction fallback for rows with no canonical price, and
+      // the legacy base_price + urgency_uplift_amount formula used it as the
+      // WHOLE ceiling). An order created here therefore evaluated to a maximum
+      // refundable amount of 0 and was PERMANENTLY UNREFUNDABLE. No urgency
+      // tier is chosen on this single-shot path, so base_price == price ==
+      // charge.egpBase and the canonical invariant
+      //   base_price + urgency_uplift_amount = price
+      // (migration 037) holds with uplift NULL.
       const insertSql = ordersHasCountry
         ? `INSERT INTO orders (
           id, patient_id, doctor_id, specialty_id, service_id, sla_hours, status,
-          price, doctor_fee, created_at, accepted_at, deadline_at, completed_at,
+          price, base_price, doctor_fee, created_at, accepted_at, deadline_at, completed_at,
           breached_at, reassigned_count, report_url, notes,
           uploads_locked, additional_files_requested, payment_status, payment_method,
           payment_reference, payment_link, updated_at,
@@ -2593,7 +2650,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
           country_code
         ) VALUES (
           $1, $2, NULL, $3, $4, $5, $6,
-          $7, $8, $9, NULL, $10, NULL,
+          $7, $16, $8, $9, NULL, $10, NULL,
           NULL, 0, NULL, $11,
           false, false, 'unpaid', NULL,
           NULL, $12, $9,
@@ -2602,14 +2659,14 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
         )`
         : `INSERT INTO orders (
           id, patient_id, doctor_id, specialty_id, service_id, sla_hours, status,
-          price, doctor_fee, created_at, accepted_at, deadline_at, completed_at,
+          price, base_price, doctor_fee, created_at, accepted_at, deadline_at, completed_at,
           breached_at, reassigned_count, report_url, notes,
           uploads_locked, additional_files_requested, payment_status, payment_method,
           payment_reference, payment_link, updated_at,
           currency, display_price, display_currency
         ) VALUES (
           $1, $2, NULL, $3, $4, $5, $6,
-          $7, $8, $9, NULL, $10, NULL,
+          $7, $15, $8, $9, NULL, $10, NULL,
           NULL, 0, NULL, $11,
           false, false, 'unpaid', NULL,
           NULL, $12, $9,
@@ -2619,10 +2676,10 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
       const insertParams = ordersHasCountry
         ? [orderId, patientId, specialty_id, service_id, slaHours, dbStatusFor('SUBMITTED', 'new'),
            price, doctorFee, nowIso, deadlineAt, notes || null, service.payment_link || fallbackPaymentLink,
-           countryCode, displayPrice, displayCurrency]
+           countryCode, displayPrice, displayCurrency, charge.egpBase]
         : [orderId, patientId, specialty_id, service_id, slaHours, dbStatusFor('SUBMITTED', 'new'),
            price, doctorFee, nowIso, deadlineAt, notes || null, service.payment_link || fallbackPaymentLink,
-           displayPrice, displayCurrency];
+           displayPrice, displayCurrency, charge.egpBase];
 
       await client.query(insertSql, insertParams);
 
@@ -2821,10 +2878,19 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
     await withTransaction(async (client) => {
       const ordersHasCountry = await hasColumn('orders', 'country_code');
 
+      // AUDIT (2026-08-17) — base_price added (refund-ceiling gap; see the
+      // /patient/new-case path above). NOTE: this handler is retired — it
+      // returns 410 at its first statement and its INSERT still names the
+      // phantom columns locked_price / locked_currency / price_snapshot_json,
+      // so this code is unreachable and would throw if it ever ran again.
+      // base_price is written for consistency only; if this route is ever
+      // revived it must first be converted to the EGP charge base via
+      // fx.egpChargeFromLocal like every live path, because computedPrice here
+      // is still the LOCAL catalog number.
       const insertSql = ordersHasCountry
         ? `INSERT INTO orders (
           id, patient_id, doctor_id, specialty_id, service_id, sla_hours, status,
-          price, doctor_fee, created_at, accepted_at, deadline_at, completed_at,
+          price, base_price, doctor_fee, created_at, accepted_at, deadline_at, completed_at,
           breached_at, reassigned_count, report_url, notes, medical_history, current_medications,
           uploads_locked, additional_files_requested, payment_status, payment_method,
           payment_reference, payment_link, updated_at,
@@ -2832,7 +2898,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
           locked_price, locked_currency, price_snapshot_json
         ) VALUES (
           $1, $2, NULL, $3, $4, $5, $6,
-          $7, $8, $9, NULL, NULL, NULL,
+          $7, $18, $8, $9, NULL, NULL, NULL,
           NULL, 0, NULL, $10, $11, $12,
           false, false, 'unpaid', NULL,
           NULL, $13, $9,
@@ -2841,14 +2907,14 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
         )`
         : `INSERT INTO orders (
           id, patient_id, doctor_id, specialty_id, service_id, sla_hours, status,
-          price, doctor_fee, created_at, accepted_at, deadline_at, completed_at,
+          price, base_price, doctor_fee, created_at, accepted_at, deadline_at, completed_at,
           breached_at, reassigned_count, report_url, notes, medical_history, current_medications,
           uploads_locked, additional_files_requested, payment_status, payment_method,
           payment_reference, payment_link, updated_at,
           locked_price, locked_currency, price_snapshot_json
         ) VALUES (
           $1, $2, NULL, $3, $4, $5, $6,
-          $7, $8, $9, NULL, NULL, NULL,
+          $7, $17, $8, $9, NULL, NULL, NULL,
           NULL, 0, NULL, $10, $11, $12,
           false, false, 'unpaid', NULL,
           NULL, $13, $9,
@@ -2860,11 +2926,11 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
            computedPrice, computedDoctorFee, nowIso, orderNotes, medical_history || null, current_medications || null,
            service.payment_link || fallbackPaymentLink,
            countryCode,
-           computedPrice, computedCurrency, JSON.stringify(priceSnapshot)]
+           computedPrice, computedCurrency, JSON.stringify(priceSnapshot), computedPrice]
         : [orderId, patientId, specialty_id, service_id, slaHours, dbStatusFor('SUBMITTED', 'new'),
            computedPrice, computedDoctorFee, nowIso, orderNotes, medical_history || null, current_medications || null,
            service.payment_link || fallbackPaymentLink,
-           computedPrice, computedCurrency, JSON.stringify(priceSnapshot)];
+           computedPrice, computedCurrency, JSON.stringify(priceSnapshot), computedPrice];
 
       await client.query(insertSql, insertParams);
 
@@ -3394,10 +3460,13 @@ router.get('/portal/patient/orders/:id/request-refund', requireRole('patient'), 
     return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId));
   }
 
-  // Reject if a pending request already exists (the partial-unique index
-  // would also block, but redirecting earlier is friendlier UX).
+  // Reject if a request already exists (the partial-unique index would also
+  // block the live states, but redirecting earlier is friendlier UX).
+  // Status list widened 2026-08-17 to match the POST guard below: an
+  // approved/paid refund must also stop a second request, because mark-paid
+  // does not change orders.payment_status and eligibility would still pass.
   const existing = await queryOne(
-    "SELECT id FROM refunds WHERE order_id = $1 AND status IN ('pending','auto_approved') LIMIT 1",
+    "SELECT id FROM refunds WHERE order_id = $1 AND status IN ('pending','auto_approved','approved','paid') LIMIT 1",
     [orderId]
   );
   if (existing) {
@@ -3459,6 +3528,38 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
   }
 
   if (!eligibility || !eligibility.eligible) return rerender('ineligible');
+
+  // AUDIT (2026-08-17): DOUBLE-REFUND. The duplicate guard lived only in the
+  // GET form-render above; the POST relied entirely on the partial unique index
+  // uniq_refunds_pending_per_order, which covers ONLY ('pending',
+  // 'auto_approved'). The moment an operator marks the first refund 'approved'
+  // or 'paid' the index slot frees, and isEligibleForRefund still says
+  // "eligible" because mark-paid never moves orders.payment_status off 'paid'.
+  // The patient could then request — and be paid — a second full refund for the
+  // same charge. Re-run the existing-refund query here with the WIDENED status
+  // list so any live-or-settled refund blocks a new request. (Migration 082
+  // widens the index to match; this is the application-layer half, and the one
+  // that returns a friendly re-render instead of a 500.)
+  let priorRefund = null;
+  try {
+    priorRefund = await queryOne(
+      "SELECT id FROM refunds WHERE order_id = $1 AND status IN ('pending','auto_approved','approved','paid') LIMIT 1",
+      [orderId]
+    );
+  } catch (e) {
+    // Fail closed: if we cannot prove there is no prior refund, do not create
+    // a second one. Same posture as isEligibleForRefund's DB-error branch.
+    logErrorToDb(e, {
+      context: 'patient.refund_request_duplicate_check',
+      requestId: req.requestId,
+      userId: patientId,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'refund'
+    });
+    return rerender('duplicate');
+  }
+  if (priorRefund) return rerender('duplicate');
 
   // Validate input. Length caps mirror the form's maxlength attrs.
   if (!reasonRaw || reasonRaw.length < 3) return rerender('reason_required');

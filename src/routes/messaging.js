@@ -29,6 +29,11 @@ async function getConversationForUser(conversationId, userId) {
 async function computeDoctorStreakCount(userId) {
   if (!userId) return 0;
   try {
+    // AUDIT (2026-08-17) — canonical status is UPPERCASE in the DB
+    // ('COMPLETED'), so `status = 'completed'` matched nothing and this
+    // returned 0 for every doctor, forever. It feeds the streak banner on
+    // /portal/messages AND the doctor case page, so both showed a permanent
+    // zero streak no matter how many cases the doctor delivered.
     const row = await queryOne(
       "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND LOWER(COALESCE(status, '')) = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
       [userId]
@@ -397,6 +402,12 @@ router.get('/api/messages/:conversationId/poll', requireRole('patient', 'doctor'
 // Auto-close conversations 2 days after case completion
 async function closeStaleConversations() {
   try {
+    // AUDIT (2026-08-17) — same uppercase-status miss. orders.status is
+    // 'COMPLETED'; the inner SELECT returned no rows, so this sweep has never
+    // closed a single conversation and every case conversation stays open
+    // indefinitely after delivery. NB: conversations.status IS lowercase
+    // ('active'/'closed' — written by this file and ensureConversation), so
+    // only the ORDERS comparison changes.
     var result = await execute(`
       UPDATE conversations SET status = 'closed', closed_at = NOW()
       WHERE status = 'active' -- case-fold-ok: conversations.status, not orders.status; only ever written 'active'/'closed'

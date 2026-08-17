@@ -2114,10 +2114,22 @@ module.exports = function (db, helpers, deploy, deps) {
       // (1) Doctor-earnings clawback — post-commit, off-txn, best-effort. Mirrors
       //     the web: recomputeOnRefund(orderId, { reason }). DB-only + idempotent,
       //     so a failure must NOT unwind the committed paid status.
+      //     AUDIT (2026-08-17): recomputeOnRefund now scales the clawback
+      //     LINEARLY by the refund ratio, but only when it is given
+      //     refundAmountEgp; without it the helper degrades to the old
+      //     all-or-nothing 90% clawback (deliberately — it fails towards the
+      //     platform). Passing the amount is what makes a PARTIAL refund claw
+      //     back a proportional share instead of gutting the doctor's whole fee.
+      //     setRefundPaid already returns the settled figures (approvedAmount is
+      //     backfilled with finalAmount inside its txn), so no extra read.
       let clawback = 'skipped';
       try {
         if (refund.reason) {
-          const r = await recomputeOnRefund(refund.orderId, { reason: refund.reason });
+          const r = await recomputeOnRefund(refund.orderId, {
+            reason: refund.reason,
+            refundAmountEgp:
+              Number(refund.approvedAmount ?? refund.requestedAmount ?? refund.amountEgp) || null
+          });
           clawback = r && r.skipped ? 'skipped' : 'applied';
         }
       } catch (e) {

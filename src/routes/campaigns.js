@@ -277,6 +277,10 @@ async function populateRecipients(campaignId, audience) {
       query = "SELECT id, email FROM users WHERE role = 'doctor' AND is_active = true AND email_marketing_opt_out = false AND email IS NOT NULL";
       break;
     case 'completed_cases':
+      // AUDIT (2026-08-17) — orders.status is canonical UPPERCASE ('COMPLETED'),
+      // so `o.status = 'completed'` matched no rows and this audience was
+      // ALWAYS EMPTY. A campaign targeted at patients with a completed case
+      // populated zero recipients and reported a clean send.
       query = "SELECT DISTINCT u.id, u.email FROM users u JOIN orders_active o ON o.patient_id = u.id WHERE LOWER(COALESCE(o.status, '')) = 'completed' AND u.is_active = true AND u.email_marketing_opt_out = false AND u.email IS NOT NULL";
       break;
     case 'inactive_30d':
