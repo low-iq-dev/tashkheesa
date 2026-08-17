@@ -693,7 +693,25 @@ const CASE_STATUS = Object.freeze({
   // getStatusUi fell through to its raw-string fallback so patients literally
   // saw the badge text "EXPIRED_UNPAID".
   EXPIRED_UNPAID: 'EXPIRED_UNPAID',
-  PENDING_REVIEW: 'PENDING_REVIEW'
+  PENDING_REVIEW: 'PENDING_REVIEW',
+  // AUDIT 2026-08-17 — 'refunded' was a status the codebase READ in eight
+  // places and NOTHING ever wrote.
+  //
+  // auto_assign.js TERMINAL_STATUSES, admin_bulk_assign's LOAD_EXCLUDED_STATUSES
+  // (twice), three doctor-load calculations in routes/api/admin.js, its status
+  // guard, and routes/api/cases.js's closed-case filter all test for
+  // 'refunded' — but no code path could produce it. The only route to that
+  // value was a superadmin manually overriding payment_status by hand.
+  //
+  // The consequence, observed on live data: a case refunded IN FULL kept
+  // status='in_progress' and payment_status='paid', so it stayed an active
+  // case, kept occupying one of its doctor's four concurrent slots, remained
+  // eligible for reassignment, and sat in the Command app's "NEEDS ACTION NOW"
+  // card permanently — three months past a dead deadline.
+  //
+  // Making it first-class turns all eight of those readers from dead code into
+  // working code. See services/refund_closure.js for the writer.
+  REFUNDED: 'REFUNDED'
 });
 
 // Legacy / UI-facing status aliases -> canonical CASE_STATUS
@@ -785,16 +803,25 @@ const { acceptanceMinutesForOrder, acceptanceDeadlineIso } = require('./acceptan
 const STATUS_TRANSITIONS = Object.freeze({
   [CASE_STATUS.DRAFT]: [CASE_STATUS.SUBMITTED],
   [CASE_STATUS.SUBMITTED]: [CASE_STATUS.PAID],
-  [CASE_STATUS.PAID]: [CASE_STATUS.ASSIGNED],
+  // AUDIT 2026-08-17 — REFUNDED is reachable from every state in which the
+  // patient's money is already taken. A full refund ends the case wherever it
+  // had got to: sitting unassigned, with a doctor, mid-review, awaiting files,
+  // or breached. It is terminal, so it has no outbound transitions.
+  [CASE_STATUS.PAID]: [CASE_STATUS.ASSIGNED, CASE_STATUS.REFUNDED],
   [CASE_STATUS.ASSIGNED]: [
     CASE_STATUS.IN_REVIEW,
     CASE_STATUS.REJECTED_FILES,
-    CASE_STATUS.REASSIGNED
+    CASE_STATUS.REASSIGNED,
+    CASE_STATUS.REFUNDED
   ],
-  [CASE_STATUS.IN_REVIEW]: [CASE_STATUS.COMPLETED, CASE_STATUS.REJECTED_FILES],
-  [CASE_STATUS.REJECTED_FILES]: [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW],
-  [CASE_STATUS.SLA_BREACH]: [CASE_STATUS.REASSIGNED, CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW],
-  [CASE_STATUS.REASSIGNED]: [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW],
+  [CASE_STATUS.IN_REVIEW]: [CASE_STATUS.COMPLETED, CASE_STATUS.REJECTED_FILES, CASE_STATUS.REFUNDED],
+  [CASE_STATUS.REJECTED_FILES]: [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.REFUNDED],
+  [CASE_STATUS.SLA_BREACH]: [CASE_STATUS.REASSIGNED, CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.REFUNDED],
+  [CASE_STATUS.REASSIGNED]: [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.REFUNDED],
+  // A completed case can still be refunded in full afterwards — the patient
+  // received the report and disputed it. Money state changes; the work stands.
+  [CASE_STATUS.COMPLETED]: [CASE_STATUS.REFUNDED],
+  [CASE_STATUS.REFUNDED]: [],
   [CASE_STATUS.CANCELLED]: [],
   // AUDIT-P1-4 — the unpaid-expiry sweep flips a case here at 24h. The Paymob
   // callback has no expiry guard, so a patient paying from an emailed link 30
@@ -1073,6 +1100,43 @@ const CASE_STATUS_UI = Object.freeze({
     }
   },
 
+  // AUDIT 2026-08-17 — a fully refunded case. Distinct from CANCELLED: the
+  // patient paid, the money has been returned, and the case ends there. Kept
+  // visible to the patient so their history explains itself rather than the
+  // case simply vanishing.
+  [CASE_STATUS.REFUNDED]: {
+    patient: {
+      title: { en: 'Refunded', ar: 'تم استرداد المبلغ' },
+      description: {
+        en: 'This case was closed and your payment has been refunded in full.',
+        ar: 'تم إغلاق هذه الحالة وتم استرداد مبلغك بالكامل.'
+      },
+      badge: UI_BADGE.neutral,
+      visible: true,
+      terminal: true
+    },
+    doctor: {
+      title: { en: 'Refunded', ar: 'تم استرداد المبلغ' },
+      description: {
+        en: 'This case was refunded and is no longer active.',
+        ar: 'تم استرداد مبلغ هذه الحالة ولم تعد نشطة.'
+      },
+      badge: UI_BADGE.neutral,
+      visible: true,
+      terminal: true
+    },
+    admin: {
+      title: { en: 'Refunded', ar: 'تم استرداد المبلغ' },
+      description: {
+        en: 'Refunded in full and closed. No further actions required.',
+        ar: 'تم الاسترداد بالكامل والإغلاق. لا توجد إجراءات مطلوبة.'
+      },
+      badge: UI_BADGE.neutral,
+      visible: true,
+      terminal: true
+    }
+  },
+
   // AUDIT-P1-4 — without these entries getStatusUi fell through to its
   // raw-string fallback and patients literally saw the badge text
   // "EXPIRED_UNPAID" on their own case page.
@@ -1203,7 +1267,8 @@ const DB_STATUS = Object.freeze({
   [CASE_STATUS.COMPLETED]: CASE_STATUS.COMPLETED,
   [CASE_STATUS.SLA_BREACH]: CASE_STATUS.SLA_BREACH,
   [CASE_STATUS.REASSIGNED]: CASE_STATUS.REASSIGNED,
-  [CASE_STATUS.CANCELLED]: CASE_STATUS.CANCELLED
+  [CASE_STATUS.CANCELLED]: CASE_STATUS.CANCELLED,
+  [CASE_STATUS.REFUNDED]: CASE_STATUS.REFUNDED
 });
 
 // Canonical -> list of DB values seen historically (for SQL WHERE IN)
@@ -1216,6 +1281,7 @@ const DB_STATUS_VARIANTS = Object.freeze({
   [CASE_STATUS.REJECTED_FILES]: [CASE_STATUS.REJECTED_FILES, 'rejected_files', 'REJECTED_FILES', 'files_requested', 'FILES_REQUESTED', 'file_requested', 'FILE_REQUESTED', 'more_info_needed', 'MORE_INFO_NEEDED'],
   [CASE_STATUS.COMPLETED]: [CASE_STATUS.COMPLETED, 'completed', 'COMPLETED', 'done', 'DONE', 'finished', 'FINISHED'],
   [CASE_STATUS.SLA_BREACH]: [CASE_STATUS.SLA_BREACH, 'sla_breach', 'SLA_BREACH', 'breached', 'BREACHED', 'breached_sla', 'BREACHED_SLA', 'sla_breached', 'SLA_BREACHED', 'delayed', 'DELAYED', 'overdue', 'OVERDUE'],
+  [CASE_STATUS.REFUNDED]: [CASE_STATUS.REFUNDED, 'refunded', 'REFUNDED'],
   [CASE_STATUS.REASSIGNED]: [CASE_STATUS.REASSIGNED, 'reassigned', 'REASSIGNED'],
   [CASE_STATUS.CANCELLED]: [CASE_STATUS.CANCELLED, 'cancelled', 'CANCELLED', 'canceled', 'CANCELED', 'cancel', 'CANCEL'],
   // AUDIT-P1-4: lowercase is what the raw-SQL writers actually store.

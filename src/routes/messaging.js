@@ -30,7 +30,7 @@ async function computeDoctorStreakCount(userId) {
   if (!userId) return 0;
   try {
     const row = await queryOne(
-      "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND status = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
+      "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND LOWER(COALESCE(status, '')) = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
       [userId]
     );
     return (row && row.c) || 0;
@@ -399,10 +399,10 @@ async function closeStaleConversations() {
   try {
     var result = await execute(`
       UPDATE conversations SET status = 'closed', closed_at = NOW()
-      WHERE status = 'active'
+      WHERE status = 'active' -- case-fold-ok: conversations.status, not orders.status; only ever written 'active'/'closed'
       AND order_id IN (
         SELECT id FROM orders_active
-        WHERE status = 'completed'
+        WHERE LOWER(COALESCE(status, '')) = 'completed'
         AND completed_at < NOW() - INTERVAL '2 days'
       )
     `);

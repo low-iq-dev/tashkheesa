@@ -397,7 +397,7 @@ async function acceptOrder(orderId, doctorId) {
 
 async function getActiveCasesForDoctor(doctorId) {
   return await queryAll(
-    "SELECT * FROM orders_active WHERE doctor_id = $1 AND status IN ('review') AND completed_at IS NULL ORDER BY accepted_at DESC",
+    "SELECT * FROM orders_active WHERE doctor_id = $1 AND LOWER(COALESCE(status, '')) IN ('review') AND completed_at IS NULL ORDER BY accepted_at DESC",
     [doctorId]
   );
 }

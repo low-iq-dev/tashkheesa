@@ -359,17 +359,17 @@ async function gatherDashboardStats() {
   )) || {}).t || 0;
 
   var pendingCases = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders_active WHERE status IN ('new','pending','awaiting_review','review','paid')",
+    "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) IN ('new','pending','awaiting_review','review','paid')",
     [], { c: 0 }
   )) || {}).c || 0;
 
   var breachedCases = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders_active WHERE status = 'breached'",
+    "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) = 'breached'",
     [], { c: 0 }
   )) || {}).c || 0;
 
   var completedThisMonth = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders_active WHERE status IN ('completed','done','delivered') AND created_at >= date_trunc('month', NOW())",
+    "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND created_at >= date_trunc('month', NOW())",
     [], { c: 0 }
   )) || {}).c || 0;
 
@@ -395,7 +395,7 @@ async function gatherDashboardStats() {
 
   // ── SLA health ──
   var nearBreachCases = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders_active WHERE status NOT IN ('completed','breached','cancelled') AND deadline_at IS NOT NULL AND deadline_at <= NOW() + INTERVAL '2 hours' AND deadline_at > NOW()",
+    "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) NOT IN ('completed','breached','cancelled') AND deadline_at IS NOT NULL AND deadline_at <= NOW() + INTERVAL '2 hours' AND deadline_at > NOW()",
     [], { c: 0 }
   )) || {}).c || 0;
 
@@ -453,7 +453,7 @@ async function gatherDashboardStats() {
 
   // ── Payment health ──
   var unpaidOrders = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders_active WHERE payment_status = 'unpaid' AND status NOT IN ('cancelled','expired_unpaid')",
+    "SELECT COUNT(*) as c FROM orders_active WHERE payment_status = 'unpaid' AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','expired_unpaid')",
     [], { c: 0 }
   )) || {}).c || 0;
 

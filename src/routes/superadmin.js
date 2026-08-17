@@ -4404,12 +4404,12 @@ router.get('/superadmin/analytics', requireSuperadmin, async (req, res) => {
     ) || {}).c || 0;
 
     const completedCases = (await safeGet(
-      "SELECT COUNT(*) as c FROM orders_active WHERE status IN ('completed','done','delivered') AND created_at >= $1",
+      "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND created_at >= $1",
       [startDate], { c: 0 }
     ) || {}).c || 0;
 
     const onTimeCases = (await safeGet(
-      "SELECT COUNT(*) as c FROM orders_active WHERE status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $1",
+      "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $1",
       [startDate], { c: 0 }
     ) || {}).c || 0;
 
@@ -4433,17 +4433,17 @@ router.get('/superadmin/analytics', requireSuperadmin, async (req, res) => {
 
     // Attention counts (all-time)
     const breachedAttention = (await safeGet(
-      "SELECT COUNT(*) as c FROM orders_active WHERE status = 'breached'",
+      "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) = 'breached'",
       [], { c: 0 }
     ) || {}).c || 0;
 
     const unpaidAttention = (await safeGet(
-      "SELECT COUNT(*) as c FROM orders_active WHERE payment_status = 'unpaid' AND status NOT IN ('expired_unpaid','cancelled')",
+      "SELECT COUNT(*) as c FROM orders_active WHERE payment_status = 'unpaid' AND LOWER(COALESCE(status, '')) NOT IN ('expired_unpaid','cancelled')",
       [], { c: 0 }
     ) || {}).c || 0;
 
     const expiredAttention = (await safeGet(
-      "SELECT COUNT(*) as c FROM orders_active WHERE status = 'expired_unpaid'",
+      "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) = 'expired_unpaid'",
       [], { c: 0 }
     ) || {}).c || 0;
 
@@ -4474,7 +4474,7 @@ router.get('/superadmin/analytics', requireSuperadmin, async (req, res) => {
     );
 
     const slaTrend = await safeAll(
-      "SELECT TO_CHAR(completed_at, 'YYYY-MM-DD') as date, COUNT(*) as total, SUM(CASE WHEN completed_at <= deadline_at THEN 1 ELSE 0 END) as on_time FROM orders_active WHERE status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND created_at >= $1 GROUP BY TO_CHAR(completed_at, 'YYYY-MM-DD') ORDER BY date ASC",
+      "SELECT TO_CHAR(completed_at, 'YYYY-MM-DD') as date, COUNT(*) as total, SUM(CASE WHEN completed_at <= deadline_at THEN 1 ELSE 0 END) as on_time FROM orders_active WHERE LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND created_at >= $1 GROUP BY TO_CHAR(completed_at, 'YYYY-MM-DD') ORDER BY date ASC",
       [startDate], []
     );
 
@@ -5171,6 +5171,28 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
     actorUserId: payerId,
     actorRole: 'superadmin'
   });
+
+  // AUDIT 2026-08-17 — close the case when the refunds paid against it cover
+  // what the patient was charged. Until now nothing here touched `orders`, so a
+  // fully refunded case stayed active forever: still counted in the KPIs, still
+  // occupying one of its doctor's four slots, still reassignable, still showing
+  // in the Command app's "needs action" card, with payment_status='paid'.
+  //
+  // Deliberately AFTER the refunds UPDATE above: the closure decision sums
+  // refunds WHERE status='paid', so this row must already be marked paid for it
+  // to count. Non-throwing by construction — a failure here must never leave a
+  // patient's refund unrecorded.
+  try {
+    const { closeOrderIfFullyRefunded } = require('../services/refund_closure');
+    await closeOrderIfFullyRefunded(refund.order_id, { actorUserId: payerId });
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'superadmin.refund_mark_paid.closeOrderIfFullyRefunded',
+      orderId: refund.order_id,
+      refundId: refundId,
+      category: 'refund'
+    });
+  }
 
   // Side issue #43 — apply doctor-earnings clawback policy per refund reason.
   // Hooks decoupled by design:

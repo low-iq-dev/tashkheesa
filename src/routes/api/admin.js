@@ -359,20 +359,43 @@ module.exports = function (db, helpers, deploy, deps) {
   // exists. Only Breached (past deadline) and "No active timer" (active, no
   // deadline) are computed. Identity falls back to orders.id when reference_id
   // is null; the case "summary" is the real services.name (no free-text column).
-  const ACTIVE_STATUSES = "('paid','in_progress','submitted','assigned')";
+  // AUDIT 2026-08-17 — this list is compared against orders.status, and it was
+  // compared CASE-SENSITIVELY while the writers in this very file store the
+  // canonical UPPERCASE value:
+  //
+  //     UPDATE orders SET status = 'ASSIGNED' ...   (assign, :1196)
+  //     UPDATE orders SET status = 'ASSIGNED' ...   (bulk auto-assign)
+  //     ... status = 'IN_REVIEW' ...                (SLA override, :1445)
+  //
+  // Verified against production Postgres: 'ASSIGNED' IN (...) is FALSE.
+  //
+  // So assigning a case from the Command app did not move it between dashboard
+  // tiles — it dropped out of ALL of them (active, awaiting review, pending
+  // assignment, breached, no-timer) while remaining correctly badged in the
+  // Cases queue, which folds case via LOWER(). The two screens disagreed and
+  // the dashboard was the wrong one.
+  //
+  // Every comparison below now folds case. ACTIVE_STATUS_LIST is the single
+  // definition; tests/lint/status-comparisons-fold-case.test.js fails the build
+  // if a status comparison is hand-written without LOWER() again.
+  const ACTIVE_STATUS_LIST = ['paid', 'in_progress', 'in_review', 'submitted', 'assigned', 'rejected_files'];
+  const ACTIVE_STATUSES = '(' + ACTIVE_STATUS_LIST.map((s) => "'" + s + "'").join(',') + ')';
+  // Case-folded column reference, for use on either side of an IN.
+  const ST = "LOWER(COALESCE(status, ''))";
+  const ST_O = "LOWER(COALESCE(o.status, ''))";
 
   router.get('/pulse', async (req, res) => {
     try {
       const [agg, backlog, breachedRows, pendingRows, activityRows] = await Promise.all([
         safeGet(
           `SELECT
-              COUNT(*) FILTER (WHERE completed_at IS NULL AND status IN ${ACTIVE_STATUSES}) AS active_cases,
-              COUNT(*) FILTER (WHERE completed_at IS NULL AND doctor_id IS NOT NULL AND status IN ('in_progress','assigned')) AS awaiting_review,
-              COUNT(*) FILTER (WHERE completed_at IS NULL AND doctor_id IS NULL AND status IN ${ACTIVE_STATUSES}) AS pending_assignment,
-              COUNT(*) FILTER (WHERE completed_at IS NULL AND status IN ${ACTIVE_STATUSES} AND deadline_at IS NOT NULL AND deadline_at::timestamptz < NOW()) AS sla_breached,
-              COUNT(*) FILTER (WHERE completed_at IS NULL AND status IN ${ACTIVE_STATUSES} AND deadline_at IS NULL) AS no_sla_timer,
+              COUNT(*) FILTER (WHERE completed_at IS NULL AND ${ST} IN ${ACTIVE_STATUSES}) AS active_cases,
+              COUNT(*) FILTER (WHERE completed_at IS NULL AND doctor_id IS NOT NULL AND ${ST} IN ('in_progress','in_review','assigned')) AS awaiting_review,
+              COUNT(*) FILTER (WHERE completed_at IS NULL AND doctor_id IS NULL AND ${ST} IN ${ACTIVE_STATUSES}) AS pending_assignment,
+              COUNT(*) FILTER (WHERE completed_at IS NULL AND ${ST} IN ${ACTIVE_STATUSES} AND deadline_at IS NOT NULL AND deadline_at::timestamptz < NOW()) AS sla_breached,
+              COUNT(*) FILTER (WHERE completed_at IS NULL AND ${ST} IN ${ACTIVE_STATUSES} AND deadline_at IS NULL) AS no_sla_timer,
               ROUND(EXTRACT(EPOCH FROM (NOW() - MIN(created_at::timestamptz) FILTER (
-                WHERE completed_at IS NULL AND doctor_id IS NULL AND status IN ${ACTIVE_STATUSES}
+                WHERE completed_at IS NULL AND doctor_id IS NULL AND ${ST} IN ${ACTIVE_STATUSES}
               ))) / 60) AS oldest_pending_mins
            FROM orders_active`,
           []
@@ -389,7 +412,7 @@ module.exports = function (db, helpers, deploy, deps) {
              FROM orders_active o
              LEFT JOIN users p ON p.id = o.patient_id
              LEFT JOIN specialties sp ON sp.id = o.specialty_id
-            WHERE o.completed_at IS NULL AND o.status IN ${ACTIVE_STATUSES}
+            WHERE o.completed_at IS NULL AND ${ST_O} IN ${ACTIVE_STATUSES}
               AND o.deadline_at IS NOT NULL AND o.deadline_at::timestamptz < NOW()
             ORDER BY o.deadline_at::timestamptz ASC
             LIMIT 3`,
@@ -405,7 +428,7 @@ module.exports = function (db, helpers, deploy, deps) {
              LEFT JOIN users p ON p.id = o.patient_id
              LEFT JOIN specialties sp ON sp.id = o.specialty_id
              LEFT JOIN services sv ON sv.id = o.service_id
-            WHERE o.completed_at IS NULL AND o.doctor_id IS NULL AND o.status IN ${ACTIVE_STATUSES}
+            WHERE o.completed_at IS NULL AND o.doctor_id IS NULL AND ${ST_O} IN ${ACTIVE_STATUSES}
             ORDER BY (o.deadline_at IS NULL), o.deadline_at::timestamptz ASC, o.created_at ASC
             LIMIT 6`,
           []

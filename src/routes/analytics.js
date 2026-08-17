@@ -99,12 +99,12 @@ router.get(
 
       // Completed cases for SLA
       var completedCases = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders_active WHERE status IN ('completed','done','delivered') AND created_at >= $1",
+        "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND created_at >= $1",
         [startDate], { c: 0 }
       ) || {}).c || 0;
 
       var onTimeCases = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders_active WHERE status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $1",
+        "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $1",
         [startDate], { c: 0 }
       ) || {}).c || 0;
 
@@ -128,17 +128,17 @@ router.get(
 
       // ── Attention Counts (all-time, not period-filtered) ──
       var breachedAttention = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders_active WHERE status = 'breached'",
+        "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) = 'breached'",
         [], { c: 0 }
       ) || {}).c || 0;
 
       var unpaidAttention = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders_active WHERE payment_status = 'unpaid' AND status NOT IN ('expired_unpaid','cancelled')",
+        "SELECT COUNT(*) as c FROM orders_active WHERE payment_status = 'unpaid' AND LOWER(COALESCE(status, '')) NOT IN ('expired_unpaid','cancelled')",
         [], { c: 0 }
       ) || {}).c || 0;
 
       var expiredAttention = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders_active WHERE status = 'expired_unpaid'",
+        "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) = 'expired_unpaid'",
         [], { c: 0 }
       ) || {}).c || 0;
 
@@ -176,7 +176,7 @@ router.get(
 
       // SLA daily compliance
       var slaTrend = await safeAll(
-        "SELECT TO_CHAR(completed_at, 'YYYY-MM-DD') as date, COUNT(*) as total, SUM(CASE WHEN completed_at <= deadline_at THEN 1 ELSE 0 END) as on_time FROM orders_active WHERE status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND created_at >= $1 GROUP BY TO_CHAR(completed_at, 'YYYY-MM-DD') ORDER BY date ASC",
+        "SELECT TO_CHAR(completed_at, 'YYYY-MM-DD') as date, COUNT(*) as total, SUM(CASE WHEN completed_at <= deadline_at THEN 1 ELSE 0 END) as on_time FROM orders_active WHERE LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND created_at >= $1 GROUP BY TO_CHAR(completed_at, 'YYYY-MM-DD') ORDER BY date ASC",
         [startDate]
       );
 
@@ -283,7 +283,7 @@ router.get(
       ) || {}).c || 0;
 
       var completedCases = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND status IN ('completed','done','delivered') AND created_at >= $2",
+        "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND created_at >= $2",
         [doctorId, startDate], { c: 0 }
       ) || {}).c || 0;
 
@@ -293,7 +293,7 @@ router.get(
       ) || {}).t || 0;
 
       var onTimeCases = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $2",
+        "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $2",
         [doctorId, startDate], { c: 0 }
       ) || {}).c || 0;
 
