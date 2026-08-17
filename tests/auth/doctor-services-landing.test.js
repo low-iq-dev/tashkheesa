@@ -44,6 +44,17 @@ require.cache[catPath] = {
   }
 };
 
+// AUDIT (2026-08-16) — evict doctor_landing before requiring it.
+//
+// The stubs above are injected into require.cache, which only takes effect for
+// a module that has not been loaded yet: doctor_landing destructures `pool` and
+// `loadDoctorServiceCatalog` ONCE at its own load time. Any earlier test file
+// that pulled in routes/auth.js or routes/doctor.js had already loaded it
+// against the real modules, so this file silently tested the real catalog
+// loader against a real (absent) database and reported three failures that had
+// nothing to do with the code — it passed when run on its own, and only failed
+// inside the suite, which is the signature of require-cache order dependence.
+delete require.cache[require.resolve('../../src/services/doctor_landing')];
 const { resolveDoctorLanding, shouldLandOnServices } = require('../../src/services/doctor_landing');
 
 module.exports = (async function run() {
