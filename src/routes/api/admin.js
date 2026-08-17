@@ -2396,6 +2396,9 @@ module.exports = function (db, helpers, deploy, deps) {
                     COUNT(*)::int AS n,
                     COALESCE(SUM(r.amount_egp), 0) AS egp
                FROM refunds r
+               -- include-deleted-ok: driven by refunds. The money moved
+               -- whether or not the order was later soft-deleted; excluding
+               -- those rows would understate what breaches cost.
                JOIN orders o ON o.id = r.order_id
                LEFT JOIN specialties sp ON sp.id = o.specialty_id
               WHERE ${isBreach} AND ${inPeriod}
@@ -2410,6 +2413,9 @@ module.exports = function (db, helpers, deploy, deps) {
                     COUNT(*)::int AS n,
                     COALESCE(SUM(r.amount_egp), 0) AS egp
                FROM refunds r
+               -- include-deleted-ok: driven by refunds. The money moved
+               -- whether or not the order was later soft-deleted; excluding
+               -- those rows would understate what breaches cost.
                JOIN orders o ON o.id = r.order_id
                LEFT JOIN users d ON d.id = o.doctor_id
               WHERE ${isBreach} AND ${inPeriod}
@@ -2425,6 +2431,9 @@ module.exports = function (db, helpers, deploy, deps) {
                     COUNT(*)::int AS n,
                     COALESCE(SUM(r.amount_egp), 0) AS egp
                FROM refunds r
+               -- include-deleted-ok: driven by refunds. The money moved
+               -- whether or not the order was later soft-deleted; excluding
+               -- those rows would understate what breaches cost.
                JOIN orders o ON o.id = r.order_id
               WHERE ${isBreach} AND ${inPeriod}
               GROUP BY 1`
