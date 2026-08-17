@@ -272,7 +272,12 @@
   // P0-FORM-1: force_phone mode flag — saveStep1 redirects to nextPath
   // (or /dashboard) instead of advancing to step 2.
   var FORCE_PHONE = <%- (typeof forcePhone !== 'undefined' && forcePhone) ? 'true' : 'false' %>;
-  var NEXT_PATH = <%- JSON.stringify((typeof nextPath !== 'undefined' && nextPath) ? String(nextPath) : '') %>;
+  <%# AUDIT-XSS: this was a raw JSON.stringify of a query-derived value.
+      safeNextPath bounds length, rejects control chars and requires a leading
+      slash, but does nothing about < or > -- so ?next=/x</script><script>...
+      broke out of this block and ran in the patient's authenticated session.
+      jsonForScript escapes the script-terminator sequence. %>
+  var NEXT_PATH = <%- jsonForScript((typeof nextPath !== 'undefined' && nextPath) ? String(nextPath) : '') %>;
 
   function showError(messages) {
     var box = document.getElementById('error-box');

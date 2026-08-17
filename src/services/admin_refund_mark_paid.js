@@ -84,6 +84,18 @@ async function setRefundPaid(client, opts) {
     );
     const row = upd.rows[0];
 
+    // (4b) Close the order's payment state. AUDIT-P0: without this the order
+    // stays payment_status='paid' after the money has been sent back, so
+    // refund_eligibility keeps returning {eligible:true, autoApprove:true} and
+    // the patient can request a second full refund. Migration 082 widens the
+    // partial unique index to cover 'paid' as the backstop; this is the
+    // eligibility half. In-txn is correct here because this service owns
+    // BEGIN/COMMIT — the web route does the same write post-UPDATE.
+    await client.query(
+      "UPDATE orders SET payment_status = 'refunded', updated_at = NOW() WHERE id = $1",
+      [row.order_id]
+    );
+
     // (5) order_events timeline — in-txn (house style, matches admin_refund_approve.js;
     //     same meta keys the web's logOrderEvent uses).
     await client.query(

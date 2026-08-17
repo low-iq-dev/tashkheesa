@@ -23,6 +23,10 @@ function firstExistingPath(paths) {
   return null;
 }
 
+// Arabic script, incl. the Arabic Supplement and Extended-A blocks and the
+// presentation forms some editors emit. Used to pick a font per line.
+const ARABIC_RANGE = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
+
 function findArabicFontPath() {
   // Prefer project-local font if you add one later.
   // You can drop any Arabic-capable TTF here.
@@ -466,13 +470,29 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
     doc.rect(x0, y, w, boxH).strokeColor(BORDER).stroke();
 
     doc.fillColor('#111827');
-    doc.font('Helvetica').fontSize(10);
+    doc.fontSize(10);
 
+    // AUDIT-P0-20: this used to be an unconditional doc.font('Helvetica').
+    // Helvetica is a PDF standard-14 font under WinAnsiEncoding and has no
+    // mapping for Arabic codepoints, so an Arabic report body encoded to
+    // .notdef -- a blank box -- without throwing, which meant the legacy
+    // fallback generator never engaged either. A doctor writing in Arabic for
+    // an Arabic patient produced a structurally valid, empty PDF.
+    //
+    // Per line, because a single findings box routinely mixes an Arabic
+    // narrative with Latin drug names and measurements.
     let ty = y + 10;
     for (const line of visible) {
-      doc.text(line, x0 + 10, ty, { width: w - 20 });
+      if (arabicFontPath && ARABIC_RANGE.test(line)) {
+        doc.font(arabicFontPath);
+        doc.text(line, x0 + 10, ty, { width: w - 20, align: 'right', features: ['rtla'] });
+      } else {
+        doc.font('Helvetica');
+        doc.text(line, x0 + 10, ty, { width: w - 20 });
+      }
       ty += lineH;
     }
+    doc.font('Helvetica');
 
     // Compact spacing after the box
     doc.y = y + boxH + 14;

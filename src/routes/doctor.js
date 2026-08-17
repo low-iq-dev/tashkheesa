@@ -2271,8 +2271,13 @@ router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(r
   var order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return res.status(404).render('404', { message: 'Case not found' });
 
-  // Only the assigned doctor can view
-  if (order.doctor_id && String(order.doctor_id) !== doctorId) {
+  // Only the assigned doctor can view.
+  // AUDIT-P1: this was `order.doctor_id && ...`, which passes when doctor_id
+  // is NULL -- the normal state of every unassigned and every broadcast case.
+  // This page renders case_extractions lab values, AI-extracted patient_info
+  // and the patient's name, so the fail-open leaked clinical data on every
+  // unclaimed paid case to any authenticated doctor. Fail closed.
+  if (!order.doctor_id || String(order.doctor_id) !== doctorId) {
     return res.status(403).send('Access denied');
   }
 

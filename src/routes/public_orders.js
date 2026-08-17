@@ -102,15 +102,21 @@ router.post('/api/public/orders', async (req, res) => {
   try {
     await withTransaction(async (client) => {
       await client.query(
+        // AUDIT-P0: base_price was omitted here, and the refund ceiling reads
+        // COALESCE(base_price, price) -- so before that COALESCE landed, every
+        // order created through the public API had a ceiling of 0 and was
+        // permanently unrefundable. No tier is selectable on this path, so
+        // base_price == price and migration 037's
+        // `base_price + uplift = price` invariant holds with uplift NULL.
         `INSERT INTO orders (
           id, patient_id, doctor_id, specialty_id, service_id, sla_hours, status,
-          price, doctor_fee, created_at, updated_at, accepted_at, deadline_at,
+          price, base_price, doctor_fee, created_at, updated_at, accepted_at, deadline_at,
           completed_at, breached_at, reassigned_count, report_url, notes,
           uploads_locked, additional_files_requested, payment_status, payment_method,
           payment_reference, payment_link
         ) VALUES (
           $1, $2, NULL, $3, $4, $5, 'new',
-          $6, $7, $8, $9, NULL, $10,
+          $6, $6, $7, $8, $9, NULL, $10,
           NULL, NULL, 0, NULL, $11,
           false, false, 'unpaid', NULL,
           NULL, $12

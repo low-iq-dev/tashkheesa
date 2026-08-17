@@ -23,12 +23,21 @@ const TIER_CONFIG = {
 };
 
 function determineTier(order) {
-  if (order.urgency_flag) return 'urgent';
+  // AUDIT-P0: `urgency_flag` used to short-circuit to 'urgent' here. It does
+  // NOT mean urgent -- every writer sets it to `tier !== 'standard'`
+  // (services/wizard_pricing.js:118, routes/api/cases.js), so it is true for
+  // VIP too. Two consequences, both live: a VIP case was broadcast on the
+  // uncapped urgent fan-out with the urgent template, and the derived value is
+  // written back to orders.tier below, which acceptance_window prefers -- so
+  // every VIP case got the 15-minute urgent accept window instead of 45.
+  // Read the stored tier first; treat the flag only as a weak "not standard".
+  var stored = String(order.urgency_tier || '').toLowerCase();
+  if (stored === 'urgent') return 'urgent';
   // Legacy alias: orders.urgency_tier may carry 'fast_track' on un-migrated
   // rows (migration 031 backfills); read both, write only 'vip' going forward.
-  var stored = String(order.urgency_tier || '').toLowerCase();
   if (stored === 'vip' || stored === 'fast_track') return 'vip';
   if (order.sla_24hr_selected) return 'vip';
+  if (order.urgency_flag) return 'vip';
   return 'standard';
 }
 

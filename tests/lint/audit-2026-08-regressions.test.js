@@ -354,6 +354,51 @@ try {
       );
     }
   }
+  // The resolver production actually calls. The check above passed for months
+  // while VIP orders got 15 minutes, because acceptanceMinutesForOrder
+  // short-circuited on urgency_flag -- a flag every writer sets to mean
+  // "not standard" (services/wizard_pricing.js, routes/api/cases.js), never
+  // "urgent". Assert the shapes the assignment path really passes.
+  const orderCases = [
+    [{ urgency_tier: 'vip', urgency_flag: true }, 45],
+    [{ tier: 'vip', urgency_flag: true }, 45],
+    [{ urgency_tier: 'fast_track', urgency_flag: true }, 45],
+    [{ urgency_tier: 'urgent', urgency_flag: true }, 15],
+    [{ urgency_tier: 'standard', urgency_flag: false }, 120],
+    [{ sla_hours: 18 }, 45],
+  ];
+  for (const [order, mins] of orderCases) {
+    const got = aw.acceptanceMinutesForOrder(order);
+    if (got !== mins) {
+      throw new Error(
+        `acceptanceMinutesForOrder(${JSON.stringify(order)}) = ${got}m, policy is ${mins}m`
+      );
+    }
+  }
+  // Strip comments before pattern-matching source: both files carry a
+  // do-not-re-add warning that quotes the offending line verbatim.
+  const stripComments = (s) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  if (/order\.urgency_flag\s*\)\s*return/.test(stripComments(fs.readFileSync(awPath, 'utf8')))) {
+    throw new Error(
+      'acceptance_window.js short-circuits on urgency_flag again. That flag means ' +
+      '"not standard", so it silently hands VIP the 15-minute urgent window.'
+    );
+  }
+  // broadcast.js derives a tier and writes it to orders.tier, which
+  // acceptanceMinutesForOrder prefers -- so the same conflation there defeats
+  // the fix above even when acceptance_window.js is correct.
+  {
+    const bsrc = stripComments(fs.readFileSync(path.join(SRC, 'notify/broadcast.js'), 'utf8'));
+    if (/function determineTier[\s\S]{0,400}?if\s*\(\s*order\.urgency_flag\s*\)\s*return\s*'urgent'/.test(bsrc)) {
+      throw new Error(
+        "notify/broadcast.js determineTier maps urgency_flag to 'urgent' again. " +
+        'It means "not standard", so this broadcasts VIP cases on the urgent ' +
+        "fan-out and writes tier='urgent', which re-breaks the VIP accept window."
+      );
+    }
+  }
   // Nobody may re-introduce a local table.
   for (const f of ['notify/broadcast.js', 'case_lifecycle.js', 'workers/acceptance_watcher.js']) {
     const src = fs.readFileSync(path.join(SRC, f), 'utf8');
