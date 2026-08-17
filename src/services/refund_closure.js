@@ -67,6 +67,10 @@ async function closeOrderIfFullyRefunded(orderId, opts) {
     if (!orderId) return { closed: false, skipped: 'no_order_id' };
 
     const order = await queryOne(
+      // include-deleted-ok: a targeted read by primary key on the refund path.
+      // If an order was soft-deleted while a refund against it was still in
+      // flight, we want to close it anyway rather than silently skip it and
+      // leave the money state inconsistent — orders_active would hide it.
       `SELECT id, status, payment_status, price, completed_at
          FROM orders
         WHERE id = $1`,

@@ -67,8 +67,31 @@ try {
 //    between (route uses assignDoctor for the PAID branch). A direct
 //    PAID → IN_REVIEW call to transitionCase would throw assertTransition.
 try {
-  if (!/\[CASE_STATUS\.PAID\]:\s*\[CASE_STATUS\.ASSIGNED\]/.test(lifecycleSrc)) {
-    throw new Error('STATUS_TRANSITIONS[PAID] no longer = [ASSIGNED] — invariant drift; direct PAID → IN_REVIEW would silently succeed');
+  // STALE-TEST FIX (2026-08-17): this matched the exact literal
+  // `[CASE_STATUS.PAID]: [CASE_STATUS.ASSIGNED]`, so it failed the moment
+  // REFUNDED was added as a legal target from PAID — a change that does not
+  // touch the invariant this guard exists to protect.
+  //
+  // The invariant is: a PAID case cannot reach IN_REVIEW without passing
+  // through ASSIGNED, because the assignment gate (eligibility, capacity,
+  // service match) lives on that edge. Adding an unrelated terminal target
+  // does not weaken it; removing ASSIGNED, or adding IN_REVIEW, would.
+  //
+  // Assert those two facts directly, so the guard survives legitimate
+  // additions and still fails on the drift it was written for.
+  const paidTargets = (function () {
+    const m = lifecycleSrc.match(/\[CASE_STATUS\.PAID\]:\s*\[([\s\S]*?)\]/);
+    if (!m) throw new Error('STATUS_TRANSITIONS[PAID] not found in case_lifecycle.js');
+    return m[1].split(',').map((s) => s.trim()).filter(Boolean);
+  })();
+  if (!paidTargets.includes('CASE_STATUS.ASSIGNED')) {
+    throw new Error('STATUS_TRANSITIONS[PAID] no longer allows ASSIGNED — the assignment gate has been bypassed');
+  }
+  if (paidTargets.some((tgt) => /IN_REVIEW/.test(tgt))) {
+    throw new Error(
+      'STATUS_TRANSITIONS[PAID] now allows IN_REVIEW directly — a paid case could reach review ' +
+      'without passing the assignment gate (eligibility, capacity, service match). Targets: ' + paidTargets.join(', ')
+    );
   }
   if (!/\[CASE_STATUS\.ASSIGNED\]:\s*\[\s*CASE_STATUS\.IN_REVIEW/.test(lifecycleSrc)) {
     throw new Error('STATUS_TRANSITIONS[ASSIGNED] no longer includes IN_REVIEW — chain broken');
