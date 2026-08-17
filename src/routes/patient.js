@@ -3549,6 +3549,34 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
     });
   } catch (_) { /* fan-out failure must not block the redirect */ }
 
+  // AUDIT 2026-08-17 — a patient asking for their money back reached the
+  // founder only as an internal notification row and an email, both of which
+  // wait for someone to go looking. notifyAdmins above is the queue entry;
+  // this is the tap on the shoulder. Money and an unhappy patient, so the
+  // amount and the reason preview are in the body — that is what decides
+  // whether he opens it now or after lunch. Best-effort by construction:
+  // the refunds row is already committed above and the redirect below runs
+  // whatever happens here.
+  try {
+    const { pushOpsEvent } = require('../services/ops_push');
+    // AUDIT — deliberately NOT awaited. This sits in a REQUEST path, and
+    // pushOpsEvent makes an outbound HTTPS call to exp.host per registered
+    // device. Awaiting it would put a third party's latency in front of
+    // the patient's refund-request response.
+    // ops_push never throws and logs its own failures; the .catch() is
+    // belt-and-braces.
+    pushOpsEvent({
+      kind: 'refund_requested',
+      dedupeKey: refundId,
+      title: 'Refund requested — EGP ' + requestedAmount.toFixed(0),
+      body: (req.user.name || 'A patient') + ' on case ' +
+            (order.reference_id || String(orderId).slice(0, 12).toUpperCase()) + ': ' +
+            reasonRaw.slice(0, 90) + (status === 'auto_approved' ? ' (auto-approved)' : ''),
+      data: { orderId: orderId, refundId: refundId, status: status },
+      orderId,
+    }).catch(function () { /* logged inside ops_push */ });
+  } catch (_) { /* push failure must not block the redirect */ }
+
   return res.redirect(
     '/portal/patient/orders/' + encodeURIComponent(orderId) + '?refund_status=submitted'
   );

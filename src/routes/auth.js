@@ -1035,8 +1035,10 @@ router.post('/doctor/signup', async (req, res) => {
     return rerender(400, c.doctor_signup_email_exists, n);
   }
 
+  // `name` is selected (not `1`) so the Command-app push below can say which
+  // specialty just applied — the founder decides on the specialty, not the id.
   const specialtyRow = await queryOne(
-    'SELECT 1 FROM specialties WHERE id = $1 AND COALESCE(is_visible, true) = true',
+    'SELECT name FROM specialties WHERE id = $1 AND COALESCE(is_visible, true) = true',
     [n.specialty_id]
   );
   if (!specialtyRow) {
@@ -1171,6 +1173,32 @@ router.post('/doctor/signup', async (req, res) => {
       status: 'queued'
     });
   }
+
+  // AUDIT 2026-08-17 — a doctor waiting on approval was silent on the phone.
+  // The row above is an in-app bell for whichever superadmin sorts oldest-
+  // first; nothing reached the Command app. This account is inserted with
+  // pending_approval=true and is_active=false, so the doctor cannot take a
+  // single case until someone approves them — every hour of silence is
+  // capacity we already have and cannot use. dedupeKey is the new user id.
+  // Post-transaction and swallowed: the account is already committed.
+  try {
+    const { pushOpsEvent } = require('../services/ops_push');
+    // AUDIT — deliberately NOT awaited. This sits in a REQUEST path, and
+    // pushOpsEvent makes an outbound HTTPS call to exp.host per registered
+    // device. Awaiting it would put a third party's latency in front of
+    // the doctor's signup response.
+    // ops_push never throws and logs its own failures; the .catch() is
+    // belt-and-braces.
+    pushOpsEvent({
+      kind: 'doctor_application',
+      dedupeKey: newDoctorId,
+      title: 'New doctor signup — ' + ((specialtyRow && specialtyRow.name) || n.specialty_id || 'no specialty'),
+      body: (n.name || 'Unknown') +
+            (n.years_of_experience ? ', ' + n.years_of_experience + ' yrs' : '') +
+            '. Pending approval — cannot take cases until approved.',
+      data: { doctorId: newDoctorId, specialtyId: n.specialty_id || null, pendingApproval: true },
+    }).catch(function () { /* logged inside ops_push */ });
+  } catch (_) { /* never block the signup confirmation */ }
 
   return res.render('doctor_signup_submitted', {
     lang, _lang: lang, isAr: c.isAr, copy: c

@@ -1700,6 +1700,31 @@ async function markSlaBreach(caseId) {
 
   await logCaseEvent(caseId, 'SLA_BREACHED');
 
+  // AUDIT 2026-08-17 — the day going wrong was SILENT on the phone.
+  // A breach already fans out to WhatsApp (dispatchSlaBreach) and the
+  // patient's bell, but nothing reached the Command app, so "today has
+  // started breaching" was something you found out by opening a dashboard.
+  // Keyed on the CAIRO DAY, not the case: this fires on the FIRST breach of
+  // the operator's day and then stays quiet. A per-case push would be a
+  // running commentary on a bad afternoon — exactly the pattern that trains
+  // someone to swipe the channel away. Best-effort and after the state
+  // change, like every other notification in this function.
+  try {
+    const { pushOpsEvent, cairoDayKey } = require('./services/ops_push');
+    const caseRef = existing.reference_id || String(caseId).slice(0, 12).toUpperCase();
+    const tier = existing.urgency_tier || existing.tier || 'standard';
+    await pushOpsEvent({
+      kind: 'sla_breach_first',
+      dedupeKey: cairoDayKey(),
+      title: 'First SLA breach today — ' + caseRef,
+      body: 'A ' + tier + ' case missed its deadline. Check the breach queue before more follow.',
+      data: { orderId: caseId, tier: tier },
+      orderId: caseId,
+    });
+  } catch (e) {
+    // pushOpsEvent does not throw; this guards the require itself.
+  }
+
   // Theme 7 sub-issue B: refund hook — moved from the deprecated
   // server.js:runSlaReminderJob and sla_status.enforceBreachIfNeeded
   // paths. issueBreachRefundSafe is idempotent (refunds-row + uplift>0

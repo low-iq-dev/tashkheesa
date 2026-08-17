@@ -541,6 +541,42 @@ router.post('/callback', async (req, res, next) => {
       } catch (notifyErr) {
         console.error('[callback] amount_mismatch notifyAdmins failed:', notifyErr && notifyErr.message);
       }
+      // AUDIT 2026-08-17 — the worst silent state in the system.
+      // The patient has been charged by Paymob and the order stays UNPAID, so
+      // nothing assigns, nothing broadcasts, no SLA clock starts: from the
+      // patient's side they paid and got nothing, and it stays that way until
+      // a human reads the internal notifyAdmins row above. Nobody was told on
+      // the phone. Both figures go in the body because the gap is what says
+      // whether this is a rounding artefact or someone paying a fraction.
+      try {
+        const { pushOpsEvent } = require('../services/ops_push');
+        const owedEgp = (Number(owedCents) / 100).toFixed(2);
+        const paidEgp = Number.isFinite(paidCents) ? (paidCents / 100).toFixed(2) : 'unknown';
+        // AUDIT — deliberately NOT awaited. This sits in a REQUEST path, and
+        // pushOpsEvent makes an outbound HTTPS call to exp.host per registered
+        // device. Awaiting it would put a third party's latency in front of
+        // Paymob's webhook acknowledgement — a slow push would
+        // make Paymob time out and RETRY the callback, duplicating work on a
+        // path that has already written a payment_events row.
+        // ops_push never throws and logs its own failures; the .catch() is
+        // belt-and-braces.
+        pushOpsEvent({
+          kind: 'payment_mismatch',
+          dedupeKey: orderId,
+          title: 'Payment mismatch — case left unpaid',
+          body: 'Paymob charged EGP ' + paidEgp + ' on ' + String(orderId).slice(0, 12).toUpperCase() +
+                ', we asked EGP ' + owedEgp + '. Patient has paid and nothing is moving.',
+          data: {
+            orderId: orderId,
+            owedCents: owedCents,
+            paidCents: Number.isFinite(paidCents) ? paidCents : null,
+            paymobTransactionId: paymobTxnId || null,
+          },
+          orderId,
+        }).catch(function () { /* logged inside ops_push */ });
+      } catch (pushErr) {
+        console.error('[callback] amount_mismatch ops push failed:', pushErr && pushErr.message);
+      }
       // Ack 200 (Paymob stops retrying); order stays UNPAID — no markCasePaid.
       return res.json({ ok: true, amount_mismatch: true });
     }

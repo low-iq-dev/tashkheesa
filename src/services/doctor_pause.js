@@ -50,7 +50,7 @@ async function checkAndAutoPauseDoctor(doctorId) {
 
   // Already paused — no-op (don't re-paused).
   var u = await queryOne(
-    `SELECT id, is_paused, role FROM users WHERE id = $1`,
+    `SELECT id, name, is_paused, role FROM users WHERE id = $1`,
     [doctorId]
   );
   if (!u || u.role !== 'doctor') {
@@ -108,6 +108,27 @@ async function checkAndAutoPauseDoctor(doctorId) {
       ]
     );
   } catch (e) { /* best-effort */ }
+
+  // AUDIT 2026-08-17 — losing a doctor happened without anyone being told.
+  // The pause has real consequences (excluded from findAlternateDoctor and
+  // from open-pool broadcasts, so specialty capacity drops the moment it
+  // trips) and until now it announced itself only on the doctors list, an
+  // error_logs audit row, and a notification to the doctor himself — i.e.
+  // the doctor knew before the founder did. The count and window are in the
+  // body because 3-in-30 is the difference between a bad month and a doctor
+  // to stop sending work to. Swallowed: the pause is already committed and
+  // must stand whatever happens here.
+  try {
+    var { pushOpsEvent } = require('./ops_push');
+    await pushOpsEvent({
+      kind: 'doctor_auto_paused',
+      dedupeKey: doctorId,
+      title: 'Doctor auto-paused — ' + ((u && u.name) || doctorId),
+      body: breaches + ' SLA breaches in ' + windowDays + ' days (limit ' + threshold +
+            '). Removed from assignment and broadcasts until you unpause.',
+      data: { doctorId: doctorId, breaches: breaches, windowDays: windowDays },
+    });
+  } catch (e) { /* best-effort — never unwind the pause */ }
 
   return { paused: true, breaches: breaches, threshold: threshold, windowDays: windowDays };
 }

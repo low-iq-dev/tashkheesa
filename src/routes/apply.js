@@ -146,6 +146,36 @@ module.exports = function (deps) {
       console.error('[apply] notification email failed (application already saved):', mailErr && mailErr.message);
     }
 
+    // AUDIT 2026-08-17 — supply arriving was silent on the phone.
+    // Until now a new doctor produced exactly one signal: an email to
+    // APPLICATIONS_NOTIFY_EMAIL, which nobody reads at speed. Recruiting is
+    // the constraint on this business, and an application answered the same
+    // day converts far better than one answered next week — so the specialty
+    // is in the title (it says whether this fills a gap) and the name is in
+    // the body. Not awaited and .catch()-guarded: this is post-commit, the
+    // redirect below must not wait on it, and pushOpsEvent already swallows
+    // its own failures (the .catch is belt-and-braces against server.js's
+    // unhandledRejection → process.exit).
+    try {
+      const { pushOpsEvent } = require('../services/ops_push');
+      pushOpsEvent({
+        kind: 'doctor_application',
+        // No user id exists on this path by design — applications never touch
+        // `users` (see the header). The application row id is the identity.
+        dedupeKey: (appRow && appRow.id) || (data.email || 'unknown'),
+        title: 'New doctor application — ' + specialtyLabel(data),
+        body: (data.full_name || 'Unknown applicant') +
+              (data.years_experience ? ', ' + data.years_experience + ' yrs' : '') +
+              (data.current_affiliation ? ', ' + data.current_affiliation : '') + '.',
+        data: {
+          applicationId: (appRow && appRow.id) || null,
+          specialtyId: data.specialty_id || null,
+        },
+      }).catch(function () { /* best-effort */ });
+    } catch (pushErr) {
+      console.error('[apply] ops push failed (application already saved):', pushErr && pushErr.message);
+    }
+
     return res.redirect(303, '/apply?submitted=1');
   });
 

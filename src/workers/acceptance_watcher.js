@@ -7,7 +7,8 @@ const { TEMPLATES } = require('../notify/templates');
 const { logOrderEvent } = require('../audit');
 const { logErrorToDb } = require('../logger');
 const { eligibleDoctorClause } = require('../services/doctor_eligibility');
-const { acceptanceMinutesForOrder, acceptanceDeadlineIso } = require('../acceptance_window');
+const { acceptanceMinutesForOrder, acceptanceDeadlineIso, normalizeTier } = require('../acceptance_window');
+const { pushOpsEvent } = require('../services/ops_push');
 const MAX_ACTIVE_CASES_PER_DOCTOR = Number(process.env.MAX_ACTIVE_CASES_PER_DOCTOR || 4);
 
 let running = false;
@@ -33,6 +34,19 @@ async function runAcceptanceWatcherSweep() {
     if (expiredCount > 0) {
       console.log('[acceptance_watcher] found ' + expiredCount + ' expired orders');
       for (const order of expiredOrders) {
+        // AUDIT 2026-08-17 — an urgent case nobody accepted was SILENT.
+        // This loop is, by definition, "the acceptance deadline passed and
+        // doctor_id is still NULL". For a standard case that is a routine
+        // hand-off. For an URGENT case it is the 15-minute window (the floor
+        // in acceptance_window.js) burned on top of a 4-hour SLA the patient
+        // paid a premium for — and until now the only trace was a console
+        // line and, if the auto-assign ALSO found nobody, a warn. At 2am the
+        // founder learned about it at 9am. Fired before the auto-assign
+        // attempt because the reportable fact is the missed window, not
+        // whether the retry found someone; the per-case dedupe key with its
+        // 60-minute cooldown keeps a case that stays unassignable from
+        // re-alarming every 2-minute sweep.
+        await notifyUrgentUnaccepted(order);
         try {
           await autoAssignOrder(order);
         } catch (err) {
@@ -74,6 +88,44 @@ function pingOps(agentName, task) {
     req.write(body);
     req.end();
   } catch(e) {}
+}
+
+// Command-app push for an URGENT case whose acceptance window expired with no
+// doctor. Swallows everything: this runs inside the sweep loop and a push
+// problem must not stop the auto-assign that follows it.
+async function notifyUrgentUnaccepted(order) {
+  try {
+    if (!order) return;
+    const isUrgent = Boolean(order.urgency_flag) || normalizeTier(order.tier) === 'urgent';
+    if (!isUrgent) return;
+
+    const caseRef = order.reference_id || String(order.id).slice(0, 12).toUpperCase();
+
+    let specialtyName = order.specialty_id || '';
+    try {
+      if (order.specialty_id) {
+        const sp = await queryOne('SELECT name FROM specialties WHERE id = $1', [order.specialty_id]);
+        if (sp && sp.name) specialtyName = sp.name;
+      }
+    } catch (_) { /* the id is a usable fallback */ }
+
+    const minutes = acceptanceMinutesForOrder(order);
+
+    await pushOpsEvent({
+      kind: 'urgent_unaccepted',
+      dedupeKey: order.id,
+      title: 'Urgent case unaccepted — ' + (specialtyName || 'no specialty'),
+      body: 'No doctor accepted ' + caseRef + ' in its ' + minutes + '-min window. The 4h SLA clock is running.',
+      data: { orderId: order.id, tier: 'urgent', specialtyId: order.specialty_id || null },
+      orderId: order.id,
+    });
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'acceptance_watcher.urgent_unaccepted_push',
+      category: 'acceptance_watcher',
+      candidateId: order && order.id,
+    });
+  }
 }
 
 async function autoAssignOrder(order) {
