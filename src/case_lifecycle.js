@@ -92,7 +92,11 @@ const SILENT_FAILURE_EVENTS = Object.freeze([
   'SLA_PAUSE_SKIPPED',          // case_lifecycle.pauseSla — schema columns missing
   'SLA_RESUME_SKIPPED',         // case_lifecycle.resumeSla — schema columns missing
   'CASE_REASSIGNMENT_FAILED',   // case_sla_worker — no eligible doctor after breach/timeout
-  'NOTIFICATION_DROPPED'        // notify.queueNotification — invalid recipient / no channel / DB insert failed
+  'NOTIFICATION_DROPPED',       // notify.queueNotification — invalid recipient / no channel / DB insert failed
+  // AUDIT-ACCEPT-4 — workers/acceptance_watcher: the doctor_assignments mirror
+  // INSERT failed after the orders row was already claimed. Used to be a bare
+  // `catch {}`; the case it stranded was the definition of a silent failure.
+  'ASSIGNMENT_MIRROR_FAILED'
 ]);
 
 
@@ -296,15 +300,55 @@ async function dispatchSlaReminders(caseIdOrRow, opts = {}, client) {
   if (isTerminalStatus(canonStatus)) return { ok: true, skipped: 'terminal' };
   if (!isActiveForSlaReminders(canonStatus)) return { ok: true, skipped: 'not_active' };
 
-  // SLA starts at acceptance (accepted_at). Ensure deadline_at matches accepted_at + sla_hours.
-  if ([CASE_STATUS.IN_REVIEW, CASE_STATUS.SLA_BREACH].includes(canonStatus) && orderRow.sla_hours) {
+  // SLA starts at acceptance (accepted_at): BACKFILL deadline_at from
+  // accepted_at + sla_hours when it is missing or provably stale.
+  //
+  // AUDIT-SLA-10 — this used to force-rewrite deadline_at to accepted_at +
+  // sla_hours whenever the stored value differed by more than 2 minutes. That
+  // was harmless while nothing called runSlaReminderSweep. Wired onto a
+  // 5-minute cadence it becomes destructive: it silently reverts
+  //   * an admin SLA extension (routes/api/admin.js:1416-1442 writes a longer
+  //     deadline_at and clears breached_at),
+  //   * a pause credit (pauseSla stores sla_remaining_seconds and resumeSla
+  //     writes a deadline that is deliberately NOT accepted_at + sla_hours),
+  //   * the calendar anchor on an urgent case paid outside the Cairo window
+  //     (markCasePaid, AUDIT-PAY-1),
+  // and it does so every 5 minutes, so a human extension would not survive one
+  // sweep tick. The patient's clock would silently snap back and the case would
+  // breach on a deadline nobody chose.
+  //
+  // The rule is now: never move a deadline that someone deliberately set, and
+  // never move one EARLIER. Write only when
+  //   (a) there is no deadline at all — the genuine backfill case; or
+  //   (b) the stored deadline is at or before accepted_at, which no valid
+  //       post-acceptance SLA can be. That shape is the legacy paid-anchored
+  //       value (paid_at + sla_hours written before the model moved to
+  //       acceptance) and repairing it moves the deadline LATER, in the
+  //       doctor's favour, never into a surprise breach.
+  // A paused case is skipped outright: its stored deadline is stale on purpose
+  // (see AUDIT-P0-4 in case_sla_worker.fetchSlaCandidates) and resumeSla owns
+  // recomputing it.
+  if ([CASE_STATUS.IN_REVIEW, CASE_STATUS.SLA_BREACH].includes(canonStatus) &&
+      orderRow.sla_hours &&
+      !orderRow.sla_paused_at) {
     const expected = deadlineFromAcceptance(orderRow);
-    if (shouldUpdateDeadline(orderRow.deadline_at, expected)) {
-      try {
-        await updateCase(orderRow.id, { deadline_at: expected }, client);
-        orderRow.deadline_at = expected;
-      } catch (e) {
-        return { ok: false, skipped: 'deadline_backfill_failed' };
+    if (expected) {
+      const acceptedMs = new Date(orderRow.accepted_at).getTime();
+      const currentMs = orderRow.deadline_at ? new Date(orderRow.deadline_at).getTime() : null;
+      const missing = !orderRow.deadline_at || !Number.isFinite(currentMs);
+      const staleLegacyAnchor = !missing && Number.isFinite(acceptedMs) && currentMs <= acceptedMs;
+      if ((missing || staleLegacyAnchor) && shouldUpdateDeadline(orderRow.deadline_at, expected)) {
+        try {
+          await updateCase(orderRow.id, { deadline_at: expected }, client);
+          orderRow.deadline_at = expected;
+          await logCaseEvent(orderRow.id, 'SLA_DEADLINE_BACKFILLED', {
+            from: currentMs ? new Date(currentMs).toISOString() : null,
+            to: expected,
+            reason: missing ? 'missing_deadline' : 'deadline_at_or_before_acceptance'
+          }, client);
+        } catch (e) {
+          return { ok: false, skipped: 'deadline_backfill_failed' };
+        }
       }
     }
   }
@@ -336,57 +380,96 @@ async function dispatchSlaReminders(caseIdOrRow, opts = {}, client) {
   const toDoctorId = getDoctorUserIdFromOrder(orderRow);
   const toPatientId = getPatientUserIdFromOrder(orderRow);
 
-  const sent = [];
-  for (const t of thresholds) {
-    if (secondsRemaining <= t.seconds) {
-      // Doctor
-      if (toDoctorId) {
-        sent.push(await queueSlaReminder({
-          caseId,
-          level: t.level,
-          toUserId: toDoctorId,
-          channel: 'whatsapp',
-          role: 'doctor',
-          secondsRemaining
-        }));
-        sent.push(await queueSlaReminder({
-          caseId,
-          level: t.level,
-          toUserId: toDoctorId,
-          channel: 'email',
-          role: 'doctor',
-          secondsRemaining
-        }));
-      }
+  // AUDIT-SLA-10 — fire ONLY the tightest bucket the remaining time falls into,
+  // not every bucket it is under. The old loop sent every threshold whose
+  // window had been crossed, so the first time a case was seen it emitted all
+  // the applicable levels at once: an URGENT case (4h SLA) got told "24 hours
+  // remaining" AND "6 hours remaining" in the same tick, both untrue, four
+  // messages per recipient. Because nothing ever called this sweep, that burst
+  // has never been observed — turning it on would have made it the normal
+  // behaviour for every urgent and VIP case, and the first sweep after deploy
+  // would have done it to the entire live book at once.
+  //
+  // Dedupe is per (level, channel, role, case, user), so escalating 24h -> 6h
+  // -> 1h across later ticks still works: each tighter level is a new key and
+  // sends once, while the level already sent is suppressed by
+  // hasNotificationByDedupeKey.
+  const dueThresholds = thresholds.filter((t) => secondsRemaining <= t.seconds);
+  const activeThresholds = dueThresholds.length
+    ? [dueThresholds[dueThresholds.length - 1]]
+    : [];
 
-      // Patient
-      if (toPatientId) {
-        sent.push(await queueSlaReminder({
-          caseId,
-          level: t.level,
-          toUserId: toPatientId,
-          channel: 'whatsapp',
-          role: 'patient',
-          secondsRemaining
-        }));
-        sent.push(await queueSlaReminder({
-          caseId,
-          level: t.level,
-          toUserId: toPatientId,
-          channel: 'email',
-          role: 'patient',
-          secondsRemaining
-        }));
-      }
+  const sent = [];
+  for (const t of activeThresholds) {
+    // Doctor
+    if (toDoctorId) {
+      sent.push(await queueSlaReminder({
+        caseId,
+        level: t.level,
+        toUserId: toDoctorId,
+        channel: 'whatsapp',
+        role: 'doctor',
+        secondsRemaining
+      }));
+      sent.push(await queueSlaReminder({
+        caseId,
+        level: t.level,
+        toUserId: toDoctorId,
+        channel: 'email',
+        role: 'doctor',
+        secondsRemaining
+      }));
+    }
+
+    // Patient
+    if (toPatientId) {
+      sent.push(await queueSlaReminder({
+        caseId,
+        level: t.level,
+        toUserId: toPatientId,
+        channel: 'whatsapp',
+        role: 'patient',
+        secondsRemaining
+      }));
+      sent.push(await queueSlaReminder({
+        caseId,
+        level: t.level,
+        toUserId: toPatientId,
+        channel: 'email',
+        role: 'patient',
+        secondsRemaining
+      }));
     }
   }
 
   return { ok: true, caseId, secondsRemaining, sentCount: sent.length };
 }
 
+let _slaReminderSweepRunning = false;
+
 async function runSlaReminderSweep({ limit = 200 } = {}) {
+  // AUDIT-SLA-10 — re-entrancy guard. This sweep is exported and was, until
+  // launch, called by nobody; it is now registered on a 5-minute cadence
+  // (server.js runSlaEnforcementSweep). Each row costs several round trips, so
+  // a backlog run can outlive its interval. server.js has its own
+  // slaEnforcementRunning flag, but this must be safe when called directly
+  // (pg-boss, an ops endpoint, a test) too — every other worker in this
+  // codebase carries the same guard (case_sla_worker._slaSweepRunning,
+  // acceptance_watcher.running).
+  if (_slaReminderSweepRunning) {
+    return { ok: true, processed: 0, skipped: 'already_running' };
+  }
+  _slaReminderSweepRunning = true;
+  try {
+    return await _runSlaReminderSweepInner({ limit });
+  } finally {
+    _slaReminderSweepRunning = false;
+  }
+}
+
+async function _runSlaReminderSweepInner({ limit = 200 } = {}) {
   await ensureColumnCache();
-  // Periodic sweep entrypoint (wire this from server.js or a cron-like job).
+  // Periodic sweep entrypoint (registered from server.js).
   // Only targets paid, non-terminal cases with a deadline.
   try {
     const paymentClause = HAS_PAYMENT_STATUS_COLUMN
@@ -410,8 +493,25 @@ async function runSlaReminderSweep({ limit = 200 } = {}) {
 
     let processed = 0;
     for (const r of rows) {
-      await dispatchSlaReminders(r);
+      // One bad row must not abort the sweep — dispatchSlaReminders returns
+      // {ok:false} for its own guard paths but can still throw on a DB blip,
+      // and rows are ordered by deadline, so an early throw would starve every
+      // case behind it on every tick.
+      try {
+        await dispatchSlaReminders(r);
+      } catch (e) {
+        console.error('[sla-reminders] case ' + r.id + ' failed:', e && e.message);
+      }
       processed++;
+    }
+
+    // The LIMIT is a safety valve, not a page: rows are ordered by deadline
+    // ASC, so a backlog larger than `limit` means the newest cases are never
+    // reached on any tick. Reminders already sent are deduped, so the practical
+    // effect is a stuck head — worth an ops line rather than silence.
+    if (rows.length >= limit) {
+      console.warn('[sla-reminders] sweep hit its LIMIT of ' + limit +
+                   ' rows — cases past the cutoff got no reminder this tick');
     }
     return { ok: true, processed };
   } catch (e) {
@@ -679,9 +779,21 @@ const CASE_STATUS = Object.freeze({
   REJECTED_FILES: 'REJECTED_FILES',
   COMPLETED: 'COMPLETED',
   SLA_BREACH: 'SLA_BREACH',
-  // Compatibility: some parts of the app historically used these names
-  BREACHED_SLA: 'BREACHED_SLA',
-  DELAYED: 'DELAYED',
+  // AUDIT-STATE-8 — BREACHED_SLA and DELAYED used to be frozen in here as
+  // "compatibility" canonical statuses. They were dead on arrival:
+  // STATUS_ALIASES maps both to SLA_BREACH (see below), and normalizeStatus
+  // consults STATUS_ALIASES FIRST, so it could never return either name. What
+  // they DID do was widen assertCanonicalDbStatus's accept-list to two statuses
+  // that have no STATUS_TRANSITIONS entry, no CASE_STATUS_UI entry and no
+  // DB_STATUS variant of their own — i.e. two ways to write a status that
+  // nothing downstream could route or render.
+  //
+  // They are NOT gone from the codebase: STATUS_ALIASES and DB_STATUS_VARIANTS
+  // still carry both spellings, which is where legacy DB values belong. Callers
+  // that pass the literal 'BREACHED_SLA' / 'DELAYED' to statusDbValues()
+  // (routes/admin.js:656,803,1036 and routes/superadmin.js:1246,1453) are
+  // unaffected: those go through normalizeStatus → STATUS_ALIASES → SLA_BREACH
+  // → the SLA_BREACH variant list, exactly as they did before.
   REASSIGNED: 'REASSIGNED',
   CANCELLED: 'CANCELLED',
   // AUDIT-P1-4 — first-class statuses that were previously written by raw SQL
@@ -797,7 +909,7 @@ function slaHoursForTier(tier) {
 // Cairo time restriction for urgent tier (7am–7pm Cairo). Single source
 // of truth: services/urgency_window (DST-aware via Intl — Egypt has DST
 // again since April 2023, so local offset math is not safe here).
-const { isUrgentWindowOpen } = require('./services/urgency_window');
+const { isUrgentWindowOpen, nextSevenAmCairoUtc } = require('./services/urgency_window');
 const { acceptanceMinutesForOrder, acceptanceDeadlineIso } = require('./acceptance_window');
 
 const STATUS_TRANSITIONS = Object.freeze({
@@ -1563,6 +1675,11 @@ async function submitCase(caseId) {
 async function markCasePaid(caseId) {
   await ensureColumnCache();
 
+  // Set inside the txn when an urgent case is confirmed outside the Cairo
+  // window (AUDIT-PAY-1); read after commit to tell the patient. Declared out
+  // here so the post-commit block can see it.
+  let urgentDeferredTo = null;
+
   const result = await withTransaction(async (client) => {
     // Lock the row for the duration of this transaction — prevents concurrent double-processing.
     // deleted_at filter prevents a late Paymob webhook from marking a soft-deleted
@@ -1584,18 +1701,39 @@ async function markCasePaid(caseId) {
     );
     if (alreadyProcessed) return existing;
 
-  // Urgent tier time restriction: 7am–7pm Cairo time only.
-  // Tier is read from the canonical orders.urgency_tier column, not
-  // from a string arg. Defense-in-depth: api/cases.js also rejects
-  // out-of-window urgent submissions at intake.
-  if (existing.urgency_tier === 'urgent' && !isUrgentWindowOpen()) {
-    throw new Error('Urgent cases can only be submitted between 7am and 7pm Cairo time');
-  }
-
   // SLA hours resolved from orders.sla_hours (locked at order
   // creation), with a 48h Standard fallback for legacy/missing rows.
   const slaHours = resolveSlaHoursForCase(existing);
   const paidAt = existing.paid_at || nowIso();
+
+  // Urgent tier time restriction: 7am–7pm Cairo time only.
+  //
+  // AUDIT-PAY-1 — this used to `throw` when an urgent case was confirmed
+  // outside the window. The webhook caller (routes/payments.js) swallows the
+  // throw as "Payment lifecycle transition skipped/failed (idempotent)", so a
+  // patient who picked Urgent at 18:55 and cleared 3DS at 19:02 had their money
+  // taken and their case left at SUBMITTED: no PAID transition, no assign, no
+  // broadcast, no SLA row, no alert, no refund. The gate punished the patient
+  // for the two minutes Paymob spent on 3DS.
+  //
+  // DECIDED POLICY (Ziad, 2026-08-17): take the payment and anchor the clock at
+  // the next 07:00 Cairo + the tier's SLA hours. This is not a new rule — it is
+  // exactly what the wizard's own out-of-window "wait" branch already promises
+  // the patient (routes/patient.js:2138-2143), written with the same DST-aware
+  // helper. Intake (routes/api/cases.js:349) still refuses to SELL urgent out
+  // of window; this path only handles money that has already moved.
+  //
+  // deadline_at is normally NULL at PAID (the SLA clock starts at acceptance).
+  // For this one case it is set at payment, because the promise the patient
+  // was given is anchored to the calendar, not to when a doctor happens to
+  // accept. sla_deadline gets the same value so the patient-facing countdown
+  // (routes/api/cases.js reads COALESCE(deadline_at, sla_deadline)) agrees.
+  if (String(existing.urgency_tier || '').trim().toLowerCase() === 'urgent' && !isUrgentWindowOpen()) {
+    urgentDeferredTo = new Date(
+      nextSevenAmCairoUtc().getTime() + slaHours * 60 * 60 * 1000
+    ).toISOString();
+  }
+
   // IMPORTANT: payment processor/webhook should set payment_status='paid'.
   // Here we only lock lifecycle fields and paid_at (if not already set).
   // Theme 5 sub-issue A: thread `client` so all helper writes happen
@@ -1605,9 +1743,21 @@ async function markCasePaid(caseId) {
   await transitionCase(caseId, CASE_STATUS.PAID, {
     sla_hours: slaHours,
     paid_at: paidAt,
-    // SLA starts at acceptance; do not carry a pre-accept deadline.
-    deadline_at: null
+    // SLA starts at acceptance; do not carry a pre-accept deadline —
+    // EXCEPT for an urgent case paid outside the Cairo window, whose
+    // deadline is anchored to the calendar (see above).
+    deadline_at: urgentDeferredTo,
+    ...(urgentDeferredTo ? { sla_deadline: urgentDeferredTo } : {})
   }, client);
+
+  if (urgentDeferredTo) {
+    await logCaseEvent(caseId, 'URGENT_WINDOW_DEFERRED', {
+      paid_at: paidAt,
+      sla_hours: slaHours,
+      deadline_at: urgentDeferredTo,
+      reason: 'paid_outside_cairo_urgent_window'
+    }, client);
+  }
 
   // Note: a payment-reminder cancellation UPDATE used to live here. It
   // referenced notifications.cancelled_at (column does not exist) and
@@ -1654,6 +1804,45 @@ async function markCasePaid(caseId) {
     broadcastOrderToSpecialty(caseId).catch(function (err) {
       console.error('[markCasePaid] broadcastOrderToSpecialty failed:', err && err.message);
     });
+  }
+
+  // AUDIT-PAY-1 — tell the patient what happened to their Urgent case. Without
+  // this they paid an urgent premium at 19:02 and see a deadline the next
+  // morning with no explanation, which reads as a bug or a bait-and-switch.
+  //
+  // Post-commit and fire-and-forget, same rationale as the hook above: a
+  // notification failure must never roll back a confirmed payment.
+  //
+  // Channel is 'internal' deliberately. There is no existing template for
+  // "your urgent case starts at 7am" (checked notify/templates.js and
+  // notify/notification_titles.js — the closest, CASE_ASSIGNED_URGENT, means
+  // something else), and a WhatsApp send would need a Meta-approved template
+  // that does not exist yet. Internal degrades gracefully: an unknown template
+  // renders via humanizeTemplate() in the bell. Copy for
+  // notification_titles.js / notify.js is specified in the handoff notes.
+  if (urgentDeferredTo) {
+    try {
+      const { queueNotification } = require('./notify');
+      const patientId = getPatientUserIdFromOrder(result);
+      if (patientId) {
+        Promise.resolve(queueNotification({
+          orderId: caseId,
+          toUserId: patientId,
+          channel: 'internal',
+          template: 'urgent_case_window_deferred_patient',
+          response: {
+            case_id: caseId,
+            deadline_at: urgentDeferredTo,
+            reason: 'paid_outside_cairo_urgent_window'
+          },
+          dedupe_key: 'urgent_deferred:' + caseId
+        })).catch(function (err) {
+          console.error('[markCasePaid] urgent-deferred notification failed:', err && err.message);
+        });
+      }
+    } catch (err) {
+      console.error('[markCasePaid] urgent-deferred notification threw:', err && err.message);
+    }
   }
 
   return result;
@@ -2053,15 +2242,8 @@ async function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) 
   const wasInitialAssignment = (currentStatus === CASE_STATUS.PAID);
 
   await finalizePreviousAssignment(caseId);
-  const assignUpdates = { doctor_id: doctorId };
-  if (HAS_ASSIGNED_AT_COLUMN) {
-    assignUpdates.assigned_at = nowIso();
-  }
-  await transitionCase(caseId, CASE_STATUS.ASSIGNED, assignUpdates);
-  const now = nowIso();
 
   // Doctor must accept within a window proportional to the SLA tier.
-  const existingOrder = await getCase(caseId);
   // AUDIT-P0-8: was `|| 72`, a fourth SLA default that stretched the doctor's
   // acceptance window on any row with a NULL sla_hours. Falls back to the
   // order's own tier, then to canonical Standard (48h).
@@ -2070,8 +2252,51 @@ async function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) 
   // same three tiers. A case therefore had two live acceptance deadlines and
   // whichever worker swept first decided which one counted. Both now read
   // src/acceptance_window.js — the only place that answers this question.
-  const ACCEPT_WINDOW_MINUTES = acceptanceMinutesForOrder(existingOrder);
+  //
+  // Computed BEFORE the transition (it used to re-SELECT the row afterwards)
+  // so acceptance_deadline_at can go into the same UPDATE. The tier columns it
+  // reads are not touched by the transition, so the value is identical.
+  const ACCEPT_WINDOW_MINUTES = acceptanceMinutesForOrder(existing);
   const acceptByAt = acceptanceDeadlineIso(ACCEPT_WINDOW_MINUTES);
+
+  const assignUpdates = { doctor_id: doctorId };
+  if (HAS_ASSIGNED_AT_COLUMN) {
+    assignUpdates.assigned_at = nowIso();
+  }
+
+  // AUDIT-SLA-6 — the acceptance deadline now lands on the ORDERS row too, not
+  // only on doctor_assignments.accept_by_at. acceptance_watcher's expiry sweep
+  // reads orders.acceptance_deadline_at, and it was only ever written by
+  // notify/broadcast.js at payment time — so after any assignment it still held
+  // the ORIGINAL broadcast deadline, long past, describing a doctor who no
+  // longer has the case.
+  assignUpdates.acceptance_deadline_at = acceptByAt;
+
+  // AUDIT-SLA-6 — a REASSIGNED -> ASSIGNED transition must reset the SLA clock.
+  // It used to write doctor_id (+ assigned_at) and nothing else, so the
+  // replacement doctor inherited the previous doctor's accepted_at, their
+  // already-expired deadline_at, and their breached_at. The consequences are
+  // both directions of "never swept again":
+  //   * fetchSlaCandidates filters `breached_at IS NULL` — a case that breached
+  //     once can never breach again, no matter how long doctor #2 sits on it.
+  //   * fetchDoctorTimeouts filters `accepted_at IS NULL` — an inherited
+  //     accepted_at means doctor #2 ignoring the case is never a timeout.
+  //   * deadlineFromAcceptance(accepted_at + sla_hours) resolves to a moment in
+  //     the past, so doctor #2 is born already late and every countdown in the
+  //     product shows a negative number.
+  // Nulling all three restarts the clock at the new doctor's acceptance, which
+  // is what the acceptance-based SLA model means. The patient's total wait is
+  // unchanged — a case reassigned late is a patient-comms problem, not a
+  // reason to hold a new doctor to a dead deadline.
+  if (currentStatus === CASE_STATUS.REASSIGNED) {
+    assignUpdates.accepted_at = null;
+    assignUpdates.deadline_at = null;
+    assignUpdates.breached_at = null;
+  }
+
+  await transitionCase(caseId, CASE_STATUS.ASSIGNED, assignUpdates);
+  const now = nowIso();
+
   try {
     await execute(
       `INSERT INTO doctor_assignments (

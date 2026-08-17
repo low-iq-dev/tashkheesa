@@ -111,7 +111,8 @@ async function autoAssignDoctor(orderId) {
     // pg_get_viewdef on 2026-06-01 — column dropped during view recreation
     // but kept on the base table). Read from orders directly with the same
     // soft-deletion filter the view applies.
-    'SELECT id, specialty_id, service_id, doctor_id, status, urgency_tier, assignment_status FROM orders WHERE id = $1 AND deleted_at IS NULL',
+    'SELECT id, specialty_id, service_id, doctor_id, status, urgency_tier, assignment_status, updated_at ' +
+    'FROM orders WHERE id = $1 AND deleted_at IS NULL',
     [orderId]
   );
   if (!order) {
@@ -120,7 +121,36 @@ async function autoAssignDoctor(orderId) {
 
   // Don't re-assign if already assigned
   if (order.doctor_id) {
-    return { assigned: false, reason: 'already_assigned' };
+    // ...unless this is an ABANDONED CLAIM. The claim UPDATE further down
+    // writes doctor_id before calling assignDoctor; if the process dies in
+    // between (Render redeploy mid-assign), the row is left with a doctor_id
+    // but status still PAID — and no sweep selects that shape:
+    // acceptance_watcher needs doctor_id IS NULL, fetchDoctorTimeouts needs
+    // status='assigned', fetchSlaCandidates needs IN_REVIEW. It would sit
+    // there paid and silent forever.
+    //
+    // status='paid' is the proof the lifecycle never ran (assignDoctor's first
+    // write is transitionCase -> ASSIGNED). The 5-minute age check is the
+    // proof it is not a claim in flight right now: PG_STATEMENT_TIMEOUT_MS
+    // caps any single statement at 30s, so no live assignDoctor is 5 minutes
+    // old. Both must hold before we take the row back.
+    var claimAgeMs = order.updated_at ? (Date.now() - new Date(order.updated_at).getTime()) : 0;
+    var abandonedClaim = String(order.status || '').trim().toLowerCase() === 'paid' &&
+                         Number.isFinite(claimAgeMs) && claimAgeMs > 5 * 60 * 1000;
+    if (!abandonedClaim) {
+      return { assigned: false, reason: 'already_assigned' };
+    }
+    logMajor('[auto-assign] Order ' + orderId + ' holds an abandoned claim on doctor ' + order.doctor_id +
+             ' (status=paid, age=' + Math.round(claimAgeMs / 1000) + 's) — releasing and re-assigning');
+    var reclaimed = await execute(
+      "UPDATE orders SET doctor_id = NULL, updated_at = $1 " +
+      " WHERE id = $2 AND doctor_id = $3 AND LOWER(COALESCE(status, '')) = 'paid'",
+      [new Date().toISOString(), orderId, order.doctor_id]
+    );
+    if (!reclaimed || reclaimed.rowCount === 0) {
+      return { assigned: false, reason: 'already_assigned' };
+    }
+    order.doctor_id = null;
   }
 
   // Theme 14 Phase 5 — orders parked for manual ops review (classifier
@@ -221,10 +251,24 @@ async function autoAssignDoctor(orderId) {
   // Guards the TOCTOU window between the order.doctor_id check at the top of
   // this function and the write, which the auto-assign worker and a manual
   // admin assign can both be inside at once.
+  //
+  // AUDIT-P0-2c — this UPDATE guarded on `doctor_id IS NULL` but only wrote
+  // assignment_status, i.e. it never took the lock it was testing. Each
+  // execute() autocommits on its own pool connection, so two concurrent writers
+  // both matched `doctor_id IS NULL`, both got rowCount=1, and both proceeded
+  // into assignDoctor — the "already claimed" branch below was unreachable, and
+  // the loser's assignDoctor overwrote the winner's doctor_id, wrote a second
+  // doctor_assignments row and a second CASE_ASSIGNED event, and emailed the
+  // patient a doctor name that no longer owned the case.
+  //
+  // Writing doctor_id in the same statement makes the row its own lock: the
+  // loser matches zero rows because the winner already filled the column the
+  // predicate tests. assignDoctor then writes the same doctor_id again via
+  // transitionCase — same value, not a divergent write.
   var claim = await execute(
-    "UPDATE orders SET assignment_status = 'assigned', updated_at = $1 " +
-    " WHERE id = $2 AND doctor_id IS NULL AND deleted_at IS NULL",
-    [nowIso, orderId]
+    "UPDATE orders SET doctor_id = $1, assignment_status = 'assigned', updated_at = $2 " +
+    " WHERE id = $3 AND doctor_id IS NULL AND deleted_at IS NULL",
+    [best.id, nowIso, orderId]
   );
   if (!claim || claim.rowCount === 0) {
     logMajor('[auto-assign] Order ' + orderId + ' was claimed by another writer — skipping');
@@ -236,12 +280,29 @@ async function autoAssignDoctor(orderId) {
   } catch (e) {
     // Release the claim so a later sweep or a human can still assign it, and
     // surface the reason rather than leaving a half-assigned row behind.
+    //
+    // The release now has to clear doctor_id too (the claim above writes it),
+    // and its old `AND doctor_id IS NULL` guard would never match again. Two
+    // guards replace it:
+    //   * doctor_id = best.id — never clear a claim another writer owns.
+    //   * status still 'paid' — every throw assignDoctor raises itself (case
+    //     missing / unpaid / wrong status) fires BEFORE its transitionCase, so
+    //     a row that already reached ASSIGNED is genuinely assigned and a later
+    //     incidental throw must not strip its doctor. ASSIGNED-with-a-doctor is
+    //     recoverable (the acceptance/timeout sweeps see it);
+    //     ASSIGNED-with-doctor_id-NULL is not — no sweep selects that shape.
+    var released = null;
     try {
-      await execute(
-        "UPDATE orders SET assignment_status = 'manual_pending', updated_at = $1 WHERE id = $2 AND doctor_id IS NULL",
-        [new Date().toISOString(), orderId]
+      released = await execute(
+        "UPDATE orders SET doctor_id = NULL, assignment_status = 'manual_pending', updated_at = $1 " +
+        " WHERE id = $2 AND doctor_id = $3 AND LOWER(COALESCE(status, '')) = 'paid'",
+        [new Date().toISOString(), orderId, best.id]
       );
     } catch (_) { /* non-fatal */ }
+    if (!released || released.rowCount === 0) {
+      logMajor('[auto-assign] Order ' + orderId + ' claim NOT released after assignDoctor failure ' +
+               '(row moved past PAID or was reclaimed) — doctor_id left in place deliberately');
+    }
     logMajor('[auto-assign] assignDoctor rejected order ' + orderId + ': ' + (e && e.message));
     return { assigned: false, reason: 'lifecycle_rejected', error: e && e.message };
   }

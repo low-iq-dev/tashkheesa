@@ -63,43 +63,78 @@ pool.on('connect', function (client) {
   // AUDIT-TZ-1 — SET TIME ZONE 'UTC' is the single most load-bearing line in
   // this file. Read the whole comment before changing it.
   //
-  // orders.deadline_at / sla_deadline / acceptance_deadline_at / accepted_at /
-  // completed_at / breached_at are `TIMESTAMP` — WITHOUT time zone (see
-  // migrations 001, 010, 080). Every application write to them is a JS
-  // `.toISOString()` string, i.e. UTC wall clock; PostgreSQL stores a naive
-  // column by DISCARDING the offset, so the digits on disk are UTC.
-  //
-  // The session TimeZone, however, was never pinned — it inherited the server
-  // role default, which on production is Africa/Cairo (UTC+2, or UTC+3 under
-  // DST). So `deadline_at <= NOW()::timestamp` (case_sla_worker.js,
-  // case_lifecycle.js) compared UTC digits against a CAIRO wall clock, and
-  // every deadline looked 2-3 hours further into the past than it was.
-  //
-  // Measured consequences, all live before this line existed:
-  //   * The SLA breach sweep selected cases ~3h early. handleBreach then
-  //     reassigned the case and clawed the original doctor back to 10%
-  //     partial pay for an SLA they had NOT missed.
-  //   * Acceptance windows are 10 / 60 / 240 minutes — ALL shorter than the
-  //     skew — so acceptance_watcher saw every broadcast order as already
-  //     expired on the first 2-minute tick. The doctor broadcast/accept
-  //     handshake never actually ran.
-  //   * Doctor queue and admin dashboards understated remaining time by 3h,
-  //     and disagreed with the patient-facing countdown (which is computed in
-  //     JS on the same rows and was always right).
-  //   * Where the JS re-check in markSlaBreach fell through (accepted_at or
+  // ── WHAT THIS LINE ORIGINALLY FIXED ─────────────────────────────────────
+  // Every SLA timestamp on `orders` and `doctor_assignments` used to be
+  // `TIMESTAMP` — WITHOUT time zone (migrations 001, 010, 080). Application
+  // writes are JS `.toISOString()` strings, i.e. UTC; PostgreSQL stores a naive
+  // column by DISCARDING the offset, so the digits on disk were UTC. The
+  // session TimeZone was never pinned and inherited the role default, which on
+  // production is Africa/Cairo (UTC+2, UTC+3 under DST) — so
+  // `deadline_at <= NOW()::timestamp` compared UTC digits against a CAIRO wall
+  // clock and every deadline read 2-3 hours further past than it was:
+  //   * The SLA breach sweep selected cases ~3h early. handleBreach reassigned
+  //     the case and clawed the original doctor back to 10% partial pay for an
+  //     SLA they had NOT missed.
+  //   * Acceptance windows (10/60/240 min at the time) were ALL shorter than
+  //     the skew, so acceptance_watcher saw every broadcast order as already
+  //     expired on the first tick. The broadcast/accept handshake never ran.
+  //   * Doctor and admin dashboards understated remaining time by 3h and
+  //     disagreed with the JS-computed patient countdown (which was right).
+  //   * Where markSlaBreach's JS re-check fell through (accepted_at or
   //     sla_hours NULL), issueBreachRefund opened a real refund obligation 3h
   //     early.
   //
-  // Pinning the SESSION to UTC makes NOW()::timestamp produce UTC wall clock,
-  // which is exactly what the writes put on disk. Both worlds agree.
+  // ── WHAT MIGRATION 081 CHANGED (2026-08) ────────────────────────────────
+  // 081_timestamptz_sla_columns.sql converted EVERY `timestamp without time
+  // zone` column on `orders` and `doctor_assignments` to `timestamptz`,
+  // data-driven from information_schema — deadline_at, sla_deadline,
+  // acceptance_deadline_at, accepted_at, completed_at, breached_at,
+  // sla_paused_at, created_at, updated_at, reassigned_at, and the
+  // doctor_assignments equivalents (assigned_at, accepted_at, accept_by_at,
+  // completed_at), using `AT TIME ZONE 'UTC'` — which states what the digits
+  // already were. On those two tables the type no longer lies, and a plain
+  // `NOW()` comparison is now unambiguous regardless of session zone.
   //
-  // Deliberately chosen over converting the columns to timestamptz: this is
-  // one line, needs no data migration, is instantly reversible, and is a
-  // NO-OP if the database was already UTC. The column-type migration is the
-  // right long-term fix and is tracked separately — but it has to reckon with
-  // the handful of columns written by SQL-side NOW() (created_at, updated_at,
-  // reassigned_at), which hold Cairo digits and would need a different USING
-  // clause from the JS-written ones. Do not attempt it in a hotfix.
+  // Consequence for query authors: on orders / doctor_assignments, do NOT cast.
+  // `deadline_at <= NOW()` is correct; `(NOW() + INTERVAL '60 minutes')
+  // ::timestamp` re-introduces the naive/aware split on one side of a WHERE
+  // clause (that exact bug survived 081 in case_sla_worker.fetchPreBreachCandidates
+  // until LAUNCH-TZ-3 removed it).
+  //
+  // ── WHAT IS STILL NAIVE, AND WHY THIS LINE IS STILL LOAD-BEARING ────────
+  // 081 touched two tables. Everything else that stores time is untouched, and
+  // the ones that matter are:
+  //   * refunds.refunded_at         TIMESTAMP DEFAULT NOW()   (028) — naive,
+  //     and DEFAULT NOW() means the DEFAULT itself writes the session's wall
+  //     clock. Without this pin, refund timestamps drift by the Cairo offset.
+  //   * appointments.scheduled_at   TIMESTAMP NOT NULL        (004) — naive,
+  //     and it is compared against NOW() by the video/appointment reminders.
+  //   * cases.paid_at               TIMESTAMP                 (001) — naive
+  //     (orders.paid_at is timestamptz via 020/032; the `cases` table's is not).
+  //   * appointments.rescheduled_at / created_at, cases.created_at /
+  //     updated_at / breached_at / sla_deadline / sla_paused_at, and the
+  //     assorted `at TIMESTAMP DEFAULT NOW()` audit columns from 001.
+  //   (critical_alert_log.sent_at is TIMESTAMPTZ — 049 — despite what earlier
+  //    versions of this comment and the audit ticket claimed. Verified against
+  //    the migration, not assumed.)
+  //
+  // For every one of those, the old reasoning still applies in full: the digits
+  // on disk are UTC (JS writers) or session-local (SQL-side NOW() writers), and
+  // only a UTC session makes the two agree. Unpinning this would silently skew
+  // refunds and appointments by 2-3h while orders stayed correct — a strictly
+  // harder bug to spot than the original, because half the system would look
+  // fine.
+  //
+  // Converting the rest is the right long-term fix and is NOT blocked by
+  // anything structural — 081 is the worked example, including the
+  // drop-and-recreate-views dance that `ALTER COLUMN ... TYPE` forces. The one
+  // thing it has to reckon with is the columns historically written by SQL-side
+  // NOW() before the session was pinned (created_at, updated_at, reassigned_at,
+  // doctor_assignments.completed_at), which hold Cairo digits and need a
+  // different USING clause from the JS-written ones. 081 accepted that for
+  // audit/display columns on the grounds that no deadline, breach or payment
+  // decision reads them; a follow-up migration must make the same call
+  // explicitly for each table it converts.
   //
   // Node itself must also be UTC for the JS-side halves to agree — see the
   // assertion in src/server.js.

@@ -78,12 +78,22 @@ function acceptanceMinutesForSlaHours(slaHours) {
 
 /**
  * Resolve from a whole order row: prefer the explicit tier, fall back to
- * sla_hours, then to standard. `urgency_flag` forces urgent — it is the column
- * the intake form sets and it wins over a stale tier value.
+ * sla_hours, then to standard.
+ *
+ * DO NOT re-add an `if (order.urgency_flag) return ...urgent` short-circuit.
+ * `urgency_flag` does NOT mean "urgent tier" — every writer sets it to mean
+ * "not standard" (services/wizard_pricing.js:118 sets it for vip AND urgent;
+ * routes/api/cases.js does the same). While that line existed, the tier branch
+ * below was unreachable for every non-standard order and VIP cases were given
+ * the 15-minute urgent window instead of 45 — a 16× tightening against the
+ * pre-change 4h, on the tier that pays a premium for attention.
+ *
+ * The tier columns are the only honest signal: `tier` is written by
+ * notify/broadcast.js, `urgency_tier` by the wizard and the mobile API. When
+ * both are missing, sla_hours buckets to the same three tiers.
  */
 function acceptanceMinutesForOrder(order) {
   if (!order) return ACCEPTANCE_MINUTES_BY_TIER.standard;
-  if (order.urgency_flag) return ACCEPTANCE_MINUTES_BY_TIER.urgent;
   const tier = order.tier || order.urgency_tier;
   if (tier) return acceptanceMinutesForTier(tier);
   return acceptanceMinutesForSlaHours(order.sla_hours);

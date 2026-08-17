@@ -206,15 +206,99 @@ async function autoAssignOrder(order) {
   }
 
   // Mirror the assignment into doctor_assignments so the doctor-timeout sweep
-  // (case_sla_worker.fetchDoctorTimeouts) sees an explicit accept_by_at rather
-  // than falling back to the legacy cutoff.
+  // (case_sla_worker.fetchDoctorTimeouts) sees an explicit accept_by_at.
+  //
+  // AUDIT-ACCEPT-4 — this used to be `catch (e) { /* table may not exist on
+  // older deployments */ }`. doctor_assignments has existed since migration
+  // 001_initial_tables.sql:124 and accept_by_at since 014, so the excuse was
+  // dead — and the row it silently dropped is now the ONLY thing that makes an
+  // auto-assigned case sweepable. The orders UPDATE above deliberately leaves
+  // accepted_at NULL (AUDIT-ACCEPT-3), and fetchDoctorTimeouts requires
+  // `da.case_id IS NOT NULL`. A swallowed INSERT therefore parked a PAID case
+  // on a doctor who may never open it, with no event, no error_logs row and no
+  // ops signal — permanently.
+  //
+  // ROLLBACK, and why: the doctor_id claim IS rolled back on failure. The
+  // alternative (keep the claim, log the error) leaves precisely the stranded
+  // state described above and needs a human to notice a log line. Rolling back
+  // to status='paid' / doctor_id=NULL restores the exact shape this sweep
+  // selects on, so the next 2-minute tick retries — the failure becomes
+  // self-healing instead of terminal. reassigned_count is decremented back so
+  // a retry loop cannot inflate a case's reassignment history. The
+  // acceptance_deadline_at deliberately stays in the past: that is what makes
+  // the row eligible again on the next tick.
+  //
+  // If the INSERT actually committed and only the ack was lost, the rollback
+  // leaves an orphan doctor_assignments row on an unassigned case. That is
+  // harmless: every consumer joins it to orders with status='assigned' AND
+  // doctor_id IS NOT NULL, and the retry's row wins on MAX(assigned_at).
   try {
     await execute(
       `INSERT INTO doctor_assignments (id, case_id, doctor_id, assigned_at, accept_by_at)
        VALUES (gen_random_uuid(), $1, $2, $3, $4)`,
       [order.id, doctor.id, nowIso, acceptByAt]
     );
-  } catch (e) { /* table may not exist on older deployments */ }
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'acceptance_watcher.mirror_assignment',
+      category: 'sla',
+      orderId: order.id,
+      userId: doctor.id
+    });
+    console.error('[acceptance_watcher] doctor_assignments mirror INSERT failed for order ' +
+                  order.id + ' — rolling back the claim: ' + (e && e.message));
+
+    let rolledBack = null;
+    try {
+      rolledBack = await execute(
+        `UPDATE orders
+            SET doctor_id = NULL,
+                status = 'paid',
+                reassigned_count = GREATEST(COALESCE(reassigned_count, 1) - 1, 0),
+                updated_at = $1
+          WHERE id = $2
+            AND doctor_id = $3
+            AND LOWER(COALESCE(status, '')) = 'assigned'
+            AND accepted_at IS NULL`,
+        [new Date().toISOString(), order.id, doctor.id]
+      );
+    } catch (rollbackErr) {
+      logErrorToDb(rollbackErr, {
+        context: 'acceptance_watcher.mirror_assignment_rollback',
+        category: 'sla',
+        orderId: order.id,
+        userId: doctor.id
+      });
+    }
+
+    // case_events, not order_events: ASSIGNMENT_MIRROR_FAILED is a registered
+    // SILENT_FAILURE_EVENTS label (case_lifecycle.js) and /ops/silent-failures
+    // queries case_events for `event_type LIKE '%_FAILED'`. logOrderEvent
+    // writes order_events, which feeds the patient/admin case timeline — the
+    // wrong surface for an infrastructure failure. Lazy require: no cycle
+    // (case_lifecycle does not import this worker), and it keeps boot order
+    // unchanged.
+    try {
+      const { logCaseEvent } = require('../case_lifecycle');
+      await logCaseEvent(order.id, 'ASSIGNMENT_MIRROR_FAILED', {
+        doctor_id: doctor.id,
+        error: String((e && e.message) || e).slice(0, 500),
+        rolled_back: Boolean(rolledBack && rolledBack.rowCount)
+      });
+    } catch (_) {}
+
+    if (!rolledBack || rolledBack.rowCount === 0) {
+      // THEME8-LINT-EXEMPT-HELPER: stdout triage line only. The failure itself
+      // is already in error_logs (the logErrorToDb above, context
+      // acceptance_watcher.mirror_assignment) and in case_events
+      // (ASSIGNMENT_MIRROR_FAILED with rolled_back:false), which is what /ops
+      // reads. Could not undo the claim — the doctor accepted in the meantime,
+      // or the row moved on. Leaving it is correct: an accepted case is fine.
+      console.error('[acceptance_watcher] rollback did not apply for order ' + order.id +
+                    ' — case may be assigned without a doctor_assignments row');
+    }
+    return;
+  }
 
   console.log('[acceptance_watcher] auto-assigned order ' + order.id + ' to doctor ' + doctor.id +
               ' (' + doctor.name + ') accept_by=' + acceptByAt + ' (' + acceptMinutes + 'm)');

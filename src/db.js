@@ -1,7 +1,7 @@
 var fs = require('fs');
 var path = require('path');
 var { pool, queryOne, queryAll, execute, withTransaction } = require('./pg');
-var { major: logMajor } = require('./logger');
+var { major: logMajor, fatal: logFatal } = require('./logger');
 
 // ---------------------------------------------------------------------------
 // File-based migration runner
@@ -62,7 +62,57 @@ async function runDataFixups() {
   // legacy row ever carries a mixed-case status, this heals it on the next boot;
   // a one-shot migration would let future drift persist. It is idempotent and
   // touches only the rows that are actually non-lowercase.
-  await pool.query("UPDATE orders SET status = LOWER(status) WHERE status IS NOT NULL AND status != LOWER(status)");
+  //
+  // AUDIT-STATE-9 — but it must be LOUD. Silently healing on boot is the worst
+  // possible failure mode for an uppercase-writer bug: the broken rows only
+  // exist between restarts, every redeploy erases the evidence, and the
+  // reproduction window is whatever uptime happens to be. case_lifecycle's
+  // updateCase writes CANONICAL UPPERCASE ('ASSIGNED'), while every worker
+  // query compares LOWER(status) — so a real writer is producing rows this net
+  // catches, continuously, and nobody has ever seen the count.
+  //
+  // Capture WHICH statuses had to be fixed before fixing them, then alert.
+  let preFixupOffenders = [];
+  try {
+    // include-deleted-ok — this samples exactly the rows the UPDATE below
+    // touches, and that UPDATE is deliberately unfiltered: a soft-deleted row
+    // with an uppercase status is the same invariant violation and the same
+    // evidence of a bad writer. Filtering here would make the breakdown
+    // disagree with the rowCount it explains.
+    preFixupOffenders = (await queryAll(
+      "SELECT status, COUNT(*)::int AS c FROM orders " + // include-deleted-ok
+      " WHERE status IS NOT NULL AND status <> LOWER(status) " +
+      " GROUP BY status ORDER BY c DESC LIMIT 20"
+    )) || [];
+  } catch (e) {
+    logMajor('[boot-fixup] could not sample non-lowercase order statuses: ' + e.message);
+  }
+
+  var fixupResult = await pool.query(
+    "UPDATE orders SET status = LOWER(status) WHERE status IS NOT NULL AND status != LOWER(status)"
+  );
+  var fixedRows = (fixupResult && fixupResult.rowCount) || 0;
+
+  if (fixedRows > 0) {
+    var breakdown = preFixupOffenders
+      .map(function (r) { return r.status + '=' + r.c; })
+      .join(', ') || 'unavailable';
+    // logFatal, not logMajor: this is an alertable invariant violation, not an
+    // informational boot line. Some writer is storing non-lowercase statuses
+    // and those rows were invisible to every LOWER(status) worker query until
+    // this boot healed them.
+    var fixupMsg =
+      '[boot-fixup] ORDERS STATUS INVARIANT VIOLATED: healed ' + fixedRows +
+      ' non-lowercase orders.status row(s) on boot [' + breakdown + ']. ' +
+      'Between the write and this restart those rows were invisible to every ' +
+      'worker query that filters on LOWER(status) — SLA sweeps, doctor queues, ' +
+      'acceptance watcher. Find the writer; the fixup is a net, not a fix.';
+    // logFatal only writes an error_logs row when it can find an Error in its
+    // args (logger.js:55) — console-only would keep this invisible to
+    // /ops/errors and to anything alerting off error_logs, which is the whole
+    // point of the change. Pass a real Error.
+    logFatal(fixupMsg, new Error('orders.status lowercase invariant violated (' + fixedRows + ' rows)'));
+  }
 
   // The unpriced-specialty hide (spec-ent, spec-general-surgery, spec-pediatrics)
   // that used to run here on EVERY boot was moved to a one-shot migration
