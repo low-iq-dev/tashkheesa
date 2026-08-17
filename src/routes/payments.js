@@ -40,6 +40,47 @@ function resolveAddonJsonPrice(jsonStr, currency, fallback) {
   } catch (_) { return fallback || 0; }
 }
 
+// ── FIX 11: per-attempt-unique Paymob special_reference ────────────────────
+//
+// services/paymob.js sets `special_reference: args.orderId` and Paymob REQUIRES
+// special_reference to be unique per merchant. Every re-mint for the same order
+// (patient reloads the pay page, referral discount nulls the intention, the
+// wizard re-prices) therefore got a non-2xx from Paymob and the order became
+// permanently unpayable — a 502 the patient can never get past.
+//
+// Paymob echoes special_reference back as obj.order.merchant_order_id, which is
+// exactly what /callback keys the order lookup on, so the suffix has to be
+// strippable. '--' is the separator because order ids are randomUUID()
+// (routes/patient.js:1734) — 36 chars of lowercase hex and SINGLE dashes — so a
+// double dash can never occur inside a real order id.
+const ATTEMPT_SUFFIX_SEP = '--';
+
+function buildSpecialReference(orderId) {
+  return String(orderId) + ATTEMPT_SUFFIX_SEP +
+    Date.now().toString(36) + crypto.randomBytes(3).toString('hex');
+}
+
+function orderIdFromReference(reference) {
+  if (reference == null) return null;
+  const s = String(reference);
+  const i = s.indexOf(ATTEMPT_SUFFIX_SEP);
+  // i > 0 — never return an empty order id from a reference that merely starts
+  // with the separator.
+  return (i > 0) ? s.slice(0, i) : s;
+}
+
+// Reuse window for an already-minted Paymob intention. Purpose is to stop
+// burning a fresh intention on every page load / reload, which happens within
+// seconds-to-minutes; beyond the window we re-mint rather than risk handing the
+// patient a checkout whose client_secret Paymob has since expired (a stale
+// reuse is a dead end the patient cannot escape by reloading).
+const INTENTION_REUSE_MINUTES = (function () {
+  const n = parseInt(process.env.PAYMOB_INTENTION_REUSE_MINUTES || '', 10);
+  return (Number.isInteger(n) && n > 0 && n <= 720) ? n : 30;
+})();
+
+const PAYMOB_CHECKOUT_PREFIX = 'https://accept.paymob.com/unifiedcheckout/';
+
 // Canonical payment URL boundary: all reminders, dashboards, and views must use this helper; no other code should synthesize payment links.
 async function getOrCreatePaymentUrl(order) {
   if (order && order.payment_link && String(order.payment_link).trim() !== '') {
@@ -84,7 +125,8 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
     // the legacy locked_price/locked_currency columns added via
     // migrate_mobile_api.js are not used here to avoid env-specific drift.
     const order = await queryOne(
-      `SELECT id, patient_id, payment_status, price, currency, paymob_intention_id, service_id
+      `SELECT id, patient_id, payment_status, price, currency, paymob_intention_id,
+              payment_link, service_id
          FROM orders_active
         WHERE id = $1 AND patient_id = $2`,
       [orderId, req.user.id]
@@ -154,6 +196,48 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
     // verify — so intention and verification can never drift (audit B5/B6).
     const amountCents = owedCentsForOrder({ price: order.price, addons_json: addonsJson });
 
+    // ── FIX 11a: REUSE the stored intention when nothing about the charge
+    // changed. The comment below the createIntention call has always claimed
+    // this happened; it never did — line 88 selected paymob_intention_id and
+    // then ignored it, so every click on Pay Now minted a brand-new intention.
+    //
+    // Reuse is safe because every path that changes the price NULLs
+    // paymob_intention_id: routes/referrals.js (referral discount) and
+    // routes/patient.js:2064 / :2157 (wizard re-price). We additionally require
+    // the recomputed amount to match the amount recorded on the
+    // 'intention_created' payment_event, so an add-on selection change in THIS
+    // request also forces a fresh mint.
+    if (order.paymob_intention_id &&
+        typeof order.payment_link === 'string' &&
+        order.payment_link.startsWith(PAYMOB_CHECKOUT_PREFIX)) {
+      try {
+        const prior = await queryOne(
+          `SELECT payload_json, received_at
+             FROM payment_events
+            WHERE order_id = $1
+              AND event_type = 'intention_created'
+              AND paymob_intention_id = $2
+              AND received_at > NOW() - make_interval(mins => $3::int)
+            ORDER BY received_at DESC
+            LIMIT 1`,
+          [order.id, String(order.paymob_intention_id), INTENTION_REUSE_MINUTES]
+        );
+        const priorAmount = prior && prior.payload_json
+          ? Number(prior.payload_json.amountCents)
+          : NaN;
+        const priorCurrency = prior && prior.payload_json
+          ? String(prior.payload_json.currency || '').toUpperCase()
+          : '';
+        if (Number.isFinite(priorAmount) && priorAmount === amountCents && priorCurrency === currency) {
+          return res.json({ ok: true, checkoutUrl: order.payment_link, reused: true });
+        }
+      } catch (reuseErr) {
+        // Never let the reuse optimisation block a payment — fall through and
+        // mint a fresh intention (which FIX 11b makes safe to do repeatedly).
+        logErrorToDb(reuseErr, { context: 'paymob_create_intention_reuse_check', orderId: order.id });
+      }
+    }
+
     // Pull patient PII for billing_data. The PII gate inside
     // paymobService.createIntention catches missing/malformed fields
     // before any network call.
@@ -172,10 +256,25 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
     const host = req.headers['x-forwarded-host'] || req.get('host');
     const redirectionUrl = proto + '://' + host + '/portal/patient/payment-return';
 
+    // ── FIX 11b: a genuine re-mint must never be rejected by Paymob. ─────────
+    //
+    // services/paymob.js uses `args.orderId` verbatim as BOTH `special_reference`
+    // and `extras.merchant_order_id`, and Paymob enforces uniqueness on
+    // special_reference per merchant. Passing a per-attempt-unique reference is
+    // therefore the whole fix, and it is transport-safe because /callback below
+    // strips the '--<attempt>' suffix back to the canonical order id before the
+    // order lookup (see orderIdFromReference) — whichever of the two fields
+    // Paymob echoes into obj.order.merchant_order_id.
+    //
+    // NOTE for the services/paymob.js owner: the clean shape is a dedicated
+    // optional `specialReference` arg defaulting to `orderId`. See the handoff
+    // notes; this call site works either way.
+    const specialReference = buildSpecialReference(order.id);
+
     let result;
     try {
       result = await paymobService.createIntention({
-        orderId: order.id,
+        orderId: specialReference,
         amountCents: amountCents,
         currency: currency,
         patient: {
@@ -202,7 +301,10 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
             [
               'pe-' + crypto.randomUUID(),
               order.id,
-              JSON.stringify({ code: err.code, message: err.message, status: err.status || null })
+              JSON.stringify({
+                code: err.code, message: err.message, status: err.status || null,
+                special_reference: specialReference
+              })
             ]
           );
         } catch (auditErr) {
@@ -215,9 +317,9 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
       throw err;
     }
 
-    // Persist intention id + checkout URL so a returning visitor with the
-    // same browser session reuses the existing intention instead of
-    // burning a fresh one on every page load.
+    // Persist intention id + checkout URL. FIX 11a above is what actually
+    // makes the "returning visitor reuses the existing intention" claim true;
+    // this write is what it reads back.
     await execute(
       `UPDATE orders SET paymob_intention_id = $1, payment_link = $2 WHERE id = $3`,
       [result.intentionId, result.checkoutUrl, order.id]
@@ -231,7 +333,13 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
           'pe-' + crypto.randomUUID(),
           order.id,
           result.intentionId,
-          JSON.stringify({ amountCents: amountCents, currency: currency })
+          // amountCents + currency are read back by the FIX 11a reuse check —
+          // reuse only happens when BOTH still match the recomputed charge.
+          JSON.stringify({
+            amountCents: amountCents,
+            currency: currency,
+            special_reference: specialReference
+          })
         ]
       );
     } catch (auditErr) {
@@ -288,9 +396,16 @@ router.post('/callback', async (req, res, next) => {
       // to 1/5min inside sendCriticalAlert, so a flood of probes won't
       // spam the admin phone.
       try {
+        // FIX 4: sendCriticalAlert throttles PER alertKey and defaults to
+        // 'generic'. This site and the intention-mismatch site below both
+        // omitted the key, so they shared one 5-minute bucket — an HMAC probe
+        // flood (trivial to generate, unauthenticated) silenced the
+        // intention-mismatch page, which is the higher-severity signal of
+        // the two. Distinct keys, distinct buckets.
         sendCriticalAlert(
           'Paymob webhook HMAC failure (' + hmacResult.reason + ') ' +
-          'from ip=' + (req.ip || 'unknown') + ' req=' + (req.requestId || 'n/a')
+          'from ip=' + (req.ip || 'unknown') + ' req=' + (req.requestId || 'n/a'),
+          'paymob_hmac_failure'
         );
       } catch (_) {}
       return res.status(401).json({ ok: false, error: 'unauthorized' });
@@ -302,10 +417,19 @@ router.post('/callback', async (req, res, next) => {
     // Our order id arrives at obj.order.merchant_order_id (set via
     // special_reference at intention creation). Flat order_id kept for
     // compatibility with the legacy payload shape.
-    const orderId = txnBody.order_id
+    const merchantOrderRef = txnBody.order_id
       || (txnBody.order && txnBody.order.merchant_order_id)
       || txnBody.merchant_order_id
       || null;
+    // FIX 11: special_reference (which is what Paymob echoes back as
+    // merchant_order_id) is now uniquified per intention attempt — Paymob
+    // requires it to be unique per merchant, so re-using the bare order id made
+    // the SECOND intention for an order fail and left that order unpayable
+    // forever. orderIdFromReference strips the '--<attempt>' suffix back to the
+    // canonical order id. Order ids are randomUUID() (see routes/patient.js),
+    // which can never contain a double dash, so the split is unambiguous and
+    // this is a no-op for every reference minted before this change.
+    const orderId = orderIdFromReference(merchantOrderRef);
     // ── AUDIT-P0-6: the outcome is derived from HMAC-SIGNED FIELDS ONLY ──
     //
     // This used to prefer `txnBody.status`, which is NOT one of the 19 fields
@@ -320,16 +444,43 @@ router.post('/callback', async (req, res, next) => {
     // `pending` is checked before `success` because Paymob sends
     // success=false + pending=true on an in-flight 3DS transaction; treating
     // that as `failed` would fire a spurious "payment failed" notification.
+    //
+    // ── AUDIT 2026-08-17 (FIX 2): honour the SIGNED refund / void flags ──────
+    //
+    // `is_refunded`, `is_voided` and `has_parent_transaction` are all inside
+    // the HMAC-signed 19-field set (paymob-hmac.js HMAC_FIELDS:22-43) and
+    // NEITHER callback read them. Paymob delivers a void or a refund as its own
+    // transaction: `success: true`, a FRESH `obj.id`, and the same
+    // `amount_cents`. That combination cleared the amount check (same amount,
+    // opposite direction) AND the per-transaction-id unique index (new id), so
+    // "we gave the money back" was processed as "the patient just paid".
+    // has_parent_transaction is included because every refund/void is a CHILD
+    // of the original authorisation — it is the general "this is not a fresh
+    // sale" signal.
+    const isRefundOrVoid = (txnBody.is_refunded === true)
+      || (txnBody.is_voided === true)
+      || (txnBody.has_parent_transaction === true);
+
     const status =
         (txnBody.pending === true) ? 'pending'
       : (txnBody.error_occured === true) ? 'failed'
-      : (txnBody.success === true) ? 'success'
+      : (txnBody.success === true
+          && txnBody.is_refunded !== true
+          && txnBody.is_voided !== true
+          && txnBody.has_parent_transaction !== true) ? 'success'
       : (txnBody.success === false) ? 'failed'
       : null;
     // Paymob transaction id (signed by HMAC) — used for per-txn-id idempotency.
     const paymobTxnId = (txnBody && txnBody.id != null) ? String(txnBody.id) : null;
     const paymobIntentionId = (txnBody && txnBody.intention && txnBody.intention.id != null)
       ? String(txnBody.intention.id) : null;
+    // Paymob's OWN order id — obj.order.id. This one IS in the signed field set
+    // ('order' in HMAC_FIELDS, resolved to obj.order.id by buildHmacString),
+    // unlike obj.order.merchant_order_id (unsigned, and the thing we key the
+    // order lookup on) and obj.intention.id (unsigned). buildHmacString
+    // computed it and then threw it away; we keep it for audit + binding.
+    const paymobOrderId = (txnBody && txnBody.order && txnBody.order.id != null)
+      ? String(txnBody.order.id) : null;
 
     if (!orderId) {
       return res.status(400).json({ ok: false, error: 'order_id required' });
@@ -344,6 +495,7 @@ router.post('/callback', async (req, res, next) => {
     // two distinct transaction ids settle the same order.
     const _normalizedForEvent = normalizeStatus(status);
     const _eventType =
+      isRefundOrVoid                   ? 'refund_or_void_received' :
       _normalizedForEvent === 'paid'   ? 'payment_succeeded' :
       _normalizedForEvent === 'failed' ? 'payment_failed'    :
       _normalizedForEvent === 'cancelled' ? 'payment_failed' :
@@ -387,6 +539,43 @@ router.post('/callback', async (req, res, next) => {
     return res.status(404).json({ ok: false, error: 'order not found' });
   }
 
+  // ── FIX 2: a refund/void is audited and paged, never silently dropped ─────
+  //
+  // The idempotency INSERT above already stored the full body under
+  // event_type='refund_or_void_received'. Here we make it visible on the case
+  // timeline and page on-call: there is NO Paymob refund API integration on
+  // this platform (refunds are manual InstaPay, see services/admin_refund.js),
+  // so an inbound refund/void either means someone actioned one in the Paymob
+  // dashboard or someone is probing us. Either way a human must look.
+  // The order is deliberately left in whatever payment state it already had —
+  // we never mark paid, and we never "unpay" a legitimately paid order from an
+  // unsolicited webhook.
+  if (isRefundOrVoid) {
+    logOrderEvent({
+      orderId,
+      label: 'Paymob refund/void webhook received — order payment state UNCHANGED',
+      meta: JSON.stringify({
+        paymob_transaction_id: paymobTxnId,
+        paymob_order_id: paymobOrderId,
+        is_refunded: txnBody.is_refunded === true,
+        is_voided: txnBody.is_voided === true,
+        has_parent_transaction: txnBody.has_parent_transaction === true,
+        amount_cents: txnBody.amount_cents != null ? Number(txnBody.amount_cents) : null,
+        current_payment_status: order.payment_status || null
+      }),
+      actorRole: 'system'
+    });
+    try {
+      sendCriticalAlert(
+        'Paymob refund/void webhook on order ' + orderId +
+        ' (txn ' + (paymobTxnId || 'n/a') + ', refunded=' + (txnBody.is_refunded === true) +
+        ', voided=' + (txnBody.is_voided === true) + ') — reconcile manually',
+        'paymob_refund_or_void'
+      );
+    } catch (_) {}
+    return res.json({ ok: true, refund_or_void: true });
+  }
+
   // ── AUDIT-P0-6: bind the transaction to the intention we created ────────
   //
   // `orderId` above comes from obj.order.merchant_order_id, which is NOT in
@@ -400,8 +589,97 @@ router.post('/callback', async (req, res, next) => {
   // onto a second order, and the signed-outcome fix above blocks laundering a
   // failed transaction into a success. This closes the remaining seam where
   // a live intention exists for a different order.
-  if (paymobIntentionId && order.paymob_intention_id &&
-      String(paymobIntentionId) !== String(order.paymob_intention_id)) {
+  //
+  // ── AUDIT 2026-08-17 (FIX 3): the binding is now MANDATORY, not optional ──
+  //
+  // The old predicate was `if (paymobIntentionId && order.paymob_intention_id
+  // && mismatch)`. obj.intention.id is NOT in the signed field set, so an
+  // attacker replaying a captured signed body simply DELETED `obj.intention`
+  // from the JSON: paymobIntentionId became null, the first conjunct was false,
+  // and the entire control was skipped in silence. A guard you can turn off by
+  // omitting a field is not a guard. So: when the order has an intention on
+  // file, the callback must present a matching one, and a callback that
+  // presents none is treated as a failed binding rather than as an exemption.
+  //
+  // Scope of the MISSING case is deliberately narrower than the MISMATCH case.
+  // A mismatch is suspicious whatever the outcome, so it always short-circuits.
+  // A missing intention id only blocks the path that MOVES MONEY (marking the
+  // order paid) — blocking it on a `failed`/`pending` callback would suppress
+  // the patient's "payment failed, try again" notification and page on-call for
+  // an event that costs nothing. PAYMOB_REQUIRE_INTENTION_BINDING=false is the
+  // break-glass switch if Paymob's live payload turns out not to carry
+  // obj.intention at all (VERIFY THIS WITH ONE REAL TEST-MODE PAYMENT BEFORE
+  // LAUNCH — see the handoff notes).
+  const _requireBinding =
+    String(process.env.PAYMOB_REQUIRE_INTENTION_BINDING || 'true').toLowerCase() !== 'false';
+  const _wouldMarkPaid = normalizeStatus(status) === 'paid';
+
+  // The stored id is only the LATEST intention for this order. FIX 11b makes a
+  // legitimate re-mint succeed where it previously 502'd, so "patient has two
+  // tabs open and pays in the older one" is now a reachable, ENTIRELY INNOCENT
+  // state: the callback carries intention A while the order row holds B.
+  // Rejecting that would take the patient's money and leave the order unpaid.
+  //
+  // The security property we actually need is "this intention was minted BY US
+  // FOR THIS ORDER" — not "this is the newest one". payment_events carries an
+  // 'intention_created' row per mint, keyed to the order, so ask that. A stale
+  // intention that IS ours is accepted here and still has to clear the B5
+  // amount check below, which is what catches a stale intention priced at a
+  // pre-discount amount.
+  let intentionMismatch = !!(
+    order.paymob_intention_id && paymobIntentionId &&
+    String(paymobIntentionId) !== String(order.paymob_intention_id)
+  );
+  if (intentionMismatch) {
+    try {
+      const ours = await queryOne(
+        `SELECT id FROM payment_events
+          WHERE order_id = $1
+            AND event_type = 'intention_created'
+            AND paymob_intention_id = $2
+          LIMIT 1`,
+        [orderId, paymobIntentionId]
+      );
+      if (ours) {
+        intentionMismatch = false;
+        logOrderEvent({
+          orderId,
+          label: 'Payment callback: settled on a superseded (but own) Paymob intention',
+          meta: JSON.stringify({
+            received_intention_id: paymobIntentionId,
+            current_intention_id: order.paymob_intention_id,
+            paymob_transaction_id: paymobTxnId
+          }),
+          actorRole: 'system'
+        });
+      }
+    } catch (lookupErr) {
+      // Fail CLOSED: if we cannot prove the intention is ours, treat it as a
+      // mismatch. Leaving an order unpaid pending review is recoverable;
+      // marking one paid on an unverified binding is not.
+      logErrorToDb(lookupErr, { context: 'payment_callback_intention_history_lookup', orderId });
+    }
+  }
+
+  const intentionMissing = !!(
+    order.paymob_intention_id && !paymobIntentionId && _requireBinding && _wouldMarkPaid
+  );
+  // obj.order.id IS signed. We can only COMPARE it once the mapping is
+  // persisted at intention-creation time (Paymob returns it as
+  // `intention_order_id`; services/paymob.js does not surface it yet and
+  // orders has no column for it — both specified in the handoff notes). Until
+  // then `order.paymob_order_id` is undefined and this conjunct is inert; the
+  // value is recorded in the audit payloads below either way, so a forensic
+  // trail exists from day one.
+  const paymobOrderMismatch = !!(
+    order.paymob_order_id && paymobOrderId &&
+    String(paymobOrderId) !== String(order.paymob_order_id)
+  );
+
+  if (intentionMismatch || intentionMissing || paymobOrderMismatch) {
+    const bindingFailure = intentionMismatch ? 'intention_id_mismatch'
+      : paymobOrderMismatch ? 'paymob_order_id_mismatch'
+      : 'intention_id_absent_from_callback';
     try {
       await execute(
         `INSERT INTO payment_events (id, order_id, paymob_intention_id, event_type, payload_json, hmac_verified, received_at)
@@ -411,9 +689,14 @@ router.post('/callback', async (req, res, next) => {
           orderId,
           paymobIntentionId,
           JSON.stringify({
+            binding_failure: bindingFailure,
             expected_intention_id: order.paymob_intention_id,
             received_intention_id: paymobIntentionId,
+            expected_paymob_order_id: order.paymob_order_id || null,
+            received_paymob_order_id: paymobOrderId,
+            merchant_order_reference: merchantOrderRef,
             paymob_transaction_id: paymobTxnId,
+            signed_status: status,
             ip: req.ip || null
           })
         ]
@@ -422,9 +705,12 @@ router.post('/callback', async (req, res, next) => {
       logErrorToDb(auditErr, { context: 'payment_callback_intention_mismatch_audit', orderId });
     }
     try {
+      // FIX 4: own throttle bucket — see the HMAC-failure site above.
       sendCriticalAlert(
-        'Paymob webhook intention mismatch on order ' + orderId +
-        ' (expected ' + order.paymob_intention_id + ', got ' + paymobIntentionId + ')'
+        'Paymob webhook binding failure (' + bindingFailure + ') on order ' + orderId +
+        ' (expected intention ' + order.paymob_intention_id +
+        ', got ' + (paymobIntentionId || 'NONE') + ')',
+        'paymob_intention_mismatch'
       );
     } catch (_) {}
     // Ack 200 so Paymob stops retrying; the order is deliberately left UNPAID.
@@ -637,13 +923,51 @@ router.post('/callback', async (req, res, next) => {
   try {
     await markCasePaid(orderId);
   } catch (e) {
-    // If already PAID/ASSIGNED/etc, treat as idempotent success.
+    // ── AUDIT 2026-08-17 (FIX 10): this catch used to label EVERY exception
+    // "(idempotent)" with no alert and no error_logs row. markCasePaid is the
+    // boundary that puts a paid case into the assignment pipeline; when it
+    // throws, the patient has been charged and the case simply never enters
+    // the queue. That is the single quietest way for this platform to take
+    // money and deliver nothing, and it was indistinguishable in the logs from
+    // a genuine no-op.
+    //
+    // markCasePaid's own idempotent path (case_lifecycle.js:1507-1513) RETURNS
+    // the existing row — it does not throw — so in practice everything landing
+    // here is a hard failure. The classifier below is deliberately narrow and
+    // fails towards "alert": anything not positively recognised as a benign
+    // re-entry pages on-call.
+    const msg = String(e && e.message ? e.message : e);
+    const benign = /already\s+(paid|assigned|processed)|idempotent|no[-\s]?op/i.test(msg);
+
     logOrderEvent({
       orderId,
-      label: 'Payment lifecycle transition skipped/failed (idempotent)',
-      meta: JSON.stringify({ error: String(e && e.message ? e.message : e), status, method, reference }),
+      label: benign
+        ? 'Payment lifecycle transition skipped (idempotent)'
+        : 'Payment lifecycle transition FAILED — case may not have entered the pipeline',
+      meta: JSON.stringify({ error: msg, benign, status, method, reference }),
       actorRole: 'system'
     });
+
+    if (!benign) {
+      try {
+        logErrorToDb(e, {
+          context: 'payment_callback_markCasePaid',
+          orderId,
+          requestId: req.requestId,
+          category: 'payment',
+          // The money HAS been taken at this point — the orders UPDATE above
+          // already committed payment_status='paid'.
+          payment_captured: true
+        });
+      } catch (_) {}
+      try {
+        sendCriticalAlert(
+          'markCasePaid FAILED for order ' + orderId + ' AFTER payment was captured: ' +
+          msg.slice(0, 300) + ' — case is paid but may not be in the assignment queue',
+          'markcasepaid_failed'
+        );
+      } catch (_) {}
+    }
   }
 
   logOrderEvent({
@@ -750,31 +1074,69 @@ router.post('/callback', async (req, res, next) => {
       });
     } else {
     try {
-      const service = await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id]);
-      const videoPrice = service?.video_consultation_price || 0;
+      // ── AUDIT 2026-08-17 (FIX 8): fulfilment must not destroy the price the
+      // patient was CHARGED.
+      //
+      // This block used to (a) re-read the FLAT services.video_consultation_price
+      // column, which is the legacy fallback — the patient was charged from
+      // services.video_consultation_prices_json via resolveAddonJsonPrice (see
+      // create-intention above) — and (b) REPLACE addons_json wholesale with
+      // {video_consultation:true}, wiping video_consultation_price AND any
+      // prescription lines that were charged in the same transaction. An 800 EGP
+      // add-on was persisted as 200, and the refund ceiling, the doctor's
+      // commission basis and the receipt all inherited the wrong number.
+      //
+      // Correct source of truth, in order: the price locked on the order at
+      // intention time (parseSelectedAddons reads addons_json, which
+      // create-intention wrote and which owedCentsForOrder then verified against
+      // what Paymob actually charged), then the prices_json catalogue, then the
+      // flat column. And MERGE with `||` instead of replacing — exactly what the
+      // prescription branch below already does correctly.
+      // `selectedAddons` above IS parseSelectedAddons(order) — reuse it rather
+      // than re-parsing, so fulfilment and the selection gate can never
+      // disagree about the same JSON.
+      let videoPrice = Number(selectedAddons.video_consultation_price) || 0;
+      let videoPriceSource = 'order.addons_json (charged)';
+      if (videoPrice <= 0) {
+        const service = await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id]);
+        const addonCurrency = String(order.currency || order.locked_currency || 'EGP').toUpperCase();
+        videoPrice = resolveAddonJsonPrice(
+          service && service.video_consultation_prices_json,
+          addonCurrency,
+          Number(service && service.video_consultation_price) || 0
+        );
+        videoPriceSource = 'services.video_consultation_prices_json (fallback)';
+      }
 
       await execute(`
         UPDATE orders
         SET video_consultation_selected = true,
             video_consultation_price = $1,
-            addons_json = $2
+            addons_json = COALESCE(addons_json, '{}')::jsonb || $2::jsonb
         WHERE id = $3
-      `, [videoPrice, JSON.stringify({ video_consultation: true }), orderId]);
+      `, [videoPrice, JSON.stringify({ video_consultation: true, video_consultation_price: videoPrice }), orderId]);
 
       logOrderEvent({
         orderId,
         label: 'Video consultation add-on selected',
-        meta: JSON.stringify({ price: videoPrice }),
+        meta: JSON.stringify({ price: videoPrice, price_source: videoPriceSource }),
         actorRole: 'system'
       });
 
       // ---- V2 dual-write (gated by ADDON_SYSTEM_V2) ----
+      // FIX 9: pass the CHARGED price through so the doctor's
+      // price_at_purchase_egp snapshot is taken from the same catalogue the
+      // patient paid from. Previously onPurchase snapshotted
+      // addon_services.base_price_egp while the patient paid from
+      // services.video_consultation_prices_json — two independent catalogues on
+      // the two halves of one transaction, i.e. structurally negative margin the
+      // moment they drift. commissionPct still comes from the registry.
       await safeDualWrite('video_consult', 'onPurchase', orderId, async () => {
         const svc = getAddon('video_consult');
         const addonService = await queryOne(`SELECT * FROM addon_services WHERE id = 'video_consult'`);
         if (!svc || !addonService) throw new Error('video_consult addon not registered/seeded');
         const currency = order.locked_currency || 'EGP';
-        return svc.onPurchase({ order, addonService, currency });
+        return svc.onPurchase({ order, addonService, currency, chargedPriceEgp: videoPrice });
       });
 
       // WhatsApp-via-OpenClaw rollout: confirmation notification for
@@ -815,11 +1177,20 @@ router.post('/callback', async (req, res, next) => {
   if (selectedAddons.prescription) {
     try {
       const rxCurrency = order.locked_currency || 'EGP';
-      const rxRow = await queryOne(
-        "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = $1 LIMIT 1",
-        [rxCurrency]
-      );
-      const rxPrice = rxRow ? rxRow.tashkheesa_price : 350;
+      // FIX 8 (same class): prefer the price LOCKED ON THE ORDER at intention
+      // time — that is the figure owedCentsForOrder verified against what
+      // Paymob actually charged. Re-reading the catalogue here would silently
+      // adopt any price change made between checkout and settlement. The
+      // catalogue read stays as the fallback for legacy rows whose addons_json
+      // carries no price.
+      let rxPrice = Number(selectedAddons.prescription_price) || 0;
+      if (rxPrice <= 0) {
+        const rxRow = await queryOne(
+          "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = $1 LIMIT 1",
+          [rxCurrency]
+        );
+        rxPrice = rxRow ? Number(rxRow.tashkheesa_price) || 350 : 350;
+      }
 
       await execute(`
         UPDATE orders

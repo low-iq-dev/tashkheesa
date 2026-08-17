@@ -15,9 +15,45 @@ class VideoConsultAddon extends AddonService {
   static type = 'video_consult';
   static hasLifecycle = true;
 
-  async onPurchase({ order, addonService, currency = 'EGP' }) {
+  /**
+   * @param {object}  args
+   * @param {object}  args.order
+   * @param {object}  args.addonService
+   * @param {string} [args.currency='EGP']
+   * @param {number} [args.chargedPriceEgp]  What the patient was ACTUALLY
+   *   charged for this add-on, in EGP, read off orders.addons_json. See below.
+   */
+  async onPurchase({ order, addonService, currency = 'EGP', chargedPriceEgp = null }) {
     const resolved = await resolveAddonPrice(VideoConsultAddon.id, currency);
     if (!resolved) throw new Error('video_consult addon is not active');
+
+    // AUDIT 2026-08-17 (FIX 9): price_at_purchase_egp must be the price the
+    // PATIENT PAID, not the registry's catalogue price.
+    //
+    // The patient is charged from services.video_consultation_prices_json
+    // (routes/payments.js create-intention), while this row used to snapshot
+    // addon_services.base_price_egp. Two independent catalogues feeding the
+    // two halves of the same transaction is structurally negative margin: the
+    // moment they drift, onComplete pays the doctor
+    // commissionPct × <the OTHER catalogue's price>. If addon_services says
+    // 500 and the patient paid 200, a 40% commission pays out 200 EGP on a
+    // 200 EGP sale.
+    //
+    // So: the charged amount wins when the caller supplies one; the registry
+    // still owns commissionPct (the contract percentage is a registry concept,
+    // not a per-order one) and the currency metadata. Falling back to the
+    // registry price keeps pre-existing callers working unchanged.
+    const charged = Number(chargedPriceEgp);
+    const usingCharged = Number.isFinite(charged) && charged > 0;
+    const priceEgp = usingCharged ? Math.round(charged) : resolved.baseEgp;
+    const priceAmount = usingCharged ? Math.round(charged) : resolved.amount;
+    if (!usingCharged) {
+      console.warn(
+        '[video_consult.onPurchase] no chargedPriceEgp for order ' + order.id +
+        ' — falling back to addon_services.base_price_egp=' + resolved.baseEgp +
+        '; doctor commission may not match what the patient paid'
+      );
+    }
 
     // Idempotent UPSERT on (order_id, addon_service_id). If the patient
     // pays twice through the Paymob flow (retry), we keep the first row.
@@ -32,7 +68,7 @@ class VideoConsultAddon extends AddonService {
          SET status = order_addons.status  -- no-op; just returning the row
        RETURNING *`,
       [order.id, VideoConsultAddon.id,
-       resolved.baseEgp, resolved.currency, resolved.amount, resolved.commissionPct]
+       priceEgp, resolved.currency, priceAmount, resolved.commissionPct]
     );
     return row;
   }

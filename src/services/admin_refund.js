@@ -25,6 +25,7 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
+const { maxRefundableEgp } = require('./refund_eligibility');
 
 // Statuses that mean an in-flight or completed refund already exists for the
 // order (mirrors routes/superadmin.js:4681).
@@ -53,8 +54,12 @@ async function issueRefund(client, opts) {
   await client.query('BEGIN');
   try {
     // (1) order exists, not soft-deleted, locked FOR UPDATE
+    // price / addons_json / video_consultation_* are needed by
+    // maxRefundableEgp — the refund ceiling is what the patient was CHARGED
+    // (price + add-ons), not base_price + uplift. See check (5) below.
     const order = (await client.query(
-      `SELECT id, patient_id, payment_status, base_price, urgency_uplift_amount
+      `SELECT id, patient_id, payment_status, base_price, urgency_uplift_amount,
+              price, addons_json, video_consultation_selected, video_consultation_price
          FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
       [orderId]
     )).rows[0];
@@ -77,8 +82,13 @@ async function issueRefund(client, opts) {
     if (!Number.isFinite(amount) || amount <= 0) {
       throw af('Refund amount must be greater than zero', 400, 'INVALID_AMOUNT');
     }
-    // (5) amount <= full case fee (base + urgency uplift); epsilon absorbs float drift
-    const maxAmount = Number(order.base_price || 0) + Number(order.urgency_uplift_amount || 0);
+    // (5) amount <= everything the patient was charged; epsilon absorbs float drift.
+    // AUDIT 2026-08-17: was `base_price + urgency_uplift_amount`, which excluded
+    // paid add-ons and evaluated to 0 (→ every refund rejected) for the several
+    // order INSERT paths that never write base_price. maxRefundableEgp is the
+    // single source of truth and is derived from owedCentsForOrder — the same
+    // helper create-intention and the webhook amount check use.
+    const maxAmount = maxRefundableEgp(order);
     if (amount > maxAmount + 0.001) {
       throw af('Refund amount exceeds the case fee', 409, 'AMOUNT_EXCEEDS_MAX');
     }

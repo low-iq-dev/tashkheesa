@@ -191,8 +191,31 @@ router.post('/api/referral/apply', requireRole('patient'), async function(req, r
     // intention at the NEW price; the old amount-locked checkout link can no
     // longer be paid (which the webhook would otherwise mark paid at the old
     // amount, or reject via the B5 amount check).
+    // AUDIT 2026-08-17 (FIX 7): base_price must move with price.
+    //
+    // The canonical invariant (migration 037_orders_base_price.sql) is
+    //     base_price + urgency_uplift_amount = price
+    // and the refund ceiling is derived from that pair. Discounting `price`
+    // alone left base_price at the pre-discount figure, so a 10%-referral
+    // order could be refunded for MORE than was ever collected.
+    //
+    // Subtracting the same discountAmount from base_price preserves the
+    // invariant exactly ((base − d) + uplift = (base + uplift) − d = newPrice)
+    // and GREATEST(...,0) keeps it non-negative if a fixed-value reward ever
+    // exceeds the base. base_price is left NULL when it is already NULL —
+    // writing newPrice there would double-count the uplift; those rows are
+    // handled by the price-first branch of refund_eligibility.maxRefundableEgp.
     await execute(
-      'UPDATE orders SET referral_code = $1, referral_discount = $2, price = $3, paymob_intention_id = NULL, payment_link = NULL WHERE id = $4',
+      `UPDATE orders
+          SET referral_code = $1,
+              referral_discount = $2,
+              price = $3,
+              base_price = CASE WHEN base_price IS NULL
+                                THEN NULL
+                                ELSE GREATEST(0, base_price - $2) END,
+              paymob_intention_id = NULL,
+              payment_link = NULL
+        WHERE id = $4`,
       [code, discountAmount, newPrice, orderId]
     );
 

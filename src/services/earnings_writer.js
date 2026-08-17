@@ -23,6 +23,9 @@
 const { randomUUID } = require('crypto');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { computeDoctorEarnings } = require('./earnings_calc');
+// Refund ceiling helper — doubles as "what the patient actually paid", the
+// denominator of the scaled clawback in recomputeOnRefund (Site 4).
+const { maxRefundableEgp } = require('./refund_eligibility');
 
 const MAIN_EARNINGS_PREFIX = 'earn-main-';
 // P1-FIN-2: distinct prefix for partial-pay rows on reassignment.
@@ -249,11 +252,27 @@ async function recomputeOnBreach(orderId) {
 //       actually receives the refund money).
 //
 //   reason='patient_request' OR 'operator_refund' + earnings row exists
-//     → earned_amount = 0.10 * (baseShare + upliftShare)
-//       Doctor keeps 10% of their would-be payout. 90% claw-back.
+//     → earned_amount = full × (1 − 0.9 × refundRatio), where
+//         refundRatio = min(1, refundAmountEgp / totalCollectedEgp)
+//       i.e. the 90% claw-back SCALES LINEARLY with how much of the
+//       order was actually returned to the patient. A full refund
+//       leaves the doctor 10% (the historical behaviour); a 50%
+//       refund leaves 55%; a 10% refund leaves 91%.
 //       The existence of the earnings row IS the post-acceptance
 //       signal: writePendingForCase only fires at doctor acceptance,
 //       so a pre-acceptance refund hits the "no row" branch and skips.
+//
+//       AUDIT 2026-08-17: this used to be an unconditional
+//       `full * 0.10` with no amount argument at all, so refunding
+//       50 EGP of a 2000 EGP order clawed back 90% of the doctor's
+//       whole fee. It was also the only unrounded money expression in
+//       this file. Both fixed.
+//
+//       Degradation is deliberate: when the caller supplies no
+//       refundAmountEgp (or the order total can't be established) we
+//       fall back to refundRatio = 1, i.e. the previous full 90%
+//       claw-back. Failing towards the platform, never towards
+//       silently paying out on a refunded case.
 //
 //   else (no earnings row, or unknown reason)
 //     → skip. Pre-acceptance refunds don't touch earnings (no doctor
@@ -268,8 +287,14 @@ async function recomputeOnRefund(orderId, opts) {
   const reason = opts && opts.reason;
   if (!orderId || !reason) return { skipped: 'missing_args' };
 
+  // price / addons_json / video_consultation_* feed maxRefundableEgp, which
+  // supplies the denominator of the refund ratio when the caller doesn't pass
+  // an explicit totalCollectedEgp. orders_active projects every orders column
+  // (migrations 069 / 077 assert full parity), so these are safe to select.
   const order = await queryOne(
-    `SELECT id, doctor_id, doctor_fee, urgency_uplift_amount
+    `SELECT id, doctor_id, doctor_fee, urgency_uplift_amount,
+            price, base_price, addons_json,
+            video_consultation_selected, video_consultation_price
        FROM orders_active WHERE id = $1`,
     [orderId]
   );
@@ -295,21 +320,51 @@ async function recomputeOnRefund(orderId, opts) {
 
   let newEarned;
   let policyApplied;
+  let refundRatio = null;
+  let totalCollectedEgp = null;
+  let refundAmountEgp = null;
   if (reason === 'sla_breach') {
+    // Separate policy path — the SLA-breach settlement is all-or-nothing and
+    // does NOT scale with the refunded amount. Left untouched deliberately.
     newEarned = 0;
     policyApplied = 'sla_breach_full_clawback';
   } else if (reason === 'patient_request' || reason === 'operator_refund') {
-    // Doctor keeps 10% of their would-be payout. Compute the full
-    // earning from canonical inputs (doctor_fee + urgency_uplift_amount
-    // on the order) so the 10% is policy-stable even if the existing
-    // row's earned_amount drifted via partial-pay paths.
+    // Compute the full earning from canonical inputs (doctor_fee +
+    // urgency_uplift_amount on the order) so the policy is stable even if
+    // the existing row's earned_amount drifted via partial-pay paths.
     const fullEarning = computeDoctorEarnings({
       baseDoctorFee:  Number(order.doctor_fee) || 0,
       upliftAmount:   Number(order.urgency_uplift_amount) || 0,
       upliftDoctorPct: 30
     });
-    newEarned = (fullEarning.baseShare + fullEarning.upliftShare) * 0.10;
-    policyApplied = 'patient_or_operator_post_acceptance_90pct_clawback';
+    const full = fullEarning.baseShare + fullEarning.upliftShare;
+
+    // Denominator: what the patient actually paid for this order. Callers may
+    // override (opts.totalCollectedEgp); otherwise derive it from the order
+    // with the same helper the refund ceiling uses, so the ratio can never
+    // exceed 1 for a within-ceiling refund.
+    const optTotal = Number(opts && opts.totalCollectedEgp);
+    totalCollectedEgp = (Number.isFinite(optTotal) && optTotal > 0)
+      ? optTotal
+      : maxRefundableEgp(order);
+
+    const optRefund = Number(opts && opts.refundAmountEgp);
+    refundAmountEgp = (Number.isFinite(optRefund) && optRefund > 0) ? optRefund : null;
+
+    if (refundAmountEgp != null && Number.isFinite(totalCollectedEgp) && totalCollectedEgp > 0) {
+      refundRatio = Math.min(1, refundAmountEgp / totalCollectedEgp);
+    } else {
+      // No usable amount → previous behaviour: treat as a full refund and
+      // claw back 90%. Never silently skip the clawback.
+      refundRatio = 1;
+    }
+
+    // Linear scaling: a refundRatio of r claws back 90% of r of the fee.
+    newEarned = full * (1 - 0.9 * refundRatio);
+    // Round to 2dp like every other monetary expression in this file.
+    newEarned = Math.round(newEarned * 100) / 100;
+    if (!Number.isFinite(newEarned) || newEarned < 0) newEarned = 0;
+    policyApplied = 'patient_or_operator_post_acceptance_scaled_90pct_clawback';
   } else {
     return { skipped: 'unrecognised_reason', reason };
   }
@@ -334,7 +389,12 @@ async function recomputeOnRefund(orderId, opts) {
     earningsId: existing.id,
     newEarnedAmount: newEarned,
     policyApplied: policyApplied,
-    reason: reason
+    reason: reason,
+    // Exposed so the two mark-paid routes can audit HOW MUCH was clawed back
+    // and why. null on the sla_breach path (ratio is not part of that policy).
+    refundRatio: refundRatio,
+    refundAmountEgp: refundAmountEgp,
+    totalCollectedEgp: totalCollectedEgp
   };
 }
 

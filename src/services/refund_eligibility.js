@@ -35,6 +35,7 @@
 'use strict';
 
 const { queryAll } = require('../pg');
+const { owedCentsForOrder } = require('./order_pricing');
 
 const PRE_DOCTOR_ACCEPT = new Set(['PAID', 'ASSIGNED']);
 const REVIEW_REQUIRED = new Set(['IN_REVIEW', 'REJECTED_FILES', 'REASSIGNED']);
@@ -114,4 +115,57 @@ async function isEligibleForRefund(order, requestingUserId) {
   return { eligible: false, reason: 'unknown_status', autoApprove: false };
 }
 
-module.exports = { isEligibleForRefund };
+/**
+ * The maximum EGP that may be refunded for an order — i.e. everything the
+ * patient was actually charged.
+ *
+ * AUDIT (2026-08-17): the two refund-ceiling call sites
+ * (services/admin_refund.js and routes/superadmin.js) both computed
+ *   base_price + urgency_uplift_amount
+ * which is wrong twice over:
+ *   1. It excludes the add-ons (video consultation, prescription) that
+ *      create-intention priced into the Paymob charge — see
+ *      services/order_pricing.owedCentsForOrder, the single source of truth
+ *      for "what Paymob was asked to charge" and "what the webhook verified".
+ *   2. Several INSERT paths never write orders.base_price, so those orders
+ *      evaluated to a ceiling of 0 and were PERMANENTLY UNREFUNDABLE.
+ *
+ * Canonical invariant (migration 037_orders_base_price.sql §"Per
+ * docs/PAYOUT_AND_URGENCY_POLICY.md §2"):
+ *
+ *     orders.base_price + orders.urgency_uplift_amount = orders.price
+ *
+ * so `orders.price` ALREADY contains the urgency uplift. Adding the uplift on
+ * top of `price` would let an operator refund more than was collected, so the
+ * primary path here is owedCentsForOrder(order) = price + selected add-ons —
+ * literally the number the gateway charged. The base_price + uplift sum is used
+ * only as a reconstruction fallback for legacy rows that carry no `price`.
+ *
+ * @param {Object} order - orders / orders_active row. Must include at least
+ *   price, base_price, urgency_uplift_amount, addons_json and (for the legacy
+ *   fallback) video_consultation_selected / video_consultation_price.
+ * @returns {number} EGP, rounded to 2dp. 0 only when the order really has no
+ *   money attached to it.
+ */
+function maxRefundableEgp(order) {
+  if (!order) return 0;
+
+  // price + every add-on locked on the order at intention time.
+  let cents = owedCentsForOrder(order);
+
+  const price = Number(order.price);
+  if (!Number.isFinite(price) || price <= 0) {
+    // Legacy / partial row with no canonical price: rebuild the main fee from
+    // the snapshot columns. Safe to ADD here (rather than replace) because
+    // owedCentsForOrder contributed 0 for the missing price and only the
+    // add-on lines above.
+    const base = Number(order.base_price) || 0;
+    const uplift = Number(order.urgency_uplift_amount) || 0;
+    cents += Math.round((base + uplift) * 100);
+  }
+
+  if (!Number.isFinite(cents) || cents <= 0) return 0;
+  return Math.round(cents) / 100;
+}
+
+module.exports = { isEligibleForRefund, maxRefundableEgp };

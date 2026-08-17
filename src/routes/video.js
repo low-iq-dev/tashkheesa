@@ -341,7 +341,27 @@ router.post('/portal/video/payment/callback', async (req, res) => {
   const paymobTxnId = (txn && txn.id != null) ? String(txn.id) : null;
   const paymobIntentionId = (txn && txn.intention && txn.intention.id != null)
     ? String(txn.intention.id) : null;
-  const isSuccess = (txn.success === true) && (txn.pending !== true) && (txn.error_occured !== true);
+
+  // ── AUDIT 2026-08-17 (FIX 2): honour the SIGNED refund / void flags ────────
+  //
+  // is_refunded, is_voided and has_parent_transaction are all inside the
+  // HMAC-signed 19-field set (src/paymob-hmac.js HMAC_FIELDS) and neither
+  // callback read them. A void or a refund is delivered as its own transaction
+  // carrying `success: true` and a FRESH obj.id — so it sailed through both the
+  // amount check (the amounts match; it is the same money going the other way)
+  // and the per-transaction-id idempotency index (the id is new). Paymob
+  // telling us "this money went back to the cardholder" was being processed as
+  // "this appointment is paid".
+  const isRefundOrVoid = (txn.is_refunded === true)
+    || (txn.is_voided === true)
+    || (txn.has_parent_transaction === true);
+
+  const isSuccess = (txn.success === true)
+    && (txn.pending !== true)
+    && (txn.error_occured !== true)
+    && (txn.is_refunded !== true)
+    && (txn.is_voided !== true)
+    && (txn.has_parent_transaction !== true);
 
   // Theme 9 Sub-issue C: kill-switch gate on the webhook. ACK Paymob (200) so
   // they don't retry, but trigger a critical alert — the patient already
@@ -359,6 +379,52 @@ router.post('/portal/video/payment/callback', async (req, res) => {
 
   const payment = await queryOne('SELECT * FROM appointment_payments WHERE id = $1', [payment_id]);
   if (!payment) return res.status(404).json({ ok: false, error: 'payment not found' });
+
+  // A refund/void signal is a real, signed money event — audit and page, never
+  // silently drop. There is no Paymob refund API integration on this platform,
+  // so an inbound refund/void is by definition unexpected and needs a human.
+  if (isRefundOrVoid) {
+    console.warn('[video-callback] refund/void transaction received — NOT marking paid', {
+      payment_id, paymobTxnId,
+      is_refunded: txn.is_refunded === true,
+      is_voided: txn.is_voided === true,
+      has_parent_transaction: txn.has_parent_transaction === true
+    });
+    try {
+      // Resolve the real case id so the event lands on the case timeline.
+      // order_events.order_id has no FK, so an appointment id would silently
+      // orphan the row. This path is rare (refund/void only) — the extra
+      // lookup costs nothing on the hot path.
+      const ap = payment.appointment_id
+        ? await queryOne('SELECT order_id FROM appointments WHERE id = $1', [payment.appointment_id])
+        : null;
+      logOrderEvent({
+        orderId: (ap && ap.order_id) ? String(ap.order_id) : null,
+        label: 'video_paymob_refund_or_void_received',
+        meta: JSON.stringify({
+          payment_id,
+          paymob_transaction_id: paymobTxnId,
+          paymob_intention_id: paymobIntentionId,
+          is_refunded: txn.is_refunded === true,
+          is_voided: txn.is_voided === true,
+          has_parent_transaction: txn.has_parent_transaction === true,
+          amount_cents: txn.amount_cents != null ? Number(txn.amount_cents) : null,
+          appointment_id: payment.appointment_id || null
+        }),
+        actorRole: 'system'
+      });
+    } catch (_) {}
+    try {
+      sendCriticalAlert(
+        'Paymob refund/void webhook on video payment_id=' + payment_id +
+        ' (txn ' + (paymobTxnId || 'n/a') + ') — appointment left UNPAID, reconcile manually',
+        'video_paymob_refund_or_void'
+      );
+    } catch (_) {}
+    // Ack 200 so Paymob stops retrying; the appointment is deliberately
+    // NOT marked paid.
+    return res.json({ ok: true, refund_or_void: true });
+  }
 
   if (!isSuccess) {
     return res.json({ ok: true, note: 'non-success status' });
@@ -873,12 +939,54 @@ router.post('/api/video/token/:appointmentId', requireRole('patient', 'doctor'),
 // ---------------------------------------------------------------------------
 // POST /api/video/end/:appointmentId — End call, calc duration, create earnings
 // ---------------------------------------------------------------------------
+// ── AUDIT-2026-08-17 (FIX 1): this endpoint minted unlimited doctor earnings ──
+//
+// Before this fix the route was gated only on requireRole('patient','doctor') +
+// ensureParticipant, the appointment UPDATE carried no from-state predicate,
+// nothing checked the appointment had EVER been paid, and the doctor_earnings
+// INSERT used a fresh randomUUID() every call with no unique constraint behind
+// it. Net effect: a PATIENT could POST this endpoint in a loop and mint an
+// unbounded number of `pending` payout rows against the doctor's ledger, on an
+// appointment nobody paid for. Four independent guards now stand between a
+// request and a payout row:
+//
+//   1. role/ownership — only the appointment's OWN doctor writes earnings.
+//      A patient may still END the call (that is a legitimate participant
+//      action); it just no longer moves money.
+//   2. from-state predicate on the appointments UPDATE + rowCount bail, so a
+//      completed / cancelled / no-show / never-confirmed appointment cannot be
+//      re-"ended".
+//   3. paid check against appointment_payments.status, the same resolution the
+//      pay page and the Paymob webhook use (appointment.payment_id → row).
+//   4. ON CONFLICT DO NOTHING against the unique index on
+//      doctor_earnings(appointment_id) — see migration 082 (owned by another
+//      worker; the code is written as if it already exists, and degrades to
+//      guard 1-3 plus the explicit pre-check if it is not yet applied).
+//
+// Statuses: the in-call state in this codebase is 'started' (set on join, see
+// /api/video/token above), NOT 'in_progress' — that string appears nowhere in
+// the appointment lifecycle. The endable set is therefore
+// ('confirmed','started').
+const ENDABLE_APPOINTMENT_STATUSES = ['confirmed', 'started'];
+
 router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), async (req, res) => {
   const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [req.params.appointmentId]);
 
   if (!appointment || !ensureParticipant(appointment, req.user.id)) {
     return res.status(404).json({ ok: false, error: 'Appointment not found' });
   }
+
+  // Guard 1 — earnings are the DOCTOR's payout; only the assigned doctor's own
+  // request may create them.
+  const isOwningDoctor = req.user.role === 'doctor'
+    && appointment.doctor_id != null
+    && String(appointment.doctor_id) === String(req.user.id);
+
+  // Guard 3 — the appointment must actually have been paid for.
+  const payment = appointment.payment_id
+    ? await queryOne('SELECT id, status FROM appointment_payments WHERE id = $1', [appointment.payment_id])
+    : null;
+  const isPaid = !!(payment && String(payment.status || '').toLowerCase() === 'paid');
 
   const now = nowIso();
   const videoCall = appointment.video_call_id
@@ -892,28 +1000,97 @@ router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), a
 
   try {
     const result = await withTransaction(async (client) => {
-      // End video call
-      if (videoCall && videoCall.status === 'active') {
+      // Lock the row and re-read the status INSIDE the transaction so the
+      // decisions below can't race a concurrent end / cancel / no-show.
+      const locked = (await client.query(
+        `SELECT status FROM appointments WHERE id = $1 FOR UPDATE`,
+        [appointment.id]
+      )).rows[0];
+      const currentStatus = String((locked && locked.status) || '');
+
+      // Guard 2 — from-state predicate. rowCount === 0 means the appointment
+      // was not in an endable state; we do NOT complete it and we do NOT touch
+      // the video_calls row.
+      const completed = await client.query(
+        `UPDATE appointments SET status = 'completed', updated_at = $1
+          WHERE id = $2 AND status = ANY($3::text[])`,
+        [now, appointment.id, ENDABLE_APPOINTMENT_STATUSES]
+      );
+      const didComplete = !!(completed && completed.rowCount > 0);
+
+      // Earnings stay writable on an ALREADY-completed appointment so the
+      // doctor is still paid when the PATIENT was the one who clicked End
+      // (guard 2 would otherwise silently swallow the doctor's only payout
+      // trigger). Idempotency is guard 4's job, not the state machine's.
+      const earningsEligible = isOwningDoctor && isPaid
+        && (didComplete || currentStatus === 'completed');
+
+      if (!didComplete && !earningsEligible) {
+        return {
+          noop: true,
+          notEndableStatus: currentStatus,
+          durationSeconds: videoCall && videoCall.duration_seconds != null
+            ? Number(videoCall.duration_seconds) || 0
+            : 0,
+          earnedAmount: 0,
+          earningsId: null
+        };
+      }
+
+      // End video call (only alongside a real completion).
+      if (didComplete && videoCall && videoCall.status === 'active') {
         await client.query(`
           UPDATE video_calls SET status = 'ended', ended_at = $1, duration_seconds = $2, updated_at = $3
           WHERE id = $4
         `, [now, durationSeconds, now, videoCall.id]);
       }
 
-      // Complete appointment
-      await client.query(`UPDATE appointments SET status = 'completed', updated_at = $1 WHERE id = $2`,
-        [now, appointment.id]);
+      // Create doctor earnings — gated by guards 1 + 3, deduped by guard 4.
+      let earnedAmount = 0;
+      let earningsId = null;
+      if (earningsEligible) {
+        const grossAmount = Number(appointment.price) || 0;
+        const commissionPct = Number(appointment.doctor_commission_pct) || 0;
+        earnedAmount = Math.round(grossAmount * (commissionPct / 100) * 100) / 100;
+        const candidateId = `earn-${randomUUID()}`;
+        // Explicit pre-check so the behaviour is correct even before migration
+        // 082 lands; ON CONFLICT DO NOTHING is the race-proof backstop once it
+        // does. Untargeted (no conflict_target) so it matches migration 082
+        // whether the unique index is total or partial — a targeted
+        // `ON CONFLICT (appointment_id)` fails to infer a PARTIAL index and
+        // would raise at runtime.
+        const ins = await client.query(`
+          INSERT INTO doctor_earnings (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, created_at)
+          SELECT $1, $2, $3, $4, $5, $6, 'pending', $7
+           WHERE NOT EXISTS (
+                 SELECT 1 FROM doctor_earnings WHERE appointment_id = $3
+           )
+          ON CONFLICT DO NOTHING
+        `, [candidateId, appointment.doctor_id, appointment.id, grossAmount, commissionPct, earnedAmount, now]);
+        if (ins && ins.rowCount > 0) {
+          earningsId = candidateId;
+        } else {
+          // Already had an earnings row — report it, don't mint a second.
+          earnedAmount = 0;
+        }
+      }
 
-      // Create doctor earnings
-      const earnedAmount = Math.round(appointment.price * (appointment.doctor_commission_pct / 100) * 100) / 100;
-      const earningsId = `earn-${randomUUID()}`;
-      await client.query(`
-        INSERT INTO doctor_earnings (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
-      `, [earningsId, appointment.doctor_id, appointment.id, appointment.price, appointment.doctor_commission_pct, earnedAmount, now]);
-
-      return { durationSeconds, earnedAmount, earningsId };
+      return { didComplete, earningsEligible, durationSeconds, earnedAmount, earningsId };
     });
+
+    if (result.noop) {
+      // Nothing to do: the appointment was not endable and no payout was owed.
+      // 200 (not 4xx) so a double-click / back-button on the call UI lands on
+      // the summary page instead of an error.
+      return res.json({
+        ok: true,
+        already_ended: true,
+        duration_seconds: result.durationSeconds,
+        duration_formatted: formatDuration(result.durationSeconds),
+        earned_amount: 0,
+        redirect: `/portal/video/ended/${appointment.id}`
+      });
+    }
 
     // ---- V2 dual-write (gated by ADDON_SYSTEM_V2) ----
     // Fires onFulfill → onComplete on the matching order_addons row. If
@@ -936,17 +1113,28 @@ router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), a
         payload: { appointment_id: appointment.id, call_duration_seconds: result.durationSeconds }
       });
     });
-    await safeDualWrite('video_consult', 'onComplete', appointment.order_id, async () => {
-      const existing = await queryOne(
-        `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'video_consult'`,
-        [appointment.order_id]
-      );
-      if (!existing || existing.status !== 'fulfilled') return null;
-      const svc = getAddon('video_consult');
-      return svc.onComplete({ order: { id: appointment.order_id }, addon: existing, doctorId: appointment.doctor_id });
-    });
+    // FIX 1 — onComplete writes addon_earnings, i.e. a second doctor payout on
+    // the SAME request. It carries the same guards as the doctor_earnings
+    // insert above: owning doctor + paid appointment. onFulfill above is a
+    // pure state transition (the call did happen) and stays ungated.
+    if (result.earningsEligible) {
+      await safeDualWrite('video_consult', 'onComplete', appointment.order_id, async () => {
+        const existing = await queryOne(
+          `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'video_consult'`,
+          [appointment.order_id]
+        );
+        if (!existing || existing.status !== 'fulfilled') return null;
+        const svc = getAddon('video_consult');
+        return svc.onComplete({ order: { id: appointment.order_id }, addon: existing, doctorId: appointment.doctor_id });
+      });
+    }
 
-    // Notify both participants
+    // Notify both participants — only on the request that ACTUALLY ended the
+    // call. When the doctor follows the patient in purely to claim earnings
+    // (didComplete === false, earningsEligible === true) the "call ended"
+    // notifications were already sent by the patient's request; re-sending
+    // would double-notify both parties.
+    if (result.didComplete) {
     for (const uid of [appointment.patient_id, appointment.doctor_id]) {
       queueNotification({
         orderId: appointment.order_id,
@@ -974,10 +1162,11 @@ router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), a
         duration: formatDuration(result.durationSeconds)
       })
     });
+    }  // end if (result.didComplete) — notifications
 
     logOrderEvent({
       orderId: appointment.order_id,
-      label: 'video_call_ended',
+      label: result.didComplete ? 'video_call_ended' : 'video_call_earnings_claimed',
       meta: JSON.stringify({
         appointment_id: appointment.id,
         duration_seconds: result.durationSeconds,
@@ -1057,16 +1246,33 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
     return res.status(403).json({ ok: false, error: 'Forbidden' });
   }
 
-  if (!['confirmed', 'started'].includes(appointment.status)) {
+  if (!ENDABLE_APPOINTMENT_STATUSES.includes(appointment.status)) {
     return res.status(400).json({ ok: false, error: 'Cannot mark no-show for this appointment' });
   }
 
   const { no_show_type } = req.body;
   const now = nowIso();
 
+  // FIX 1 (no-show variant) — the patient-no-show branch below writes a doctor
+  // payout, so it needs the same money guards as /api/video/end: the
+  // appointment must have been PAID, the status transition must carry a
+  // from-state predicate (the check above is a read-then-write and races two
+  // concurrent submits), and the earnings INSERT must be idempotent.
+  const nsPayment = appointment.payment_id
+    ? await queryOne('SELECT id, status FROM appointment_payments WHERE id = $1', [appointment.payment_id])
+    : null;
+  const nsIsPaid = !!(nsPayment && String(nsPayment.status || '').toLowerCase() === 'paid');
+
   if (no_show_type === 'doctor') {
     // Doctor no-show: full refund to patient
-    await execute(`UPDATE appointments SET status = 'no_show_doctor', updated_at = $1 WHERE id = $2`, [now, appointment.id]);
+    const flipped = await execute(
+      `UPDATE appointments SET status = 'no_show_doctor', updated_at = $1
+        WHERE id = $2 AND status = ANY($3::text[])`,
+      [now, appointment.id, ENDABLE_APPOINTMENT_STATUSES]
+    );
+    if (!flipped || flipped.rowCount === 0) {
+      return res.status(409).json({ ok: false, error: 'Appointment is no longer in a markable state' });
+    }
 
     if (appointment.payment_id) {
       await execute(`UPDATE appointment_payments SET status = 'refunded', refund_reason = 'Doctor no-show', refunded_at = $1 WHERE id = $2`,
@@ -1091,14 +1297,35 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
     });
   } else {
     // Patient no-show: no refund, doctor keeps payment
-    await execute(`UPDATE appointments SET status = 'no_show_patient', updated_at = $1 WHERE id = $2`, [now, appointment.id]);
+    const flipped = await execute(
+      `UPDATE appointments SET status = 'no_show_patient', updated_at = $1
+        WHERE id = $2 AND status = ANY($3::text[])`,
+      [now, appointment.id, ENDABLE_APPOINTMENT_STATUSES]
+    );
+    if (!flipped || flipped.rowCount === 0) {
+      return res.status(409).json({ ok: false, error: 'Appointment is no longer in a markable state' });
+    }
 
-    // Create doctor earnings even for no-show
-    const earnedAmount = Math.round(appointment.price * (appointment.doctor_commission_pct / 100) * 100) / 100;
-    await execute(`
-      INSERT INTO doctor_earnings (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
-    `, [`earn-${randomUUID()}`, appointment.doctor_id, appointment.id, appointment.price, appointment.doctor_commission_pct, earnedAmount, now]);
+    // Create doctor earnings even for no-show — but ONLY if the patient
+    // actually paid, and only once (see the FIX 1 block above /api/video/end
+    // for the full rationale and the migration-082 dependency).
+    if (!nsIsPaid) {
+      console.warn('[video] patient no-show on UNPAID appointment — no earnings written', {
+        appointment_id: appointment.id, payment_id: appointment.payment_id || null
+      });
+    } else {
+      const grossAmount = Number(appointment.price) || 0;
+      const commissionPct = Number(appointment.doctor_commission_pct) || 0;
+      const earnedAmount = Math.round(grossAmount * (commissionPct / 100) * 100) / 100;
+      await execute(`
+        INSERT INTO doctor_earnings (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, created_at)
+        SELECT $1, $2, $3, $4, $5, $6, 'pending', $7
+         WHERE NOT EXISTS (
+               SELECT 1 FROM doctor_earnings WHERE appointment_id = $3
+         )
+        ON CONFLICT DO NOTHING
+      `, [`earn-${randomUUID()}`, appointment.doctor_id, appointment.id, grossAmount, commissionPct, earnedAmount, now]);
+    }
 
     // ---- V2 dual-write (gated by ADDON_SYSTEM_V2, patient-no-show variant) ----
     await safeDualWrite('video_consult', 'onFulfill', appointment.order_id, async () => {
@@ -1117,15 +1344,18 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
         payload: { appointment_id: appointment.id, call_duration_seconds: 0, no_show: 'patient' }
       });
     });
-    await safeDualWrite('video_consult', 'onComplete', appointment.order_id, async () => {
-      const existing = await queryOne(
-        `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'video_consult'`,
-        [appointment.order_id]
-      );
-      if (!existing || existing.status !== 'fulfilled') return null;
-      const svc = getAddon('video_consult');
-      return svc.onComplete({ order: { id: appointment.order_id }, addon: existing, doctorId: appointment.doctor_id });
-    });
+    // Same money guard as the V1 insert above: onComplete writes addon_earnings.
+    if (nsIsPaid) {
+      await safeDualWrite('video_consult', 'onComplete', appointment.order_id, async () => {
+        const existing = await queryOne(
+          `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'video_consult'`,
+          [appointment.order_id]
+        );
+        if (!existing || existing.status !== 'fulfilled') return null;
+        const svc = getAddon('video_consult');
+        return svc.onComplete({ order: { id: appointment.order_id }, addon: existing, doctorId: appointment.doctor_id });
+      });
+    }
 
     queueNotification({
       orderId: appointment.order_id,
