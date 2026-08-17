@@ -3,7 +3,8 @@ const {
   CASE_STATUS,
   markSlaBreach,
   reassignCase,
-  logCaseEvent
+  logCaseEvent,
+  dbStatusValuesFor
 } = require('./case_lifecycle');
 const { major: logMajor, fatal: logFatal } = require('./logger');
 const { eligibleDoctorClause } = require('./services/doctor_eligibility');
@@ -11,6 +12,40 @@ const { eligibleDoctorClause } = require('./services/doctor_eligibility');
 // SLA breach scanning should only apply once the case is in active review.
 // Keep this resilient even if older code uses a string literal for rejected_files.
 const SCAN_STATUSES = [CASE_STATUS.IN_REVIEW, (CASE_STATUS.REJECTED_FILES || 'rejected_files')];
+
+// AUDIT 2026-08-17 — expand each canonical status into EVERY spelling that has
+// ever been written to orders.status, instead of just lowercasing the canonical
+// key.
+//
+// The sweep compared `LOWER(o.status) IN ('in_review','rejected_files')`. That
+// matches the canonical writer's 'IN_REVIEW' (it lowercases to 'in_review') but
+// misses every historical variant that case_lifecycle's own DB_STATUS_VARIANTS
+// map knows about — 'in_progress', 'review', 'inreview'.
+//
+// A case stored under one of those spellings is invisible to this sweep, which
+// means it can NEVER breach: no breach mark, no reassignment, no urgency-uplift
+// refund to the patient, no accountability for the doctor holding it. It simply
+// sits past its deadline forever, and nothing anywhere says so.
+//
+// That is not theoretical. Order demo-order-in-progress-001 was found on
+// 2026-08-17 sitting three months past its deadline with breached_at NULL and
+// status 'in_progress' — a spelling this query could not see. No live code path
+// writes 'in_progress' today, so the exposure is latent rather than active, but
+// the row proves such rows exist in this table and the sweep silently skips
+// them.
+//
+// dbStatusValuesFor() is the map that already knows every spelling; using it
+// here means the sweep and the normaliser can no longer disagree.
+function scanStatusValues() {
+  const out = [];
+  for (const canon of SCAN_STATUSES) {
+    for (const variant of dbStatusValuesFor(canon)) {
+      const v = String(variant).toLowerCase();
+      if (out.indexOf(v) === -1) out.push(v);
+    }
+  }
+  return out;
+}
 const SCAN_INTERVAL_MS = 5 * 60 * 1000;
 // AUDIT-ACCEPT-1 — fallback acceptance cutoff for LEGACY rows only: assignments
 // written before doctor_assignments.accept_by_at existed. Every new assignment
@@ -229,14 +264,14 @@ async function fetchSlaCandidates() {
   // transitionCase(SLA_BREACH), and transitionCase rejected it with
   // "Only active review cases can escalate to SLA breach" — caught, logged,
   // breached_at never set, re-selected 5 minutes later, forever.
-  const statuses = SCAN_STATUSES.map((s) => String(s).toLowerCase());
+  const statuses = scanStatusValues();
   return await queryAll(
     `SELECT o.id AS case_id,
             o.doctor_id,
             o.specialty_id,
             o.service_id
      FROM orders_active o
-     WHERE LOWER(COALESCE(o.status, '')) IN ($1, $2)
+     WHERE LOWER(COALESCE(o.status, '')) IN (${statuses.map((_, i) => '$' + (i + 1)).join(', ')})
        AND o.deadline_at IS NOT NULL
        AND o.breached_at IS NULL
        AND o.sla_paused_at IS NULL
@@ -257,7 +292,7 @@ async function fetchSlaCandidates() {
 // `INTERVAL` literal without exposing a SQL-injection surface (Postgres
 // requires `INTERVAL` to be a literal, not a bound parameter).
 async function fetchPreBreachCandidates() {
-  const statuses = SCAN_STATUSES.map((s) => String(s).toLowerCase());
+  const statuses = scanStatusValues();
   const rawMin = Number(process.env.SLA_REMINDER_MINUTES);
   const reminderMinutes = Number.isFinite(rawMin) && rawMin > 0
     ? Math.max(1, Math.min(360, Math.floor(rawMin)))
@@ -266,7 +301,7 @@ async function fetchPreBreachCandidates() {
     `SELECT o.id AS case_id,
             o.doctor_id
      FROM orders_active o
-     WHERE LOWER(COALESCE(o.status, '')) IN ($1, $2)
+     WHERE LOWER(COALESCE(o.status, '')) IN (${statuses.map((_, i) => '$' + (i + 1)).join(', ')})
        AND o.deadline_at IS NOT NULL
        AND o.breached_at IS NULL
        AND o.sla_paused_at IS NULL

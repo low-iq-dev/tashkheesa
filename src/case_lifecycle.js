@@ -1277,7 +1277,13 @@ const DB_STATUS_VARIANTS = Object.freeze({
   [CASE_STATUS.SUBMITTED]: [CASE_STATUS.SUBMITTED, 'submitted', 'SUBMITTED', 'new', 'NEW', 'pending', 'PENDING'],
   [CASE_STATUS.PAID]: [CASE_STATUS.PAID, 'paid', 'PAID'],
   [CASE_STATUS.ASSIGNED]: [CASE_STATUS.ASSIGNED, 'assigned', 'ASSIGNED', 'accepted', 'ACCEPTED'],
-  [CASE_STATUS.IN_REVIEW]: [CASE_STATUS.IN_REVIEW, 'in_review', 'IN_REVIEW', 'review', 'REVIEW', 'inreview', 'INREVIEW'],
+  // AUDIT 2026-08-17 — 'in_progress' added. normalizeStatus already mapped it
+  // to IN_REVIEW via STATUS_ALIASES, but it was missing from THIS list, which
+  // is what SQL scans expand through. Production held a row with that exact
+  // spelling (demo-order-in-progress-001), and the SLA breach sweep — which
+  // built its WHERE clause from this map — could not see it. The case sat
+  // three months past its deadline and was never breached.
+  [CASE_STATUS.IN_REVIEW]: [CASE_STATUS.IN_REVIEW, 'in_review', 'IN_REVIEW', 'in_progress', 'IN_PROGRESS', 'review', 'REVIEW', 'inreview', 'INREVIEW'],
   [CASE_STATUS.REJECTED_FILES]: [CASE_STATUS.REJECTED_FILES, 'rejected_files', 'REJECTED_FILES', 'files_requested', 'FILES_REQUESTED', 'file_requested', 'FILE_REQUESTED', 'more_info_needed', 'MORE_INFO_NEEDED'],
   [CASE_STATUS.COMPLETED]: [CASE_STATUS.COMPLETED, 'completed', 'COMPLETED', 'done', 'DONE', 'finished', 'FINISHED'],
   [CASE_STATUS.SLA_BREACH]: [CASE_STATUS.SLA_BREACH, 'sla_breach', 'SLA_BREACH', 'breached', 'BREACHED', 'breached_sla', 'BREACHED_SLA', 'sla_breached', 'SLA_BREACHED', 'delayed', 'DELAYED', 'overdue', 'OVERDUE'],

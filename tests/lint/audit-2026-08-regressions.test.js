@@ -375,6 +375,55 @@ try {
   t.pass('acceptance window has one source of truth (urgent 15m / vip 45m / standard 2h)');
 } catch (e) { t.fail('acceptance window policy', e); }
 
+// ── 8b. The SLA sweep can see every spelling of the statuses it scans ────
+//
+// AUDIT 2026-08-17. The breach sweep built its WHERE clause by lowercasing the
+// CANONICAL status keys — `LOWER(o.status) IN ('in_review','rejected_files')`.
+// case_lifecycle's DB_STATUS_VARIANTS map knows those statuses have also been
+// written as 'in_progress', 'review' and 'inreview'. A row stored under one of
+// those spellings was invisible to the sweep, and a case the sweep cannot see
+// can NEVER breach: no breach mark, no reassignment, no urgency-uplift refund,
+// no accountability for the doctor holding it. It sits past its deadline
+// forever and nothing anywhere says so.
+//
+// Found via order demo-order-in-progress-001 — three months past deadline,
+// breached_at NULL, status 'in_progress'.
+//
+// The sweep now expands through dbStatusValuesFor(). This guard fails if it
+// stops doing so, or if the two ever disagree again.
+try {
+  const workerSrc = fs.readFileSync(path.join(SRC, 'case_sla_worker.js'), 'utf8');
+
+  if (!/dbStatusValuesFor/.test(workerSrc)) {
+    throw new Error(
+      'case_sla_worker no longer expands scan statuses through dbStatusValuesFor — ' +
+      'cases stored under a variant spelling become invisible to the breach sweep and can never breach'
+    );
+  }
+  // The old shape: lowercasing the canonical keys directly.
+  if (/SCAN_STATUSES\.map\(\s*\(?s\)?\s*=>\s*String\(s\)\.toLowerCase\(\)\s*\)/.test(workerSrc)) {
+    throw new Error(
+      'case_sla_worker is lowercasing canonical status keys again instead of expanding ' +
+      'their DB variants — this is the exact form that hid in_progress cases from the sweep'
+    );
+  }
+  // And the map must still carry the spelling that production actually held.
+  const lifecycleSrcForScan = fs.readFileSync(path.join(SRC, 'case_lifecycle.js'), 'utf8');
+  // Scope to the DB_STATUS_VARIANTS block: `[CASE_STATUS.IN_REVIEW]:` also
+  // appears in STATUS_TRANSITIONS earlier in the file, and a bare match would
+  // read that one instead and always fail.
+  const variantsBlock = (lifecycleSrcForScan.match(/DB_STATUS_VARIANTS\s*=\s*Object\.freeze\(\{[\s\S]*?\n\}\)/) || [''])[0];
+  if (!variantsBlock) throw new Error('DB_STATUS_VARIANTS block not found in case_lifecycle.js');
+  const inReviewLine = (variantsBlock.match(/\[CASE_STATUS\.IN_REVIEW\]:\s*\[[^\]]*\]/) || [''])[0];
+  if (!/'in_progress'/.test(inReviewLine)) {
+    throw new Error(
+      "DB_STATUS_VARIANTS[IN_REVIEW] no longer lists 'in_progress' — production has held rows " +
+      'with that exact spelling, and dropping it makes them invisible to every SQL scan built from this map'
+    );
+  }
+  t.pass('SLA sweep expands scan statuses through DB_STATUS_VARIANTS (no unscannable spellings)');
+} catch (e) { t.fail('sla sweep status coverage', e); }
+
 // ── 9. Every module actually LOADS ───────────────────────────────────────
 //
 // Real instance, and it took production down: deleting the /order/* funnel
