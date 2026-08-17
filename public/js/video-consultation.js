@@ -22,6 +22,21 @@
       this._fetchTokenAndConnect();
     },
 
+    // ── Request headers for state-changing POSTs ────────────────
+    // /api/video/token/:id and /api/video/end/:id are cookie-authenticated and
+    // state-changing, so they sit behind the global CSRF check in
+    // src/middleware/csrf.js (no exemption branch matches /api/video/*). Both
+    // POSTs previously sent no token and returned 403 under
+    // CSRF_MODE=enforce — the token fetch failed, so no consultation ever
+    // connected. The token is threaded in from res.locals.csrfToken by
+    // video_call_room.ejs. Same pattern as partials/doctor/bell.ejs.
+    _postHeaders: function () {
+      var headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+      var token = this.config && this.config.csrfToken;
+      if (token) headers['X-CSRF-Token'] = token;
+      return headers;
+    },
+
     // ── Bind UI controls ────────────────────────────────────────
     _bindControls: function () {
       var self = this;
@@ -44,10 +59,20 @@
 
       fetch(self.config.tokenEndpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: self._postHeaders(),
         credentials: 'same-origin'
       })
         .then(function (resp) {
+          if (resp.status === 403) {
+            // Almost always a stale/absent CSRF token (the csrf_token cookie is
+            // 7-day and httpOnly; a tab left open past expiry renders a token
+            // the server no longer accepts). A reload re-issues both.
+            throw new Error(
+              self.config.lang === 'ar'
+                ? 'انتهت صلاحية الجلسة. حدّث الصفحة وحاول مرة أخرى.'
+                : 'Your session expired. Please refresh the page and try again.'
+            );
+          }
           if (!resp.ok) throw new Error('Token request failed: ' + resp.status);
           return resp.json();
         })
@@ -315,11 +340,19 @@
       // Notify server
       fetch(self.config.endEndpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: self._postHeaders(),
         credentials: 'same-origin'
       })
-        .then(function (resp) { return resp.json(); })
-        .then(function (data) {
+        .then(function (resp) {
+          // Log a rejected end-call so a CSRF/auth regression is visible in the
+          // console instead of silently leaving the appointment open server-side.
+          // The redirect still happens either way: the local room has already
+          // been disconnected above, so keeping the user on a dead call screen
+          // would be strictly worse than landing on the ended page.
+          if (!resp.ok) console.error('[video] End-call rejected: ' + resp.status);
+          return resp.json().catch(function () { return null; });
+        })
+        .then(function () {
           window.location.href = self.config.redirectAfterEnd;
         })
         .catch(function () {

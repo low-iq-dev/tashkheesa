@@ -1116,6 +1116,30 @@ h1, h2, h3, h4, h5, h6 {
   padding: var(--space-4);
 }
 
+/* Contact form result banners. Rendered by contact.ejs from contactState;
+   the success one is role="status", the failure one role="alert". Logical
+   inset properties only (see tests/lint/no-physical-margin-padding-in-css). */
+.contact-banner {
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin-block: var(--space-3);
+  border-inline-start: 4px solid transparent;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.contact-banner--success {
+  background: #e8f5ee;
+  border-inline-start-color: #1a7f4b;
+  color: #14532d;
+}
+
+.contact-banner--error {
+  background: #fdecec;
+  border-inline-start-color: #c53030;
+  color: #7f1d1d;
+}
+
 .contact-info-item {
   display: flex;
   gap: var(--space-2);
@@ -1507,13 +1531,22 @@ h1, h2, h3, h4, h5, h6 {
 /* ========================================
    RTL SUPPORT
    ======================================== */
-[dir="rtl"] .nav-inner {
-  flex-direction: row-reverse;
-}
+/* REMOVED: [dir="rtl"] .nav-inner  { flex-direction: row-reverse; }
+            [dir="rtl"] .nav-links  { flex-direction: row-reverse; }
 
-[dir="rtl"] .nav-links {
-  flex-direction: row-reverse;
-}
+   A flex container in a dir="rtl" subtree already lays its `row` main axis
+   out right-to-left — that is what `dir` does. Adding row-reverse on top
+   flipped it a SECOND time, back to left-to-right, so the Arabic homepage
+   rendered the logo hard against the left edge with the nav links running
+   in Latin order after it. The correct RTL rendering is what you get by
+   deleting these two rules and letting `dir` do its job.
+
+   Note for the RTL-mirroring pass: row-reverse is essentially never the
+   right tool for direction mirroring. It reverses the visual order of items
+   without changing the writing direction, so it also desynchronises
+   `justify-content: flex-start/end`, scroll anchoring and keyboard/tab
+   order from what the user sees. Set `dir` (or use logical properties) and
+   leave flex-direction alone. */
 
 [dir="rtl"] .hero-grid {
   direction: rtl;

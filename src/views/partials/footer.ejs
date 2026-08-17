@@ -45,6 +45,18 @@
           <a href="/delivery-policy"><%= __footerIsAr ? 'سياسة التسليم' : 'Delivery Policy' %></a>
         </div>
         <div class="footer-col">
+          <%# /apply is a complete, live, public doctor-application page that had
+              no inbound link anywhere in the product — it appeared only in
+              sitemap.xml, so the sole way a specialist could reach it was via a
+              search engine that had already crawled the sitemap. /doctor/signup
+              is likewise only linked from doctor_login_v2.ejs, which you must
+              already be at the doctor login to see. Both now have a permanent
+              home in the global footer. %>
+          <h4 class="footer-col-title"><%= __footerIsAr ? 'للأطباء' : 'For Doctors' %></h4>
+          <a href="/apply"><%= __footerIsAr ? 'قدِّم كاستشاري' : 'Apply as a Specialist' %></a>
+          <a href="/doctor/signup"><%= __footerIsAr ? 'تسجيل الأطباء' : 'Doctor Sign-up' %></a>
+        </div>
+        <div class="footer-col">
           <h4 class="footer-col-title"><%= __footerIsAr ? 'تواصل معنا' : 'Contact' %></h4>
           <a href="mailto:info@tashkheesa.com" style="color:inherit;">info@tashkheesa.com</a>
           <a href="https://wa.me/201102009886" style="color:inherit;" dir="ltr">+20 110 200 9886</a>

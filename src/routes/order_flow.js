@@ -1,9 +1,19 @@
 const express = require('express');
-const { randomUUID } = require('crypto');
-const { queryOne, queryAll, execute } = require('../pg');
-var { logOrderEvent } = require('../audit');
+// Import list trimmed alongside the dead-code deletion below. Removed:
+//   randomUUID          — only used by attachFileToOrder (deleted)
+//   execute             — only used by attachFileToOrder / upsertCaseContext (deleted)
+//   logOrderEvent       — imported, never called anywhere in this file
+//   enqueueCaseIntelligence — imported, never called; enqueueCaseReprocess is
+//                         the one this file actually uses
+//   requireRole         — the routes that used it went with the /order funnel;
+//                         the previous comment argued for keeping it "because
+//                         removing it saves nothing", but an unused import is
+//                         exactly what made the requireAuth boot crash below
+//                         hard to reason about. Keep the import list honest.
+// requireAuth is DELIBERATELY RETAINED — see the note above its require.
+const { queryOne, queryAll } = require('../pg');
 const { logErrorToDb } = require('../logger');
-var { enqueueCaseIntelligence, enqueueCaseReprocess } = require('../job_queue');
+var { enqueueCaseReprocess } = require('../job_queue');
 var { rateLimit } = require('express-rate-limit');
 
 // PHASE 2.5 (resolved): order_files.url is an R2 storage key, NOT a viewable URL.
@@ -38,14 +48,10 @@ const router = express.Router();
 // Any lingering /order/* URL now falls through to the 404 handler, which is
 // the correct answer for a checkout that no longer exists.
 
-async function getOrder(orderId) {
-  return await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
-}
-
-function getOrderIdFromReq(req) {
-  if (!req.params || !req.params.orderId) return null;
-  return String(req.params.orderId);
-}
+// getOrder() and getOrderIdFromReq() were deleted with the same sweep as
+// attachFileToOrder/upsertCaseContext below: both were helpers for the removed
+// /order/:orderId/* guest funnel, are not exported, and had zero callers left
+// anywhere in the tree.
 
 // Launch audit §2: the legacy /order/* checkout chain was mounted with NO auth,
 // so it was anonymously reachable (IDOR + anonymous user-creation on POST
@@ -66,56 +72,24 @@ function getOrderIdFromReq(req) {
 // it (the file parses fine — the name is simply never declared), which is
 // exactly why it survived to a deploy.
 //
-// requireRole is kept even though the routes that used it went with the
-// funnel: middleware.js exports it, other files import it the same way, and
-// removing it here saves nothing.
-const { requireAuth, requireRole } = require('../middleware');
+// requireRole is NO LONGER imported here: the routes that used it went with the
+// funnel, and an import bound to nothing is precisely the kind of noise that
+// made the requireAuth ReferenceError above hard to spot.
+const { requireAuth } = require('../middleware');
 
-// File upload middleware (memory storage — see src/middleware/upload.js).
-// File contents are pushed to Cloudflare R2 in attachFileToOrder() below.
-
-async function attachFileToOrder(orderId, file) {
-  // Push to R2; store the returned R2 key in order_files.url.
-  // The /files/:fileId route in src/server.js generates a signed URL at read time.
-  const key = await uploadFile({
-    buffer: file.buffer,
-    originalname: file.originalname,
-    mimetype: file.mimetype,
-    folder: 'orders/' + String(orderId),
-  });
-  await execute(
-    `INSERT INTO order_files (id, order_id, url, label, created_at)
-     VALUES ($1, $2, $3, $4, NOW())`,
-    [randomUUID(), orderId, key, file.originalname]
-  );
-}
-
-async function upsertCaseContext(orderId, { reason_for_review, language, urgency_flag }) {
-  const exists = await queryOne('SELECT 1 FROM case_context WHERE case_id = $1', [orderId]);
-
-  if (exists) {
-    await execute(
-      `UPDATE case_context
-       SET reason_for_review = $1, urgency_flag = $2, language = $3
-       WHERE case_id = $4`,
-      [reason_for_review || '', urgency_flag ? true : false, language || 'en', orderId]
-    );
-  } else {
-    await execute(
-      `INSERT INTO case_context (case_id, reason_for_review, urgency_flag, language)
-       VALUES ($1, $2, $3, $4)`,
-      [orderId, reason_for_review || '', urgency_flag ? true : false, language || 'en']
-    );
-  }
-
-  // Mirror to orders table
-  await execute(
-    `UPDATE orders
-     SET language = $1, urgency_flag = $2, updated_at = NOW()
-     WHERE id = $3`,
-    [language || 'en', urgency_flag ? true : false, orderId]
-  );
-}
+// AUDIT — attachFileToOrder() and upsertCaseContext() DELETED.
+//
+// attachFileToOrder was a latent ReferenceError. Its first statement called
+// uploadFile(), whose `require` was deleted along with the guest funnel, so the
+// identifier was never bound. `node --check` passes on an undeclared free
+// variable (it is only an error at evaluation time), which is why it survived
+// review. It had no callers — the live upload path is the patient wizard in
+// routes/patient.js — so nothing ever reached the throw. Deleting it removes a
+// trap primed for whoever wired it up next.
+//
+// upsertCaseContext likewise had zero callers; case_context rows are written by
+// the wizard. Both were carrying the last references to `execute` and
+// `randomUUID`, which are dropped from the import list at the top of the file.
 
 // Launch audit §2: the legacy anonymous checkout entry point is retired. No
 // current CTA links here (all intake CTAs point at /patient/new-case) and its
@@ -210,8 +184,20 @@ router.post('/api/cases/:id/intelligence/reprocess', requireAuth(), aiProcessing
     var orderRow = await queryOne('SELECT id, doctor_id FROM orders_active WHERE id = $1', [caseId]);
     if (!orderRow) return res.status(404).json({ error: 'Case not found' });
 
-    // Verify this doctor is assigned
-    if (orderRow.doctor_id && String(orderRow.doctor_id) !== String(user.id)) {
+    // Verify this doctor is assigned — FAIL CLOSED.
+    //
+    // Was: `if (orderRow.doctor_id && String(orderRow.doctor_id) !== String(user.id))`.
+    // The leading truthiness test made the whole guard vanish whenever
+    // doctor_id was NULL, i.e. for every case sitting unassigned in the intake
+    // and manual-triage queues. Any authenticated doctor could therefore drive
+    // an AI reprocess against any unassigned case in the system: a
+    // cross-tenant handle on other patients' clinical documents plus a
+    // rate-limited-but-real way to burn Anthropic spend on cases that are not
+    // theirs. An absent assignment is not an authorisation.
+    //
+    // Now: the case must have an assigned doctor AND it must be this one.
+    var assignedDoctorId = orderRow.doctor_id ? String(orderRow.doctor_id) : '';
+    if (!assignedDoctorId || assignedDoctorId !== String(user.id)) {
       return res.status(403).json({ error: 'Not assigned to this case' });
     }
 

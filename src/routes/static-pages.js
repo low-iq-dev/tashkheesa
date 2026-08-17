@@ -9,6 +9,21 @@ var router = express.Router();
 
 var { getVisibleSpecialtyCount, getVisibleServiceCount } = require('../services/site_stats');
 var comingSoonNotify = require('../notify/coming_soon');
+// Durable persistence surface for contact-form submissions (see POST /contact).
+var { logErrorToDb } = require('../logger');
+
+// The contact notification email interpolates visitor-supplied text into an
+// HTML body. Unescaped, a submitter could inject arbitrary markup — including
+// a link disguised as Tashkheesa copy — into an internal inbox.
+function escapeHtmlText(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return c === '&' ? '&amp;'
+      : c === '<' ? '&lt;'
+      : c === '>' ? '&gt;'
+      : c === '"' ? '&quot;'
+      : '&#039;';
+  });
+}
 
 function setupStaticPages(opts) {
   var execute = opts.execute;
@@ -74,6 +89,15 @@ function setupStaticPages(opts) {
       'Disallow: /dashboard\n' +
       'Disallow: /patient/\n' +
       'Disallow: /payments/\n' +
+      // /help/ hosts the internal operations manuals. /help/admin-guide is now
+      // behind requireRole('admin','superadmin') (src/routes/help.js), but a
+      // crawler should not be indexing the patient/doctor guides or probing the
+      // admin one either — these are support material, not marketing pages, and
+      // an indexed admin-guide URL is a map of the privileged surface.
+      // Belt-and-braces alongside the auth gate: robots.txt is a request, the
+      // middleware is the enforcement.
+      'Disallow: /help/\n' +
+      'Disallow: /help/admin-guide\n' +
       'Sitemap: ' + PUBLIC_ORIGIN + '/sitemap.xml\n'
     );
   });
@@ -147,7 +171,27 @@ function setupStaticPages(opts) {
   });
   router.get('/help-me-choose', function(req, res) { res.render('help_me_choose', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', title: 'Find Your Service – Tashkheesa', BUSINESS_INFO: BUSINESS_INFO, description: 'Not sure which medical review service you need? Our AI assistant will guide you in seconds.', canonical: '/help-me-choose' }); });
   router.get('/about', function(req, res) { res.render('about', { title: 'About Us', BUSINESS_INFO: BUSINESS_INFO, description: 'Tashkheesa connects patients with board-certified hospital-based specialists for medical second opinions. Learn about our mission and standards.', canonical: '/about' }); });
-  router.get('/contact', function(req, res) { res.render('contact', { title: 'Contact Us', BUSINESS_INFO: BUSINESS_INFO, description: 'Get in touch with Tashkheesa. We respond within 24 hours during business days.', canonical: '/contact' }); });
+  // Single render path for /contact, shared by the GET and by the POST's
+  // error re-render so the two can never drift in their locals.
+  //   contactState — 'idle' | 'sent' | 'error'
+  //   contactValues — sticky field values on the error re-render
+  function renderContact(req, res, status, state) {
+    state = state || {};
+    return res.status(status).render('contact', {
+      title: 'Contact Us',
+      BUSINESS_INFO: BUSINESS_INFO,
+      description: 'Get in touch with Tashkheesa. We respond within 24 hours during business days.',
+      canonical: '/contact',
+      contactState: state.contactState || 'idle',
+      contactError: state.contactError || null,
+      contactValues: state.contactValues || null
+    });
+  }
+
+  router.get('/contact', function(req, res) {
+    var sent = String((req.query && req.query.sent) || '') === '1';
+    return renderContact(req, res, 200, { contactState: sent ? 'sent' : 'idle' });
+  });
   router.get('/privacy', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('privacy', { title: isAr ? 'سياسة الخصوصية — تشخيصة' : 'Privacy Policy', BUSINESS_INFO: BUSINESS_INFO, description: isAr ? 'كيف تجمع تشخيصة بياناتك الشخصية والطبية وتخزّنها وتحميها وفقًا لقانون حماية البيانات المصري.' : 'How Tashkheesa collects, stores, and protects your personal and medical data.', canonical: '/privacy' }); });
   router.get('/terms', async function(req, res) { var isAr = !!(res.locals && res.locals.isAr); var specialtyCount = await getVisibleSpecialtyCount(); res.render('terms', { title: isAr ? 'شروط الخدمة' : 'Terms of Service', BUSINESS_INFO: BUSINESS_INFO, specialtyCount: specialtyCount, description: isAr ? 'الشروط والأحكام الخاصة باستخدام خدمات تشخيصة للآراء الطبية الثانية.' : 'Terms and conditions for using Tashkheesa medical second opinion services.', canonical: '/terms' }); });
   router.get('/refund-policy', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('refund_policy', { title: isAr ? 'سياسة الاسترداد والإلغاء' : 'Refund & Cancellation Policy', BUSINESS_INFO: BUSINESS_INFO, description: isAr ? 'شروط استرداد وإلغاء واضحة لجميع خدمات تشخيصة، بما في ذلك الاستشارات المرئية.' : 'Clear refund and cancellation terms for all Tashkheesa services including video consultations.', canonical: '/refund-policy' }); });
@@ -282,17 +326,74 @@ function setupStaticPages(opts) {
   router.get('/how-it-works', function(req, res) { res.redirect(302, '/#how-it-works'); });
   router.get('/doctors', function(req, res) { res.redirect(302, '/about'); });
 
+  // POST /contact
+  //
+  // Three defects fixed here:
+  //
+  //  1. The handler answered `res.json({ok:true})` to a plain, non-fetch HTML
+  //     <form> POST (contact.ejs has no submit handler). The browser therefore
+  //     NAVIGATED to /contact and painted the literal text {"ok":true} — the
+  //     visitor was thrown out of the site onto a white page of JSON.
+  //  2. A sendMail() rejection was console-logged and then fell through to the
+  //     SAME `{ok:true}`. With SMTP down every enquiry was answered "sent" and
+  //     dropped on the floor.
+  //  3. Nothing was persisted at all, so there was no record to recover from.
+  //
+  // Persistence: this codebase has no contact_messages table and adding a
+  // migration is out of scope for this change, so the durable record goes to
+  // error_logs via logErrorToDb — which is queryable from /ops/errors, tolerates
+  // a missing table, and never throws. It is written BEFORE the mail attempt and
+  // independently of its outcome, which is the property that matters: the
+  // enquiry survives even if the SMTP call hangs or the process dies mid-send.
+  // A dedicated table is the correct long-term home (see the report).
+  function contactWantsJson(req) {
+    // Deliberately narrow: only callers that can accept JSON and explicitly
+    // CANNOT accept HTML get the JSON shape. A browser form post sends
+    // `Accept: text/html,...`, so it always takes the redirect/render path.
+    return !!(req.accepts('json') && !req.accepts('html'));
+  }
+
   router.post('/contact', async function(req, res) {
     var body = req.body || {};
-    var name = body.name;
-    var email = body.email;
-    var subject = body.subject;
-    var message = body.message;
+    var name = String(body.name || '').trim();
+    var email = String(body.email || '').trim();
+    var subject = String(body.subject || '').trim();
+    var message = String(body.message || '').trim();
+    var asJson = contactWantsJson(req);
+    var values = { name: name, email: email, subject: subject, message: message };
+
     if (!name || !email || !message) {
-      return res.status(400).json({ ok: false, error: 'Missing required fields' });
+      if (asJson) return res.status(400).json({ ok: false, error: 'Missing required fields' });
+      return renderContact(req, res, 400, {
+        contactState: 'error',
+        contactError: 'missing_fields',
+        contactValues: values
+      });
     }
+
     console.log('[CONTACT] New message from %s <%s> — subject: %s', name, email, subject || 'none');
 
+    // Durable record FIRST, independent of the mail attempt.
+    var recordId = null;
+    try {
+      recordId = await logErrorToDb(new Error('contact form submission'), {
+        level: 'info',
+        category: 'contact_form',
+        requestId: req.requestId,
+        url: req.originalUrl,
+        method: req.method,
+        contactName: name,
+        contactEmail: email,
+        contactSubject: subject || 'none',
+        contactMessage: message.slice(0, 4000)
+      });
+    } catch (e) {
+      // logErrorToDb already swallows its own DB errors; this only catches a
+      // require/programming fault. Never block the enquiry on the audit write.
+      console.error('[CONTACT] Failed to persist submission:', e && e.message);
+    }
+
+    var mailed = false;
     try {
       var { sendMail } = require('../services/emailService');
       await sendMail({
@@ -300,15 +401,45 @@ function setupStaticPages(opts) {
         replyTo: email,
         subject: 'New contact form submission from ' + name + (subject ? ' — ' + subject : ''),
         text: 'Name: ' + name + '\nEmail: ' + email + '\nSubject: ' + (subject || 'none') + '\nMessage: ' + message,
-        html: '<p><b>Name:</b> ' + name + '</p><p><b>Email:</b> ' + email + '</p>' +
-              (subject ? '<p><b>Subject:</b> ' + subject + '</p>' : '') +
-              '<p><b>Message:</b> ' + message + '</p>'
+        html: '<p><b>Name:</b> ' + escapeHtmlText(name) + '</p><p><b>Email:</b> ' + escapeHtmlText(email) + '</p>' +
+              (subject ? '<p><b>Subject:</b> ' + escapeHtmlText(subject) + '</p>' : '') +
+              '<p><b>Message:</b> ' + escapeHtmlText(message) + '</p>'
       });
+      mailed = true;
     } catch (err) {
-      console.error('[CONTACT] Email send failed:', err.message);
+      console.error('[CONTACT] Email send failed:', err && err.message);
+      // Second record, at error level, so an SMTP outage is visible in the
+      // ops error feed rather than only in stdout.
+      try {
+        await logErrorToDb(err, {
+          level: 'error',
+          category: 'contact_form',
+          requestId: req.requestId,
+          url: req.originalUrl,
+          method: req.method,
+          note: 'contact form email delivery failed; submission persisted',
+          submissionRecordId: recordId,
+          contactEmail: email
+        });
+      } catch (e) {}
     }
 
-    return res.json({ ok: true });
+    if (!mailed) {
+      // Non-200 and an honest banner. The enquiry IS stored, so the copy tells
+      // the visitor to use email/WhatsApp rather than claiming total loss.
+      if (asJson) {
+        return res.status(502).json({ ok: false, error: 'delivery_failed', persisted: !!recordId });
+      }
+      return renderContact(req, res, 502, {
+        contactState: 'error',
+        contactError: 'delivery_failed',
+        contactValues: values
+      });
+    }
+
+    if (asJson) return res.json({ ok: true });
+    // POST → 303 → GET so a refresh on the success page does not resubmit.
+    return res.redirect(303, '/contact?sent=1');
   });
 
   // ─── Pre-launch lead capture ────────────────────────────────────────

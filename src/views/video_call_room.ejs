@@ -328,6 +328,14 @@
         tokenEndpoint: '/api/video/token/<%= appointment.id %>',
         endEndpoint: '/api/video/end/<%= appointment.id %>',
         redirectAfterEnd: '/portal/video/ended/<%= appointment.id %>',
+        // POST /api/video/token/:id and POST /api/video/end/:id are
+        // cookie-authenticated, state-changing routes and are therefore subject
+        // to CSRF enforcement like everything else — they are deliberately NOT
+        // exempted in src/middleware/csrf.js. Without a token here both calls
+        // 403 under CSRF_MODE=enforce and the consultation never connects.
+        // Same-origin fetch can read res.locals.csrfToken, so thread it through
+        // (mirrors partials/doctor/bell.ejs).
+        csrfToken: '<%= (typeof csrfToken !== "undefined" && csrfToken) ? csrfToken : "" %>',
         isDoctor: <%= isDoctor ? 'true' : 'false' %>,
         participantName: '<%= (participantName || '').replace(/'/g, "\\'") %>',
         otherName: '<%= (otherName || '').replace(/'/g, "\\'") %>',

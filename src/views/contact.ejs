@@ -36,6 +36,36 @@
       </div>
 
       <h2><%= tt('contact.form.heading', 'Send Us a Message', 'ابعتلنا رسالة') %></h2>
+
+      <%
+        // Set by src/routes/static-pages.js (GET /contact?sent=1 and the POST
+        // error re-render). Defaults keep the view renderable from any other
+        // caller that forgets them.
+        const _cState  = (typeof contactState  !== 'undefined' && contactState)  ? String(contactState) : 'idle';
+        const _cError  = (typeof contactError  !== 'undefined' && contactError)  ? String(contactError) : null;
+        const _cValues = (typeof contactValues !== 'undefined' && contactValues) ? contactValues : {};
+      %>
+
+      <% if (_cState === 'sent') { %>
+        <div class="contact-banner contact-banner--success" role="status">
+          <%= tt('contact.form.success',
+            'Thanks — your message is on its way. We reply within 24 hours on business days.',
+            'شكراً — رسالتك وصلت. بنرد في خلال 24 ساعة في أيام الشغل.') %>
+        </div>
+      <% } else if (_cState === 'error') { %>
+        <div class="contact-banner contact-banner--error" role="alert">
+          <% if (_cError === 'missing_fields') { %>
+            <%= tt('contact.form.err_missing',
+              'Please fill in your name, email and message.',
+              'من فضلك اكتب اسمك وبريدك والرسالة.') %>
+          <% } else { %>
+            <%= tt('contact.form.err_delivery',
+              'We could not send your message right now. It has been saved and our team will see it — but for anything urgent please email info@tashkheesa.com or message us on WhatsApp.',
+              'مقدرناش نبعت رسالتك دلوقتي. اتسجلت والفريق هيشوفها — بس لو الموضوع مستعجل ابعتلنا على info@tashkheesa.com أو على واتساب.') %>
+          <% } %>
+        </div>
+      <% } %>
+
       <form
         id="contact-form"
         method="post"
@@ -44,30 +74,37 @@
         data-csrf="<%= typeof csrfToken !== 'undefined' && csrfToken ? csrfToken : '' %>"
       >
         <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+        <%# A11Y: each label now carries `for` and each control a matching `id`.
+            Without the pair, clicking the label does nothing and a screen reader
+            announces the field only as "edit text, blank" with no name — the
+            four controls on this form were indistinguishable to a non-sighted
+            user. Values are re-populated from contactValues so an SMTP failure
+            or a validation bounce does not discard what was typed. %>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label"><%= tt('contact.form.name', 'Name', 'الاسم') %></label>
-            <input type="text" name="name" required class="form-control" placeholder="<%= tt('contact.form.name_ph', 'Your full name', 'اسمك بالكامل') %>" />
+            <label class="form-label" for="contact-name"><%= tt('contact.form.name', 'Name', 'الاسم') %></label>
+            <input type="text" id="contact-name" name="name" required class="form-control" placeholder="<%= tt('contact.form.name_ph', 'Your full name', 'اسمك بالكامل') %>" value="<%= _cValues.name || '' %>" />
           </div>
           <div class="form-group">
-            <label class="form-label"><%= tt('contact.form.email', 'Email', 'البريد الإلكتروني') %></label>
-            <input type="email" name="email" required class="form-control" placeholder="you@example.com" dir="ltr" />
+            <label class="form-label" for="contact-email"><%= tt('contact.form.email', 'Email', 'البريد الإلكتروني') %></label>
+            <input type="email" id="contact-email" name="email" required class="form-control" placeholder="you@example.com" dir="ltr" value="<%= _cValues.email || '' %>" />
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label"><%= tt('contact.form.subject', 'Subject', 'الموضوع') %></label>
-          <select name="subject" required class="form-control">
+          <label class="form-label" for="contact-subject"><%= tt('contact.form.subject', 'Subject', 'الموضوع') %></label>
+          <select id="contact-subject" name="subject" required class="form-control">
+            <% var _subj = _cValues.subject || ''; %>
             <option value=""><%= tt('contact.form.subject.choose', 'Select a topic', 'اختار موضوع') %></option>
-            <option value="General Inquiry"><%= tt('contact.form.subject.general', 'General Inquiry', 'استفسار عام') %></option>
-            <option value="Service Question"><%= tt('contact.form.subject.service', 'Service Question', 'سؤال عن الخدمة') %></option>
-            <option value="Technical Support"><%= tt('contact.form.subject.tech', 'Technical Support', 'دعم فني') %></option>
-            <option value="Refund Request"><%= tt('contact.form.subject.refund', 'Refund Request', 'طلب استرجاع') %></option>
-            <option value="Other"><%= tt('contact.form.subject.other', 'Other', 'حاجة تانية') %></option>
+            <option value="General Inquiry" <%= _subj === 'General Inquiry' ? 'selected' : '' %>><%= tt('contact.form.subject.general', 'General Inquiry', 'استفسار عام') %></option>
+            <option value="Service Question" <%= _subj === 'Service Question' ? 'selected' : '' %>><%= tt('contact.form.subject.service', 'Service Question', 'سؤال عن الخدمة') %></option>
+            <option value="Technical Support" <%= _subj === 'Technical Support' ? 'selected' : '' %>><%= tt('contact.form.subject.tech', 'Technical Support', 'دعم فني') %></option>
+            <option value="Refund Request" <%= _subj === 'Refund Request' ? 'selected' : '' %>><%= tt('contact.form.subject.refund', 'Refund Request', 'طلب استرجاع') %></option>
+            <option value="Other" <%= _subj === 'Other' ? 'selected' : '' %>><%= tt('contact.form.subject.other', 'Other', 'حاجة تانية') %></option>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label"><%= tt('contact.form.message', 'Message', 'الرسالة') %></label>
-          <textarea name="message" rows="5" required class="form-control" placeholder="<%= tt('contact.form.message_ph', 'How can we help?', 'إزاي نقدر نساعدك؟') %>"></textarea>
+          <label class="form-label" for="contact-message"><%= tt('contact.form.message', 'Message', 'الرسالة') %></label>
+          <textarea id="contact-message" name="message" rows="5" required class="form-control" placeholder="<%= tt('contact.form.message_ph', 'How can we help?', 'إزاي نقدر نساعدك؟') %>"><%= _cValues.message || '' %></textarea>
         </div>
         <button type="submit" class="btn-primary-link" style="display:inline-block; border:none; cursor:pointer; font-size:15px;"><%= tt('contact.form.send', 'Send Message', 'ابعت الرسالة') %></button>
       </form>

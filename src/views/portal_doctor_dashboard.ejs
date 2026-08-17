@@ -671,13 +671,23 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
   </div>
   <script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
   (function () {
-    // Welcome-modal dismiss. Server-side handler also fire-and-forgets
-    // an UPDATE on first page-load, so a network failure here doesn't
-    // strand the user — they just won't see the overlay on next load
-    // either way.
+    // Welcome-modal dismiss.
+    //
+    // POST /portal/doctor/onboarding/dismiss is cookie-authenticated and
+    // state-changing, so it is subject to the global CSRF check in
+    // src/middleware/csrf.js. It previously sent no token and 403'd on every
+    // click under CSRF_MODE=enforce, and the result was never inspected. Send
+    // the token (same pattern as partials/doctor/bell.ejs) and only treat the
+    // dismiss as persisted when the server says so.
+    //
+    // Response contract note: this endpoint answers 204 No Content on BOTH the
+    // success and the swallowed-error path, so there is no `{ok:true}` body to
+    // check. "Confirmed" here therefore means `res.ok` plus the absence of an
+    // explicit `{ok:false}` — see the report for the server-side follow-up.
     var overlay = document.getElementById('dd-welcome-overlay');
     var btn     = document.getElementById('dd-welcome-dismiss');
     if (!overlay || !btn) return;
+    var csrfToken = '<%= (typeof csrfToken !== "undefined" && csrfToken) ? csrfToken : "" %>';
     function dismiss() {
       overlay.style.display = 'none';
       // P1-DOC-7: auto-chain the dashboard tour the first time the
@@ -697,12 +707,39 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
           }
         }, 250);
       }
+      var headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+      if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
       try {
         fetch('/portal/doctor/onboarding/dismiss', {
           method: 'POST',
           credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' }
-        }).catch(function () { /* server-side mark already fired; ignore */ });
+          headers: headers
+        })
+          .then(function (r) {
+            if (r.status === 204) return { httpOk: r.ok, body: null };
+            return r.json().catch(function () { return null; }).then(function (j) {
+              return { httpOk: r.ok, body: j };
+            });
+          })
+          .then(function (res) {
+            var confirmed = !!(res && res.httpOk && (!res.body || res.body.ok !== false));
+            // The overlay is hidden optimistically above, and that is correct
+            // HERE (unlike the patient mark-all-read case): persistence does not
+            // depend on this call. The dashboard GET handler in
+            // src/routes/doctor.js already fires
+            //   UPDATE users SET first_login_at = NOW() ... WHERE first_login_at IS NULL
+            // on the same request that rendered this overlay, so the flag is
+            // already set and the modal cannot reappear. This POST is a
+            // belt-and-braces duplicate. What was genuinely wrong was sending it
+            // without a CSRF token and never looking at the answer, which turned
+            // a permanent 403 into something invisible. Surface it instead.
+            if (!confirmed) {
+              console.error('[onboarding] dismiss POST rejected (status ' +
+                ((res && res.httpOk) ? 'ok-but-not-ok-body' : 'not ok') +
+                ') — relying on the render-time first_login_at mark.');
+            }
+          })
+          .catch(function () { /* network error — render-time mark still applies */ });
       } catch (_) {}
     }
     btn.addEventListener('click', dismiss);

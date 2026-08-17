@@ -3,6 +3,27 @@ var path = require('path');
 var fs = require('fs');
 var { bootCheck } = require('./bootCheck');
 var ROOT = path.resolve(__dirname, '..');
+
+// bootCheck FIRST — before any other src/ module is required.
+//
+// bootCheck's only inputs are ROOT and process.env (dotenv is loaded on line 1).
+// Its only *output* that other modules depend on is the side effect
+// `process.env.MODE = <normalised mode>`, derived from MODE || NODE_ENV.
+//
+// It used to run at the bottom of the require block, and was handed
+// `MODE` destructured from require('./logger') — i.e. the value it exists to
+// normalise was read out of a module that had already been evaluated with the
+// un-normalised env. On a host that sets only NODE_ENV, logger.js captured its
+// own MODE before bootCheck could write process.env.MODE, so log prefixes,
+// COOKIE_SECURE and CONFIG.SLA_MODE could all disagree with the boot-checked
+// mode. logger.js now carries its own NODE_ENV fallback, which papered over
+// the symptom; hoisting the call removes the ordering dependency entirely.
+//
+// No MODE argument is passed on purpose: bootCheck resolves
+// MODE || NODE_ENV || 'development' itself, which is exactly the expression
+// logger.js uses. Passing a pre-read value is what created the drift.
+bootCheck({ ROOT: ROOT });
+
 var pkg = require('../package.json');
 var SERVER_STARTED_AT = Date.now();
 var SERVER_STARTED_AT_ISO = new Date(SERVER_STARTED_AT).toISOString();
@@ -45,7 +66,10 @@ var {
   logError,
   logErrorToDb
 } = require('./logger');
-bootCheck({ ROOT: ROOT, MODE: MODE });
+// bootCheck() already ran at the top of this file (see the note there). By the
+// time logger.js was required above, process.env.MODE had been normalised, so
+// the MODE destructured here is the boot-checked value — as is CONFIG.MODE and
+// the SLA_MODE default derived from it below.
 
 // === ENVIRONMENT VARIABLE VALIDATION ===
 // Three tiers:
@@ -387,7 +411,31 @@ baseMiddlewares(app);
 var { requirePhone } = require('./middleware/requirePhone');
 app.use(requirePhone());
 
-// CSP nonce
+// CSP nonce — and, since helmet's contentSecurityPolicy is now `false`
+// (src/middleware.js), the SINGLE source of truth for Content-Security-Policy.
+//
+// KNOWN GAP, deliberately not closed here. This middleware runs after the
+// express.static() mounts above, and a static handler terminates the chain, so
+// nothing served from /site, /assets, /js, /css, /vendor, /uploads, /fonts,
+// /icons or /annotator.html carries a CSP header.
+//
+// For /js/*, /css/*, /fonts/* etc. that is harmless: CSP is enforced per
+// *document*; a policy header on a subresource response is ignored by the
+// browser. The one response that matters is /annotator.html (also reachable as
+// /site/annotator.html, because public/site does not exist so the /site mount
+// falls back to public/) — a real HTML document served straight off disk with
+// no policy at all.
+//
+// Hoisting this block above the static mounts was tried and REVERTED: it makes
+// the annotator load under the site policy, which the page cannot satisfy.
+// public/annotator.html has (a) a nonce-less inline <script> — it is a static
+// file, so there is no render step to inject `nonce-` into — and (b) a
+// <script src="https://cdnjs.cloudflare.com/…/fabric.min.js">, a host absent
+// from script-src. It also renders case images fetched through /files/:id,
+// which 302s to a signed Cloudflare R2 URL on a host that is in no img-src
+// list. Applying the policy would have blanked the doctor annotation tool at
+// launch. Closing this properly needs changes in public/annotator.html — see
+// the report.
 app.use(function(req, res, next) {
   try {
     var nonce = randomBytes(16).toString('base64');
@@ -407,7 +455,15 @@ app.use(function(req, res, next) {
       // ('self' + nonce + host-sources) still gates which code can RUN; this only
       // relaxes the eval() *function*. Tracked for migration to Uploadcare Blocks
       // v1.x (CSP-strict compatible) in a follow-up.
-      "script-src 'self' 'unsafe-eval' 'nonce-" + nonce + "' https://ucarecdn.com https://cdn.jsdelivr.net https://media.twiliocdn.com https://unpkg.com",
+      // unpkg.com removed: the only reference to it in the tree is a
+      // <link rel="stylesheet"> for lucide-static in layouts/auth.ejs and
+      // layouts/public.ejs — a STYLE, governed by style-src, never a script.
+      // Leaving it as a script-src host source meant any HTML-injection sink
+      // could load arbitrary JS from an npm-backed CDN. cdn.jsdelivr.net is
+      // KEPT — chart.js 4.4.0 is genuinely loaded from it by admin_errors,
+      // admin_analytics, superadmin_errors, superadmin_analytics and
+      // doctor_analytics.
+      "script-src 'self' 'unsafe-eval' 'nonce-" + nonce + "' https://ucarecdn.com https://cdn.jsdelivr.net https://media.twiliocdn.com",
       // AUDIT-P0-5 — Twilio Video added. media.twiliocdn.com was already in
       // script-src so the SDK loaded, and the token fetch is same-origin so it
       // succeeded — but Twilio.Video.connect() opens a WebSocket to
@@ -416,6 +472,24 @@ app.use(function(req, res, next) {
       // and then failed at connect time, looking like a Twilio outage.
       "connect-src 'self' https://upload.uploadcare.com https://api.uploadcare.com https://ucarecdn.com https://*.twilio.com wss://*.twilio.com",
       "frame-src 'self' https://uploadcare.com https://ucarecdn.com",
+      // media-src / worker-src / form-action were absent from this array while
+      // helmet ALSO set a CSP header. res.setHeader REPLACES, so this array is
+      // the only policy that ever reached the browser and helmet's copies of
+      // these three directives were silently discarded:
+      //   * media-src fell back to `default-src 'self'`, dropping blob:. Twilio
+      //     Video attaches remote tracks as blob: MediaStream URLs on <video>/
+      //     <audio>, so every remote participant rendered black/silent.
+      //   * worker-src likewise fell back to 'self', dropping blob:. The Twilio
+      //     SDK and Uploadcare both spin up blob: workers.
+      //   * form-action has NO fallback to default-src at all, so helmet's
+      //     `form-action 'self'` simply vanished — every <form> on the site
+      //     could be retargeted cross-origin by an injected/XSS'd action
+      //     attribute. Restored here.
+      // helmet's CSP is now disabled in src/middleware.js so this array is the
+      // single source of truth.
+      "media-src 'self' blob: https://*.twilio.com",
+      "worker-src 'self' blob:",
+      "form-action 'self'",
     ].join('; ');
 
     res.setHeader('Content-Security-Policy', csp);
@@ -1198,6 +1272,21 @@ async function runSlaEnforcementSweep(source) {
     // runSlaSweep was a no-op stub. case_sla_worker.runCaseSlaSweep
     // (registered via pg-boss) is the canonical SLA sweep path.
     try { await runSlaReminderJob(); } catch (err) { logFatal('SLA reminder job error', err); }
+    // case_lifecycle.runSlaReminderSweep — the canonical 24h/6h/1h pre-deadline
+    // reminder sweep. It was exported with zero callers, so those reminders had
+    // never fired in any environment. Registered HERE (inside the 5-minute
+    // enforcement sweep) rather than in runSlaReminderJob, which
+    // tests/core/theme7-sla-breach-uses-canonical.test.js pins as a deprecated
+    // no-op. This block inherits the enclosing SLA_MODE === 'primary' gate and
+    // the slaEnforcementRunning re-entrancy guard; the sweep also carries its
+    // own guard and per-(case, tier) dedupe.
+    // (Uses the module-level `caseLifecycle` binding from line ~295 rather than
+    // an inline require: same object, no circular-import hazard to work around,
+    // and it keeps the dependency visible at the top of the file.)
+    try {
+      const r = await caseLifecycle.runSlaReminderSweep();
+      if (r && r.ok === false) logMajor('[sla-reminders] sweep failed: ' + r.error);
+    } catch (err) { logFatal('SLA reminder sweep error', err); }
     try { await dispatchUnpaidCaseReminders(); } catch (err) { logFatal('Unpaid reminder sweep error', err); }
     // AUDIT-P0-2b — caseLifecycle.sweepExpiredDoctorAccepts removed.
     // It selected exactly the same rows as case_sla_worker.handleDoctorTimeout

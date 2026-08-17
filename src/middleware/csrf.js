@@ -88,7 +88,13 @@ function setupCsrf(app, opts) {
     // registered in routes/order_flow.js — POST /api/cases/:id/request-files
     // (now deleted) and POST /api/cases/:id/intelligence/reprocess — leaving
     // them with no CSRF protection at all.
-    if (p === '/api/cases/intake') {
+    // req.path preserves a trailing slash, so the exact-match form alone 403'd
+    // a cross-origin POST to '/api/cases/intake/' — which Express itself routes
+    // to the same handler (strict routing is off). Enumerate both spellings
+    // rather than reverting to a startsWith() prefix: the prefix is exactly
+    // what AUDIT-P0-7 removed, because it also swallowed
+    // POST /api/cases/:id/intelligence/reprocess.
+    if (p === '/api/cases/intake' || p === '/api/cases/intake/') {
       return next();
     }
     if (p === '/callback' || p.startsWith('/portal/video/payment/callback') || p.startsWith('/payments/callback')) {

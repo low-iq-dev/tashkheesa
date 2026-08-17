@@ -1,5 +1,17 @@
 const express = require('express');
 const router = express.Router();
+const { requireRole } = require('../middleware');
+
+// The admin guide is an operations manual: it walks through the admin and
+// superadmin URL surface, the manual-queue triage flow and the escalation
+// paths. Served unauthenticated it was a free reconnaissance document for
+// anyone who guessed /help/admin-guide — and it is linked from the sitemap's
+// sibling /help pages, so it was reachable without guessing.
+//
+// requireRole redirects an anonymous visitor to /login?next=… and answers 403
+// to a logged-in patient or doctor, which is the behaviour we want: no
+// existence oracle for signed-out users, hard refusal for wrong-role users.
+const requireAdmin = requireRole('admin', 'superadmin');
 
 // Bare /help index → send to the patient guide (avoids a 404 on /help)
 router.get('/help', (req, res) => res.redirect('/help/patient-guide'));
@@ -17,7 +29,7 @@ router.get('/help/doctor-guide', (req, res) => {
 });
 
 // Admin Guide
-router.get('/help/admin-guide', (req, res) => {
+router.get('/help/admin-guide', requireAdmin, (req, res) => {
   const lang = (req.query.lang === 'ar' || (req.cookies && req.cookies.lang === 'ar')) ? 'ar' : 'en';
   res.render('help_admin_guide', { title: lang === 'ar' ? 'دليل المدير' : 'Admin Guide', lang, layout: false });
 });
@@ -38,7 +50,7 @@ router.get('/help/ar/patient-guide', (req, res) => {
 router.get('/help/ar/doctor-guide', (req, res) => {
   res.render('help_doctor_guide', { title: 'دليل الطبيب', lang: 'ar', layout: false });
 });
-router.get('/help/ar/admin-guide', (req, res) => {
+router.get('/help/ar/admin-guide', requireAdmin, (req, res) => {
   res.render('help_admin_guide', { title: 'دليل المدير', lang: 'ar', layout: false });
 });
 

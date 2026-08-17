@@ -122,6 +122,12 @@
   var pollUnreadUrl = '/portal/patient/alerts.json';
   var markAllUrl    = '/portal/patient/alerts/mark-all-read';
   var viewAllUrl    = '/portal/patient/alerts';
+  // POST /portal/patient/alerts/mark-all-read is cookie-authenticated and
+  // state-changing, so it is subject to CSRF enforcement. Without this header
+  // it 403'd every time under CSRF_MODE=enforce while the UI cleared the dot
+  // regardless — the patient saw their notifications "read", nothing was
+  // persisted, and the dot came back on the next page load.
+  var csrfToken = '<%= (typeof csrfToken !== "undefined" && csrfToken) ? csrfToken : "" %>';
 
   var state = { open: false, hadUnreadOnOpen: false };
   var lastFetch = null;
@@ -250,11 +256,25 @@
     dropdown.style.display = 'none';
     // Mark-all-read on close (not on open) — opening to glance shouldn't dismiss.
     if (state.hadUnreadOnOpen) {
-      try {
-        fetch(markAllUrl, { method: 'POST', credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } });
-      } catch (_) {}
-      setDot(0);
       state.hadUnreadOnOpen = false;
+      var headers = { 'X-Requested-With': 'fetch', 'Accept': 'application/json' };
+      if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+      try {
+        fetch(markAllUrl, { method: 'POST', credentials: 'same-origin', headers: headers })
+          .then(function(r) {
+            return r.json().catch(function() { return null; }).then(function(j) {
+              return { httpOk: r.ok, body: j };
+            });
+          })
+          .then(function(res) {
+            // Only clear the dot once the server confirms. The optimistic
+            // version cleared it unconditionally, so a 403/500 left the patient
+            // believing they had read notifications that were still unread —
+            // and the dot reappeared on the next navigation with no explanation.
+            if (res && res.httpOk && res.body && res.body.ok) setDot(0);
+          })
+          .catch(function() { /* network error — leave the dot as-is */ });
+      } catch (_) {}
     }
   }
 

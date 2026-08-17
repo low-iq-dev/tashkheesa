@@ -19,6 +19,20 @@
   var _doctors = doctors || [];
   var _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
   var _csrfField = (typeof csrfField === 'function') ? csrfField : function(){ return ''; };
+  // XSS-safe <script> serialiser. Canonical implementation lives on
+  // res.locals.jsonForScript (src/middleware.js) so every view shares one copy;
+  // aliased defensively here in the same style as _csrfField above, so the view
+  // still renders (safely) if it is ever reached without baseMiddlewares.
+  var _json = (typeof jsonForScript === 'function')
+    ? jsonForScript
+    : function (v) {
+        return JSON.stringify(v === undefined ? null : v)
+          .replace(/</g, '\\u003c')
+          .replace(/>/g, '\\u003e')
+          .replace(/&/g, '\\u0026')
+          .replace(/\u2028/g, '\\u2028')
+          .replace(/\u2029/g, '\\u2029');
+      };
 
   function _ageFromDob(dob) {
     if (!dob) return null;
@@ -240,9 +254,25 @@
 (function() {
   // Cascade: specialty → services. Server pre-renders the full visible
   // services set; this filter reduces it to the picked specialty.
-  var allServices = <%- JSON.stringify(_services.map(function(s){ return { id: s.id, specialty_id: s.specialty_id, name: s.name }; })) %>;
-  var allDoctors  = <%- JSON.stringify(_doctors.map(function(d){ return { id: d.id, name: d.name, specialty_id: d.specialty_id }; })) %>;
-  var initialServiceId = <%- _cls && _cls.service_id ? JSON.stringify(String(_cls.service_id)) : 'null' %>;
+  // STORED XSS FIX. These two arrays carry `users.name` and `services.name` —
+  // doctor-controlled free text — into an inline <script>. `<%- JSON.stringify(v) %>`
+  // is not safe here: JSON.stringify escapes for JSON, not for HTML, and leaves
+  // '<' untouched. A doctor who set their display name to
+  //   </script><script src="https://cdn.jsdelivr.net/npm/…"></script>
+  // closed this script element from inside a string literal; the HTML tokenizer
+  // then parsed the remainder as markup, and because script-src allows
+  // cdn.jsdelivr.net as a host source the injected external script executed
+  // under the SUPERADMIN session viewing the triage queue — full account
+  // takeover of the highest-privilege role in the product, triggered just by
+  // opening a case.
+  //
+  // jsonForScript() (src/middleware.js, exposed on res.locals for every view)
+  // escapes < > & and U+2028/U+2029 to \uXXXX. The parsed JS value is byte-for-byte
+  // identical; the HTML tokenizer simply never sees a tag. Same defence as the
+  // inline .replace(/</g,'\\u003c') already used in src/views/apply.ejs:236.
+  var allServices = <%- _json(_services.map(function(s){ return { id: s.id, specialty_id: s.specialty_id, name: s.name }; })) %>;
+  var allDoctors  = <%- _json(_doctors.map(function(d){ return { id: d.id, name: d.name, specialty_id: d.specialty_id }; })) %>;
+  var initialServiceId = <%- _cls && _cls.service_id ? _json(String(_cls.service_id)) : 'null' %>;
   var isAr = <%- _isAr ? 'true' : 'false' %>;
 
   var specSel = document.getElementById('mqSpecialty');

@@ -39,14 +39,45 @@ function logAppEvent(event, variant, req, meta) {
 
 // ── GET /app — render device-appropriate variant ────────
 
-var TESTFLIGHT_URL = process.env.TESTFLIGHT_URL || 'https://tashkheesa.com/app';
+// The install CTA URL. NO SELF-REFERENTIAL DEFAULT.
+//
+// This used to be `process.env.TESTFLIGHT_URL || 'https://tashkheesa.com/app'`.
+// TESTFLIGHT_URL is not set in production, so the fallback always won and the
+// single primary call-to-action on a paid-traffic landing page pointed at the
+// page the visitor was already on: clicking "Install on iPhone" reloaded /app.
+// Every ad click that converted as far as the button was lost, and because the
+// URL was superficially plausible nothing ever flagged it.
+//
+// Null is the honest value for "we have no install link". The route below
+// refuses to render an install CTA without one.
+var TESTFLIGHT_URL = String(process.env.TESTFLIGHT_URL || '').trim() || null;
+var testflightWarned = false;
 
 router.get('/app', function (req, res) {
   var ua = req.get('user-agent') || '';
   var variant = detectVariant(ua);
 
-  // Log page view
+  // Log the DETECTED variant, not the rendered one, so the funnel data keeps
+  // measuring real device mix even while the install link is missing.
   logAppEvent('page_view', variant, req);
+
+  // With no install URL there is nothing to install, so fall back to the
+  // waitlist-only variant ('android' is the pure email-capture branch in
+  // app_landing.ejs) instead of rendering a button that goes nowhere. Capturing
+  // the lead is strictly better than a dead CTA.
+  //
+  // FOLLOW-UP (app_landing.ejs — not owned by this change): the waitlist branch
+  // is hardcoded to Arabic-first "Android coming soon" copy and posts
+  // platform='android'. An iPhone visitor landing here therefore sees Android
+  // copy and is filed under the wrong platform. The view needs a
+  // variant-neutral heading and platform='ios_other' when hasInstallUrl is
+  // false — see the report.
+  var renderVariant = TESTFLIGHT_URL ? variant : 'android';
+
+  if (!TESTFLIGHT_URL && !testflightWarned) {
+    testflightWarned = true;
+    logMajor('[app-landing] TESTFLIGHT_URL is unset — /app is serving the waitlist variant to every device and no install CTA is rendered.');
+  }
 
   res.render('app_landing', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
@@ -56,7 +87,11 @@ router.get('/app', function (req, res) {
     showNav: true,
     showFooter: true,
     robots: 'noindex, nofollow',
-    variant: variant,
+    variant: renderVariant,
+    // The device we actually detected, kept separate from the variant we chose
+    // to render so the view can tailor copy once it grows an iOS waitlist branch.
+    detectedVariant: variant,
+    hasInstallUrl: !!TESTFLIGHT_URL,
     testflightUrl: TESTFLIGHT_URL,
     utm_source: req.query.utm_source || '',
     utm_campaign: req.query.utm_campaign || ''
