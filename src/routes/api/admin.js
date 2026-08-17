@@ -61,6 +61,43 @@ const COLLECTED_AT_CAIRO =
   `(COALESCE(paid_at, created_at) AT TIME ZONE '${BUSINESS_TZ}')`;
 const COLLECTED_AT_CAIRO_O =
   `(COALESCE(o.paid_at, o.created_at) AT TIME ZONE '${BUSINESS_TZ}')`;
+
+// ─── AUDIT-BREACH-COST — Cairo bucketing for the ledgers /breach-cost reads ──
+// Migration 081 converted the naive timestamp columns on `orders` and
+// `doctor_assignments` ONLY. `refunds.refunded_at` (declared TIMESTAMP by
+// migration 028) and `doctor_earnings.clawback_applied_at` (TIMESTAMP, 054) are
+// still `timestamp WITHOUT time zone` holding UTC digits — every writer is
+// either a JS ISO string or SQL NOW() under the UTC-pinned session (src/pg.js).
+//
+// So these two need the pre-081 TWO-step: label the digits UTC, THEN convert to
+// Cairo. Doing only the second step would reinterpret UTC digits as Cairo wall
+// clock and shift every figure by the Cairo offset — the exact bug the module
+// header above warns about, in the opposite direction.
+const REFUNDED_AT_CAIRO_R =
+  `(r.refunded_at AT TIME ZONE 'UTC' AT TIME ZONE '${BUSINESS_TZ}')`;
+const CLAWBACK_AT_CAIRO_DE =
+  `(de.clawback_applied_at AT TIME ZONE 'UTC' AT TIME ZONE '${BUSINESS_TZ}')`;
+
+// ?period= → the Cairo-wall-clock lower bound of the window, as a CONSTANT SQL
+// fragment. Whitelisted keys only; the values never contain user text, which is
+// what makes interpolating them safe. GET /revenue parameterizes date_trunc's
+// unit ($1) because 'day'/'month' is its only variable; here the 30d/90d arms
+// need an INTERVAL literal, which cannot be a bind parameter in the same shape,
+// so the whole bound is chosen from this table instead.
+const BREACH_COST_PERIODS = {
+  mtd: `date_trunc('month', ${NOW_CAIRO})`,
+  '30d': `(${NOW_CAIRO} - INTERVAL '30 days')`,
+  '90d': `(${NOW_CAIRO} - INTERVAL '90 days')`,
+};
+
+// "Refunded EGP" = COMMITTED refunds, the identical set the /refunds
+// refundedMTD KPI already sums, so the two surfaces can never disagree.
+// 'pending' is an obligation that may still be denied and 'denied' never
+// becomes money, so neither is a cost. SLA-breach auto-refunds land as
+// 'auto_approved' (services/sla_breach.js), which is inside this set from the
+// moment the breach is detected.
+const COMMITTED_REFUND_STATUSES = "('paid','approved','auto_approved')";
+
 // Shared pure helpers for the /cases endpoints (status/tier normalization,
 // tier-support, capacity, acceptance window). Extracted to a single source of
 // truth so the candidates picker, single-assign write, queue/detail readers,
@@ -165,6 +202,16 @@ function toIso(v) {
   return v instanceof Date ? v.toISOString() : String(v);
 }
 
+// EGP, 2dp. pg returns NUMERIC as a STRING (amount_egp is NUMERIC(10,2)) and
+// DOUBLE PRECISION as a float (doctor_earnings.earned_amount), so every money
+// figure crossing into JSON goes through here: Number() first, then round to
+// piastres so a float sum can never surface as 1349.9999999999998. NULL/'' —
+// which is what SUM() returns over an empty group — becomes 0, not NaN.
+function money(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+}
+
 // status/tier normalization (STATUS_RAW, TIER_RAW, normalizeStatus,
 // normalizeTier) now live in ./_assign_helpers.js — imported at the top.
 
@@ -201,6 +248,23 @@ const inviteIpLimiter = rateLimit({
   message: { ok: false, error: 'too_many_requests' },
 });
 
+// ─── AUDIT-MANUAL-QUEUE — patient-facing copy for "mark unsuitable" ─────────
+// MIRROR of MANUAL_QUEUE_UNSUITABLE_REASONS in routes/superadmin.js (the web
+// console's mark-unsuitable handler). Same codes, same sentences, both
+// languages — the patient must receive identical wording whether an operator
+// acts from the phone or the desktop console. KEEP THE TWO IN SYNC: this is a
+// copy, not an import, because routes/superadmin.js is a mounted router module
+// with side effects at require time and must not be pulled into the API tree.
+//
+// The body's `reason` accepts either a bare code, a free-text sentence, or the
+// web's combined "code | free-text" form; resolution below matches the web.
+const MANUAL_QUEUE_UNSUITABLE_REASONS = {
+  scope_outside_capability:        { en: 'This case falls outside the scope of our platform.', ar: 'الحالة دي خارج نطاق خدمات المنصة.' },
+  insufficient_info_after_review:  { en: 'After review, the information provided was not sufficient for a second opinion.', ar: 'بعد المراجعة، المعلومات المقدمة مكانتش كافية لرأي طبي ثاني.' },
+  not_second_opinion_case:         { en: 'This case is not a medical second-opinion request.', ar: 'الحالة دي مش طلب رأي طبي ثاني.' },
+  other:                           { en: '', ar: '' }
+};
+
 module.exports = function (db, helpers, deploy, deps) {
   const { safeGet, safeAll, safeRun } = helpers;
   const router = express.Router();
@@ -231,6 +295,21 @@ module.exports = function (db, helpers, deploy, deps) {
   // best-effort. We only CALL it; the clawback policy lives inside that function.
   const recomputeOnRefund = assignDeps.recomputeOnRefund
     || require('../../services/earnings_writer').recomputeOnRefund;
+  // Manual-queue routing re-engagement + its error sink. Same injectable
+  // pattern as the assign notifiers above: the real modules are the default,
+  // tests pass stubs. enqueueAutoAssign / broadcastOrderToSpecialty are the two
+  // calls POST /manual-queue/:id/approve fires POST-COMMIT to release a case
+  // back into the normal routing flow; logErrorToDb is where their failures go
+  // (see the AUDIT-H1 note at that handler — they must NOT go to stdout) and
+  // logCaseEvent puts the same failure on the case's own timeline.
+  const enqueueAutoAssign = assignDeps.enqueueAutoAssign
+    || require('../../job_queue').enqueueAutoAssign;
+  const broadcastOrderToSpecialty = assignDeps.broadcastOrderToSpecialty
+    || require('../../notify/broadcast').broadcastOrderToSpecialty;
+  const logErrorToDb = assignDeps.logErrorToDb
+    || require('../../logger').logErrorToDb;
+  const logCaseEvent = assignDeps.logCaseEvent
+    || require('../../case_lifecycle').logCaseEvent;
 
   // ─── POST /auth/login (public) ─────────────────────────────
   // Generic 401 INVALID_CREDENTIALS for every failure mode — no account
@@ -2238,6 +2317,845 @@ module.exports = function (db, helpers, deploy, deps) {
       console.error('[admin/files] signing failed:', err && err.message);
       return res.fail('Could not prepare download', 500, 'FILE_SIGN_ERROR');
     }
+  });
+
+  // ─── GET /breach-cost?period=mtd|30d|90d (what SLA breaches COST) ──────────
+  //
+  // AUDIT — WHY THIS SURFACE EXISTS.
+  //
+  // An SLA breach is not a status badge, it is money leaving the business, and
+  // NOTHING on any surface totals it today. /pulse counts breached cases,
+  // /cases can filter to them, /refunds lists refund rows one at a time — but
+  // no screen, mobile or desktop, answers "what did breaching cost us this
+  // month, and which specialty / which doctor is generating it". That is a
+  // direct, controllable P&L line and it is currently invisible, which means it
+  // has never been managed.
+  //
+  // WHAT A BREACH COSTS, PRECISELY (services/sla_breach.js + PAYOUT policy §4):
+  //   - the patient is auto-refunded the URGENCY UPLIFT only, never the whole
+  //     case — refunds row, reason='sla_breach', status='auto_approved'
+  //     (system-approved, awaiting the manual InstaPay payout);
+  //   - orders.urgency_uplift_amount is zeroed and the doctor's earnings are
+  //     recomputed as if the case were Standard tier (earnings_writer
+  //     .recomputeOnBreach), then fully clawed back at refund mark-paid
+  //     (recomputeOnRefund, policy 'sla_breach_full_clawback').
+  // So the platform's cash cost is the uplift; the doctor's cost is the payout
+  // clawback. Both are reported here, separately, because they are different
+  // people's money.
+  //
+  // MONEY DEFINITIONS — deliberately the SAME as the existing surfaces:
+  //   refunded  = SUM(refunds.amount_egp) over COMMITTED refunds only
+  //               (paid/approved/auto_approved) — identical to the /refunds
+  //               refundedMTD KPI, so the two can never disagree. Pending is an
+  //               obligation that may still be denied; denied never becomes money.
+  //   collected = SUM(COALESCE(total_price_with_addons, price)) over
+  //               orders_active with payment_status paid/captured — verbatim
+  //               the GET /revenue + /refunds collected formula.
+  // Every SUM is wrapped in COALESCE(...,0) so an empty period returns 0, not
+  // NULL, and every figure is rounded to piastres on the way out (money()).
+  //
+  // BUCKETING: the Cairo business day, same as /revenue. refunds.refunded_at
+  // and doctor_earnings.clawback_applied_at are still naive-UTC columns
+  // (migration 081 converted only orders + doctor_assignments), so they take
+  // the two-step UTC→Cairo conversion — see REFUNDED_AT_CAIRO_R at the top.
+  //
+  // READ-ONLY. requireJWT + requireRole('superadmin') inherited from the router.
+  router.get('/breach-cost', async (req, res) => {
+    const period = String((req.query && req.query.period) || 'mtd').toLowerCase();
+    const from = BREACH_COST_PERIODS[period];
+    if (!from) return res.fail("period must be 'mtd', '30d' or '90d'", 400, 'BAD_REQUEST');
+
+    // Shared predicates. `r.status` is the REFUNDS workflow column — single
+    // writer set, no casing hazard (unlike orders.status). The breach filter
+    // folds reason anyway because it is free TEXT with no CHECK (migration 028).
+    const inPeriod = `r.status IN ${COMMITTED_REFUND_STATUSES} AND ${REFUNDED_AT_CAIRO_R} >= ${from}`;
+    const isBreach = `LOWER(COALESCE(r.reason,'')) = 'sla_breach'`;
+
+    try {
+      const [reasonRows, specialtyRows, doctorRows, tierRows, collectedRow, clawbackRows] =
+        await Promise.all([
+          // (1) Every committed refund in the window, split by reason. Drives
+          //     BOTH the by-reason breakdown and the refund-rate numerator, so
+          //     the two are arithmetically consistent by construction.
+          safeAll(
+            `SELECT LOWER(COALESCE(r.reason,'')) AS reason,
+                    COUNT(*)::int AS n,
+                    COALESCE(SUM(r.amount_egp), 0) AS egp
+               FROM refunds r
+              WHERE ${inPeriod}
+              GROUP BY 1`
+          ),
+          // (2) Breaches by specialty. Joins `orders` (not orders_active) with
+          //     the same include-deleted-ok reasoning as GET /refunds: every
+          //     refund-insert path gates on a paid order, and soft-delete only
+          //     ever touches unpaid expired drafts — so this join cannot
+          //     produce a deleted row, and if it somehow did you would still
+          //     want the cost counted.
+          safeAll(
+            `SELECT o.specialty_id AS id, COALESCE(sp.name, '—') AS name,
+                    COUNT(*)::int AS n,
+                    COALESCE(SUM(r.amount_egp), 0) AS egp
+               FROM refunds r
+               JOIN orders o ON o.id = r.order_id
+               LEFT JOIN specialties sp ON sp.id = o.specialty_id
+              WHERE ${isBreach} AND ${inPeriod}
+              GROUP BY o.specialty_id, sp.name
+              ORDER BY egp DESC, n DESC`
+          ),
+          // (3) Breaches by doctor. LEFT JOIN + a null bucket: a case can breach
+          //     with no doctor on it (the acceptance handshake never completed),
+          //     and dropping those rows would under-report the total.
+          safeAll(
+            `SELECT o.doctor_id AS id, d.name AS name,
+                    COUNT(*)::int AS n,
+                    COALESCE(SUM(r.amount_egp), 0) AS egp
+               FROM refunds r
+               JOIN orders o ON o.id = r.order_id
+               LEFT JOIN users d ON d.id = o.doctor_id
+              WHERE ${isBreach} AND ${inPeriod}
+              GROUP BY o.doctor_id, d.name
+              ORDER BY egp DESC, n DESC`
+          ),
+          // (4) Breaches by urgency tier. Raw tiers are folded here and
+          //     normalized again in JS (normalizeTier maps the legacy
+          //     'fast_track' onto 'vip'), so two raw rows can collapse into one
+          //     output bucket — hence the merge below rather than a direct map.
+          safeAll(
+            `SELECT LOWER(COALESCE(o.urgency_tier,'standard')) AS tier,
+                    COUNT(*)::int AS n,
+                    COALESCE(SUM(r.amount_egp), 0) AS egp
+               FROM refunds r
+               JOIN orders o ON o.id = r.order_id
+              WHERE ${isBreach} AND ${inPeriod}
+              GROUP BY 1`
+          ),
+          // (5) Refund-rate denominator + the window's Cairo lower bound, echoed
+          //     back so the app can label the period without recomputing it.
+          safeGet(
+            `SELECT COALESCE(SUM(COALESCE(o.total_price_with_addons, o.price)), 0) AS collected,
+                    to_char(${from}, 'YYYY-MM-DD"T"HH24:MI:SS') AS period_start_cairo
+               FROM orders_active o
+              WHERE LOWER(COALESCE(o.payment_status,'')) IN ('paid','captured')
+                AND ${COLLECTED_AT_CAIRO_O} >= ${from}`
+          ),
+          // (6) Doctor-earnings clawback in the window.
+          //
+          //     doctor_earnings has NO order_id: main-case rows overload
+          //     appointment_id with the order id and are identified by the
+          //     'earn-main-' id prefix (services/earnings_writer.js header), so
+          //     that is the join and the filter. clawback_reason /
+          //     clawback_applied_at are migration 054.
+          //
+          //     The clawed-back AMOUNT is not stored — recomputeOnRefund
+          //     OVERWRITES earned_amount in place — so it is derived from the
+          //     policy that fired, which IS stored:
+          //       'sla_breach_full_clawback'  → earned_amount driven to 0, and
+          //         the pre-clawback value was the base share, which
+          //         earnings_calc defines as the absolute orders.doctor_fee
+          //         (uplift was already zeroed at breach detection). Clawback =
+          //         orders.doctor_fee.
+          //       '...90pct_clawback'          → earned_amount := 0.10 × full,
+          //         so full = 10 × earned and the clawback = 9 × earned. Exact.
+          //     Any other/unknown policy contributes 0 EGP but is still counted,
+          //     so a new policy string shows up as an unpriced row instead of
+          //     silently vanishing from the total.
+          safeAll(
+            `SELECT COALESCE(de.clawback_reason, 'unknown') AS policy,
+                    COUNT(*)::int AS n,
+                    COALESCE(SUM(
+                      CASE
+                        WHEN de.clawback_reason = 'sla_breach_full_clawback'
+                          THEN COALESCE(o.doctor_fee, 0)
+                        WHEN de.clawback_reason = 'patient_or_operator_post_acceptance_90pct_clawback'
+                          THEN COALESCE(de.earned_amount, 0) * 9
+                        ELSE 0
+                      END), 0) AS egp
+               FROM doctor_earnings de
+               -- include-deleted-ok: an earnings clawback is settled money and
+               -- must stay countable even if the order were ever soft-deleted.
+               JOIN orders o ON o.id = de.appointment_id
+              WHERE de.clawback_applied_at IS NOT NULL
+                AND de.id LIKE 'earn-main-%'
+                AND ${CLAWBACK_AT_CAIRO_DE} >= ${from}
+              GROUP BY 1
+              ORDER BY egp DESC`
+          ),
+        ]);
+
+      // ── by-reason: the three known reasons always present (zeros when the
+      // period has none), plus an `other` catch-all so the parts always sum to
+      // the total. A reason the ledger grows later shows up in `other` rather
+      // than being dropped on the floor.
+      const REASONS = ['sla_breach', 'patient_request', 'operator_refund'];
+      const byReason = {};
+      REASONS.forEach((k) => { byReason[k] = { count: 0, egp: 0 }; });
+      byReason.other = { count: 0, egp: 0 };
+      let refundedTotal = 0;
+      let refundedCount = 0;
+      (reasonRows || []).forEach((r) => {
+        const key = REASONS.includes(r.reason) ? r.reason : 'other';
+        byReason[key].count += Number(r.n) || 0;
+        byReason[key].egp = money(byReason[key].egp + money(r.egp));
+        refundedCount += Number(r.n) || 0;
+        refundedTotal = money(refundedTotal + money(r.egp));
+      });
+
+      const mapGroup = (rows) => (rows || []).map((r) => ({
+        id: r.id || null,
+        name: r.name || null,
+        count: Number(r.n) || 0,
+        egp: money(r.egp),
+      }));
+
+      // Tier buckets merged post-normalization (vip ← fast_track), then sorted
+      // highest-cost first like the other breakdowns.
+      const tierMap = new Map();
+      (tierRows || []).forEach((r) => {
+        const tier = normalizeTier(r.tier);
+        const cur = tierMap.get(tier) || { tier, count: 0, egp: 0 };
+        cur.count += Number(r.n) || 0;
+        cur.egp = money(cur.egp + money(r.egp));
+        tierMap.set(tier, cur);
+      });
+      const byTier = Array.from(tierMap.values()).sort((a, b) => b.egp - a.egp || b.count - a.count);
+
+      const collected = money(collectedRow && collectedRow.collected);
+      const clawback = (clawbackRows || []).map((r) => ({
+        policy: r.policy,
+        count: Number(r.n) || 0,
+        egp: money(r.egp),
+      }));
+      const clawbackTotal = clawback.reduce((s, c) => money(s + c.egp), 0);
+      const clawbackCount = clawback.reduce((s, c) => s + c.count, 0);
+
+      return res.ok({
+        period,
+        window: {
+          startCairo: (collectedRow && collectedRow.period_start_cairo) || null,
+          timezone: BUSINESS_TZ,
+        },
+        breaches: {
+          count: byReason.sla_breach.count,
+          refundedEgp: byReason.sla_breach.egp,
+          bySpecialty: mapGroup(specialtyRows),
+          byDoctor: mapGroup(doctorRows),
+          byTier,
+        },
+        refunds: {
+          total: { count: refundedCount, egp: refundedTotal },
+          byReason,
+        },
+        refundRate: {
+          refundedEgp: refundedTotal,
+          collectedEgp: collected,
+          // null, never 0 and never Infinity: with nothing collected there is
+          // no rate to report, and a fabricated 0% would read as "healthy".
+          pct: collected > 0 ? Math.round((refundedTotal / collected) * 10000) / 100 : null,
+        },
+        earningsClawback: {
+          count: clawbackCount,
+          egp: clawbackTotal,
+          byPolicy: clawback,
+          // The amount is DERIVED from the stored policy, not stored itself —
+          // see query (6). Flagged so the app never presents it as ledgered.
+          basis: 'derived_from_clawback_policy',
+        },
+        basis: {
+          refunds: 'committed refunds (status paid/approved/auto_approved), SUM(amount_egp)',
+          collected: 'orders_active payment_status paid/captured, SUM(COALESCE(total_price_with_addons, price))',
+          bucketing: 'Cairo business day (Africa/Cairo)',
+        },
+      });
+    } catch (err) {
+      console.error('[admin/breach-cost] failed:', err && err.message);
+      return res.fail('Failed to load breach cost', 500, 'BREACH_COST_ERROR');
+    }
+  });
+
+  // ─── GET /manual-queue (cases the classifier could not route) ──────────────
+  //
+  // AUDIT — WHY THIS SURFACE EXISTS.
+  //
+  // When the Theme 14 specialty classifier's confidence falls below the live
+  // threshold it parks the order at assignment_status='manual_queue' and BOTH
+  // auto_assign.js and notify/broadcast.js short-circuit on that state. The
+  // case is PAID and it does not move again until a human routes it.
+  //
+  // The Command app folded these into an undifferentiated "pending assignment"
+  // count with no way to act on them, so they rot silently: the patient has
+  // paid, no doctor has been told the case exists, no SLA clock is running (it
+  // starts at acceptance) and nothing on the phone says a person is required.
+  // This list, plus the two POSTs below, is the phone-side equivalent of
+  // /superadmin/manual-queue.
+  //
+  // Row set is deliberately IDENTICAL to the web list (routes/superadmin.js
+  // ~2185): completed_at IS NULL AND assignment_status='manual_queue',
+  // oldest-first (FIFO — the longest wait is the most urgent triage), capped at
+  // 200. No status filter, exactly like the web: mark-unsuitable flips
+  // assignment_status to 'cancelled', so cancelled cases leave the queue on
+  // that column and a second, unfolded status predicate would only add a
+  // case-sensitivity hazard for no gain.
+  //
+  // Beyond the web's columns it carries what the phone needs to triage without
+  // a second round-trip: money (base / charged / grand total), tier, payment
+  // state, the chosen-vs-predicted specialty pair, and the wait.
+  // READ-ONLY. requireJWT + requireRole('superadmin') inherited.
+  router.get('/manual-queue', async (req, res) => {
+    try {
+      const n = (v) => Number(v) || 0;
+      const rows = await safeAll(
+        `SELECT o.id, o.reference_id, o.created_at, o.status, o.payment_status,
+                o.urgency_tier, o.base_price, o.price, o.total_price_with_addons,
+                o.specialty_id AS chosen_specialty_id, o.service_id AS chosen_service_id,
+                COALESCE(p.name,'—') AS patient_name, p.gender, p.date_of_birth,
+                sp_chosen.name AS chosen_specialty_name,
+                sv_chosen.name AS chosen_service_name,
+                sc.specialty_id  AS predicted_specialty_id,
+                sc.service_id    AS predicted_service_id,
+                sc.confidence    AS predicted_confidence,
+                sc.created_at    AS predicted_at,
+                sp_pred.name AS predicted_specialty_name,
+                sv_pred.name AS predicted_service_name,
+                -- Both arms cast to timestamptz so the subtraction is an
+                -- INSTANT difference, never a wall-clock one. o.created_at is
+                -- already timestamptz (migration 081) and the cast is a no-op;
+                -- specialty_classifications.created_at is still naive-UTC (056,
+                -- outside 081's two-table scope) and the cast reads it in the
+                -- session zone, which src/pg.js pins to UTC — the same
+                -- ::timestamptz form GET /cases uses on deadline_at.
+                ROUND(EXTRACT(EPOCH FROM (
+                  NOW() - COALESCE(sc.created_at::timestamptz, o.created_at::timestamptz)
+                )) / 60) AS waiting_mins
+           FROM orders_active o
+           LEFT JOIN users p ON p.id = o.patient_id
+           LEFT JOIN specialties sp_chosen ON sp_chosen.id = o.specialty_id
+           LEFT JOIN services   sv_chosen  ON sv_chosen.id  = o.service_id
+           -- Latest classification per case (the web's LATERAL, verbatim).
+           LEFT JOIN LATERAL (
+             SELECT specialty_id, service_id, confidence, created_at
+               FROM specialty_classifications
+              WHERE case_id = o.id
+              ORDER BY created_at DESC
+              LIMIT 1
+           ) sc ON true
+           LEFT JOIN specialties sp_pred ON sp_pred.id = sc.specialty_id
+           LEFT JOIN services   sv_pred  ON sv_pred.id  = sc.service_id
+          WHERE o.completed_at IS NULL
+            AND o.assignment_status = 'manual_queue'
+            -- AUDIT — narrower than the web list, deliberately.
+            --
+            -- The web console shows everything with assignment_status =
+            -- 'manual_queue'. Checked against production on 2026-08-17: both
+            -- rows in that queue were unpaid — one a DRAFT from the day before,
+            -- one EXPIRED_UNPAID and sitting there for 33 days. Neither is
+            -- actionable: there is no money to protect and nothing to route.
+            --
+            -- This surface exists to answer one question on a phone — "is there
+            -- a PAID case nobody is watching?" — and a queue whose visible
+            -- contents are permanently two un-actionable rows is a queue the
+            -- operator stops opening. Drafts and expired-unpaid carts are
+            -- excluded; genuinely stuck paid work is not.
+            AND LOWER(COALESCE(o.status, '')) NOT IN ('draft', 'expired_unpaid', 'cancelled', 'refunded')
+          ORDER BY o.created_at ASC
+          LIMIT 200`
+      );
+
+      const cases = (rows || []).map((r) => ({
+        id: r.id, // raw orders.id — the routing key for the two POSTs below
+        reference: r.reference_id || null,
+        patient: r.patient_name,
+        ageSex: deriveAgeSex(r.date_of_birth, r.gender),
+        // predicted = what the AI thought; chosen = what is on the order right
+        // now (the patient's wizard pick). The operator is resolving exactly
+        // this disagreement, so both sides ship on every row.
+        specialtyPredicted: r.predicted_specialty_name || null,
+        specialtyPredictedId: r.predicted_specialty_id || null,
+        specialtyChosen: r.chosen_specialty_name || null,
+        specialtyChosenId: r.chosen_specialty_id || null,
+        servicePredicted: r.predicted_service_name || null,
+        servicePredictedId: r.predicted_service_id || null,
+        service: r.chosen_service_name || null,
+        serviceId: r.chosen_service_id || null,
+        // 0..1 as written by the classifier (DOUBLE PRECISION, may be NULL on
+        // rows parked before the classifier could score them).
+        confidence: r.predicted_confidence == null ? null : Number(r.predicted_confidence),
+        predictedAt: toIso(r.predicted_at),
+        tier: normalizeTier(r.urgency_tier),
+        status: normalizeStatus(r.status),
+        payment: String(r.payment_status || 'unpaid').toLowerCase(),
+        basePrice: n(r.base_price),
+        price: n(r.price),
+        grandTotal: n(r.total_price_with_addons != null ? r.total_price_with_addons : r.price),
+        // How long this case has been waiting for a human, in minutes, measured
+        // from the classification that parked it (falling back to order
+        // creation when no classification row exists).
+        waitingMins: r.waiting_mins == null ? null : Number(r.waiting_mins),
+        createdAt: toIso(r.created_at),
+      }));
+
+      const paid = cases.filter((c) => c.payment === 'paid' || c.payment === 'captured').length;
+      return res.ok({
+        cases,
+        counts: { total: cases.length, paid, unpaid: cases.length - paid },
+      });
+    } catch (err) {
+      console.error('[admin/manual-queue] failed:', err && err.message);
+      return res.fail('Failed to load manual queue', 500, 'MANUAL_QUEUE_ERROR');
+    }
+  });
+
+  // ─── POST /manual-queue/:id/approve (real WRITE — atomic) ──────────────────
+  //
+  // Routes a parked case: sets its specialty + service (and optionally a
+  // hand-picked doctor), releases assignment_status, and re-engages the normal
+  // post-payment routing flow. Same effects as the web handler
+  // (routes/superadmin.js ~2343), in ONE transaction on the txn client:
+  //   1. SELECT … FOR UPDATE + re-validate every guard from fresh in-txn reads
+  //   2. UPDATE orders (specialty, service, doctor?, assignment_status)
+  //   3. INSERT specialty_classification_overrides — AI pick vs operator pick,
+  //      side by side (the prompt-iteration signal; the patient_* column names
+  //      are preserved from the patient-self-override flow)
+  //   4. INSERT order_events 'manual_queue_resolved'
+  //   5. INSERT error_logs admin_audit 'manual_queue_assigned'
+  // then POST-COMMIT, off-txn: the patient routing-changed notice and the two
+  // routing calls.
+  //
+  // IDEMPOTENCY-SAFE: the state is re-validated INSIDE the UPDATE's WHERE
+  // (assignment_status = 'manual_queue'), not only in the pre-read — the same
+  // shape the refund handlers use. Two operators approving the same case
+  // concurrently: the first commits, the second's UPDATE matches 0 rows and
+  // gets 409 NOT_IN_QUEUE instead of writing a second override row and firing
+  // a second broadcast.
+  //
+  // PARITY NOTE: like the web, picking a doctor here sets orders.doctor_id +
+  // assignment_status='assigned' but does NOT open a doctor_assignments row or
+  // start the acceptance handshake — the full assignment path with all ten
+  // eligibility rules is POST /cases/:id/assign. This endpoint only ROUTES.
+  router.post('/manual-queue/:id/approve', async (req, res) => {
+    const id = req.params.id;
+    const body = req.body || {};
+    // camelCase is the Command app's convention (see /cases/:id/assign);
+    // snake_case is accepted so a payload copied from the web form also works.
+    const specialtyId = String(body.specialtyId || body.specialty_id || '').trim();
+    const serviceId = String(body.serviceId || body.service_id || '').trim();
+    const doctorId = String(body.doctorId || body.doctor_id || '').trim();
+    const reason = String(body.reason || body.override_reason || '').trim().slice(0, 1000);
+
+    if (!specialtyId || !serviceId) {
+      return res.fail('specialtyId and serviceId are required', 400, 'BAD_REQUEST');
+    }
+
+    // Throw-to-reject: attaches an HTTP status + code carried out of the txn.
+    const af = (msg, http, code) => {
+      const e = new Error(msg);
+      e.http = http;
+      e.code = code;
+      throw e;
+    };
+
+    let client;
+    let committed = null;
+    try {
+      client = await db.connect();
+      await client.query('BEGIN');
+
+      const o = (await client.query(
+        `SELECT id, patient_id, assignment_status, payment_status, specialty_id, service_id
+           FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        [id]
+      )).rows[0];
+      if (!o) af('Case not found', 404, 'NOT_FOUND');
+      if (String(o.assignment_status || '') !== 'manual_queue') {
+        af('Case is not in the manual queue', 409, 'NOT_IN_QUEUE');
+      }
+
+      // Service must exist, be visible, and belong to the chosen specialty —
+      // the web's guard, re-read in-txn so the catalog cannot shift under us.
+      const svc = (await client.query(
+        `SELECT id, specialty_id FROM services
+          WHERE id = $1 AND COALESCE(is_visible, true) = true`,
+        [serviceId]
+      )).rows[0];
+      if (!svc || String(svc.specialty_id) !== specialtyId) {
+        af('Service does not belong to the chosen specialty', 409, 'INVALID_SERVICE');
+      }
+
+      // Doctor (only when hand-picked) must be an active doctor carrying the
+      // chosen specialty on the doctor_specialties junction — the same
+      // eligibility model the broadcast flow uses.
+      if (doctorId) {
+        const ok = (await client.query(
+          `SELECT u.id FROM users u
+             JOIN doctor_specialties ds ON ds.doctor_id = u.id
+            WHERE u.id = $1 AND u.role = 'doctor'
+              AND COALESCE(u.is_active, true) = true
+              AND ds.specialty_id = $2 LIMIT 1`,
+          [doctorId, specialtyId]
+        )).rows[0];
+        if (!ok) af('Doctor is not eligible for the chosen specialty', 409, 'INVALID_DOCTOR');
+      }
+
+      // The AI's latest call, recorded alongside the operator's pick.
+      const ai = (await client.query(
+        `SELECT specialty_id, service_id, confidence FROM specialty_classifications
+          WHERE case_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [id]
+      )).rows[0] || null;
+
+      const nextAssignmentStatus = doctorId ? 'assigned' : 'auto';
+
+      // The write. The WHERE re-asserts the queue state (see IDEMPOTENCY note):
+      // a 0-row result means another operator got there first.
+      const upd = doctorId
+        ? await client.query(
+            `UPDATE orders
+                SET specialty_id = $1, service_id = $2, doctor_id = $3,
+                    assignment_status = $4, updated_at = NOW()
+              WHERE id = $5 AND assignment_status = 'manual_queue'
+            RETURNING id`,
+            [specialtyId, serviceId, doctorId, nextAssignmentStatus, id]
+          )
+        : await client.query(
+            `UPDATE orders
+                SET specialty_id = $1, service_id = $2,
+                    assignment_status = $3, updated_at = NOW()
+              WHERE id = $4 AND assignment_status = 'manual_queue'
+            RETURNING id`,
+            [specialtyId, serviceId, nextAssignmentStatus, id]
+          );
+      if (!upd.rows[0]) af('Case is not in the manual queue', 409, 'NOT_IN_QUEUE');
+
+      await client.query(
+        `INSERT INTO specialty_classification_overrides
+           (id, case_id, ai_specialty_id, ai_service_id, ai_confidence,
+            patient_specialty_id, patient_service_id, override_at, override_reason)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)`,
+        [randomUUID(), id,
+          ai ? ai.specialty_id : null,
+          ai ? ai.service_id : null,
+          ai && ai.confidence != null ? Number(ai.confidence) : null,
+          specialtyId, serviceId,
+          reason ? ('command_manual_queue: ' + reason) : 'command_manual_queue']
+      );
+
+      await client.query(
+        `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
+           VALUES ($1, $2, 'manual_queue_resolved', $3, NOW(), $4, 'superadmin')`,
+        [randomUUID(), id, JSON.stringify({
+          operator_user_id: req.user.id,
+          ai_specialty_id: ai ? ai.specialty_id : null,
+          ai_service_id: ai ? ai.service_id : null,
+          ai_confidence: ai && ai.confidence != null ? Number(ai.confidence) : null,
+          chosen_specialty_id: specialtyId,
+          chosen_service_id: serviceId,
+          doctor_picked_manually: !!doctorId,
+          manual_doctor_id: doctorId || null,
+          override_reason_preview: reason.slice(0, 100),
+          via: 'command_api',
+        }), req.user.id]
+      );
+      await client.query(
+        `INSERT INTO error_logs (id, level, category, message, user_id, context)
+           VALUES ($1, 'audit', 'admin_audit', $2, $3, $4)`,
+        [randomUUID(), `manual_queue_assigned case ${id}`, req.user.id,
+          JSON.stringify({
+            action: 'manual_queue_assigned', caseId: id,
+            specialtyId, serviceId, doctorId: doctorId || null, reason: reason || null,
+          })]
+      );
+
+      await client.query('COMMIT');
+      committed = {
+        patientId: o.patient_id || null,
+        previousSpecialtyId: o.specialty_id || null,
+        paymentStatus: String(o.payment_status || '').toLowerCase(),
+        ai,
+        nextAssignmentStatus,
+      };
+    } catch (err) {
+      if (client) { try { await client.query('ROLLBACK'); } catch (_) { /* no-op */ } }
+      if (err && err.http) return res.fail(err.message, err.http, err.code);
+      console.error('[admin/manual-queue-approve] failed:', err && err.message);
+      return res.fail('Manual queue approval failed', 500, 'MANUAL_QUEUE_APPROVE_ERROR');
+    } finally {
+      if (client && client.release) client.release();
+    }
+
+    // ── Post-commit, off-txn, best-effort. Nothing below can unwind the
+    // committed routing decision.
+
+    // (1) Patient notice — Q2-locked to a SPECIALTY change only (not a
+    //     service-within-the-same-specialty change), identical to the web.
+    const specialtyChanged = !!committed.previousSpecialtyId
+      && String(committed.previousSpecialtyId) !== specialtyId;
+    let notification = 'skipped';
+    if (specialtyChanged && committed.patientId) {
+      try {
+        const r = await queueMultiChannelNotification({
+          orderId: id,
+          toUserId: committed.patientId,
+          channels: ['internal', 'email', 'whatsapp'],
+          template: 'case_routing_updated',
+          response: {
+            case_id: id,
+            caseReference: String(id).slice(0, 12).toUpperCase(),
+            patientName: '', // resolved by notification_worker from users.name
+          },
+          dedupe_key: 'case_routing_updated:' + id,
+        });
+        notification = (r && r.ok === false) ? 'failed' : 'queued';
+      } catch (e) {
+        console.error('[admin/manual-queue-approve] notify failed:', e && e.message);
+        notification = 'failed';
+      }
+    }
+
+    // (2) Re-engage routing when no doctor was hand-picked and the money is in.
+    //     The manual_queue gates in auto_assign.js / notify/broadcast.js
+    //     released the moment assignment_status flipped above.
+    //
+    //     AUDIT-H1 — the web's equivalent shipped these as
+    //     `.catch(console.error)`. If either rejected, the response still
+    //     reported success, nothing reached /ops/errors, and the case became
+    //     UNREACHABLE: the acceptance watcher only picks up orders that have an
+    //     acceptance_deadline_at (which the failed broadcast never set) and the
+    //     SLA sweep only scans IN_REVIEW / REJECTED_FILES. A paid case would
+    //     sit forever with no doctor and no signal to anyone. That was fixed in
+    //     routes/superadmin.js and the fix is carried here from the start:
+    //     failures go to error_logs (surfacing on /ops/errors and in the
+    //     silent-failures view) AND onto the case timeline as
+    //     CASE_ROUTING_FAILED. They are NOT awaited — broadcast fans out to
+    //     every eligible doctor and must not hold the operator's request open.
+    const isPaid = ['paid', 'captured'].includes(committed.paymentStatus);
+    let routing = 'skipped_manual_doctor';
+    if (!doctorId) routing = isPaid ? 'requested' : 'skipped_not_paid';
+    if (!doctorId && isPaid) {
+      const onRoutingError = (stage) => (err) => {
+        try {
+          logErrorToDb(err, {
+            context: 'admin_api.manual_queue_approve.' + stage,
+            category: 'assignment',
+            orderId: id,
+            userId: req.user && req.user.id,
+            requestId: req.requestId,
+          });
+        } catch (_) { /* the sink itself must never throw into the response */ }
+        Promise.resolve(logCaseEvent(id, 'CASE_ROUTING_FAILED', {
+          stage, reason: err && err.message, via: 'command_manual_queue_approve',
+        })).catch(function () {});
+      };
+      // Each call is additionally wrapped because a SYNCHRONOUS throw (a bad
+      // require, a missing export) would escape .catch() entirely, reject this
+      // async handler after the transaction had already committed, and — under
+      // express 4, which does not catch async rejections — leave the operator's
+      // request hanging with no response at all.
+      const fire = (fn, stage) => {
+        try { Promise.resolve(fn(id)).catch(onRoutingError(stage)); }
+        catch (e) { onRoutingError(stage)(e); }
+      };
+      fire(enqueueAutoAssign, 'auto_assign');
+      fire(broadcastOrderToSpecialty, 'broadcast');
+    }
+
+    return res.ok({
+      id,
+      assignmentStatus: committed.nextAssignmentStatus,
+      specialtyId,
+      serviceId,
+      doctorId: doctorId || null,
+      specialtyChanged,
+      ai: committed.ai
+        ? {
+            specialtyId: committed.ai.specialty_id || null,
+            serviceId: committed.ai.service_id || null,
+            confidence: committed.ai.confidence == null ? null : Number(committed.ai.confidence),
+          }
+        : null,
+      routing,
+      notification,
+    });
+  });
+
+  // ─── POST /manual-queue/:id/unsuitable (real WRITE — atomic) ───────────────
+  //
+  // The other exit from the queue: the case cannot be served at all. Mirrors
+  // the web's mark-unsuitable (routes/superadmin.js ~2559) in ONE transaction:
+  //   1. SELECT … FOR UPDATE + queue-state guard
+  //   2. UPDATE orders → status='cancelled', assignment_status='cancelled'
+  //   3. If the money was taken → open ONE pending refund row
+  //      (reason='operator_refund') unless a live refund already exists
+  //   4. INSERT order_events 'manual_queue_marked_unsuitable'
+  //   5. INSERT error_logs admin_audit
+  // then, post-commit, the patient cancellation notice.
+  //
+  // `reason` is REQUIRED — this cancels a paid case and the patient is told
+  // why. Accepts a preset code, free text, or the web's "code | free-text".
+  //
+  // IDEMPOTENCY-SAFE: the queue state is re-asserted in the UPDATE's WHERE, so
+  // a double-tap cancels once and the second call gets 409 NOT_IN_QUEUE. The
+  // refund INSERT is additionally guarded by an in-txn SELECT for any live
+  // refund on the order (and, underneath, by the uniq_refunds_pending_per_order
+  // partial index from migration 048).
+  //
+  // DELIBERATE DIVERGENCE from the web, stated plainly: the web opens the
+  // refund only when payment_status = 'paid', while its own approve handler two
+  // routes above treats paid AND captured as "the money is in". A captured
+  // order that is marked unsuitable on the web therefore keeps the patient's
+  // money with no refund row anywhere. This endpoint uses the paid/captured set
+  // that the rest of this file uses. It changes nothing about the web handler.
+  router.post('/manual-queue/:id/unsuitable', async (req, res) => {
+    const id = req.params.id;
+    const body = req.body || {};
+    const reasonRaw = String(body.reason || '').trim().slice(0, 500);
+    if (!reasonRaw) return res.fail('reason is required', 400, 'REASON_REQUIRED');
+
+    // "code | free-text" resolution — the web's parser, verbatim, so the
+    // sentence the patient receives is the same from either console.
+    const parts = reasonRaw.split('|').map((s) => s.trim());
+    const reasonCode = parts[0] || '';
+    const reasonFree = parts.slice(1).join(' | ').trim();
+    const lang = (req.user && req.user.lang) === 'ar' ? 'ar' : 'en';
+    const preset = MANUAL_QUEUE_UNSUITABLE_REASONS[reasonCode];
+    let reasonForPatient;
+    if (reasonCode === 'other') {
+      reasonForPatient = reasonFree || (lang === 'ar' ? 'الحالة غير مناسبة.' : 'This case is not suitable.');
+    } else if (preset) {
+      reasonForPatient = preset[lang] + (reasonFree ? ' ' + reasonFree : '');
+    } else {
+      reasonForPatient = reasonRaw;
+    }
+
+    const af = (msg, http, code) => {
+      const e = new Error(msg);
+      e.http = http;
+      e.code = code;
+      throw e;
+    };
+
+    let client;
+    let committed = null;
+    try {
+      client = await db.connect();
+      await client.query('BEGIN');
+
+      const o = (await client.query(
+        `SELECT id, patient_id, assignment_status, status, payment_status,
+                base_price, urgency_uplift_amount
+           FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        [id]
+      )).rows[0];
+      if (!o) af('Case not found', 404, 'NOT_FOUND');
+      if (String(o.assignment_status || '') !== 'manual_queue') {
+        af('Case is not in the manual queue', 409, 'NOT_IN_QUEUE');
+      }
+
+      const upd = await client.query(
+        `UPDATE orders
+            SET status = 'cancelled', assignment_status = 'cancelled', updated_at = NOW()
+          WHERE id = $1 AND assignment_status = 'manual_queue'
+        RETURNING id`,
+        [id]
+      );
+      if (!upd.rows[0]) af('Case is not in the manual queue', 409, 'NOT_IN_QUEUE');
+
+      // Refund: only when the money was actually taken. Amount = base_price +
+      // urgency_uplift_amount, the web's figure (the patient's full case price;
+      // file add-ons are settled separately and are NOT swept in here).
+      // instapay_handle is unknown at cancellation time — 'awaiting_patient' is
+      // the web's placeholder so the row is creatable and the refund queue
+      // prompts for the handle later.
+      let refund = null;
+      const paid = ['paid', 'captured'].includes(String(o.payment_status || '').toLowerCase());
+      if (paid) {
+        const live = (await client.query(
+          `SELECT id, status, amount_egp FROM refunds
+            WHERE order_id = $1 AND status IN ('pending','auto_approved','approved','paid')
+            LIMIT 1`,
+          [id]
+        )).rows[0];
+        if (live) {
+          refund = { id: live.id, status: live.status, amountEgp: money(live.amount_egp), created: false };
+        } else {
+          const amount = money(Number(o.base_price || 0) + Number(o.urgency_uplift_amount || 0));
+          const refundId = randomUUID();
+          await client.query(
+            `INSERT INTO refunds (
+               id, order_id, amount_egp, requested_amount, approved_amount,
+               reason, patient_reason, instapay_handle, status,
+               requested_by, refunded_at, refunded_by, notes
+             ) VALUES ($1, $2, $3, $3, NULL, 'operator_refund', NULL, $4, 'pending',
+                       $5, NOW(), $5, $6)`,
+            [refundId, id, amount, 'awaiting_patient', req.user.id,
+              'manual_queue_unsuitable: ' + reasonRaw]
+          );
+          refund = { id: refundId, status: 'pending', amountEgp: amount, created: true };
+        }
+      }
+
+      await client.query(
+        `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
+           VALUES ($1, $2, 'manual_queue_marked_unsuitable', $3, NOW(), $4, 'superadmin')`,
+        [randomUUID(), id, JSON.stringify({
+          operator_user_id: req.user.id,
+          reason: reasonRaw,
+          was_paid: paid,
+          refund_id: refund ? refund.id : null,
+          via: 'command_api',
+        }), req.user.id]
+      );
+      await client.query(
+        `INSERT INTO error_logs (id, level, category, message, user_id, context)
+           VALUES ($1, 'audit', 'admin_audit', $2, $3, $4)`,
+        [randomUUID(), `manual_queue_marked_unsuitable case ${id}`, req.user.id,
+          JSON.stringify({
+            action: 'manual_queue_marked_unsuitable', caseId: id,
+            reason: reasonRaw, wasPaid: paid, refundId: refund ? refund.id : null,
+          })]
+      );
+
+      await client.query('COMMIT');
+      committed = { patientId: o.patient_id || null, refund };
+    } catch (err) {
+      if (client) { try { await client.query('ROLLBACK'); } catch (_) { /* no-op */ } }
+      if (err && err.http) return res.fail(err.message, err.http, err.code);
+      console.error('[admin/manual-queue-unsuitable] failed:', err && err.message);
+      return res.fail('Mark unsuitable failed', 500, 'MANUAL_QUEUE_UNSUITABLE_ERROR');
+    } finally {
+      if (client && client.release) client.release();
+    }
+
+    // Post-commit, off-txn, best-effort: tell the patient, with the resolved
+    // sentence. Cannot unwind the committed cancellation.
+    let notification = 'skipped';
+    if (committed.patientId) {
+      try {
+        const r = await queueMultiChannelNotification({
+          orderId: id,
+          toUserId: committed.patientId,
+          channels: ['internal', 'email', 'whatsapp'],
+          template: 'case_cancelled_patient',
+          response: {
+            order_id: id,
+            caseReference: String(id).slice(0, 12).toUpperCase(),
+            reason: reasonForPatient,
+          },
+          dedupe_key: 'case_cancelled:' + id,
+        });
+        notification = (r && r.ok === false) ? 'failed' : 'queued';
+      } catch (e) {
+        console.error('[admin/manual-queue-unsuitable] notify failed:', e && e.message);
+        notification = 'failed';
+      }
+    }
+
+    return res.ok({
+      id,
+      status: 'cancelled',
+      assignmentStatus: 'cancelled',
+      reason: reasonRaw,
+      refund: committed.refund,
+      notification,
+    });
   });
 
   return router;
