@@ -158,7 +158,7 @@ async function postWebhook(payload, hmac) {
   return { status: r.status, body: body };
 }
 
-(async function run() {
+module.exports = (async function run() {
   try {
     await cleanup();
 

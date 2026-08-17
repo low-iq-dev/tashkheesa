@@ -104,7 +104,7 @@ async function seedPendingEarnings(orderId, doctorId, baseShare) {
   return id;
 }
 
-(async function run() {
+module.exports = (async function run() {
   try {
     await cleanup();
 

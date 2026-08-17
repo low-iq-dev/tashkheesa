@@ -70,7 +70,7 @@ async function shutdown() {
   serverProc = null;
 }
 
-(async function run() {
+module.exports = (async function run() {
   try {
     try { await bootServer(); }
     catch (e) { t.skip('theme13-r2-endpoint-flag-on-no-auth', 'server boot failed: ' + e.message); return; }

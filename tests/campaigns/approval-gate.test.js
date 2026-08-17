@@ -17,7 +17,7 @@ var t = global._testRunner || {
 
 console.log('\nemail_campaigns approval-gate regression\n');
 
-(async function () {
+module.exports = (async function () {
   if (!process.env.DATABASE_URL) {
     return t.skip('campaigns approval-gate', 'DATABASE_URL not set');
   }

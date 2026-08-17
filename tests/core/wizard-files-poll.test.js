@@ -25,7 +25,7 @@ const t = global._testRunner || {
 
 console.log('\n🧪 Wizard files-poll regression\n');
 
-(async function() {
+module.exports = (async function() {
   if (!process.env.DATABASE_URL) {
     return t.skip('wizard files-poll', 'DATABASE_URL not set');
   }

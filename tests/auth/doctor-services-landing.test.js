@@ -46,7 +46,7 @@ require.cache[catPath] = {
 
 const { resolveDoctorLanding, shouldLandOnServices } = require('../../src/services/doctor_landing');
 
-(async function run() {
+module.exports = (async function run() {
   // 1. Non-empty union + not onboarded → /portal/doctor/services
   try {
     stubCatalog = { isEmpty: false };

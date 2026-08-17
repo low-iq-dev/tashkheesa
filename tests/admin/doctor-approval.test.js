@@ -49,7 +49,7 @@ const DOCTOR_EMAIL = DOCTOR_ID + '@test.local';
 const { execute, queryAll, queryOne, pool } = require('../../src/pg');
 const { renderEmail } = require('../../src/services/emailService');
 
-(async function run() {
+module.exports = (async function run() {
   try {
     // ── Pre-clean ──────────────────────────────────────────────────
     await execute(`DELETE FROM password_reset_tokens WHERE user_id LIKE $1`, [PREFIX + '%']);

@@ -76,7 +76,7 @@ async function postIntake(i) {
   return r.status;
 }
 
-(async function run() {
+module.exports = (async function run() {
   try {
     try { await bootServer(); }
     catch (e) { t.skip('theme3-api-cases-rate-limit', 'server boot failed: ' + e.message); return; }

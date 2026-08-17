@@ -323,7 +323,7 @@ function makeRes() {
   return res;
 }
 
-(async function main() {
+module.exports = (async function main() {
   const report = { scenarios: [] };
   const post = findHandler('post', '/superadmin/settings');
   if (typeof post !== 'function') {

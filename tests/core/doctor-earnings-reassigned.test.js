@@ -120,7 +120,7 @@ async function cleanupAll() {
   await execute(`DELETE FROM users WHERE id = $1`, [DOCTOR_ID]);
 }
 
-(async function run() {
+module.exports = (async function run() {
   try {
     await cleanupAll();
 

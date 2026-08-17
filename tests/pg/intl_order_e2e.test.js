@@ -65,7 +65,7 @@ function ok(cond, label, detail) {
   else      t.fail(fileTag + ': ' + label, new Error(detail || 'assertion failed'));
 }
 
-(async function run() {
+module.exports = (async function run() {
   const suffix    = Math.random().toString(36).slice(2, 10);
   const patientId = 'intl-e2e-patient-' + suffix;
   const doctorId  = 'intl-e2e-doctor-' + suffix;

@@ -404,7 +404,7 @@ const FENCE_HAPPY_BODY = JSON.stringify({
 })();
 
 // ── 13. SDK wiring ──────────────────────────────────────────────────────
-(async function () {
+module.exports = (async function () {
   const mock = makeMockClient(JSON.stringify({
     specialty_id: 'spec-cardiology',
     service_id:   'card_ecg_12lead',

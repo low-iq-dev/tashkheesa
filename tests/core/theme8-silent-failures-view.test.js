@@ -286,7 +286,7 @@ const subprocessScript = `
 'use strict';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'dev-subproc-secret';
 process.env.MODE = process.env.MODE || 'development';
-(async function () {
+module.exports = (async function () {
   const path = require('path');
   const projectRoot = ${JSON.stringify(PROJECT_ROOT)};
 

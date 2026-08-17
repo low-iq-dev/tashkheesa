@@ -61,7 +61,7 @@ if (typeof compute !== 'function') {
 function mkReq(user) { return { user: user, method: 'GET', originalUrl: '/portal/doctor' }; }
 function mkRes() { return { locals: {} }; }
 
-(async function run() {
+module.exports = (async function run() {
   // 1. Unonboarded doctor + non-empty union → banner ON
   try {
     stubUserRow = { id: 'doc-a', role: 'doctor', specialty_id: 'spec-card', onboarding_complete: false };

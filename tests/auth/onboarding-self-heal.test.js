@@ -110,7 +110,7 @@ function mkRes() {
   return r;
 }
 
-(async function run() {
+module.exports = (async function run() {
   // ── 1. Stale JWT (no phone field) + DB phone present + onboarding_complete
   //      → cookie SHOULD be refreshed, then redirect to /dashboard
   try {

@@ -52,7 +52,7 @@ if (!process.env.DATABASE_URL) {
   return;
 }
 
-(async function liveCheck() {
+module.exports = (async function liveCheck() {
   const child = spawn(process.execPath, ['-e', `
     require('dotenv').config();
     process.env.PG_STATEMENT_TIMEOUT_MS = '2000';

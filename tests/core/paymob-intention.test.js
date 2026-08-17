@@ -89,7 +89,7 @@ try {
 }
 
 // ── createIntention happy path ──────────────────────────────────
-(async function happyPath() {
+module.exports = (async function happyPath() {
   let captured = null;
   setMockFetch(function (url, opts) {
     captured = { url: url, opts: opts };

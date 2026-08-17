@@ -81,7 +81,7 @@ async function get(p) {
 // Public pages that share the public layout — toggle must appear on all.
 const PUBLIC_PAGES = ['/faq', '/services', '/about', '/contact', '/privacy', '/terms', '/refund-policy', '/delivery-policy'];
 
-(async function run() {
+module.exports = (async function run() {
   try {
     try { await bootServer(); }
     catch (e) { t.skip('lang-toggle', 'server boot failed: ' + e.message); return; }

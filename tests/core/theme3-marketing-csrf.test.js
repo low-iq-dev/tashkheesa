@@ -63,7 +63,7 @@ async function shutdown() {
   serverProc = null;
 }
 
-(async function run() {
+module.exports = (async function run() {
   try {
     try { await bootServer(); }
     catch (e) { t.skip('theme3-marketing-csrf', 'server boot failed: ' + e.message); return; }

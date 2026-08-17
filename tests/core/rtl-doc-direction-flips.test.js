@@ -91,7 +91,7 @@ function readHtmlAttrs(body) {
   return { lang, dir, tag };
 }
 
-(async function run() {
+module.exports = (async function run() {
   try {
     try { await bootServer(); }
     catch (e) { t.skip(fileTag, 'server boot failed: ' + e.message); return; }

@@ -29,7 +29,7 @@ if (!process.env.JWT_SECRET)   { t.skip('orders_active', 'JWT_SECRET not set'); 
 
 const { pool } = require('../../src/pg');
 
-(async function run() {
+module.exports = (async function run() {
   const testId = 'theme1-soft-delete-' + randomUUID();
 
   try {

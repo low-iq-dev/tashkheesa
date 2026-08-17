@@ -139,7 +139,21 @@ async function drainAsyncResults({ quietMs = 2000, maxMs = 120000 }) {
     const rel = path.relative(testsDir, file);
     console.log(`\n📋 ${rel}`);
     try {
-      require(file);
+      // AUDIT (2026-08-16) — await the file before starting the next one.
+      //
+      // Async test files now `module.exports = (async function () { … })()`, so
+      // the runner can wait for them. Previously they were fire-and-forget:
+      // the runner require()d a file, the file's async body started, and the
+      // runner immediately loaded the NEXT file while it was still running.
+      // Test files share process.env and the require cache, so they were
+      // racing each other through global state — tests/core/email-stub-mode
+      // sets EMAIL_TEST_STUB=true and restores it in a `finally`, but by then
+      // emailService.guard had already run against the flipped flag and failed
+      // on a condition its own code never created. Both files pass alone.
+      //
+      // Serialising them removes a whole class of phantom failure.
+      const exported = require(file);
+      if (exported && typeof exported.then === 'function') await exported;
     } catch (err) {
       // If it's a SQLite/legacy error, skip gracefully
       if (err.message && (err.message.includes('better-sqlite3') || err.message.includes('sqlite3') || err.message.includes('portal.db'))) {

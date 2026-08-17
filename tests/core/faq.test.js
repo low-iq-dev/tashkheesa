@@ -131,7 +131,7 @@ const AR_QUESTIONS = [
   'هل يمكنني استخدام تشخيصة من خارج مصر؟'
 ];
 
-(async function run() {
+module.exports = (async function run() {
   try {
     try {
       await bootServer();

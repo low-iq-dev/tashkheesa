@@ -232,7 +232,7 @@ assert(countLiteral(notifySrc, 'NOTIFICATION_DROPPED') >= 1,
 
 const subprocessScript = `
 'use strict';
-(async function () {
+module.exports = (async function () {
   const path = require('path');
   const projectRoot = ${JSON.stringify(path.join(__dirname, '..', '..'))};
   // Monkey-patch pg to never hit a real DB.

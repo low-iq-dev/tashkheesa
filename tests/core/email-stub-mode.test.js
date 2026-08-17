@@ -27,7 +27,7 @@ const fileTag = path.basename(__filename, '.test.js');
 
 console.log('\n📨 P1-NOTIF-3 EMAIL_TEST_STUB + error_logs integration\n');
 
-(async function run() {
+module.exports = (async function run() {
   // Save env so we can restore at the end (other tests may rely on these).
   const savedStub = process.env.EMAIL_TEST_STUB;
   const savedEnabled = process.env.EMAIL_ENABLED;

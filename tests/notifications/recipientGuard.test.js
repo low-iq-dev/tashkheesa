@@ -12,7 +12,7 @@ const fileTag = path.basename(__filename, '.test.js');
 
 console.log('\nRecipient guard tests\n');
 
-(async () => {
+module.exports = (async () => {
   process.env.EMAIL_GUARD_STRICT = 'true';
   // Force a fresh require so STRICT is read clean
   delete require.cache[require.resolve('../../src/services/recipientGuard')];

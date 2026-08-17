@@ -91,7 +91,7 @@ async function seedPendingEarnings(orderId, doctorId, earnedAmount) {
   return id;
 }
 
-(async function run() {
+module.exports = (async function run() {
   try {
     await cleanup();
     await seedPatient(PATIENT);

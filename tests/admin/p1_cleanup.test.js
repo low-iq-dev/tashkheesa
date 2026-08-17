@@ -204,7 +204,7 @@ async function cleanup() {
   await execute(`DELETE FROM users WHERE id LIKE $1`, [PREFIX + '%']);
 }
 
-(async function httpRun() {
+module.exports = (async function httpRun() {
   try {
     await cleanup();
 

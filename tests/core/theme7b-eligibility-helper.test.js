@@ -69,7 +69,7 @@ async function check(name, order, expect) {
   } catch (e) { t.fail(name, e); }
 }
 
-(async () => {
+module.exports = (async () => {
   // ── Pre-doctor-accept → auto-approve ──
   await check('paid + PAID',
     { id: 'test-pa', payment_status: 'paid', status: 'PAID' },

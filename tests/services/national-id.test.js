@@ -83,7 +83,7 @@ async function cleanup() {
   await execute(`DELETE FROM users WHERE id LIKE $1`, [TEST_PREFIX + '%']);
 }
 
-(async function run() {
+module.exports = (async function run() {
   try {
     process.env.NATIONAL_ID_ENCRYPTION_KEY = TEST_KEY;
 

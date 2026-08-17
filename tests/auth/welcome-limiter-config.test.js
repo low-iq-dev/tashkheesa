@@ -106,7 +106,7 @@ try {
 } catch (e) { t.fail('superadmin send-side limiter wiring', e); }
 
 // ── 3. Behavioral: the limiter actually returns 429 past the cap ──
-(async function behavioral() {
+module.exports = (async function behavioral() {
   if (!process.env.DATABASE_URL || !process.env.JWT_SECRET) {
     t.skip('welcome-limiter 429 behavior', 'DATABASE_URL/JWT_SECRET not set');
     return;

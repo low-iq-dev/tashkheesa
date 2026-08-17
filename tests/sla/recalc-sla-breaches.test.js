@@ -86,7 +86,7 @@ async function cleanup() {
   await execute(`DELETE FROM orders WHERE id LIKE $1`, [TEST_PREFIX + '%']);
 }
 
-(async function run() {
+module.exports = (async function run() {
   try {
     // Make sure prior crashed runs didn't leave residue.
     await cleanup();

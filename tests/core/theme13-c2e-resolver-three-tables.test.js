@@ -61,7 +61,7 @@ async function shutdown() {
   serverProc = null;
 }
 
-(async function run() {
+module.exports = (async function run() {
   const PREFIX = 'theme13test-c2e-';
   try {
     try { await bootServer(); } catch (e) { t.skip('theme13-c2e-resolver-three-tables', 'server boot failed: ' + e.message); return; }

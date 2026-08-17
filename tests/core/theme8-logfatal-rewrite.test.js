@@ -232,7 +232,7 @@ assert(
 
 const subprocessScript = `
 'use strict';
-(async function () {
+module.exports = (async function () {
   const path = require('path');
   const projectRoot = ${JSON.stringify(PROJECT_ROOT)};
 

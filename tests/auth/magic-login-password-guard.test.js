@@ -78,7 +78,7 @@ async function cleanup() {
   await execute(`DELETE FROM users WHERE id LIKE $1`, [PREFIX + '%']);
 }
 
-(async function run() {
+module.exports = (async function run() {
   try {
     await cleanup();
     try { await bootServer(); } catch (e) { t.skip('magic-login-password-guard http', 'boot failed: ' + e.message); return; }

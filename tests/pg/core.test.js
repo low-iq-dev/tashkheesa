@@ -172,7 +172,7 @@ function runSlaTests() {
 }
 
 // ── Run all ───────────────────────────────────────────────────────────────
-(async () => {
+module.exports = (async () => {
   await runAuthTests();
   runJwtTests();
   runSanitizationTests();

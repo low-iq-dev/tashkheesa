@@ -63,7 +63,7 @@ async function pollFor(fn, timeoutMs, intervalMs) {
   return last;
 }
 
-(async function runAll() {
+module.exports = (async function runAll() {
   const suffix = Math.random().toString(36).slice(2, 10);
   const patientId   = 'pin-test-patient-' + suffix;
   const doctorId    = 'pin-test-doctor-' + suffix;

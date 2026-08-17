@@ -97,7 +97,7 @@ const POSTS = [
   }
 ];
 
-(async function run() {
+module.exports = (async function run() {
   try {
     try {
       await bootServer();

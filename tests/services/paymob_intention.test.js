@@ -98,7 +98,7 @@ if (savedPg) require.cache[pgPath] = savedPg; else delete require.cache[pgPath];
 if (savedPaymob) require.cache[paymobPath] = savedPaymob; else delete require.cache[paymobPath];
 if (savedHelper) require.cache[helperPath] = savedHelper; else delete require.cache[helperPath];
 
-(async function run() {
+module.exports = (async function run() {
   try {
     // 1) Fresh unpaid order, null link → mints exactly once.
     const r1 = await ensurePaymentLinkForOrder({

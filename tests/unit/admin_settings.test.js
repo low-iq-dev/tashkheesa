@@ -94,7 +94,7 @@ function makeLoggerMock() {
 // at admin_settings.js:123 when one scenario nulled _cache mid-flight of
 // another.
 
-(async function runAll() {
+module.exports = (async function runAll() {
   // ── 1. Defaults match the hardcoded literals being replaced ──────────
   assert(DEFAULTS.classifier_threshold_locked  === 0.95, 'DEFAULTS.locked  === 0.95 (matches patient_new_case.ejs:339)');
   assert(DEFAULTS.classifier_threshold_auto    === 0.85, 'DEFAULTS.auto    === 0.85 (matches patient_new_case.ejs:340)');

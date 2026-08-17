@@ -70,7 +70,7 @@ async function shutdown() {
   serverProc = null;
 }
 
-(async function run() {
+module.exports = (async function run() {
   const PREFIX = 'theme13test-h89-';
 
   try {

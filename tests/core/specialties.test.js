@@ -113,7 +113,7 @@ const AR_VISIBLE_NAMES = [
   'المسالك البولية'          // Urology
 ];
 
-(async function run() {
+module.exports = (async function run() {
   try {
     try { await bootServer(); }
     catch (e) { t.skip('specialties', 'server boot failed: ' + e.message); return; }

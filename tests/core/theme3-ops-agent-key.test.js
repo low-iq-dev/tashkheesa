@@ -91,7 +91,7 @@ async function pingWithHeaders(routeLabel, headers) {
   return r;
 }
 
-(async function run() {
+module.exports = (async function run() {
   try {
     try { await bootServer(); }
     catch (e) { t.skip('theme3-ops-agent-key', 'server boot failed: ' + e.message); return; }

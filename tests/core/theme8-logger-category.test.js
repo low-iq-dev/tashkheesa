@@ -43,7 +43,7 @@ const fileTag = path.basename(__filename, '.test.js');
 
 console.log('\n📝 Theme 8 Phase 1 — logErrorToDb populates error_logs.category\n');
 
-(async function run() {
+module.exports = (async function run() {
   // ── Inject a fake `./pg` module into the require cache ────────────────
   //
   // logger.js does `require('./pg')` lazily inside `logErrorToDb`. By

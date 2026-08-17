@@ -40,7 +40,7 @@ const ORDER_ID = PREFIX + 'order';
 
 const { execute, queryAll, queryOne, pool } = require('../../src/pg');
 
-(async function run() {
+module.exports = (async function run() {
   try {
     // ── Pre-clean ──────────────────────────────────────────────────
     await execute(`DELETE FROM error_logs WHERE user_id LIKE $1`, [PREFIX + '%']);

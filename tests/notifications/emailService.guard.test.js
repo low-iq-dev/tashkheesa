@@ -14,7 +14,7 @@ var fileTag = path.basename(__filename, '.test.js');
 
 console.log('\nemailService recipient-guard integration tests\n');
 
-(async function () {
+module.exports = (async function () {
   // Required env state. Email must be enabled (otherwise sendEmail
   // short-circuits before reaching the transporter), and RESEND_API_KEY
   // must be set (otherwise the lifecycle sendMail() stubs out at the top).
