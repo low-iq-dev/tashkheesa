@@ -6,6 +6,12 @@
 const path = require('path');
 const fs   = require('fs');
 
+// Load .env before anything else. The individual test files each call
+// dotenv.config() themselves, but the readiness probe below runs BEFORE any of
+// them — without this it would report "DATABASE_URL is not set" on a machine
+// where it is set in .env, and skip every integration test unconditionally.
+try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
+
 const RED   = '\x1b[31m';
 const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
