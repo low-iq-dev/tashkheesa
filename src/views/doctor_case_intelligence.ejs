@@ -568,17 +568,28 @@ body.doctor-theme.portal-v2[dir="rtl"] .doctor-case-intelligence-page .ci-action
         <div class="ci-card-subtitle" data-en="Click to view full resolution" data-ar="اضغط لعرض الحجم الكامل"><%= isAr ? 'اضغط لعرض الحجم الكامل' : 'Click to view full resolution' %></div>
         <div class="ci-thumbs">
           <%
-            /* NOTE (Phase 2): These thumbnails read from `case_files.storage_path`,
-               which is written by the case-intelligence pipeline (src/case_lifecycle.js +
-               src/case-intelligence.js) — a separate writer from order_flow.js. The
-               case_files table will be migrated in its own phase. Until then, the
-               /uploads/... URLs below are inert (no /uploads static mount). */
+            /* `case_files.storage_path` is an R2 object key, and there is no
+               /uploads static mount — the old `/uploads/<storage_path>` href
+               and <img src> 404'd on every single thumbnail. The handler now
+               resolves each case_files row back to the order_files /
+               order_additional_files row that owns the same storage reference
+               and hands us `file_href` = /files/<id>, which authorises the
+               doctor and signs the key on demand. A row with no resolvable
+               owner renders as a plain (non-linked, no-<img>) tile instead of
+               a broken image. */
           %>
           <% imageFiles.forEach(function(img) { %>
-            <a class="ci-thumb" href="/uploads/<%= encodeURI(img.storage_path || '') %>" target="_blank" rel="noopener">
-              <img src="/uploads/<%= encodeURI(img.storage_path || '') %>" alt="<%= img.filename || 'Image' %>" loading="lazy" />
-              <div class="ci-thumb-overlay"><%= img.filename || 'Image' %></div>
-            </a>
+            <% var imgHref = img.file_href || ''; %>
+            <% if (imgHref) { %>
+              <a class="ci-thumb" href="<%= imgHref %>" target="_blank" rel="noopener">
+                <img src="<%= imgHref %>" alt="<%= img.filename || 'Image' %>" loading="lazy" />
+                <div class="ci-thumb-overlay"><%= img.filename || 'Image' %></div>
+              </a>
+            <% } else { %>
+              <div class="ci-thumb" title="<%= isAr ? 'المعاينة غير متاحة' : 'Preview unavailable' %>">
+                <div class="ci-thumb-overlay"><%= img.filename || 'Image' %></div>
+              </div>
+            <% } %>
           <% }); %>
         </div>
       </div>
@@ -597,7 +608,15 @@ body.doctor-theme.portal-v2[dir="rtl"] .doctor-case-intelligence-page .ci-action
         <% orderFiles.forEach(function(f) { %>
           <div class="ci-file-row">
             <div class="ci-doc-icon"><%- typeIcon(f.label || f.name || '') %></div>
-            <span class="ci-file-name"><%= f.label || f.name || f.url || 'File' %></span>
+            <%# order_additional_files rows carry no label when the patient
+                uploaded without one; falling through to f.url would print the
+                raw /files/<uuid> path as the file name. %>
+            <span class="ci-file-name">
+              <%= f.label || f.name || (f.source === 'additional' ? tt('Additional file', 'Additional file', 'ملف إضافي') : (f.url || tt('File', 'File', 'ملف'))) %>
+              <% if (f.source === 'additional') { %>
+                <span style="font-size:11px;opacity:0.7;margin-inline-start:6px;"><%= tt('Added later', 'Added later', 'أُضيف لاحقاً') %></span>
+              <% } %>
+            </span>
             <% var fileHref = f.id ? ('/files/' + encodeURIComponent(String(f.id))) : ''; %>
             <% if (fileHref) { %>
               <a class="ci-file-link" href="<%= fileHref %>" target="_blank" rel="noopener" data-en="View" data-ar="عرض"><%= isAr ? 'عرض' : 'View' %></a>

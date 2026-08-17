@@ -49,7 +49,12 @@
     var m = Math.floor(rem % 60);
     var totalMin = Number(_sla.totalMinutes) || (rem + 30);
     var pct = totalMin > 0 ? Math.min(100, Math.max(0, ((totalMin - rem) / totalMin) * 100)) : 50;
-    return { kind: 'ok', h: h, m: m, sub: tt('on track', 'on track', 'في المسار'), pct: pct };
+    /* A case whose SLA the handler froze (doctor asked the patient for more
+       files) shows the frozen remainder, not a running clock. */
+    var sub = _sla.isPaused
+      ? tt('Paused — waiting on patient files', 'Paused — waiting on patient files', 'موقوف مؤقتاً — بانتظار ملفات المريض')
+      : tt('on track', 'on track', 'في المسار');
+    return { kind: 'ok', h: h, m: m, sub: sub, pct: pct };
   }
   var _cd = _countdownParts();
 
@@ -65,14 +70,49 @@
     return { kind: 'neutral', label: tt('Preview', 'Preview', 'معاينة') };
   })();
 
+  /* Urgency tier chip. orders.urgency_tier is canonical
+     ('standard' | 'vip' | 'urgent'); migration 031 rewrote the legacy
+     'fast_track' rows to 'vip', so that value is handled purely as a
+     belt-and-braces fallback. Until now the tier was rendered in no doctor
+     view at all — a doctor could not tell an urgent 4h case from a standard
+     48h one anywhere in the portal. */
+  var _tierKey = String((_order && _order.urgency_tier) || '').toLowerCase();
+  if (_tierKey === 'fast_track') _tierKey = 'vip';
+  var _tierChip = (function(){
+    if (_tierKey === 'urgent') return { kind: 'red', label: tt('Urgent', 'Urgent', 'عاجل') };
+    if (_tierKey === 'vip') return { kind: 'brass', label: tt('VIP', 'VIP', 'VIP') };
+    if (_tierKey === 'standard') return { kind: 'neutral', label: tt('Standard', 'Standard', 'قياسي') };
+    return null;
+  })();
+
+  /* Patient sex. users.gender is free-text, so map the values we write and
+     fall back to showing whatever is stored rather than hiding it. */
+  var _sexLabel = (function(){
+    var g = String((_order && (_order.patient_gender || _order.gender)) || '').trim();
+    if (!g) return '';
+    var k = g.toLowerCase();
+    if (k === 'male' || k === 'm') return tt('Male', 'Male', 'ذكر');
+    if (k === 'female' || k === 'f') return tt('Female', 'Female', 'أنثى');
+    if (k === 'other') return tt('Other', 'Other', 'أخرى');
+    if (k === 'prefer_not_to_say' || k === 'unspecified') return tt('Not specified', 'Not specified', 'غير محدد');
+    return g;
+  })();
+
   // Fee — doctors only see fee, never patient price (stripPricingFields strips that already)
   var _fee = (_order && (_order.doctor_fee != null ? _order.doctor_fee : _order.fee)) || null;
   var _feeFmt = _fee ? ('EGP ' + Number(_fee).toLocaleString('en-EG')) : null;
 
-  // Existing diagnosis (server saved)
-  var _exDiag = (_order && (_order.diagnosis || _order.findings)) || '';
-  var _exImpr = (_order && _order.impression) || '';
-  var _exRec  = (_order && (_order.recommendations || _order.recommendation)) || '';
+  /* Existing report draft (server saved).
+     `report_findings` / `report_impression` / `report_recommendations` are
+     derived by the handler from orders.diagnosis_text / impression_text /
+     recommendation_text (and unpack the legacy combined blob). The bare
+     `diagnosis` / `impression` / `recommendations` names below are NOT
+     columns on orders — reading only those meant every reopened case showed
+     three empty boxes, and hitting Submit then wrote those blanks over the
+     saved draft. They are kept only as last-ditch fallbacks. */
+  var _exDiag = (_order && (_order.report_findings || _order.diagnosis_text || _order.diagnosis || _order.findings)) || '';
+  var _exImpr = (_order && (_order.report_impression || _order.impression_text || _order.impression)) || '';
+  var _exRec  = (_order && (_order.report_recommendations || _order.recommendation_text || _order.recommendations || _order.recommendation)) || '';
   function _wc(s) { var t = String(s || '').trim(); return t ? t.split(/\s+/).length : 0; }
 %>
 
@@ -131,6 +171,9 @@
         <% if (_order && (_order.specialty_name || _order.specialty_name_ar)) { %>
           <span class="v2-chip v2-chip--teal"><%= _isAr && _order.specialty_name_ar ? _order.specialty_name_ar : _order.specialty_name %></span>
         <% } %>
+        <% if (_tierChip) { %>
+          <span class="v2-chip v2-chip--<%= _tierChip.kind %>" title="<%= tt('Urgency tier', 'Urgency tier', 'مستوى الاستعجال') %>"><%= _tierChip.label %></span>
+        <% } %>
       </div>
       <% if (_canView && _ctx && _ctx.question) { %>
         <div class="v2-case-header__sub"><%= _ctx.question %></div>
@@ -165,11 +208,18 @@
         <% if (_feeFmt) { %>
           <div class="v2-case-header__meta-item"><div class="k"><%= tt('Fee', 'Fee', 'الأجر') %></div><div class="v" style="color:var(--v2-accent);"><%= _feeFmt %></div></div>
         <% } %>
-        <% if (_canView && _order && _order.patient_age) { %>
-          <div class="v2-case-header__meta-item"><div class="k"><%= tt('Patient age', 'Patient age', 'عمر المريض') %></div><div class="v"><%= _order.patient_age %></div></div>
+        <% if (_canView && _order && _order.patient_age != null && _order.patient_age !== '') { %>
+          <div class="v2-case-header__meta-item"><div class="k"><%= tt('Patient age', 'Patient age', 'عمر المريض') %></div><div class="v" data-numeric><%= _order.patient_age %></div></div>
+        <% } %>
+        <%# Sex sits next to age — both are read off the patient's users row and
+            both are basic clinical context the doctor previously had nowhere
+            on this page. %>
+        <% if (_canView && _sexLabel) { %>
+          <div class="v2-case-header__meta-item"><div class="k"><%= tt('Sex', 'Sex', 'النوع') %></div><div class="v"><%= _sexLabel %></div></div>
         <% } %>
         <% if (_canView && _order && _order.report_language) { %>
-          <div class="v2-case-header__meta-item"><div class="k"><%= tt('Report language', 'Report language', 'لغة التقرير') %></div><div class="v"><%= _order.report_language %></div></div>
+          <%# orders.language stores the code, not a label. %>
+          <div class="v2-case-header__meta-item"><div class="k"><%= tt('Report language', 'Report language', 'لغة التقرير') %></div><div class="v"><%= String(_order.report_language).toLowerCase() === 'ar' ? tt('Arabic', 'Arabic', 'العربية') : (String(_order.report_language).toLowerCase() === 'en' ? tt('English', 'English', 'الإنجليزية') : _order.report_language) %></div></div>
         <% } %>
       </div>
       <% if (_canView && _order && _order.id) { %>
@@ -314,7 +364,15 @@
           %>
             <div class="v2-file-row">
               <div class="v2-file-row__icon"><%= ext || '·' %></div>
-              <div class="v2-file-row__name"><%= f.name %></div>
+              <div class="v2-file-row__name">
+                <%= f.name %>
+                <%# Files from order_additional_files — what the patient uploaded
+                    after the doctor asked for more. Flagged so the doctor can
+                    see at a glance which files answered their request. %>
+                <% if (f.source === 'additional') { %>
+                  <span class="v2-chip v2-chip--brass" style="margin-inline-start:6px;"><%= tt('Added later', 'Added later', 'أُضيف لاحقاً') %></span>
+                <% } %>
+              </div>
               <a class="v2-btn v2-btn--ghost v2-btn--sm" href="<%= f.url %>" target="_blank" rel="noopener"><%= tt('Open', 'Open', 'فتح') %></a>
             </div>
           <% }); %>

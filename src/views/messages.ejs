@@ -142,7 +142,22 @@
               <% if (!isSent) { %>
                 <span class="msg-sender"><%= m.sender_name || (_isAr ? 'مستخدم' : 'User') %></span>
               <% } %>
-              <%= m.content %>
+              <%# messaging.js selects m.*, so file_url / file_key / file_name
+                  reach this template — they were simply never rendered, and an
+                  attachment arrived as an empty bubble on the doctor's side.
+                  Link /files/<id>, NEVER m.file_url: post-R2 a row carries
+                  file_key (an object key, not a URL) and file_url is null, so
+                  the raw value renders as a broken relative link. /files/:id
+                  authorises conversation members and signs the key on demand
+                  (server.js unified file reader). Matches patient_order.ejs. %>
+              <% if (m.file_url || m.file_key) { %>
+                <a class="msg-attachment" href="/files/<%= encodeURIComponent(String(m.id)) %>" target="_blank" rel="noopener"
+                   style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;margin-block-end:4px;border-radius:8px;background:rgba(127,127,127,0.16);color:inherit;text-decoration:none;font-size:0.8rem;font-weight:600;word-break:break-all;">
+                  <span aria-hidden="true">&#128206;</span>
+                  <span><%= m.file_name || tt('Attachment', 'Attachment', 'مرفق') %></span>
+                </a>
+              <% } %>
+              <% if (!((m.file_url || m.file_key) && (!m.content || m.content === m.file_name))) { %><%= m.content %><% } %>
               <span class="msg-time"><%= fmtTime(m.created_at) %></span>
             </div>
             <% if (!isSent) { %>
@@ -169,6 +184,8 @@ var currentUserId = '<%= _user.id %>';
 var csrfToken = '<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>';
 var lastMessageTime = '<%= _messages.length > 0 ? _messages[_messages.length - 1].created_at : "" %>';
 var isAr = <%= _isAr ? 'true' : 'false' %>;
+// Fallback label for an attachment whose row carries no file_name.
+var ATTACHMENT_LABEL = <%- JSON.stringify(tt('Attachment', 'Attachment', 'مرفق')) %>;
 
 // Auto-scroll to bottom
 var msgBody = document.getElementById('msg-body');
@@ -237,7 +254,27 @@ function appendMessage(msg, isSent) {
     senderHtml = '<span class="msg-sender">' + escapeHtml(msg.sender_name) + '</span>';
   }
 
-  wrap.innerHTML = '<div class="msg-bubble">' + senderHtml + escapeHtml(msg.content) + '<span class="msg-time">' + time + '</span></div>';
+  // Mirror of the server-rendered attachment block. The 5s poll returns m.*
+  // (file_url / file_key / file_name), so a scan that arrives while the page
+  // is open must render the same link as one that was there on page load —
+  // otherwise it shows as an empty bubble until the doctor reloads. Always
+  // /files/<id>, never file_url (an R2 key is not a URL). This builds HTML by
+  // concatenation, so the filename goes through escapeHtml.
+  var attachmentHtml = '';
+  if (msg.file_url || msg.file_key) {
+    attachmentHtml =
+      '<a class="msg-attachment" href="/files/' + encodeURIComponent(String(msg.id)) + '"' +
+      ' target="_blank" rel="noopener"' +
+      ' style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;margin-block-end:4px;border-radius:8px;background:rgba(127,127,127,0.16);color:inherit;text-decoration:none;font-size:0.8rem;font-weight:600;word-break:break-all;">' +
+      '<span aria-hidden="true">&#128206;</span>' +
+      '<span>' + escapeHtml(msg.file_name || ATTACHMENT_LABEL) + '</span>' +
+      '</a>';
+  }
+  var contentHtml = (attachmentHtml && (!msg.content || msg.content === msg.file_name))
+    ? ''
+    : escapeHtml(msg.content || '');
+
+  wrap.innerHTML = '<div class="msg-bubble">' + senderHtml + attachmentHtml + contentHtml + '<span class="msg-time">' + time + '</span></div>';
   body.appendChild(wrap);
   body.scrollTop = body.scrollHeight;
 }

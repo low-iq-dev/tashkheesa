@@ -5,7 +5,7 @@ const { acceptOrder, markOrderCompleted } = require('../db');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { logErrorToDb } = require('../logger');
 const { requireRole } = require('../middleware');
-const { queueNotification, queueMultiChannelNotification, doctorNotify } = require('../notify');
+const { queueNotification, queueMultiChannelNotification, notifyAdmins, doctorNotify } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
 const { logOrderEvent } = require('../audit');
 const { computeSla } = require('../sla_status');
@@ -1891,7 +1891,30 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
   // Guardrail: never render or redirect with an undefined case id.
   if (!orderId) return res.redirect('/portal/doctor/dashboard');
 
-  const rawOrder = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
+  // The case header renders specialty, patient name/age/sex and report
+  // language. `SELECT *` off orders_active carries NONE of those: specialty
+  // name lives in `specialties`, and name / date_of_birth / gender live on the
+  // patient's `users` row. Without these joins portal_doctor_case.ejs read six
+  // undefined locals and silently dropped every one of those header fields.
+  // Same join shape the dashboard queue already uses (see the dashboard handler
+  // and buildPortalCasesPaged) plus the patient join from the intelligence
+  // handler below.
+  const rawOrder = await queryOne(
+    `SELECT o.*,
+            s.name    AS specialty_name,
+            s.name_ar AS specialty_name_ar,
+            sv.name   AS service_name,
+            pu.name   AS patient_name,
+            pu.date_of_birth AS patient_date_of_birth,
+            pu.gender AS patient_gender,
+            o.language AS report_language
+     FROM orders_active o
+     LEFT JOIN specialties s ON o.specialty_id = s.id
+     LEFT JOIN services sv ON o.service_id = sv.id
+     LEFT JOIN users pu ON pu.id = o.patient_id
+     WHERE o.id = $1`,
+    [orderId]
+  );
   // Fetch order files for doctor view
   let files = [];
   try {
@@ -1918,6 +1941,37 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
     }
   } catch (e) {
     files = [];
+  }
+
+  // Files the patient uploads AFTER submitting (the doctor's "request more
+  // files" flow) land in order_additional_files, never order_files. Listing
+  // only order_files meant the doctor asked for extra imaging, the patient
+  // uploaded it, and the doctor could not see a single one of the new files.
+  // /files/:id already authorises this table for the assigned doctor
+  // (server.js unified file reader, source 3), so emitting the ids is enough.
+  try {
+    const addlUrlCol = await getAdditionalFilesUrlColumnName();
+    const addlLabelCol = await getAdditionalFilesLabelColumnName();
+    const addlAtCol = await getAdditionalFilesUploadedAtColumnName();
+
+    // A row may carry file_key (R2) instead of file_url, so do NOT filter on
+    // the url column being non-null — /files/:id resolves either one.
+    const addlRows = await queryAll(
+      `SELECT id, ${addlLabelCol || addlUrlCol || 'id'} AS name
+       FROM order_additional_files
+       WHERE order_id = $1
+       ORDER BY ${addlAtCol || 'id'} ASC`,
+      [orderId]
+    );
+
+    files = files.concat((addlRows || []).map(r => ({
+      id: r.id,
+      url: '/files/' + r.id,
+      name: r.name || 'Additional file',
+      source: 'additional'
+    })));
+  } catch (e) {
+    // Never let the extra listing take down a case the doctor can otherwise work.
   }
   // Access/visibility guard
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
@@ -2005,6 +2059,57 @@ const canAccept =
   const viewStatus = isUnaccepted ? normalizedStatus : 'in_review';
   const viewReportUrl = reportAvailable ? reportUrl : null;
 
+  // The case LIST gets its countdown from enrichOrders(); this handler never
+  // called computeSla, so `_order.sla` was always undefined and the countdown
+  // block on the case page never rendered at all.
+  //
+  // Only surface a countdown when there is a real window to count down to.
+  // computeSla returns minutesRemaining: null for an order with no deadline_at,
+  // and the template's Number() coercion would render that as "0h 0m remaining"
+  // — a false "you are out of time" on a case that has not started its clock.
+  let caseSla = null;
+  try {
+    const slaPausedAt = order && order.sla_paused_at;
+    const slaRemainingSeconds = Number(order && order.sla_remaining_seconds);
+
+    if (slaPausedAt && Number.isFinite(slaRemainingSeconds)) {
+      // case_lifecycle.pauseSla stores the frozen remainder but deliberately
+      // leaves deadline_at untouched, so computeSla would keep counting down a
+      // clock that is not running — telling the doctor they are running out of
+      // time on a case that is sitting waiting for the patient to upload.
+      // Render the frozen remainder and say so.
+      caseSla = {
+        isBreached: false,
+        isAccepted: true,
+        isNew: false,
+        isPaused: true,
+        minutesRemaining: Math.max(0, Math.floor(slaRemainingSeconds / 60)),
+        minutesOverdue: NaN
+      };
+    } else {
+      const computedCaseSla = computeSla(order || {});
+      const rawSla = (computedCaseSla && computedCaseSla.sla) ? computedCaseSla.sla : null;
+      if (rawSla && (rawSla.isBreached || rawSla.minutesRemaining != null)) {
+        caseSla = normalizeSla(order, rawSla);
+      }
+    }
+
+    // computeSla does not carry the window size; without it the template falls
+    // back to (remaining + 30) and the progress bar is meaningless.
+    if (caseSla) {
+      const slaHours = Number(order && order.sla_hours);
+      if (Number.isFinite(slaHours) && slaHours > 0) caseSla.totalMinutes = slaHours * 60;
+    }
+  } catch (_) {
+    caseSla = null;
+  }
+
+  // Header fields the template reads but the row does not carry verbatim.
+  const createdAtHuman = formatDisplayDate(order && order.created_at) || '';
+  const acceptedAtHuman = formatDisplayDate(order && order.accepted_at) || '';
+  const patientAge = computeAgeFromDob(order && order.patient_date_of_birth);
+  const reportDraft = buildReportDraftFields(order);
+
   // IMPORTANT: When a case is unaccepted we still pass a minimal `order` object
   // so the template can read `order.payment_status` without leaking case details.
   const viewOrder = isUnaccepted
@@ -2017,7 +2122,17 @@ const canAccept =
         ...order,
         status: viewStatus,
         report_url: viewReportUrl || null,
-        reportUrl: viewReportUrl || null
+        reportUrl: viewReportUrl || null,
+        sla: caseSla,
+        created_at_human: createdAtHuman,
+        accepted_at_human: acceptedAtHuman,
+        patient_age: patientAge,
+        // orders.language IS the report language; aliased in the SELECT above
+        // but keep the fallback so a schema without the alias still renders.
+        report_language: (order && (order.report_language || order.language)) || null,
+        report_findings: reportDraft.findings,
+        report_impression: reportDraft.impression,
+        report_recommendations: reportDraft.recommendations
       };
 
   let viewQuery = null;
@@ -2183,9 +2298,67 @@ router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(r
     'SELECT id, url, label, created_at FROM order_files WHERE order_id = $1 ORDER BY created_at ASC',
     [orderId]
   );
+
+  // Anything the patient uploaded after submitting lives in
+  // order_additional_files, so the "All uploaded files" tab was missing every
+  // file the doctor had explicitly asked for. Same treatment as order_files:
+  // /files/:id authorises this table for the assigned doctor already.
+  var additionalRows = [];
+  try {
+    var addlUrlCol = await getAdditionalFilesUrlColumnName();
+    var addlKeyCol = await getAdditionalFilesKeyColumnName();
+    var addlLabelCol = await getAdditionalFilesLabelColumnName();
+    var addlAtCol = await getAdditionalFilesUploadedAtColumnName();
+    additionalRows = await queryAll(
+      `SELECT id,
+              ${addlUrlCol || 'NULL'} AS file_url,
+              ${addlKeyCol || 'NULL'} AS file_key,
+              ${addlLabelCol || 'NULL'} AS label,
+              ${addlAtCol || 'NULL'} AS created_at
+       FROM order_additional_files
+       WHERE order_id = $1
+       ORDER BY ${addlAtCol || 'id'} ASC`,
+      [orderId]
+    );
+  } catch (_) {
+    additionalRows = [];
+  }
+
+  // Map every stored reference back to the row that owns it, BEFORE the url
+  // fields are rewritten below. case_files.storage_path is a mirror of
+  // order_files.url / order_additional_files.file_key|file_url (see
+  // case-intelligence.js bridgeOrderFilesToCaseFiles), so this is what turns an
+  // opaque R2 key on a case_files row back into a servable /files/:id.
+  var storageRefToFileId = Object.create(null);
+  (orderFiles || []).forEach(function(f) {
+    if (f.url) storageRefToFileId[String(f.url)] = f.id;
+  });
+  (additionalRows || []).forEach(function(f) {
+    if (f.file_key) storageRefToFileId[String(f.file_key)] = f.id;
+    if (f.file_url) storageRefToFileId[String(f.file_url)] = f.id;
+  });
+  (caseFiles || []).forEach(function(cf) {
+    var refId = cf.storage_path ? storageRefToFileId[String(cf.storage_path)] : null;
+    // The thumbnail grid used to build '/uploads/<storage_path>'. There is no
+    // /uploads static mount and storage_path is an R2 key, so every one of
+    // those <img> tags 404'd. Empty string = no servable reference; the view
+    // renders a non-linked tile rather than a broken image.
+    cf.file_href = refId ? ('/files/' + encodeURIComponent(String(refId))) : '';
+  });
+
   // Phase 2.5: order_files.url is an R2 storage key after Phase 2;
   // route through /files/:id so server generates a signed URL on demand.
   (orderFiles || []).forEach(function(f) { f.url = '/files/' + f.id; });
+
+  orderFiles = (orderFiles || []).concat((additionalRows || []).map(function(f) {
+    return {
+      id: f.id,
+      url: '/files/' + f.id,
+      label: f.label || null,
+      created_at: f.created_at || null,
+      source: 'additional'
+    };
+  }));
 
   // Streak count for sidebar
   var streakRow = await queryOne(
@@ -2550,8 +2723,14 @@ router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, async (re
   }
 
   try {
+    // additional_files_requested is the flag every downstream reader keys off:
+    // routes/patient.js gates `wasAdditionalFilesRequested` on it (without it
+    // the patient's re-upload is not recognised as satisfying the request and
+    // uploads are never re-locked), and superadmin_order_detail.ejs shows the
+    // request only when it is set. This write set the status and nothing else,
+    // so the flag stayed false on every doctor-initiated file request.
     await execute(
-      `UPDATE orders SET status = 'rejected_files', updated_at = $1 WHERE id = $2`,
+      `UPDATE orders SET status = 'rejected_files', additional_files_requested = true, updated_at = $1 WHERE id = $2`,
       [new Date().toISOString(), orderId]
     );
 
@@ -2598,16 +2777,30 @@ router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, async (re
       actorRole: 'doctor'
     });
 
-    // Notify admins about file rejection
+    // Notify admins about the file request.
+    //
+    // This called queueMultiChannelNotification with to_role/type/title/body —
+    // none of which that function accepts. It destructures
+    // {orderId, toUserId, channels, template, ...} (notify.js), so toUserId was
+    // undefined, normalizeToUserId returned falsy and the call bailed out at
+    // 'invalid_to_user_id' before queueing anything. No admin was ever told a
+    // doctor had asked for more files, which is why the request sat unapproved
+    // and the patient was never prompted to upload.
+    //
+    // notifyAdmins is the canonical fan-out to every active superadmin (it
+    // appends a per-recipient suffix to the dedupe key itself).
     try {
-      await queueMultiChannelNotification({
-        to_role: 'admin',
-        type: 'case_files_rejected',
-        title: 'Doctor requested additional files',
-        body: `Dr. ${req.user.name || 'Doctor'} requested additional files for case ${orderId.slice(0, 8).toUpperCase()}. Reason: ${reason.slice(0, 200)}`,
-        channels: ['internal', 'email'],
-        meta: { orderId, reason, doctorId },
-        dedupe_key: 'reject_files:' + orderId
+      await notifyAdmins({
+        template: 'admin_additional_files_requested',
+        payload: {
+          case_id: orderId,
+          caseReference: orderId.slice(0, 12).toUpperCase(),
+          doctorId,
+          doctorName: req.user.name || '',
+          reason: reason.slice(0, 200)
+        },
+        dedupeKey: 'reject_files:' + orderId,
+        orderId
       });
     } catch (_) {}
   } catch (err) {
@@ -2644,15 +2837,26 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, 
   const diagnosisText = String(req.body.diagnosis || '').trim();
   const impression = String(req.body.impression || '').trim();
   const recommendations = String(req.body.recommendations || '').trim();
-  const combinedText = [
-    diagnosisText ? 'Findings:\n' + diagnosisText : '',
-    impression ? 'Impression:\n' + impression : '',
-    recommendations ? 'Recommendations:\n' + recommendations : ''
-  ].filter(Boolean).join('\n\n');
 
   try {
     const diagnosisCol = await getDiagnosisColumnName();
     const nowIso = new Date().toISOString();
+
+    // Probed together so the diagnosis write below can tell whether the other
+    // two sections have somewhere of their own to live.
+    const impressionCol = await getImpressionColumnName();
+    const recsCol = await getRecommendationsColumnName();
+
+    // When both dedicated columns exist the diagnosis column holds findings
+    // ONLY. Previously this always wrote the combined Findings+Impression+
+    // Recommendations blob into diagnosis_text, which the patient's report
+    // renders as the "Findings" section — so the patient saw all three
+    // sections concatenated under Findings, and the submit path then
+    // overwrote the blob with the raw findings field, destroying the
+    // impression and recommendation outright.
+    const diagnosisValue = (impressionCol && recsCol)
+      ? diagnosisText
+      : buildCombinedReportText(diagnosisText, impression, recommendations);
 
     if (diagnosisCol) {
       const sets = [`updated_at = $1`];
@@ -2660,16 +2864,13 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, 
       let idx = 2;
 
       sets.push(`${diagnosisCol} = $${idx++}`);
-      params.push(combinedText || null);
+      params.push(diagnosisValue || null);
 
-      // Try saving impression/recommendations to dedicated columns if they exist
-      const impressionCol = await pickFirstExistingOrderColumn(['impression', 'doctor_impression']);
       if (impressionCol) {
         sets.push(`${impressionCol} = $${idx++}`);
         params.push(impression || null);
       }
 
-      const recsCol = await pickFirstExistingOrderColumn(['recommendations', 'doctor_recommendations']);
       if (recsCol) {
         sets.push(`${recsCol} = $${idx++}`);
         params.push(recommendations || null);
@@ -2685,7 +2886,7 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, 
     await logOrderEvent({
       orderId: orderId,
       label: 'doctor_diagnosis_saved',
-      meta: { doctorId: doctorId, diagnosisText: combinedText, hasDiagnosis: !!(combinedText && combinedText.trim()) },
+      meta: { doctorId: doctorId, diagnosisText: diagnosisValue, hasDiagnosis: !!(diagnosisValue && diagnosisValue.trim()) },
       actorUserId: doctorId,
       actorRole: 'doctor'
     });
@@ -4350,6 +4551,17 @@ async function getAdditionalFilesUrlColumnName() {
   return await pickFirstExistingTableColumn('order_additional_files', ['file_url', 'url', 'cdn_url']);
 }
 
+async function getAdditionalFilesLabelColumnName() {
+  return await pickFirstExistingTableColumn('order_additional_files', ['label', 'file_label', 'name']);
+}
+
+// R2 object key column (migration 055). Distinct from file_url: a row carries
+// exactly one of the two, so both must be consulted when mapping a stored
+// reference back to the row that holds it.
+async function getAdditionalFilesKeyColumnName() {
+  return await pickFirstExistingTableColumn('order_additional_files', ['file_key']);
+}
+
 async function getAdditionalFilesUploadedAtColumnName() {
   return await pickFirstExistingTableColumn('order_additional_files', [
     'uploaded_at',
@@ -4390,6 +4602,87 @@ async function getDiagnosisColumnName() {
     'medical_opinion',
     'opinion_text'
   ]);
+}
+
+// `orders.impression_text` / `orders.recommendation_text` are the real columns
+// (migration 001, re-asserted defensively by 002) and are what every reader
+// uses: helpers/load-report-content.js, routes/reports.js, routes/api/admin.js,
+// patient_order.ejs and patient_case_report.ejs. The previous probe lists here
+// contained only 'impression'/'doctor_impression' and
+// 'recommendations'/'doctor_recommendations' — none of which exist — so both
+// probes returned null and the doctor's Impression and Recommendation were
+// never persisted anywhere. The legacy names are kept as trailing fallbacks.
+async function getImpressionColumnName() {
+  return await pickFirstExistingOrderColumn([
+    'impression_text',
+    'impression',
+    'doctor_impression'
+  ]);
+}
+
+async function getRecommendationsColumnName() {
+  return await pickFirstExistingOrderColumn([
+    'recommendation_text',
+    'recommendations',
+    'doctor_recommendations'
+  ]);
+}
+
+// Findings / Impression / Recommendations are three separate report sections:
+// patient_order.ejs and patient_case_report.ejs render diagnosis_text as
+// "Findings" and the other two as their own headed sections. So when the
+// dedicated columns exist, the diagnosis column must hold findings ONLY —
+// writing the combined blob there duplicates the other two sections in the
+// patient's report. The blob survives purely as a fallback for schema
+// snapshots without those columns, where it is the only place the doctor's
+// impression/recommendations can be kept at all.
+function buildCombinedReportText(findings, impression, recommendations) {
+  return [
+    findings ? 'Findings:\n' + findings : '',
+    impression ? 'Impression:\n' + impression : '',
+    recommendations ? 'Recommendations:\n' + recommendations : ''
+  ].filter(Boolean).join('\n\n');
+}
+
+// Rehydrate the three report-editor boxes from the order row.
+//
+// Drafts saved before the impression/recommendation columns were wired up
+// stored all three sections as one headed blob in diagnosis_text. Split those
+// back out (parseCombinedNotesToFields already knows the format) so reopening
+// a case does not show an editor missing two of its three fields — which is
+// how a submit silently wiped a saved draft. Only applied when BOTH dedicated
+// columns are empty, so a doctor who legitimately types the word "Impression:"
+// into findings is never re-parsed.
+function buildReportDraftFields(order) {
+  const impression = String((order && (order.impression_text || order.impression)) || '').trim();
+  const recommendations = String(
+    (order && (order.recommendation_text || order.recommendations || order.recommendation)) || ''
+  ).trim();
+  const diagnosis = String(readDiagnosisFromOrder(order) || '');
+
+  if (!impression && !recommendations && /(^|\n)(Findings|Impression|Recommendations):\n/i.test(diagnosis)) {
+    return parseCombinedNotesToFields(diagnosis);
+  }
+
+  return { findings: diagnosis.trim(), impression, recommendations };
+}
+
+// users.date_of_birth is a TEXT column, so it can hold anything a signup form
+// ever accepted. Anything unparseable, in the future, or absurd yields null and
+// the header simply omits the age rather than printing "NaN".
+function computeAgeFromDob(dob) {
+  const raw = String(dob || '').trim();
+  if (!raw) return null;
+  const born = new Date(raw);
+  if (isNaN(born.getTime())) return null;
+
+  const now = new Date();
+  let age = now.getUTCFullYear() - born.getUTCFullYear();
+  const monthDelta = now.getUTCMonth() - born.getUTCMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && now.getUTCDate() < born.getUTCDate())) age -= 1;
+
+  if (!Number.isFinite(age) || age < 0 || age > 120) return null;
+  return age;
 }
 
 
@@ -4669,18 +4962,53 @@ async function getReportUrlColumnName() {
   ]);
 }
 
-async function markOrderCompletedFallback({ orderId, doctorId, reportUrl, diagnosisText, annotatedFiles }) {
+async function markOrderCompletedFallback({
+  orderId,
+  doctorId,
+  reportUrl,
+  diagnosisText,
+  impressionText,
+  recommendationsText,
+  annotatedFiles
+}) {
   const nowIso = new Date().toISOString();
   const diagnosisCol = await getDiagnosisColumnName();
   const reportCol = await getReportUrlColumnName();
+  // Submit used to persist the diagnosis column only. The doctor's Impression
+  // and Recommendation went into the PDF and were then thrown away, so the
+  // patient's on-site report (which reads impression_text /
+  // recommendation_text) showed two empty sections, and any draft-saved values
+  // in those columns were left stale against the submitted findings.
+  const impressionCol = await getImpressionColumnName();
+  const recsCol = await getRecommendationsColumnName();
 
   let paramIdx = 1;
   const sets = [];
   const params = [];
 
   if (diagnosisCol) {
+    // Mirrors the draft-save path: findings own the diagnosis column when the
+    // other two sections have columns of their own, otherwise the combined
+    // blob is the only way not to drop them.
+    const diagnosisValue = (impressionCol && recsCol)
+      ? diagnosisText
+      : buildCombinedReportText(
+          String(diagnosisText || '').trim(),
+          String(impressionText || '').trim(),
+          String(recommendationsText || '').trim()
+        );
     sets.push(`${diagnosisCol} = $${paramIdx++}`);
-    params.push(diagnosisText || null);
+    params.push(diagnosisValue || null);
+  }
+
+  if (impressionCol) {
+    sets.push(`${impressionCol} = $${paramIdx++}`);
+    params.push(impressionText || null);
+  }
+
+  if (recsCol) {
+    sets.push(`${recsCol} = $${paramIdx++}`);
+    params.push(recommendationsText || null);
   }
 
   if (reportCol) {
@@ -4807,13 +5135,20 @@ async function handlePortalDoctorGenerateReport(req, res) {
       return res.redirect(`/portal/doctor/case/${orderId}`);
     }
 
-    // Pull all text fields from form submission
+    // Pull all text fields from form submission, falling back to whatever the
+    // doctor last saved as a draft. Without the findings fallback an empty
+    // `diagnosis` field (a draft-restore that failed, a browser that dropped
+    // the textarea) submitted NULL over a saved findings section — the exact
+    // data loss the impression/recommendation fallbacks below already guarded
+    // against. buildReportDraftFields also unpacks the legacy combined
+    // Findings/Impression/Recommendations blob written by older draft saves.
+    const storedDraft = buildReportDraftFields(order);
     const diagnosisText =
-      (req.body && (req.body.diagnosis || req.body.diagnosis_text)) || '';
+      (req.body && (req.body.diagnosis || req.body.diagnosis_text)) || storedDraft.findings || '';
     const impressionText =
-      (req.body && (req.body.impression || req.body.impression_text)) || order.impression_text || '';
+      (req.body && (req.body.impression || req.body.impression_text)) || storedDraft.impression || '';
     const recommendationsText =
-      (req.body && (req.body.recommendations || req.body.recommendation_text)) || order.recommendation_text || '';
+      (req.body && (req.body.recommendations || req.body.recommendation_text)) || storedDraft.recommendations || '';
 
     // Fetch related entities for a rich PDF
     let patient = {};
@@ -4888,6 +5223,8 @@ async function handlePortalDoctorGenerateReport(req, res) {
       doctorId,
       reportUrl,
       diagnosisText,
+      impressionText,
+      recommendationsText,
       annotatedFiles: []
     });
 
