@@ -1,4 +1,4 @@
--- 082_refund_earnings_notification_indexes.sql
+-- 083_refund_earnings_notification_indexes.sql
 --
 -- AUDIT-P0 (audit 2026-08-16, second pass). Three uniqueness constraints that
 -- the application layer assumes and the schema does not enforce. Each one is
