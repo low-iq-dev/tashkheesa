@@ -263,4 +263,9 @@ async function setRefundPaid(client, opts) {
   }
 }
 
-module.exports = { setRefundPaid, applyRefundedPaymentStatus };
+// AUDIT-2026-08-22 (M2): FULL_REFUND_EPSILON_CENTS is exported so
+// services/refund_closure.js can apply the IDENTICAL tolerance. The two used to
+// be independent — different ceiling, no tolerance — so on the web mark-paid
+// path (routes/superadmin.js) they could reach opposite conclusions about the
+// same refund and one of them would be wrong by a rounding piastre.
+module.exports = { setRefundPaid, applyRefundedPaymentStatus, FULL_REFUND_EPSILON_CENTS };

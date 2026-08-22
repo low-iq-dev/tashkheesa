@@ -512,6 +512,39 @@ router.post('/callback', async (req, res, next) => {
       _normalizedForEvent === 'failed' ? 'payment_failed'    :
       _normalizedForEvent === 'cancelled' ? 'payment_failed' :
                                            'webhook_received';
+    // ── AUDIT-2026-08-22 (M6): the claim is PROVISIONAL until the outcome is
+    //    actually applied ──────────────────────────────────────────────────
+    //
+    // This row was inserted with its FINAL event_type before the order lookup
+    // (below), the intention binding, the amount check and markCasePaid. Every
+    // one of those can throw — and a throw reaches the handler's outer catch,
+    // which calls next(err) and answers 500. Paymob then retries, the retry
+    // hits ON CONFLICT DO NOTHING, and the retry was treated as a replay of a
+    // transaction that had never been processed at all. Net effect: the patient
+    // is charged, the order NEVER becomes paid, nothing assigns, no SLA clock
+    // starts, and the only trace is an "idempotent replay" timeline row saying
+    // the work was already done. A transient DB blip on the money path
+    // permanently stranded the payment.
+    //
+    // Fix: claim the transaction id under a PROVISIONAL event_type and rewrite
+    // it to the real one only once the outcome has been applied (finalizeClaim
+    // below, called at every point this handler answers with a decision). The
+    // unique index still does the real work — a second delivery of a FINALISED
+    // transaction is still a no-op, which is the replay protection we must not
+    // lose. What changes is the meaning of a conflict on a row that is still
+    // provisional: that is an abandoned attempt, not a completed one, and it
+    // must be re-processed rather than swallowed.
+    //
+    // A provisional row is also the operational signal that this used to lack:
+    //   SELECT * FROM payment_events WHERE event_type = 'webhook_processing';
+    // is exactly the list of deliveries that died mid-flight.
+    const PROVISIONAL_EVENT_TYPE = 'webhook_processing';
+    // Long enough that two near-simultaneous deliveries of the same
+    // transaction cannot both process it (the second is told to retry), short
+    // enough that a crashed attempt is retried inside Paymob's retry schedule.
+    const CLAIM_TAKEOVER_SECONDS = 60;
+    let _claimOwned = false;
+
     if (paymobTxnId) {
       // ON CONFLICT must repeat the partial-index predicate
       // (WHERE paymob_transaction_id IS NOT NULL) for Postgres to match
@@ -526,28 +559,108 @@ router.post('/callback', async (req, res, next) => {
           orderId,
           paymobTxnId,
           paymobIntentionId,
-          _eventType,
+          PROVISIONAL_EVENT_TYPE,
           JSON.stringify(req.body || {})
         ]
       );
-      if (!idemRes || idemRes.rowCount === 0) {
-        // Replay of an already-recorded transaction — no-op, return 200
-        // so Paymob stops retrying. The original processing already ran.
-        logOrderEvent({
-          orderId,
-          label: 'Payment callback: idempotent replay (already recorded)',
-          meta: JSON.stringify({ paymob_transaction_id: paymobTxnId, status }),
-          actorRole: 'system'
-        });
-        return res.json({ ok: true, idempotent: true });
+      if (idemRes && idemRes.rowCount > 0) {
+        _claimOwned = true;
+      } else {
+        // Someone already holds the claim. Take it over ONLY if it is still
+        // provisional AND stale — i.e. an attempt that died without applying
+        // an outcome. The predicate makes the takeover atomic: if a finaliser
+        // commits first, event_type no longer matches and we match 0 rows.
+        const takeover = await execute(
+          `UPDATE payment_events
+              SET received_at = NOW()
+            WHERE paymob_transaction_id = $1
+              AND event_type = $2
+              AND received_at < NOW() - INTERVAL '${CLAIM_TAKEOVER_SECONDS} seconds'`,
+          [paymobTxnId, PROVISIONAL_EVENT_TYPE]
+        );
+        if (takeover && takeover.rowCount > 0) {
+          _claimOwned = true;
+          logOrderEvent({
+            orderId,
+            label: 'Payment callback: re-processing an abandoned webhook claim',
+            meta: JSON.stringify({ paymob_transaction_id: paymobTxnId, status }),
+            actorRole: 'system'
+          });
+        } else {
+          const heldRow = await queryOne(
+            `SELECT event_type FROM payment_events WHERE paymob_transaction_id = $1 LIMIT 1`,
+            [paymobTxnId]
+          );
+          if (heldRow && String(heldRow.event_type) === PROVISIONAL_EVENT_TYPE) {
+            // A concurrent delivery of this same transaction is in flight right
+            // now. Deliberately NOT a 200: if that attempt dies, a 200 here is
+            // precisely the swallow this fix removes. A non-2xx makes Paymob
+            // retry — and the retry either finds the row finalised (200 replay
+            // below) or clears the takeover window above and re-processes.
+            return res.status(409).json({ ok: false, error: 'processing_in_progress' });
+          }
+          // Finalised row → a genuine replay of an already-APPLIED
+          // transaction. No-op, 200, Paymob stops retrying. Unchanged.
+          logOrderEvent({
+            orderId,
+            label: 'Payment callback: idempotent replay (already recorded)',
+            meta: JSON.stringify({
+              paymob_transaction_id: paymobTxnId,
+              status,
+              recorded_event_type: heldRow ? heldRow.event_type : null
+            }),
+            actorRole: 'system'
+          });
+          return res.json({ ok: true, idempotent: true });
+        }
       }
     }
     // (If paymobTxnId is missing — defensive fallback — we skip the
     // per-txn idempotency check and rely on the per-order UPDATE guard
     // below. Paymob's documented payload always includes obj.id.)
 
+    // AUDIT-2026-08-22 (M6): promote the provisional claim to its real
+    // event_type. Call this at EVERY point below where this handler answers
+    // with a decision that has been applied — after that point a redelivery
+    // must be a no-op replay. Never call it on a path that leaves work undone.
+    //
+    // The steady state after finalisation is byte-identical to what this route
+    // wrote before the fix (same id, same payload_json, same event_type), so
+    // every existing reader of payment_events — routes/ops.js's webhook
+    // metrics, the amount-mismatch join in routes/api/admin.js,
+    // services/payment_event_review — is unaffected.
+    //
+    // Non-throwing: a failure here leaves the row provisional, so a redelivery
+    // re-processes and lands on the already-paid / already-recorded guards
+    // downstream. That is the safe direction — the opposite (claiming success
+    // we did not achieve) is the bug.
+    const finalizeClaim = async function () {
+      if (!paymobTxnId || !_claimOwned) return;
+      try {
+        await execute(
+          `UPDATE payment_events
+              SET event_type = $2
+            WHERE paymob_transaction_id = $1
+              AND event_type = $3`,
+          [paymobTxnId, _eventType, PROVISIONAL_EVENT_TYPE]
+        );
+      } catch (finErr) {
+        logErrorToDb(finErr, {
+          context: 'payment_callback_finalize_claim',
+          orderId,
+          requestId: req.requestId,
+          category: 'payment'
+        });
+      }
+    };
+
   const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order) {
+    // AUDIT-2026-08-22 (M6): deliberately NOT finalised. Money arrived for an
+    // order we cannot see (orders_active hides soft-deleted rows, so the 48h
+    // unpaid sweep can produce exactly this) — nothing has been applied, so a
+    // redelivery must re-run the lookup rather than be swallowed as a replay.
+    // The claim stays provisional and is itself the reconciliation signal.
     return res.status(404).json({ ok: false, error: 'order not found' });
   }
 
@@ -585,6 +698,10 @@ router.post('/callback', async (req, res, next) => {
         'paymob_refund_or_void'
       );
     } catch (_) {}
+    // AUDIT-2026-08-22 (M6): the outcome for a refund/void IS "audited, paged,
+    // order untouched" — that is fully applied above, so the claim finalises
+    // and a redelivery is a genuine replay.
+    await finalizeClaim();
     return res.json({ ok: true, refund_or_void: true });
   }
 
@@ -787,6 +904,10 @@ router.post('/callback', async (req, res, next) => {
       );
     } catch (_) {}
     // Ack 200 so Paymob stops retrying; the order is deliberately left UNPAID.
+    // AUDIT-2026-08-22 (M6): "reject and leave unpaid" is an applied outcome —
+    // the mismatch row is written and on-call is paged — so the claim
+    // finalises. Re-processing a rejected binding would only re-page.
+    await finalizeClaim();
     return res.json({ ok: true, intention_mismatch: true });
   }
 
@@ -800,6 +921,9 @@ router.post('/callback', async (req, res, next) => {
       meta: JSON.stringify({ status, method, reference }),
       actorRole: 'system'
     });
+    // AUDIT-2026-08-22 (M6): an unclassifiable status moves no money and needs
+    // no further work — recording it IS the outcome.
+    await finalizeClaim();
     return res.json({ ok: true });
   }
 
@@ -842,6 +966,10 @@ router.post('/callback', async (req, res, next) => {
       }
     }
 
+    // AUDIT-2026-08-22 (M6): a failed/cancelled/pending callback moves no money
+    // — the timeline row and the retry notification above are the whole
+    // outcome, so the claim finalises here.
+    await finalizeClaim();
     return res.json({ ok: true });
   }
 
@@ -937,6 +1065,10 @@ router.post('/callback', async (req, res, next) => {
         console.error('[callback] amount_mismatch ops push failed:', pushErr && pushErr.message);
       }
       // Ack 200 (Paymob stops retrying); order stays UNPAID — no markCasePaid.
+      // AUDIT-2026-08-22 (M6): the mismatch row, the timeline entry, the admin
+      // notification and the ops push are the applied outcome; re-processing a
+      // redelivery would produce the same rejection, so finalise the claim.
+      await finalizeClaim();
       return res.json({ ok: true, amount_mismatch: true });
     }
   }
@@ -975,6 +1107,9 @@ router.post('/callback', async (req, res, next) => {
         meta: JSON.stringify({ status, method, reference }),
         actorRole: 'system'
       });
+      // AUDIT-2026-08-22 (M6): the order is fully paid and fully transitioned —
+      // there is nothing left for a redelivery to do, so finalise.
+      await finalizeClaim();
       return res.json({ ok: true });
     }
     logOrderEvent({
@@ -1042,6 +1177,19 @@ router.post('/callback', async (req, res, next) => {
       } catch (_) {}
     }
   }
+
+  // AUDIT-2026-08-22 (M6): THE point the claim becomes durable. Everything the
+  // webhook is responsible for has now happened — orders.payment_status='paid'
+  // committed by the guarded UPDATE above, and markCasePaid has run (or has
+  // failed loudly with a critical alert and an error_logs row, which is the
+  // pre-existing, deliberate behaviour: a redelivery cannot re-drive it because
+  // the order is already paid, so acking is correct and paging is the recovery
+  // path). Everything BELOW this line is best-effort fulfilment — notifications,
+  // referral flags, add-on rows — each already wrapped in its own catch, and
+  // none of it is re-runnable by a redelivery (the already-paid guard above
+  // short-circuits first). Finalising later would therefore buy nothing and
+  // risk leaving a settled payment looking abandoned.
+  await finalizeClaim();
 
   logOrderEvent({
     orderId,

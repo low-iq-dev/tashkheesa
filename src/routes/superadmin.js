@@ -5010,8 +5010,11 @@ router.get('/superadmin/refunds/create', requireSuperadmin, async (req, res) => 
   // Check for an existing non-terminal refund row (pending / auto_approved /
   // approved / paid). If one exists, operator should use the queue, not
   // create another.
+  // AUDIT-2026-08-22 (M7): `reason` projected so the form can tell the operator
+  // that an unpaid SLA-breach auto-refund is a TOP-UP, not a dead end — the
+  // POST below supersedes it in place. See services/admin_refund.
   const existingRefund = await queryOne(
-    `SELECT id, status FROM refunds
+    `SELECT id, status, reason FROM refunds
       WHERE order_id = $1
         AND status IN ('pending','auto_approved','approved','paid')
       LIMIT 1`,
@@ -5025,13 +5028,33 @@ router.get('/superadmin/refunds/create', requireSuperadmin, async (req, res) => 
   // wrote base_price, pre-filling the operator form with a zero refund.
   const defaultAmount = maxRefundableEgp(order);
 
+  // AUDIT-2026-08-22 (M7): an UNPAID SLA-breach auto-refund must not hide the
+  // form. superadmin_refund_create.ejs renders a "refund already exists — use
+  // the queue" dead end whenever `existingRefund` is set, and the queue has no
+  // top-up action, so a case that breached (uplift refunded automatically) and
+  // then failed outright had no route to a real refund at all — the operator
+  // could not even open the form. Passing null lets the form render; the POST
+  // handler recognises the same blocker and SUPERSEDES the breach row in place
+  // (services/admin_refund.supersedeBreachRefund) instead of inserting a second
+  // row, which migration 083's uniq_refunds_open_per_order forbids. All the
+  // policy is enforced server-side in the POST, never here.
+  //
+  // HANDOFF (view owner): superadmin_refund_create.ejs should say so — "topping
+  // up the automatic SLA-breach refund of X EGP" — rather than presenting this
+  // as a fresh refund. `supersedingBreachRefund` is passed for exactly that and
+  // is currently unused by the template.
+  const supersedableBreach = !!(existingRefund
+    && String(existingRefund.reason) === 'sla_breach'
+    && String(existingRefund.status) !== 'paid');
+
   res.render('superadmin_refund_create', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
     lang, isAr,
     order: order,
     defaultAmount: defaultAmount,
-    existingRefund: existingRefund || null,
+    existingRefund: supersedableBreach ? null : (existingRefund || null),
+    supersedingBreachRefund: supersedableBreach ? existingRefund : null,
     formError: String((req.query && req.query.error) || '').trim() || null
   });
 });
@@ -5062,13 +5085,92 @@ router.post('/superadmin/refunds/create', requireSuperadmin, async (req, res) =>
 
   // Re-check the no-existing-refund gate inside the POST so a race
   // between two operators can't double-write.
+  // AUDIT-2026-08-22 (M7): `reason` projected — see the supersede branch below.
   const existingRefund = await queryOne(
-    `SELECT id FROM refunds
+    `SELECT id, status, reason FROM refunds
       WHERE order_id = $1
         AND status IN ('pending','auto_approved','approved','paid')
       LIMIT 1`,
     [orderId]
   );
+  // ── AUDIT-2026-08-22 (M7): SLA-breach auto-refunds are TOPPED UP, not blocked
+  //
+  // services/sla_breach opens an automatic refund of the urgency uplift only,
+  // reason='sla_breach', status='auto_approved'. Migration 083's
+  // uniq_refunds_open_per_order permits exactly ONE refund row per order across
+  // ('pending','auto_approved','approved','paid'), so that row used to bounce
+  // every operator refund on the case with `refund_already_exists` — for good.
+  // A case that breached and then failed outright could be given back its 200
+  // EGP uplift and NOTHING of the 1000 EGP the patient paid for the report.
+  //
+  // There is no second row to be had (the index forbids it), so the supported
+  // resolution is to raise the row that exists. All the policy — breach-only,
+  // unpaid-only, up-only, reason preserved — lives in
+  // services/admin_refund.supersedeBreachRefund; this is the wiring.
+  if (existingRefund
+      && String(existingRefund.reason) === 'sla_breach'
+      && String(existingRefund.status) !== 'paid') {
+    if (!Number.isFinite(amountRaw) || amountRaw <= 0) {
+      return res.redirect(
+        '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=invalid_amount'
+      );
+    }
+    // Same handle requirement as a fresh operator refund: the auto-created
+    // breach row carries NO instapay_handle (services/sla_breach's INSERT does
+    // not set one), so this is the operator's chance to supply the payout
+    // target rather than leaving the queue with nowhere to send the money.
+    if (!instapayRaw || instapayRaw.length < 3 || instapayRaw.length > 100) {
+      return res.redirect(
+        '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=instapay_required'
+      );
+    }
+    const { supersedeBreachRefund } = require('../services/admin_refund');
+    const client = await pool.connect();
+    try {
+      const out = await supersedeBreachRefund(client, {
+        orderId,
+        amount: amountRaw,
+        instapayHandle: instapayRaw,
+        notes: notesRaw,
+        actorId: req.user.id
+      });
+      logOrderEvent({
+        orderId: orderId,
+        label: 'operator_refund_superseded_breach',
+        meta: {
+          refund_id: out.id,
+          previous_amount_egp: out.previousAmountEgp,
+          amount_egp: out.amountEgp,
+          operator_user_id: req.user.id
+        },
+        actorUserId: req.user.id,
+        actorRole: 'superadmin'
+      });
+      return res.redirect('/superadmin/refunds?flash=superseded');
+    } catch (err) {
+      logErrorToDb(err, {
+        context: 'superadmin.operator_refund_supersede_breach',
+        requestId: req.requestId,
+        userId: req.user.id,
+        orderId: orderId,
+        category: 'refund'
+      });
+      // The service's codes map onto the form's existing error keys where one
+      // fits; anything else falls through to the generic message.
+      const code = String((err && err.code) || '');
+      const errKey =
+        code === 'AMOUNT_EXCEEDS_MAX'   ? 'amount_exceeds_max' :
+        code === 'INVALID_AMOUNT'       ? 'invalid_amount' :
+        code === 'AMOUNT_NOT_A_TOPUP'   ? 'amount_not_a_topup' :
+        code === 'REFUND_ALREADY_PAID'  ? 'refund_already_paid' :
+                                          'refund_already_exists';
+      return res.redirect(
+        '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=' + errKey
+      );
+    } finally {
+      client.release();
+    }
+  }
   if (existingRefund) {
     return res.redirect(
       '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=refund_already_exists'
