@@ -1,5 +1,6 @@
 var fs = require('fs');
 var path = require('path');
+var { Client } = require('pg');
 var { pool, queryOne, queryAll, execute, withTransaction } = require('./pg');
 var { major: logMajor, fatal: logFatal } = require('./logger');
 
@@ -11,37 +12,151 @@ var { major: logMajor, fatal: logFatal } = require('./logger');
 // ---------------------------------------------------------------------------
 var MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 
+// AUDIT-2026-08-22 (AUDIT-MIGRATE-LOCK-1) — arbitrary but FIXED 64-bit key.
+// Must never collide with worker_watchdog's PUSH_LOCK_KEY (918273645) or any
+// pg-boss internal key. Changing it silently disables the lock for a deploy
+// that straddles the change, so don't.
+var MIGRATION_LOCK_KEY = 705120260822;
+
+/**
+ * AUDIT-2026-08-22 (AUDIT-MIGRATE-LOCK-1) — open the dedicated session used to
+ * hold the migration advisory lock.
+ *
+ * WHY A SEPARATE CONNECTION, NOT THE POOL: `pg_advisory_lock` is SESSION-scoped.
+ * The `pool` in src/pg.js points at the Supabase TRANSACTION-mode pooler
+ * (DATABASE_URL, port 6543), where a client is not bound to a backend — the
+ * lock would be taken on backend A and the unlock issued on backend B, which
+ * returns false silently and leaks the lock forever. That is not hypothetical:
+ * it is exactly the bug this same audit found in worker_watchdog.js. The lock
+ * MUST be taken on DATABASE_URL_DIRECT (the Supabase session pooler, port
+ * 5432), the same connection pg-boss already requires for the same reason.
+ *
+ * Returns null when DATABASE_URL_DIRECT is unset (development). The caller then
+ * migrates unlocked with a loud warning rather than failing to boot.
+ */
+async function _openMigrationLockSession() {
+  var directUrl = process.env.DATABASE_URL_DIRECT;
+  if (!directUrl || !String(directUrl).trim()) {
+    var mode = String(process.env.MODE || process.env.NODE_ENV || '').trim().toLowerCase();
+    var isProdLike = mode === 'production' || mode === 'staging';
+    var warn = '[migrate] DATABASE_URL_DIRECT is not set — running migrations WITHOUT ' +
+      'the advisory lock. Two instances booting together can both run the same file; ' +
+      'the loser dies on a duplicate-index error or the UNIQUE(filename) on ' +
+      'schema_migrations and exits 1. Set DATABASE_URL_DIRECT to the Supabase ' +
+      'Session pooler string (Project Settings → Database → Session pooler). ' +
+      'The transaction pooler on DATABASE_URL CANNOT hold a session lock.';
+    if (isProdLike) logFatal(warn); else logMajor(warn);
+    return null;
+  }
+
+  var client = new Client({
+    connectionString: directUrl,
+    ssl: process.env.PG_SSL === 'false' ? false : { rejectUnauthorized: false }
+  });
+  await client.connect();
+  return client;
+}
+
+/**
+ * AUDIT-2026-08-22 (AUDIT-MIGRATE-LEDGER-1) — does this .sql file drive its own
+ * transaction? 083 opens with a bare `BEGIN;` and ends with `COMMIT;`; most
+ * others do not. Only files that do NOT can be wrapped in an outer transaction
+ * together with their schema_migrations row.
+ *
+ * The `;` is what distinguishes SQL transaction control from a PL/pgSQL block
+ * opener — `DO $$ ... BEGIN` (070, 075, 080, 081 …) never has one.
+ */
+function _managesOwnTransaction(sql) {
+  return /^[ \t]*BEGIN[ \t]*;/im.test(sql);
+}
+
 async function migrate() {
-  // Ensure the tracking table exists
-  await pool.query(
-    'CREATE TABLE IF NOT EXISTS schema_migrations (id SERIAL PRIMARY KEY, filename TEXT UNIQUE NOT NULL, ran_at TIMESTAMP DEFAULT NOW())'
-  );
+  // AUDIT-2026-08-22 (AUDIT-MIGRATE-LOCK-1) — the whole runner was
+  // check-then-execute with no mutual exclusion. Two instances booting together
+  // both saw a migration unrecorded and both ran it; one then hit a duplicate
+  // object error or the UNIQUE(filename) on schema_migrations and process.exit(1)
+  // from server.js's initDatabase catch. Hold ONE session-scoped advisory lock
+  // for the entire loop so the second instance waits and then finds every file
+  // already recorded.
+  var lockClient = await _openMigrationLockSession();
+  if (lockClient) {
+    await lockClient.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_KEY]);
+    logMajor('[migrate] holding migration advisory lock ' + MIGRATION_LOCK_KEY +
+             ' on DATABASE_URL_DIRECT');
+  }
 
-  // Read all .sql files, sorted by filename
-  var files = fs.readdirSync(MIGRATIONS_DIR)
-    .filter(function(f) { return f.endsWith('.sql'); })
-    .sort();
-
-  for (var i = 0; i < files.length; i++) {
-    var filename = files[i];
-
-    // Check if already ran
-    var existing = await queryOne(
-      'SELECT 1 FROM schema_migrations WHERE filename = $1',
-      [filename]
+  try {
+    // Ensure the tracking table exists. Inside the lock: concurrent
+    // CREATE TABLE IF NOT EXISTS can itself race on pg_type.
+    await pool.query(
+      'CREATE TABLE IF NOT EXISTS schema_migrations (id SERIAL PRIMARY KEY, filename TEXT UNIQUE NOT NULL, ran_at TIMESTAMP DEFAULT NOW())'
     );
-    if (existing) continue;
 
-    // Read and execute the SQL file
-    var sql = fs.readFileSync(path.join(MIGRATIONS_DIR, filename), 'utf8');
-    await pool.query(sql);
+    // Read all .sql files, sorted by filename
+    var files = fs.readdirSync(MIGRATIONS_DIR)
+      .filter(function(f) { return f.endsWith('.sql'); })
+      .sort();
 
-    // Record it
-    await execute(
-      'INSERT INTO schema_migrations (filename) VALUES ($1)',
-      [filename]
-    );
-    logMajor('Migration: ' + filename);
+    for (var i = 0; i < files.length; i++) {
+      var filename = files[i];
+
+      // Check if already ran
+      var existing = await queryOne(
+        'SELECT 1 FROM schema_migrations WHERE filename = $1',
+        [filename]
+      );
+      if (existing) continue;
+
+      // Read and execute the SQL file
+      var sql = fs.readFileSync(path.join(MIGRATIONS_DIR, filename), 'utf8');
+
+      // AUDIT-2026-08-22 (AUDIT-MIGRATE-LEDGER-1) — the ledger INSERT used to be
+      // a SEPARATE round-trip after the migration had already committed. A
+      // connection drop in that window left the schema changed and the file
+      // unrecorded, so the next boot re-ran it. Every file is idempotent today,
+      // so that was a boot-latency risk rather than a correctness one — but the
+      // idempotence of all ~85 files is an unenforced convention, and the window
+      // costs nothing to close.
+      //
+      // Run BOTH on ONE connection inside ONE transaction. Prefer the direct
+      // lock session: it is session-mode, so the multi-statement DDL and the
+      // ledger write are guaranteed to be on the same backend. Fall back to the
+      // pool only when DATABASE_URL_DIRECT is unset (development).
+      var runner = lockClient || await pool.connect();
+      var ownTx = _managesOwnTransaction(sql);
+      try {
+        if (ownTx) {
+          // The file COMMITs itself; an outer BEGIN would be committed early by
+          // it and the trailing COMMIT would warn. Record separately and accept
+          // the (now lock-protected) window for these few files.
+          await runner.query(sql);
+          await runner.query('INSERT INTO schema_migrations (filename) VALUES ($1)', [filename]);
+        } else {
+          await runner.query('BEGIN');
+          await runner.query(sql);
+          await runner.query('INSERT INTO schema_migrations (filename) VALUES ($1)', [filename]);
+          await runner.query('COMMIT');
+        }
+      } catch (mErr) {
+        // Unconditional: an ownTx file can also fail mid-transaction, and the
+        // lock client is REUSED for the next file — it must not be handed on
+        // sitting inside an aborted transaction. ROLLBACK with no transaction
+        // open is a warning, not an error.
+        try { await runner.query('ROLLBACK'); } catch (_) {}
+        throw mErr;
+      } finally {
+        if (runner !== lockClient && runner.release) runner.release();
+      }
+
+      logMajor('Migration: ' + filename + (ownTx ? ' (self-managed transaction)' : ''));
+    }
+  } finally {
+    if (lockClient) {
+      try { await lockClient.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY]); } catch (_) {}
+      // end() drops the session, which releases any advisory lock regardless of
+      // whether the unlock above succeeded.
+      try { await lockClient.end(); } catch (_) {}
+    }
   }
 
   // Data fixups (idempotent, run every boot)

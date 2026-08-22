@@ -35,6 +35,26 @@ DECLARE
   orphans text[] := ARRAY[
     'appointment_slots','notify_whatsapp_migration_062_backup','services_sla_hours_migration_063_backup'
   ];  -- 3 tables, dropped by 071
+  -- AUDIT-2026-08-22 — tables created by migrations that run AFTER this one.
+  --
+  -- WHY THEY ARE NOT IN `survivors`: Guard 1 below RAISEs if any survivor is
+  -- missing. On a fresh database this file runs at position 070, before 073 /
+  -- 075 / 082 have created these tables, so listing them there would abort the
+  -- build of every new environment. Guard 2, on the other hand, RAISEs on any
+  -- public base table it does not RECOGNISE — and on an existing database (where
+  -- these tables do exist) an unlisted name would abort the whole migration.
+  -- This third array is what keeps Guard 2 honest without breaking Guard 1.
+  --
+  -- Each of these locks itself in its own migration, which is the convention for
+  -- everything created after 070:
+  --   doctor_applications    → 073_doctor_applications.sql:55
+  --   payment_event_reviews  → 085_rls_payment_event_reviews_ops_push_log.sql
+  --   ops_push_log           → 085_rls_payment_event_reviews_ops_push_log.sql
+  -- ADD EVERY NEW PUBLIC TABLE HERE **and** give it its own ENABLE ROW LEVEL
+  -- SECURITY in the migration that creates it.
+  later_tables text[] := ARRAY[
+    'doctor_applications','payment_event_reviews','ops_push_log'
+  ];  -- 3 tables, created by 073 / 075 / 082, RLS-enabled by 073 and 085
   t text;
   missing  text[];
   surprise text[];
@@ -48,12 +68,14 @@ BEGIN
   END IF;
 
   -- Guard 2: drift check (the 067 lesson) — refuse if any public base table is
-  -- outside (survivors ∪ orphans); a new/renamed table must be classified first.
+  -- outside (survivors ∪ orphans ∪ later_tables); a new/renamed table must be
+  -- classified first.
   SELECT array_agg(c.relname) INTO surprise
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND c.relkind = 'r'
     AND c.relname <> ALL(survivors)
-    AND c.relname <> ALL(orphans);
+    AND c.relname <> ALL(orphans)
+    AND c.relname <> ALL(later_tables);
   IF surprise IS NOT NULL THEN
     RAISE EXCEPTION 'RLS abort: unrecognized public table(s) present — re-audit before locking: %', surprise;
   END IF;

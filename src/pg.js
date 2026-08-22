@@ -47,18 +47,76 @@ var PG_POOL_IDLE_TIMEOUT_MS     = parseInt(process.env.PG_POOL_IDLE_TIMEOUT_MS, 
 // Override via env if a specific deployment needs different behavior.
 var PG_STATEMENT_TIMEOUT_MS     = parseInt(process.env.PG_STATEMENT_TIMEOUT_MS, 10)     || 30000;
 
+// AUDIT-2026-08-22 (AUDIT-POOL-SET-1) — the two `SET`s in the pool.on('connect')
+// hook below do NOT hold on the production connection.
+//
+// WHY: DATABASE_URL on Render is the Supabase TRANSACTION-mode pooler
+// (aws-1-us-east-1.pooler.supabase.com:6543). In transaction mode a node-pg
+// client is not bound to one backend — the pooler hands each transaction to
+// whichever server connection is free — so a `SET` issued once per node-pg
+// client configures ONE arbitrary backend and every other backend keeps the
+// role default. The pooler also does not run server_reset_query in transaction
+// mode, so the stray setting is never cleaned up either. Supabase documents the
+// consequence directly for timeouts: a session-level `SET statement_timeout`
+// "cannot be used ... with Supavisor in Transaction mode (port 6543)".
+//
+// Effect before this fix: PG_STATEMENT_TIMEOUT_MS was not enforced (a runaway
+// query COULD hold a pool slot indefinitely — the exact failure Theme 5
+// sub-issue B was written to close), and the AUDIT-TZ-1 guarantee below was
+// not actually held on any backend but the one that happened to receive the SET.
+//
+// FIX: ask for both settings in the STARTUP packet instead, via libpq's
+// `options` connection parameter. Startup options are applied by the *backend*
+// when the server connection is established, so every backend the pooler can
+// route us to carries them — there is no per-session state to lose.
+//
+// ESCAPE HATCH: `options` is a startup parameter, and poolers vary in whether
+// they forward it. If a pooler ever rejects it the symptom is total connection
+// failure at boot, so this is switchable WITHOUT a code change:
+//   PG_STARTUP_OPTIONS=off        → send no options; fall back to the SETs below
+//   PG_STARTUP_OPTIONS='-c ...'   → send exactly this string instead
+// An `options=` already present in DATABASE_URL is left alone.
+//
+// BELT AND BRACES: the operator-side equivalent that needs no client support is
+//   ALTER ROLE <app role> SET timezone = 'UTC';
+//   ALTER ROLE <app role> SET statement_timeout = '30s';
+// which Supabase recommends and which applies at backend start regardless of
+// pooler. See the operator note in .env.example / render.yaml.
+function _withStartupOptions(url) {
+  if (!url) return url;
+  var override = String(process.env.PG_STARTUP_OPTIONS || '').trim();
+  if (override.toLowerCase() === 'off') return url;
+  if (/[?&]options=/i.test(url)) return url;   // operator set their own — don't fight it
+  var optionString = override ||
+    ('-c timezone=UTC -c statement_timeout=' + PG_STATEMENT_TIMEOUT_MS);
+  var sep = url.indexOf('?') === -1 ? '?' : '&';
+  return url + sep + 'options=' + encodeURIComponent(optionString);
+}
+
+var PG_CONNECTION_STRING = _withStartupOptions(process.env.DATABASE_URL);
+var PG_STARTUP_OPTIONS_APPLIED = !!(PG_CONNECTION_STRING &&
+  PG_CONNECTION_STRING !== process.env.DATABASE_URL);
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: PG_CONNECTION_STRING,
   ssl: process.env.PG_SSL === 'false' ? false : { rejectUnauthorized: false },
   max: PG_POOL_MAX,
   idleTimeoutMillis: PG_POOL_IDLE_TIMEOUT_MS,
   connectionTimeoutMillis: PG_POOL_CONNECT_TIMEOUT_MS
 });
 
-// Apply statement_timeout to every new pool connection. Fires once per
-// physical connection (connection reuse keeps the SET; the pool reissues
-// it only when the underlying socket is recreated). Failure to SET is
-// logged but non-fatal — the connection still works, just without the cap.
+// AUDIT-2026-08-22 (AUDIT-POOL-SET-1) — RETAINED AS A FALLBACK, NOT AS THE
+// GUARANTEE. Read the _withStartupOptions comment above first.
+//
+// On a DIRECT / session-mode connection (local dev, DATABASE_URL_DIRECT, a
+// psql-style deployment) these SETs are exactly what they always were and
+// still do the job. On the production TRANSACTION-mode pooler they configure
+// at most one backend and cannot be relied on — the `options=` startup
+// parameter added above is what actually holds there. Keeping them costs two
+// round-trips per NEW physical connection and buys correctness on every
+// non-pooled deployment plus any deploy running PG_STARTUP_OPTIONS=off.
+//
+// Failure to SET is logged but non-fatal — the connection still works.
 pool.on('connect', function (client) {
   // AUDIT-TZ-1 — SET TIME ZONE 'UTC' is the single most load-bearing line in
   // this file. Read the whole comment before changing it.
@@ -151,14 +209,100 @@ pool.on('connect', function (client) {
 // env knobs the rest of Theme 5 depends on. Operations should be able to
 // confirm-with-one-grep that the deployed instance is in the configuration
 // the architecture comment above claims it is.
+//
+// AUDIT-2026-08-22 (AUDIT-POOL-SET-1) — this line used to print
+// `statement_timeout=30000ms` as though it were a fact about the database. It
+// was a fact about a local variable. It now says what was REQUESTED and by
+// which mechanism; what was actually OBSERVED is reported separately by
+// verifyPoolSettings() below, which asks real connections.
 var _modeForLog   = String(process.env.MODE || process.env.NODE_ENV || 'unknown').trim().toLowerCase() || 'unknown';
 var _directUrlSet = process.env.DATABASE_URL_DIRECT ? 'set' : 'not set';
 
 logMajor('[pg] pool ready: max=' + PG_POOL_MAX +
   ' connect=' + PG_POOL_CONNECT_TIMEOUT_MS + 'ms' +
   ' idle=' + PG_POOL_IDLE_TIMEOUT_MS + 'ms' +
-  ' statement_timeout=' + PG_STATEMENT_TIMEOUT_MS + 'ms');
+  ' statement_timeout=' + PG_STATEMENT_TIMEOUT_MS + 'ms (requested)');
+logMajor('[pg] startup options: ' + (PG_STARTUP_OPTIONS_APPLIED
+  ? 'sent via connection-string options= (timezone=UTC, statement_timeout=' +
+    PG_STATEMENT_TIMEOUT_MS + ') — verified below'
+  : 'NOT sent (PG_STARTUP_OPTIONS=off, options= already in DATABASE_URL, or no ' +
+    'DATABASE_URL). On a transaction-mode pooler the per-connection SETs are ' +
+    'NOT a guarantee — see verifyPoolSettings output.'));
 logMajor('[pg] env: mode=' + _modeForLog + ' DATABASE_URL_DIRECT=' + _directUrlSet);
+
+/**
+ * AUDIT-2026-08-22 (AUDIT-POOL-SET-1) — say only what we actually checked.
+ *
+ * Opens `sampleSize` pool connections CONCURRENTLY (so they cannot be the same
+ * pooler-side backend re-handed to us) and reads back TimeZone and
+ * statement_timeout from each. Reports the DISTINCT values observed.
+ *
+ * Honest about its own limits: on a transaction-mode pooler N client
+ * connections still do not guarantee N distinct BACKENDS, so agreement across
+ * the sample is strong evidence, not proof. Disagreement, on the other hand,
+ * is proof of the bug — which is the case this exists to catch.
+ *
+ * Never throws; a verification failure must not take the process down.
+ * Set PG_VERIFY_SETTINGS=off to skip entirely.
+ *
+ * @param {number} [sampleSize]
+ * @returns {Promise<{ok:boolean, timezones?:string[], timeouts?:string[], sampled?:number, error?:string}>}
+ */
+async function verifyPoolSettings(sampleSize) {
+  var n = Math.max(1, Math.min(parseInt(sampleSize, 10) || 5, PG_POOL_MAX));
+  var clients = [];
+  try {
+    for (var i = 0; i < n; i++) clients.push(pool.connect());
+    var settled = await Promise.all(clients);
+    var reads = await Promise.all(settled.map(function (c) {
+      return c.query('SHOW timezone').then(function (tzr) {
+        return c.query('SHOW statement_timeout').then(function (str) {
+          return {
+            tz: tzr.rows[0] ? (tzr.rows[0].TimeZone || tzr.rows[0].timezone) : 'unknown',
+            st: str.rows[0] ? (str.rows[0].statement_timeout) : 'unknown'
+          };
+        });
+      });
+    }));
+    settled.forEach(function (c) { try { c.release(); } catch (_) {} });
+
+    var tzs = reads.map(function (r) { return String(r.tz); })
+      .filter(function (v, ix, a) { return a.indexOf(v) === ix; });
+    var sts = reads.map(function (r) { return String(r.st); })
+      .filter(function (v, ix, a) { return a.indexOf(v) === ix; });
+
+    var tzOk = tzs.length === 1 && tzs[0].toUpperCase() === 'UTC';
+    var stOk = sts.length === 1 && sts[0] !== '0';
+
+    logMajor('[pg] verified on ' + n + ' concurrent connection(s): timezone=' +
+      tzs.join('|') + (tzOk ? ' (ok)' : ' (NOT UNIFORM UTC — naive timestamp ' +
+      'columns are being read at the wrong offset on at least one backend)') +
+      ' statement_timeout=' + sts.join('|') +
+      (stOk ? ' (ok)' : ' (NOT ENFORCED — a runaway query can hold a pool slot ' +
+      'indefinitely; see PG_STARTUP_OPTIONS in .env.example)'));
+
+    return { ok: tzOk && stOk, timezones: tzs, timeouts: sts, sampled: n };
+  } catch (err) {
+    clients.forEach(function (pr) {
+      Promise.resolve(pr).then(function (c) { try { c.release(); } catch (_) {} },
+                               function () {});
+    });
+    logMajor('[pg] could NOT verify timezone/statement_timeout: ' + err.message +
+      ' — treat both as UNKNOWN on this instance');
+    return { ok: false, error: err.message };
+  }
+}
+
+// Self-scheduled one-shot so the check needs no wiring in server.js (owned
+// elsewhere). unref()'d: it must never hold the event loop open, and it must
+// not race the boot migration for pool slots.
+if (process.env.DATABASE_URL &&
+    String(process.env.PG_VERIFY_SETTINGS || '').trim().toLowerCase() !== 'off') {
+  var _verifyTimer = setTimeout(function () {
+    verifyPoolSettings(5).catch(function () {});
+  }, 15000);
+  if (_verifyTimer.unref) _verifyTimer.unref();
+}
 
 // Supabase Free pgbouncer caps client connections at 15 per project.
 // max=10 leaves headroom for pg-boss direct (separate pool, see job_queue.js)
@@ -246,4 +390,4 @@ async function withTransaction(fn) {
   }
 }
 
-module.exports = { pool, queryOne, queryAll, execute, withTransaction };
+module.exports = { pool, queryOne, queryAll, execute, withTransaction, verifyPoolSettings };
