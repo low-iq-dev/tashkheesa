@@ -155,8 +155,13 @@ services:
 
       # ── Auth & crypto (all secrets) ──────────────────────────────────────
       # alwaysRequired in src/server.js:90 — fatal in every mode.
+      # AUDIT-2026-08-22: sync:false, NOT generateValue. This service is already
+      # live with a JWT_SECRET in the dashboard; a generated one would invalidate
+      # every existing session cookie and every outstanding reset/magic-link
+      # token the moment the blueprint was adopted. generateValue is only correct
+      # for a brand-new service.
       - key: JWT_SECRET
-        generateValue: true
+        sync: false
       # bootCheck.js:71-86. Either this pair OR STAGING_USER/STAGING_PASS; both
       # are honoured by src/server.js:243-244. Set ONE pair, not both.
       # `demo`/`demo123` is rejected in production.
@@ -175,12 +180,18 @@ services:
         value: tashkheesa_portal
       - key: CSRF_MODE
         value: enforce
+      # AUDIT-2026-08-22: sync:false — already set on the live service. Regenerating
+      # would break every caller holding the current value.
       - key: TASH_API_KEY
-        generateValue: true
+        sync: false
+      # AUDIT-2026-08-22: sync:false — already set on the live service. Regenerating
+      # would break every caller holding the current value.
       - key: PUBLIC_ORDER_API_KEY
-        generateValue: true
+        sync: false
+      # AUDIT-2026-08-22: sync:false — already set on the live service. Regenerating
+      # would break every caller holding the current value.
       - key: UNSUBSCRIBE_SECRET
-        generateValue: true
+        sync: false
 
       # ── URLs (prodRequired, src/server.js:97-107) ────────────────────────
       # No trailing slash. Used for Paymob callbacks, video return URLs, email
@@ -335,6 +346,42 @@ services:
       # ── Feature flags held OFF for launch ────────────────────────────────
       - key: ADDON_SYSTEM_V2
         value: "false"
+      # ── Missing from the first cut of this file (AUDIT-2026-08-22) ────────
+      # CRITICAL_ALERT_TEMPLATE_NAME: while empty, sendCriticalAlert returns early
+      # and EIGHTEEN alerts are silent — Paymob HMAC failure, intention mismatch,
+      # every markCasePaid-failed-after-capture, "video paid while disabled —
+      # manual refund needed", worker-down, the error-rate spike and the
+      # WhatsApp-401 detector. The suppressed case now writes error_logs so it is
+      # at least visible on /ops, but nothing pages anyone. Highest-leverage
+      # single variable on this list.
+      - key: CRITICAL_ALERT_TEMPLATE_NAME
+        sync: false
+      # Belt and braces. The legacy acceptance path no longer times out on a wall
+      # clock, but this is the cutoff for legacy doctor_assignments rows with a
+      # NULL accept_by_at, and the default was briefly 2h.
+      - key: DOCTOR_RESPONSE_TIMEOUT_HOURS
+        value: "24"
+      # Without it /app shows the waitlist instead of a broken install button.
+      - key: TESTFLIGHT_URL
+        sync: false
+      #
+      # DELIBERATELY NOT SET — do not add these without reading the note:
+      #
+      # PAYMOB_REQUIRE_INTENTION_BINDING — leave UNSET (defaults false). Turning
+      #   it on before confirming Paymob actually sends obj.intention.id would
+      #   park every real payment as unpaid. Procedure in .env.example:158-179:
+      #   take one live test payment, confirm payment_events.paymob_intention_id
+      #   is non-null, then set it to true.
+      #
+      # URGENT_WINDOW_WORKING_DAYS — leave UNSET (means all seven days, which is
+      #   the behaviour that shipped before the variable existed). Set it once the
+      #   radiologist roster is known. NOTE: it currently gates the PAYMENT-side
+      #   clock only; intake still offers urgent on any day, so setting it before
+      #   that gap closes makes the sell side and the pay side disagree.
+      #
+      # STRICT_ENV_ASSERTS — declared false above. Flip to true only AFTER
+      #   NATIONAL_ID_ENCRYPTION_KEY and both OPENCLAW_* are set and a deploy log
+      #   shows no BOOT CHECK WARNING.
       - key: VIDEO_CONSULTATION_ENABLED
         value: "false"
 
