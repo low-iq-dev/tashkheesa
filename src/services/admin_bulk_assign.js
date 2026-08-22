@@ -37,7 +37,7 @@ const {
   normalizeStatus,
   doctorSupportsTier,
   capFor,
-  acceptByIso,
+  acceptByIsoForOrder,
 } = require('../routes/api/_assign_helpers');
 
 // Assignment states that mean "a human flagged this case for review" — never
@@ -70,8 +70,12 @@ async function bulkAutoAssign(client, opts) {
     // oldest created, so when capacity fills mid-batch the scarce slots go to
     // the most time-critical cases. Deterministic → dry-run recap == real run.
     const { rows: cases } = await client.query(
+      // AUDIT-2026-08-22 — `tier` added. The acceptance window resolves from
+      // `tier || urgency_tier` (acceptance_window.acceptanceMinutesForOrder);
+      // without `tier` in the projection, a broadcast case whose tier lives in
+      // that column only fell through to the sla_hours bucket.
       `SELECT id, reference_id, doctor_id, status, payment_status, paid_at,
-              specialty_id, service_id, urgency_tier, sla_hours, assignment_status,
+              specialty_id, service_id, tier, urgency_tier, sla_hours, assignment_status,
               deadline_at, created_at
          FROM orders
         WHERE id = ANY($1::text[]) AND deleted_at IS NULL
@@ -164,15 +168,25 @@ async function bulkAutoAssign(client, opts) {
       await client.query('SAVEPOINT ' + sp);
       try {
         const now = new Date().toISOString();
+        // AUDIT-2026-08-22 — ONE acceptance deadline, written to BOTH places
+        // that read it. It used to be computed by the local 30m/4h/24h table
+        // (see _assign_helpers.acceptByIsoForOrder) and written only to
+        // doctor_assignments.accept_by_at; orders.acceptance_deadline_at was
+        // left holding whatever notify/broadcast.js wrote at payment time —
+        // long past, describing a broadcast, not this assignment. The
+        // acceptance_watcher expiry sweep reads the orders column, so a bulk
+        // assignment was instantly "expired" to that worker.
+        const acceptByAt = acceptByIsoForOrder(c);
         await client.query(
-          `UPDATE orders SET doctor_id = $1, status = 'ASSIGNED', assignment_status = 'assigned', updated_at = NOW()
+          `UPDATE orders SET doctor_id = $1, status = 'ASSIGNED', assignment_status = 'assigned',
+             acceptance_deadline_at = $3, updated_at = NOW()
              WHERE id = $2`,
-          [best.id, c.id]
+          [best.id, c.id, acceptByAt]
         );
         await client.query(
           `INSERT INTO doctor_assignments (id, case_id, doctor_id, assigned_at, accept_by_at, reassigned_from_doctor_id)
              VALUES ($1, $2, $3, $4, $5, NULL)`,
-          [randomUUID(), c.id, best.id, now, acceptByIso(c.sla_hours)]
+          [randomUUID(), c.id, best.id, now, acceptByAt]
         );
         await client.query(
           `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)

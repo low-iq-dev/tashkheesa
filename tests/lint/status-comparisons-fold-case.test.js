@@ -72,7 +72,45 @@ function sqlLiterals(src) {
   return out;
 }
 
-const TOUCHES_ORDERS = /\b(?:FROM|JOIN|UPDATE|INTO)\s+orders(?:_active)?\b/i;
+// AUDIT-2026-08-22 — the matcher used to be
+//   /\b(?:FROM|JOIN|UPDATE|INTO)\s+orders(?:_active)?\b/i
+// i.e. a LITERAL table name only. src/case_lifecycle.js — the file that owns
+// the case state machine — writes every one of its queries as
+// `FROM ${CASE_TABLE}` / `UPDATE ${CASE_TABLE}` (CASE_TABLE = 'orders', line
+// 69). So this lint admitted 2 of that file's 11 orders-touching literals and
+// skipped 9, including BOTH unpaid-sweep selects, BOTH destructive HARD-STOP
+// updates, updateCase's universal writer, markCasePaid's SELECT … FOR UPDATE
+// and sweepSlaBreaches. The 40-literal sanity floor sailed through on the
+// other 405 literals in the codebase, so the file went green over the hole —
+// and there was a live unfolded comparison inside it the whole time
+// (`AND status NOT IN ('completed','expired_unpaid')` in the 24h expiry
+// UPDATE, now fixed).
+//
+// The interpolation arm accepts `${IDENT}` where IDENT is either ALL-CAPS (the
+// convention for a table constant: CASE_TABLE, ORDERS_TABLE) or contains
+// "table" (`${table}`, `${tableName}`). Restricting the shape keeps prose
+// strings out: "Cannot transition from ${from} to ${to}" contains the word
+// FROM followed by an interpolation and would otherwise be scanned as SQL.
+// Note the alternation puts the \b INSIDE the literal arm — a trailing \b
+// after `}` never matches, because `}` and the following space are both
+// non-word characters.
+const TOUCHES_ORDERS =
+  /\b(?:FROM|JOIN|UPDATE|INTO)\s+(?:orders(?:_active)?\b|\$\{\s*(?:[A-Z][A-Z0-9_]*|\w*[Tt]able\w*)\s*\})/i;
+
+// KNOWN BLIND SPOTS, left in deliberately rather than widened into noise:
+//
+//   * Bound parameters. `WHERE status = $1` and
+//     `WHERE COALESCE(status,'') NOT IN ($1,$2,$3)` carry no quoted literal, so
+//     READ_COMPARISON cannot see them and the casing hazard lives in the JS
+//     that builds the array instead. The convention that protects those sites
+//     is case_lifecycle.dbStatusValuesFor(), which expands a canonical key into
+//     EVERY spelling ever written — both cases included. Matching them here
+//     would mean flagging every parameterised status filter in the codebase,
+//     including the correct ones, with no way to tell them apart.
+//   * WHERE fragments built by string concatenation
+//     (`cond.push("LOWER(o.status) = " + ph())`) — the literal reaching this
+//     scanner is a fragment with no FROM/UPDATE in it, so it is never even
+//     admitted. Folding those is enforced by review, not by this file.
 
 // Index of the last standalone occurrence of a SQL keyword, or -1. Word
 // boundaries so `SET` does not match inside `OFFSET`/`asset` and so the

@@ -8,11 +8,13 @@
  * the doctor acceptance window. No behavior change — these are the exact
  * definitions that previously lived inline in admin.js.
  *
- * All functions are pure (no DB, no I/O) EXCEPT acceptByIso, which reads the
- * wall clock (Date.now) — same as it always did.
+ * All functions are pure (no DB, no I/O) EXCEPT acceptByIsoForOrder, which
+ * reads the wall clock (Date.now) — same as it always did.
  */
 
 'use strict';
+
+const { acceptanceMinutesForOrder, acceptanceDeadlineIso } = require('../../acceptance_window');
 
 // ── status normalization ───────────────────────────────────────
 // Prod stores legacy LOWERCASE statuses (e.g. 'in_progress'); case_lifecycle's
@@ -70,12 +72,24 @@ function capFor(doctor, orderTier) {
   const cap = Number(urgent ? doctor.max_active_cases_urgent : doctor.max_active_cases);
   return Number.isFinite(cap) && cap > 0 ? cap : 0;
 }
-// Doctor acceptance window (mirrors case_lifecycle.assignDoctor): 30m urgent /
-// 4h fast-track / 24h standard. Stored on the doctor_assignments row.
-function acceptByIso(slaHours) {
-  const h = Number(slaHours) || 72;
-  const win = h <= 4 ? 0.5 : h <= 24 ? 4 : 24;
-  return new Date(Date.now() + Math.max(1, Math.floor(win * 60)) * 60000).toISOString();
+// AUDIT-2026-08-22 — this was `acceptByIso(slaHours)`, carrying its own
+// 30m / 4h / 24h table plus a `|| 72` default. It was the FOURTH live answer to
+// "how long does a doctor have to accept?", and the one that mattered most: it
+// writes doctor_assignments.accept_by_at, the column case_sla_worker's
+// fetchDoctorTimeouts actually enforces. It disagreed with the consolidated
+// src/acceptance_window.js on every tier — urgent 30m vs 15m, VIP 4h vs 45m,
+// standard 24h vs 2h — so a case assigned from the Command app was held to a
+// window nothing else in the system agreed with. VIP was the worst: a 4-hour
+// acceptance window bolted onto an 18-hour SLA, against a 45-minute policy.
+//
+// It takes the whole ORDER rather than a bare sla_hours because the tier is the
+// honest signal and it lives in `tier || urgency_tier` (notify/broadcast.js
+// writes `tier`; the wizard and the mobile API write `urgency_tier`); sla_hours
+// is only the fallback bucket. Callers MUST select tier, urgency_tier and
+// sla_hours — selecting fewer silently degrades every case to `standard`
+// (120 min), which is 8× policy on an urgent case.
+function acceptByIsoForOrder(order) {
+  return acceptanceDeadlineIso(acceptanceMinutesForOrder(order));
 }
 
 module.exports = {
@@ -86,5 +100,5 @@ module.exports = {
   normalizeTier,
   doctorSupportsTier,
   capFor,
-  acceptByIso,
+  acceptByIsoForOrder,
 };

@@ -31,11 +31,41 @@ function determineTier(order) {
   // written back to orders.tier below, which acceptance_window prefers -- so
   // every VIP case got the 15-minute urgent accept window instead of 45.
   // Read the stored tier first; treat the flag only as a weak "not standard".
-  var stored = String(order.urgency_tier || '').toLowerCase();
+  // AUDIT-2026-08-22 — .trim() added. Every other reader of this column trims
+  // (acceptance_window.normalizeTier, case_lifecycle.markCasePaid,
+  // _assign_helpers.normalizeTier); this one did not. A stored 'urgent ' —
+  // one trailing space — missed both tier tests, fell through to the
+  // urgency_flag branch, and returned 'vip'. That value is then written back to
+  // orders.tier by the UPDATE below, and acceptance_window prefers `tier` over
+  // `urgency_tier`, so the whitespace durably converted an urgent 4h case into
+  // a VIP one: a 45-minute acceptance window instead of 15, on the tier that
+  // pays the largest premium for speed.
+  var stored = String(order.urgency_tier || '').trim().toLowerCase();
   if (stored === 'urgent') return 'urgent';
   // Legacy alias: orders.urgency_tier may carry 'fast_track' on un-migrated
   // rows (migration 031 backfills); read both, write only 'vip' going forward.
   if (stored === 'vip' || stored === 'fast_track') return 'vip';
+
+  // AUDIT-2026-08-22 — consult sla_hours before the weak flags. sla_hours is
+  // the PRICED promise, locked at order creation by the wizard's Step 4 or the
+  // mobile API, and it is the only tier signal on an order that reached
+  // payment without a tier column set. An order with sla_hours=4 and no tier
+  // resolved to standard (or vip via urgency_flag) here, and that wrong value
+  // was persisted to orders.tier below — turning a 4-hour urgent case into an
+  // 18-hour VIP or a 48-hour standard for every later reader.
+  //
+  // Buckets are the canonical ones (urgent 4h / vip 18h / standard 48h,
+  // docs/PAYOUT_AND_URGENCY_POLICY.md §2) and match
+  // acceptance_window.acceptanceMinutesForSlaHours exactly. It may only
+  // UPGRADE: a 48h sla_hours does not fall through to 'standard' here, because
+  // an order carrying urgency_flag with sla_hours unset or stale should keep
+  // the benefit of the doubt rather than be silently downgraded.
+  var slaHours = Number(order.sla_hours);
+  if (Number.isFinite(slaHours) && slaHours > 0) {
+    if (slaHours <= 4) return 'urgent';
+    if (slaHours <= 24) return 'vip';
+  }
+
   if (order.sla_24hr_selected) return 'vip';
   if (order.urgency_flag) return 'vip';
   return 'standard';
@@ -47,6 +77,25 @@ async function broadcastOrderToSpecialty(orderId) {
   if (!order) {
     console.warn('[broadcast] order not found:', orderId);
     return { ok: false, reason: 'order_not_found' };
+  }
+
+  // AUDIT-2026-08-22 — do not broadcast a case that already has a doctor.
+  //
+  // markCasePaid fires enqueueAutoAssign() and broadcastOrderToSpecialty()
+  // together, unawaited. When auto-assign wins that race two things went wrong
+  // at once: (a) every doctor in the specialty was fanned a "new case
+  // available" WhatsApp for a case they cannot take, and (b) the UPDATE below
+  // overwrote orders.acceptance_deadline_at with a broadcast-shaped deadline,
+  // clobbering the per-assignment one assignDoctor had just written — which is
+  // the column acceptance_watcher's expiry sweep reads. Gated today only by
+  // auto_assign_enabled being off by default; it arms the moment that flips.
+  //
+  // The SELECT-side check is the cheap exit; the `doctor_id IS NULL` predicate
+  // on the UPDATE is the one that actually closes the race, because the assign
+  // can land between this read and that write.
+  if (order.doctor_id) {
+    console.warn('[broadcast] order already assigned, skipping:', orderId, order.doctor_id);
+    return { ok: false, reason: 'already_assigned' };
   }
 
   // 2. Confirm paid
@@ -75,16 +124,24 @@ async function broadcastOrderToSpecialty(orderId) {
   const acceptanceMinutes = acceptanceMinutesForTier(tier);
   const acceptanceDeadline = acceptanceDeadlineIso(acceptanceMinutes, now.getTime());
 
-  await execute(
+  const claimed = await execute(
     `UPDATE orders
      SET tier = $1,
          broadcast_sent_at = $2,
          broadcast_count = COALESCE(broadcast_count, 0) + 1,
          acceptance_deadline_at = $3,
          updated_at = $2
-     WHERE id = $4`,
+     WHERE id = $4
+       AND doctor_id IS NULL`,
     [tier, now.toISOString(), acceptanceDeadline, orderId]
   );
+  // A doctor was assigned between the SELECT above and this UPDATE. Bail
+  // BEFORE the fan-out: acceptance_deadline_at now belongs to that assignment
+  // and the notification would advertise a case nobody can take.
+  if (!claimed || claimed.rowCount === 0) {
+    console.warn('[broadcast] order assigned mid-broadcast, skipping fan-out:', orderId);
+    return { ok: false, reason: 'already_assigned' };
+  }
 
   // 5. Resolve specialty
   let specialtyId = order.specialty_id;

@@ -688,12 +688,24 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
           ` AND (payment_status IS NULL OR LOWER(TRIM(payment_status)) NOT IN (${UNPAID_SWEEP_STATUS_SQL_LIST}))`
         : ' AND paid_at IS NULL';
 
-      const terminalStatuses = [
+      // AUDIT-2026-08-22 — the exclusion list carried the bare strings
+      // 'expired'/'EXPIRED' but NOT 'expired_unpaid', which is the value HARD
+      // STOP #1 below actually writes. So every row this sweep expired at 24h
+      // was re-selected on the very next tick and stayed selectable until the
+      // 48h soft-delete. With `ORDER BY created_at ASC LIMIT 200` those rows
+      // are the OLDEST, so they sit at the head of the page: once ~200 of them
+      // accumulate inside a 24h window, newer unpaid cases fall off the end and
+      // stop receiving payment reminders altogether.
+      //
+      // dbStatusValuesFor(EXPIRED_UNPAID) already contains 'expired'/'EXPIRED'
+      // plus both spellings of 'expired_unpaid', so it replaces the literals
+      // rather than adding to them. De-duplicated because the variant lists
+      // repeat the canonical key (harmless in an IN list, noisy in a log).
+      const terminalStatuses = [...new Set([
         ...dbStatusValuesFor(CASE_STATUS.COMPLETED),
         ...dbStatusValuesFor(CASE_STATUS.CANCELLED),
-        'expired',
-        'EXPIRED'
-      ];
+        ...dbStatusValuesFor(CASE_STATUS.EXPIRED_UNPAID)
+      ])];
       const placeholders = terminalStatuses.map((_, i) => `$${i + 1}`).join(', ');
 
       const rows = await queryAll(
@@ -750,6 +762,13 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
   // in-memory orderRow cannot expire or delete a case that has since been paid.
   // That guarantee only holds if the predicate agrees with
   // isUnpaidReminderEligible — it now does, on both gates.
+  //
+  // AUDIT-2026-08-22 — the status test is `LOWER(status) NOT IN (...)`. It was
+  // written unfolded, and orders.status holds BOTH cases (the canonical writer
+  // stores 'COMPLETED', raw SQL stores 'completed'), so an already-COMPLETED
+  // row passed the guard and could be stamped expired_unpaid. LOWER(), not
+  // LOWER(COALESCE(...)): a NULL status must keep behaving exactly as before
+  // (predicate NULL -> no update), which the COALESCE form would change.
   if (!force && elapsedSeconds >= 24 * 60 * 60 && elapsedSeconds < 48 * 60 * 60) {
     await execute(`
       UPDATE ${CASE_TABLE}
@@ -757,7 +776,7 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
       WHERE id = $1
         AND paid_at IS NULL
         AND (payment_status IS NULL OR LOWER(TRIM(payment_status)) NOT IN (${UNPAID_SWEEP_STATUS_SQL_LIST}))
-        AND status NOT IN ('completed','expired_unpaid')
+        AND LOWER(status) NOT IN ('completed','expired_unpaid')
     `, [orderRow.id]);
 
     return { ok: true, sentCount: 0, skipped: 'expired_unpaid' };
@@ -1004,6 +1023,102 @@ function slaHoursForTier(tier) {
 const { isUrgentWindowOpen, nextSevenAmCairoUtc } = require('./services/urgency_window');
 const { acceptanceMinutesForOrder, acceptanceDeadlineIso } = require('./acceptance_window');
 
+// ─────────────────────────────────────────────────────────────────────────────
+// URGENT WINDOW — WORKING DAYS  (AUDIT-2026-08-22)
+//
+// There is no Friday/Saturday concept anywhere in this codebase today.
+// isUrgentWindowOpen() gates on the Cairo HOUR only (07:00–18:59) and
+// nextSevenAmCairoUtc() anchors to the next calendar 07:00 whatever day that
+// lands on. So an urgent case paid at 19:02 on a Thursday is promised
+// Friday 07:00 + 4h regardless of whether anyone is rostered on a Friday.
+//
+// WHY THIS IS CONFIGURATION AND NOT A POLICY. Asked about weekend cover the
+// owner said "depends on doctor availability, I have no knowledge of
+// coverage". Hardcoding Fri/Sat closed would invent a roster that does not
+// exist; hardcoding nothing leaves the promise unbacked the day one does. So
+// the working days are a setting, and THE DEFAULT IS ALL SEVEN DAYS — with the
+// variable unset, behaviour is identical to before this change, byte for byte.
+//
+// TO SET IT once the roster exists (Cairo-local days):
+//
+//     URGENT_WINDOW_WORKING_DAYS=0,1,2,3,4      # Sun–Thu, the usual EG week
+//     URGENT_WINDOW_WORKING_DAYS=sun,mon,tue,wed,thu
+//
+// 0=Sunday … 6=Saturday, comma separated; three-letter day names also work.
+// Anything unparseable — or a value that parses to nothing — falls back to all
+// seven days. A typo must never silently close the urgent tier.
+//
+// Deliberately ENV-ONLY rather than an admin_settings row: this is consulted
+// from inside markCasePaid's payment transaction, where a DB read would take a
+// SECOND pool connection while the orders row is held FOR UPDATE (see the
+// "peak is 1" note in markCasePaid). If it must become live-tunable, resolve it
+// BEFORE withTransaction() and pass the value in.
+//
+// HAND-OFF: routes/patient.js:2113 and routes/api/cases.js:358 call the bare
+// isUrgentWindowOpen() and routes/patient.js:2207 the bare
+// nextSevenAmCairoUtc(). Those files are owned elsewhere; they should switch to
+// the two exports below so the sell-side gate and the pay-side anchor agree.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _DAY_NAME_TO_INDEX = Object.freeze({ sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 });
+const _ALL_DAYS = Object.freeze([0, 1, 2, 3, 4, 5, 6]);
+
+function parseUrgentWorkingDays(raw) {
+  const text = String(raw == null ? '' : raw).trim();
+  if (!text) return _ALL_DAYS.slice();
+  const out = [];
+  for (const part of text.split(',')) {
+    const token = part.trim().toLowerCase();
+    if (!token) continue;
+    const idx = /^[0-6]$/.test(token) ? Number(token) : _DAY_NAME_TO_INDEX[token.slice(0, 3)];
+    if (!Number.isInteger(idx)) continue;
+    if (out.indexOf(idx) === -1) out.push(idx);
+  }
+  return out.length ? out : _ALL_DAYS.slice();
+}
+
+// Parsed once per distinct env value (re-parses if a test mutates process.env).
+let _urgentWorkingDays = null;
+let _urgentWorkingDaysRaw;
+function urgentWorkingDays() {
+  const raw = process.env.URGENT_WINDOW_WORKING_DAYS;
+  if (_urgentWorkingDays === null || raw !== _urgentWorkingDaysRaw) {
+    _urgentWorkingDaysRaw = raw;
+    _urgentWorkingDays = parseUrgentWorkingDays(raw);
+  }
+  return _urgentWorkingDays;
+}
+
+// Cairo-local day of week (0=Sunday) for an instant. Via Intl, not a fixed
+// offset — same reason services/urgency_window.js does: Egypt has DST again
+// since 2023, so a UTC+2 assumption is wrong for half the year and can land the
+// weekday on the wrong side of midnight.
+const _CAIRO_WEEKDAY_FMT = new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Cairo', weekday: 'short' });
+function cairoDayOfWeek(date) {
+  const d = date || new Date();
+  const idx = _DAY_NAME_TO_INDEX[String(_CAIRO_WEEKDAY_FMT.format(d)).slice(0, 3).toLowerCase()];
+  return Number.isInteger(idx) ? idx : d.getUTCDay();
+}
+
+/** Urgent window open = inside the Cairo hours AND on a configured working day. */
+function isUrgentWindowOpenNow(now) {
+  const d = now || new Date();
+  if (!isUrgentWindowOpen(d)) return false;
+  return urgentWorkingDays().indexOf(cairoDayOfWeek(d)) !== -1;
+}
+
+/** The next 07:00 Cairo that falls on a configured working day, as a UTC Date. */
+function nextUrgentWindowOpenUtc(now) {
+  let target = nextSevenAmCairoUtc(now);
+  const days = urgentWorkingDays();
+  // At most 7 hops; nextSevenAmCairoUtc(07:00) returns the FOLLOWING day's
+  // 07:00 (its `cur.hour >= 7` branch) and re-anchors across a DST change.
+  for (let i = 0; i < 7 && days.indexOf(cairoDayOfWeek(target)) === -1; i++) {
+    target = nextSevenAmCairoUtc(target);
+  }
+  return target;
+}
+
 const STATUS_TRANSITIONS = Object.freeze({
   [CASE_STATUS.DRAFT]: [CASE_STATUS.SUBMITTED],
   [CASE_STATUS.SUBMITTED]: [CASE_STATUS.PAID],
@@ -1018,8 +1133,18 @@ const STATUS_TRANSITIONS = Object.freeze({
     CASE_STATUS.REASSIGNED,
     CASE_STATUS.REFUNDED
   ],
-  [CASE_STATUS.IN_REVIEW]: [CASE_STATUS.COMPLETED, CASE_STATUS.REJECTED_FILES, CASE_STATUS.REFUNDED],
-  [CASE_STATUS.REJECTED_FILES]: [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.REFUNDED],
+  // AUDIT-2026-08-22 — REASSIGNED added. reassignCase() accepts IN_REVIEW as a
+  // reassignable status (and routes/api/admin.js's /cases/:id/assign offers it
+  // in the UI), but its transitionCase(REASSIGNED) call threw
+  // "Cannot transition from IN_REVIEW to REASSIGNED" because this list did not
+  // contain it — so taking an in-review case off a doctor was impossible
+  // through the lifecycle. Nothing hit it before only because the Command app
+  // reassigned with raw SQL that bypassed the lifecycle entirely (the A1 bug).
+  [CASE_STATUS.IN_REVIEW]: [CASE_STATUS.COMPLETED, CASE_STATUS.REJECTED_FILES, CASE_STATUS.REASSIGNED, CASE_STATUS.REFUNDED],
+  // AUDIT-2026-08-22 — SLA_BREACH added: case_sla_worker's SCAN_STATUSES has
+  // always included REJECTED_FILES, so a resumed (unpaused) rejected-files case
+  // with a live deadline is a legitimate breach. See the transitionCase guard.
+  [CASE_STATUS.REJECTED_FILES]: [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.SLA_BREACH, CASE_STATUS.REFUNDED],
   [CASE_STATUS.SLA_BREACH]: [CASE_STATUS.REASSIGNED, CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.REFUNDED],
   [CASE_STATUS.REASSIGNED]: [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.REFUNDED],
   // A completed case can still be refunded in full afterwards — the patient
@@ -1670,7 +1795,19 @@ async function transitionCase(caseId, nextStatus, data = {}, client) {
   }
 
   if (desiredStatus === CASE_STATUS.SLA_BREACH) {
-    if (![CASE_STATUS.IN_REVIEW].includes(currentStatus)) {
+    // AUDIT-2026-08-22 — REJECTED_FILES admitted. The breach SCAN and this
+    // guard disagreed: case_sla_worker.SCAN_STATUSES is
+    // [IN_REVIEW, REJECTED_FILES] and case_lifecycle.sweepSlaBreaches scans the
+    // same two, but only IN_REVIEW could actually transition here. The
+    // `sla_paused_at IS NULL` filter covers a PAUSED rejected-files case; it
+    // does not cover a RESUMED one. resumeSla() clears the pause and writes a
+    // live deadline_at, and the REJECTED_FILES -> IN_REVIEW flip that should
+    // follow is an independently-failing try block in routes/patient.js. When
+    // that flip failed the row was selected on every 5-minute tick, handleBreach
+    // threw, breached_at was never set, no breach and no refund — forever.
+    // A resumed rejected-files case has a running clock and a waiting patient;
+    // missing that clock is a breach like any other.
+    if (![CASE_STATUS.IN_REVIEW, CASE_STATUS.REJECTED_FILES].includes(currentStatus)) {
       throw new Error('Only active review cases can escalate to SLA breach');
     }
   } else {
@@ -1707,7 +1844,36 @@ async function transitionCase(caseId, nextStatus, data = {}, client) {
       if (!expectedDeadline) {
         throw new Error('Cannot compute deadline_at from accepted_at');
       }
-      if (shouldUpdateDeadline(currentDeadline, expectedDeadline)) {
+      // AUDIT-2026-08-22 — ACCEPTANCE MAY ONLY EVER MOVE A DEADLINE EARLIER.
+      //
+      // This used to overwrite deadline_at with accepted_at + sla_hours in
+      // BOTH directions. markCasePaid anchors an urgent case paid outside the
+      // Cairo window to nextUrgentWindowOpenUtc() + sla_hours and the patient
+      // is told that exact time (urgent_case_window_deferred_patient). The
+      // first transition into IN_REVIEW then silently threw it away:
+      // paid 19:02 -> promised 11:00 -> a doctor accepts at 10:30 -> deadline
+      // becomes 14:30. Three and a half hours of the promise vanish, so the
+      // case never breaches and the patient never gets the breach refund they
+      // were owed. dispatchSlaReminders already goes to lengths to protect this
+      // anchor (see AUDIT-SLA-10); transitionCase runs first and reverted it.
+      //
+      // Moving the deadline earlier is still allowed: that is the honest
+      // repair of a legacy paid-anchored value, and it can only ever be in the
+      // patient's favour. Later is a promise being quietly withdrawn.
+      //
+      // Accepted consequence: a legacy row whose deadline_at is paid-anchored
+      // and still AFTER accepted_at (paid 10:00 + 48h, accepted 12:00) keeps
+      // the slightly-early deadline instead of being stretched to
+      // accepted_at + sla_hours. That costs the doctor the gap and costs the
+      // patient nothing. The pathological shape — a deadline at or BEFORE
+      // acceptance — is repaired by dispatchSlaReminders, which owns the
+      // backfill and applies the same never-earlier reasoning in reverse.
+      // This also stops the recompute from eating a pauseSla/resumeSla credit,
+      // whose resumed deadline is deliberately later than accepted + sla.
+      const currentMs = currentDeadline ? new Date(currentDeadline).getTime() : NaN;
+      const expectedMs = new Date(expectedDeadline).getTime();
+      const wouldMoveLater = Number.isFinite(currentMs) && expectedMs > currentMs;
+      if (!wouldMoveLater && shouldUpdateDeadline(currentDeadline, expectedDeadline)) {
         data.deadline_at = expectedDeadline;
       }
     }
@@ -1820,9 +1986,13 @@ async function markCasePaid(caseId) {
   // was given is anchored to the calendar, not to when a doctor happens to
   // accept. sla_deadline gets the same value so the patient-facing countdown
   // (routes/api/cases.js reads COALESCE(deadline_at, sla_deadline)) agrees.
-  if (String(existing.urgency_tier || '').trim().toLowerCase() === 'urgent' && !isUrgentWindowOpen()) {
+  // AUDIT-2026-08-22 — isUrgentWindowOpenNow / nextUrgentWindowOpenUtc instead
+  // of the bare hour-only helpers, so the anchor lands on a day the roster
+  // actually covers once URGENT_WINDOW_WORKING_DAYS is set. Unset (the default)
+  // means all seven days and this is the same computation as before.
+  if (String(existing.urgency_tier || '').trim().toLowerCase() === 'urgent' && !isUrgentWindowOpenNow()) {
     urgentDeferredTo = new Date(
-      nextSevenAmCairoUtc().getTime() + slaHours * 60 * 60 * 1000
+      nextUrgentWindowOpenUtc().getTime() + slaHours * 60 * 60 * 1000
     ).toISOString();
   }
 
@@ -2087,10 +2257,17 @@ async function markSlaBreach(caseId) {
 // intentionally — see the worker for the same shape. Consolidating
 // later is fine; for now the duplication keeps the worker untouched.
 async function sweepSlaBreaches() {
-  const statuses = [
-    String(CASE_STATUS.IN_REVIEW).toLowerCase(),
-    String(CASE_STATUS.REJECTED_FILES || 'rejected_files').toLowerCase()
-  ];
+  // AUDIT-2026-08-22 — expand through dbStatusValuesFor, the same map
+  // case_sla_worker.scanStatusValues uses. This listed only the two canonical
+  // keys lowercased, so the twin sweeps did not scan the same set: a row stored
+  // as 'in_progress' or 'files_requested' (both real spellings in this table —
+  // see the DB_STATUS_VARIANTS note) was swept by the worker and invisible here.
+  const statuses = [...new Set(
+    [CASE_STATUS.IN_REVIEW, CASE_STATUS.REJECTED_FILES]
+      .reduce((acc, canon) => acc.concat(dbStatusValuesFor(canon)), [])
+      .map((v) => String(v).toLowerCase())
+  )];
+  const statusPlaceholders = statuses.map((_, i) => '$' + (i + 1)).join(', ');
 
   let candidates;
   try {
@@ -2101,10 +2278,18 @@ async function sweepSlaBreaches() {
     candidates = await queryAll(
       `SELECT o.id AS case_id
          FROM ${CASE_TABLE} o
-        WHERE LOWER(COALESCE(o.status, '')) IN ($1, $2)
+        WHERE LOWER(COALESCE(o.status, '')) IN (${statusPlaceholders})
           AND o.deadline_at IS NOT NULL
           AND o.breached_at IS NULL
           AND o.deleted_at IS NULL
+          -- AUDIT-2026-08-22 — case_sla_worker.fetchSlaCandidates has carried
+          -- an sla_paused_at IS NULL filter since AUDIT-P0-4; this twin query, which
+          -- scans the SAME two statuses and is fired by dashboard refreshes and
+          -- the manual /superadmin/sla/recalc, had no pause filter at all.
+          -- pauseSla deliberately leaves a stale deadline_at behind, so every
+          -- dashboard load re-selected every paused rejected-files case and
+          -- pushed it at markSlaBreach.
+          AND o.sla_paused_at IS NULL
           AND o.deadline_at <= NOW()`,
       statuses
     );
@@ -2522,9 +2707,49 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
 
   if (!newDoctorId) {
     // No alternate doctor available: unassign so it leaves doctor dashboards and awaits admin action.
+    //
+    // AUDIT-2026-08-22 (P0) — this used to write doctor_id = null and nothing
+    // else, and that combination made a PAID case invisible to every sweep in
+    // the system at once:
+    //   * fetchSlaCandidates      — wrong status, and breached_at is set;
+    //   * fetchDoctorTimeouts     — requires LOWER(status)='assigned';
+    //   * acceptance_watcher      — its status list did not include
+    //                               'reassigned' (fixed alongside this), and
+    //                               acceptance_deadline_at could be NULL;
+    //   * Command "Pending assign" — counted only doctor_id IS NULL AND
+    //                               status='paid' (fixed alongside this).
+    // A patient who paid and whose case breached during a doctor shortage was
+    // dropped permanently, with no worker, no queue and no tile holding it.
+    //
+    // Three changes make it findable again:
+    //  1. The SLA clock is reset here, not only inside assignDoctor. The stale
+    //     accepted_at / deadline_at / breached_at belong to a doctor who no
+    //     longer has the case; leaving breached_at set is specifically what
+    //     stops the case ever breaching again for whoever picks it up next.
+    //  2. acceptance_deadline_at is stamped NOW so the acceptance_watcher's
+    //     `acceptance_deadline_at < NOW()` predicate matches it on the very
+    //     next 2-minute tick and retries auto-assign against a fresh doctor
+    //     pool — the case retries itself instead of waiting for a human.
+    //  3. A case event, so /ops and the timeline show WHY it is sitting there.
+    // The patient's total wait is unchanged; a case reassigned late is a
+    // patient-comms problem, not a reason to hold the next doctor to a dead
+    // deadline (same reasoning as AUDIT-SLA-6 in assignDoctor).
     try {
-      await updateCase(caseId, { doctor_id: null, updated_at: nowIso() });
+      await updateCase(caseId, {
+        doctor_id: null,
+        accepted_at: null,
+        deadline_at: null,
+        breached_at: null,
+        acceptance_deadline_at: nowIso(),
+        updated_at: nowIso()
+      });
     } catch (e) {}
+
+    await logCaseEvent(caseId, 'CASE_AWAITING_REASSIGNMENT', {
+      reason,
+      from: originalDoctorId,
+      sla_clock_reset: true
+    });
 
     // P1-FIN-2: still notify original doctor + check auto-pause when
     // partial pay was written, even if no replacement doctor was found.
@@ -2640,6 +2865,13 @@ module.exports = {
   isTerminalStatus,
   ensureColumnCache,
   sweepSlaBreaches,
+  // AUDIT-2026-08-22 — working-day-aware urgent window. Exported so the
+  // sell-side gate (routes/api/cases.js, routes/patient.js) can adopt the same
+  // answer as the pay-side anchor once those files' owners pick it up; see the
+  // URGENT_WINDOW_WORKING_DAYS block above for the env format.
+  isUrgentWindowOpenNow,
+  nextUrgentWindowOpenUtc,
+  parseUrgentWorkingDays,
   // recalcSlaBreaches is the historical name from the deleted sla.js.
   // It now resolves to sweepSlaBreaches (no-arg sweep) — the previous
   // alias to markSlaBreach was a per-id function and threw "Case not
