@@ -430,9 +430,14 @@ if (subprocErr) {
       assert(r.secondRecentPayloadParsed === null,
         "behavioral: handler tolerates non-JSON event_payload (legacy rows) — sets payload_parsed=null",
         "secondRecentPayloadParsed=" + JSON.stringify(r.secondRecentPayloadParsed));
-      assert(r.registryLen === 4,
-        "behavioral: handler passes the 4-entry SILENT_FAILURE_EVENTS registry to the view",
-        "registryLen=" + r.registryLen);
+      // AUDIT-2026-08-22: pinned to the literal 4, which went stale the moment
+      // ASSIGNMENT_MIRROR_FAILED was added. The contract under test is "the
+      // handler passes the WHOLE registry", not "the registry has N entries" —
+      // so follow the source instead of duplicating its length here.
+      const expectedRegistryLen = require('../../src/case_lifecycle').SILENT_FAILURE_EVENTS.length;
+      assert(r.registryLen === expectedRegistryLen,
+        "behavioral: handler passes the full SILENT_FAILURE_EVENTS registry to the view",
+        "registryLen=" + r.registryLen + " expected=" + expectedRegistryLen);
     }
   }
 }
