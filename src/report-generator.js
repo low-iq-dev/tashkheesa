@@ -526,16 +526,41 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
     return false;
   }
 
+  // AUDIT-2026-08-22 — font selection is PER WRAPPED LINE, not per SOURCE
+  // paragraph.
+  //
+  // The measured-layout rewrite tested ARABIC_RANGE once per paragraph and
+  // stamped that answer onto every line the paragraph wrapped into, while the
+  // retained comment above (and the code it replaced) says per line. So an
+  // English paragraph containing a single Arabic token — a drug name, a
+  // hospital name, one Arabic word in a bilingual dictation — was rendered
+  // ENTIRELY in the Arabic face, right-aligned, with the 'rtla' feature on,
+  // for every one of its lines. Deciding on the line's own text restores the
+  // behaviour the comment describes.
+  //
+  // Widths are measured with the font the string being measured would actually
+  // be drawn in, because the wrap point depends on it: measuring an Arabic line
+  // in Helvetica's metrics is what produces a line doc.text() then rewraps onto
+  // a second visual row while the cursor advances one — the overlap defect this
+  // whole block exists to prevent.
+  function lineWantsArabic(str) {
+    return !!(arabicFontPath && ARABIC_RANGE.test(str));
+  }
+
   // Turn a report section into concrete, measured lines. Paragraph breaks the
   // doctor typed survive as short blank rows.
   function layoutBodyLines(textBody, innerW) {
     const source = String(textBody == null ? '' : textBody).replace(/\r\n?/g, '\n');
     const out = [];
 
-    for (const para of source.split('\n')) {
-      const arabic = selectBodyFont(!!(arabicFontPath && ARABIC_RANGE.test(para)));
+    const measureWidth = (str) => {
+      selectBodyFont(lineWantsArabic(str));
+      return doc.widthOfString(str);
+    };
 
+    for (const para of source.split('\n')) {
       if (!para.trim()) {
+        selectBodyFont(false);
         out.push({ text: '', arabic: false, height: Math.round(doc.currentLineHeight() * 0.6) });
         continue;
       }
@@ -544,8 +569,9 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
       let line = '';
       const flush = () => {
         if (!line) return;
-        // heightOfString with the SAME width doc.text() will use, so the
-        // cursor advance always matches what actually got drawn.
+        // heightOfString with the SAME font and width doc.text() will use, so
+        // the cursor advance always matches what actually got drawn.
+        const arabic = selectBodyFont(lineWantsArabic(line));
         out.push({ text: line, arabic, height: doc.heightOfString(line, { width: innerW }) + 2 });
         line = '';
       };
@@ -555,12 +581,12 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
       // to fit rather than hand doc.text() something it would silently rewrap
       // onto a second visual line — the overlap defect this rewrite fixes.
       const fitPieces = (word) => {
-        if (doc.widthOfString(word) <= innerW) return [word];
+        if (measureWidth(word) <= innerW) return [word];
         const pieces = [];
         let cur = '';
         for (const ch of Array.from(word)) {
           const next = cur + ch;
-          if (cur && doc.widthOfString(next) > innerW) {
+          if (cur && measureWidth(next) > innerW) {
             pieces.push(cur);
             cur = ch;
           } else {
@@ -574,7 +600,7 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
       for (const word of words) {
         for (const piece of fitPieces(word)) {
           const next = line ? line + ' ' + piece : piece;
-          if (!line || doc.widthOfString(next) <= innerW) {
+          if (!line || measureWidth(next) <= innerW) {
             line = next;
           } else {
             flush();

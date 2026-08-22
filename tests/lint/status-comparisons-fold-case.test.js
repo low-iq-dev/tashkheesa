@@ -94,8 +94,28 @@ function sqlLiterals(src) {
 // Note the alternation puts the \b INSIDE the literal arm — a trailing \b
 // after `}` never matches, because `}` and the following space are both
 // non-word characters.
-const TOUCHES_ORDERS =
-  /\b(?:FROM|JOIN|UPDATE|INTO)\s+(?:orders(?:_active)?\b|\$\{\s*(?:[A-Z][A-Z0-9_]*|\w*[Tt]able\w*)\s*\})/i;
+//
+// AUDIT-2026-08-22 — SPLIT IN TWO, because the `/i` flag applied to the whole
+// pattern and therefore to `[A-Z][A-Z0-9_]*` as well. Case-insensitively that
+// class matches ANY identifier, so the "ALL-CAPS table constant only"
+// restriction the comment above describes did not exist: `${anything}` was
+// admitted, and the very prose string named as the counter-example
+// ("Cannot transition from ${from} to ${to}") was being scanned as SQL. The
+// lint still passed, but its 40-literal sanity floor was padded with prose —
+// exactly the "green tick over an empty sample" failure this file's own
+// comments keep warning about.
+//
+// The keyword alternation stays case-insensitive (spelled out per character,
+// since JS has no per-group flags); only the identifier shape is now
+// case-SENSITIVE, which is what was always intended.
+const SQL_KEYWORD_CI = '(?:[Ff][Rr][Oo][Mm]|[Jj][Oo][Ii][Nn]|[Uu][Pp][Dd][Aa][Tt][Ee]|[Ii][Nn][Tt][Oo])';
+const TOUCHES_ORDERS_LITERAL = new RegExp('\\b' + SQL_KEYWORD_CI + '\\s+orders(?:_active)?\\b', 'i');
+const TOUCHES_ORDERS_INTERP = new RegExp(
+  '\\b' + SQL_KEYWORD_CI + '\\s+\\$\\{\\s*(?:[A-Z][A-Z0-9_]*|\\w*[Tt]able\\w*)\\s*\\}'
+);
+function touchesOrders(body) {
+  return TOUCHES_ORDERS_LITERAL.test(body) || TOUCHES_ORDERS_INTERP.test(body);
+}
 
 // KNOWN BLIND SPOTS, left in deliberately rather than widened into noise:
 //
@@ -154,7 +174,7 @@ for (const full of walk(SRC, [])) {
   scannedFiles++;
 
   for (const lit of sqlLiterals(src)) {
-    if (!TOUCHES_ORDERS.test(lit.body)) continue;
+    if (!touchesOrders(lit.body)) continue;
     scannedLiterals++;
 
     FOLDED_COMPARISON.lastIndex = 0;

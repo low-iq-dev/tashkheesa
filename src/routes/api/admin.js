@@ -1390,14 +1390,6 @@ module.exports = function (db, helpers, deploy, deps) {
 
       const now = new Date().toISOString();
       const fromDoctor = o.doctor_id || null;
-      // AUDIT-2026-08-22 — ONE acceptance window, from the shared resolver, and
-      // it lands on BOTH columns that claim to hold it: doctor_assignments
-      // .accept_by_at (what case_sla_worker.fetchDoctorTimeouts enforces) and
-      // orders.acceptance_deadline_at (what acceptance_watcher's expiry sweep
-      // reads). The orders column used to be left holding whatever
-      // notify/broadcast.js wrote at payment time — long past, and describing a
-      // broadcast rather than this assignment.
-      const acceptByAt = acceptByIsoForOrder(o);
 
       if (isReassign) {
         // ─── AUDIT-2026-08-22 (P0) — reassign goes through the lifecycle ───
@@ -1443,7 +1435,24 @@ module.exports = function (db, helpers, deploy, deps) {
         // the lazy logCaseEvent require at the top of this file).
         const { reassignCase } = require('../../case_lifecycle');
         try {
-          await reassignCase(id, doctorId, { reason: reason || 'admin_manual' });
+          // AUDIT-2026-08-22 — flag this as operator-initiated, and keep the
+          // 'admin_manual' marker at the FRONT of the free-text reason.
+          //
+          // reassignCase -> _checkPauseAsync -> doctor_pause.checkAndAutoPauseDoctor
+          // counts every reassignment earnings row a doctor accumulates in 30
+          // days and auto-pauses at 3, labelled 'auto:sla_breach_threshold'. The
+          // Command reassign is used for reasons that are not the doctor's fault
+          // at all (on leave, patient asked for a different reader, wrong
+          // subspecialty), so three of those in a month silently removed a good
+          // doctor from findAlternateDoctor and every broadcast. The flag
+          // suppresses the check; the reason prefix is what
+          // doctor_pause's own query filters on, so an operator's free text
+          // ("covering for annual leave") cannot defeat it.
+          const lifecycleReason = reason ? ('admin_manual: ' + reason).slice(0, 500) : 'admin_manual';
+          await reassignCase(id, doctorId, {
+            reason: lifecycleReason,
+            operatorInitiated: true
+          });
         } catch (e) {
           // The lifecycle re-validates on its own reads and can legitimately
           // refuse (another operator got there first, the case moved on).
@@ -1463,6 +1472,18 @@ module.exports = function (db, helpers, deploy, deps) {
           console.error('[admin/assign] reassigned_count bump failed:', e && e.message);
         }
       } else {
+        // AUDIT-2026-08-22 — ONE acceptance window, from the shared resolver, and
+        // it lands on BOTH columns that claim to hold it: doctor_assignments
+        // .accept_by_at (what case_sla_worker.fetchDoctorTimeouts enforces) and
+        // orders.acceptance_deadline_at (what acceptance_watcher's expiry sweep
+        // reads). The orders column used to be left holding whatever
+        // notify/broadcast.js wrote at payment time — long past, and describing a
+        // broadcast rather than this assignment.
+        //
+        // Declared HERE, not above the branch: the reassign path hands the whole
+        // job to case_lifecycle.assignDoctor, which computes and writes its own
+        // window from the same resolver, so a copy computed out here was dead.
+        const acceptByAt = acceptByIsoForOrder(o);
         await client.query(
           `UPDATE orders SET doctor_id = $1, status = 'ASSIGNED', assignment_status = 'assigned',
              acceptance_deadline_at = $3, updated_at = NOW() WHERE id = $2`,
@@ -1577,20 +1598,20 @@ module.exports = function (db, helpers, deploy, deps) {
             nstat.patient = 'skipped_no_patient';
           }
 
-          // 3b) Previous doctor — informational ("reassigned to another
-          // doctor"); internal + email (no WhatsApp template is mapped).
-          if (fromDoctor) {
-            nstat.previousDoctor = await safeQueue({
-              orderId: id,
-              toUserId: fromDoctor,
-              channels: ['internal', 'email'],
-              template: 'order_reassigned_from_doctor',
-              response: { case_id: id, caseReference: caseRef },
-              dedupe_key: `order_reassigned_from:${id}:${fromDoctor}`,
-            });
-          } else {
-            nstat.previousDoctor = 'skipped';
-          }
+          // 3b) Previous doctor — NOT queued here.
+          //
+          // AUDIT-2026-08-22 — this was a duplicate. Since the reassign path
+          // was routed through case_lifecycle.reassignCase (above), the
+          // lifecycle's _queueOriginalDoctorNotification already queues
+          // 'order_reassigned_from_doctor' to this same doctor for this same
+          // event, on ['internal','email'], with dedupe key
+          // 'reassign:from:<case>:<doctor>'. The key here was different, so
+          // neither deduped the other and the booted doctor got the message
+          // twice — and this copy passed no partialPct/partialAmount, so the
+          // 'case-reassigned-original' email rendered its partial-pay box as
+          // "You'll receive % partial pay (EGP )". The lifecycle copy is the
+          // one that knows the figures, so it is the single owner now.
+          nstat.previousDoctor = fromDoctor ? 'queued_by_lifecycle' : 'skipped';
         } else if (patientId) {
           // 3) Patient (first assignment): in-app bell (internal only — the
           // email/WhatsApp channels are unmapped for this template) PLUS the

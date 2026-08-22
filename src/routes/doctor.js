@@ -2064,16 +2064,28 @@ const canAccept =
   // Codes only — never a message from the query string.
   const REPORT_SUBMIT_ERRORS = {
     report_empty: {
-      en: 'Findings and Impression are required before a report can be submitted. Nothing was sent to the patient.',
-      ar: 'النتائج والانطباع مطلوبان قبل إرسال التقرير. لم يتم إرسال أي شيء للمريض.'
+      // AUDIT-2026-08-22: the submit handler now saves the typed text as a
+      // draft BEFORE this check, so "kept as a draft" is a statement of fact —
+      // the boxes below are repopulated from what was just saved.
+      en: 'Findings and Impression are required before a report can be submitted. Your text has been kept as a draft and nothing was sent to the patient.',
+      ar: 'النتائج والانطباع مطلوبان قبل إرسال التقرير. تم حفظ نصّك كمسودة ولم يُرسل شيء للمريض.'
     },
     report_pdf_failed: {
       en: 'Your report was saved, but the PDF could not be produced. Nothing was sent to the patient — please press Submit report again.',
       ar: 'تم حفظ تقريرك، لكن تعذّر إنشاء ملف PDF. لم يُرسل شيء للمريض — يرجى الضغط على إرسال التقرير مرة أخرى.'
     },
+    // AUDIT-2026-08-22: "Your text is still in the editor" was false on BOTH
+    // of this code's call sites, because both answered 302 and the editor is
+    // repopulated from the DB. On the persist-failure site nothing reached the
+    // DB at all, so the doctor was told their work was safe at the one moment
+    // it was not. Split into two codes that each say what actually happened.
     report_save_failed: {
-      en: 'We could not save this report right now, so the case has been left open. Your text is still in the editor — please try again in a moment.',
-      ar: 'تعذّر حفظ التقرير الآن، لذا بقيت الحالة مفتوحة. نصّك ما زال في المحرر — يرجى المحاولة بعد قليل.'
+      en: 'We could not save this report right now, so nothing was written and the case has been left open. Please re-enter your findings and try again in a moment.',
+      ar: 'تعذّر حفظ التقرير الآن، فلم يُكتب أي شيء وبقيت الحالة مفتوحة. يرجى إعادة إدخال النتائج والمحاولة بعد قليل.'
+    },
+    report_complete_failed: {
+      en: 'Your report is saved but the case could not be closed, so nothing was sent to the patient. Press Submit report again to finish.',
+      ar: 'تم حفظ تقريرك لكن تعذّر إغلاق الحالة، فلم يُرسل شيء للمريض. اضغط إرسال التقرير مرة أخرى لإتمام العملية.'
     },
     case_completed: {
       en: 'This case has already been delivered to the patient, so its report can no longer be edited.',
@@ -4605,12 +4617,10 @@ async function getOrderFilesUrlColumnName() {
   return await pickFirstExistingTableColumn('order_files', ['url', 'file_url', 'cdn_url']);
 }
 
-// AUDIT-2026-08-22 (L6): `filename` added to the probe list. The mobile API
-// (routes/api/cases.js, column added by migration 043) stores the real
-// original filename there and leaves `label` NULL.
-async function getOrderFilesLabelColumnName() {
-  return await pickFirstExistingTableColumn('order_files', ['label', 'file_label', 'name', 'filename']);
-}
+// AUDIT-2026-08-22 (L6): getOrderFilesLabelColumnName() removed — it had zero
+// callers once getOrderFilesLabelExpression() below replaced it, so the
+// `filename` candidate added to its probe list was dead code that read like a
+// live fix.
 
 // AUDIT-2026-08-22 (L6): probing for a single label column is not enough on
 // its own. `label` DOES exist (migration 001), so the probe always answered
@@ -5372,29 +5382,7 @@ async function handlePortalDoctorGenerateReport(req, res) {
     const recommendationsText =
       (req.body && (req.body.recommendations || req.body.recommendation_text)) || storedDraft.recommendations || '';
 
-    // AUDIT-2026-08-22 (L2) — refuse an empty report, authoritatively.
-    //
-    // There was no emptiness check at all here, and the three textareas in
-    // portal_doctor_case.ejs are labelled "required" but carry no `required`
-    // attribute (deliberately — the same form's "Save draft" button must keep
-    // accepting a partial report). So one stray click on "Submit report"
-    // produced a PDF whose three clinical sections all read "—", wrote NULL
-    // over diagnosis_text/impression_text/recommendation_text, flipped the
-    // case to COMPLETED, inserted a report_exports row, marked the doctor's
-    // earnings PAID and emailed the patient that their report was ready —
-    // irreversibly, because the editor is hidden and this handler
-    // early-returns on completed.
-    //
-    // Findings and Impression are the clinically load-bearing sections: the
-    // findings are the observation and the impression is the opinion the
-    // patient is paying for. Recommendations can legitimately be empty (an
-    // unremarkable study needs no plan), so it is not required here even
-    // though the editor labels it "required".
-    if (isReportSectionEmpty(diagnosisText) || isReportSectionEmpty(impressionText)) {
-      return res.redirect(`/portal/doctor/case/${orderId}?error=report_empty`);
-    }
-
-    // AUDIT-2026-08-22 (L4) — persist the written report BEFORE the PDF.
+    // AUDIT-2026-08-22 (L4) — persist the written report BEFORE anything else.
     //
     // generateMedicalReportPdf renders with pdfkit and uploads to R2. It used
     // to run first, with the text columns written only afterwards, so an R2
@@ -5402,6 +5390,19 @@ async function handlePortalDoctorGenerateReport(req, res) {
     // below answered 500 and nothing had been saved. This write does not
     // touch `status`, so a later failure leaves the case open, the editor
     // rendered, the text back in the boxes and Submit retryable.
+    //
+    // AUDIT-2026-08-22 — and it now runs BEFORE the emptiness check below, not
+    // after. The check answered 302 on a report with a blank Impression, and
+    // portal_doctor_case.ejs repopulates the three textareas from the DB ONLY
+    // (_exDiag/_exImpr/_exRec, view line ~113) — so a doctor who typed twenty
+    // minutes of findings and left Impression blank was bounced back to an
+    // empty editor with everything gone. The client-side pre-check was the only
+    // thing standing in front of that, and it is bypassed with JS disabled or
+    // after any earlier script error on the page. persistReportTextOrThrow is
+    // draft-shaped by construction — it writes only the three text columns and
+    // updated_at, never `status` — so saving first cannot complete a case, and
+    // each value already falls back to the stored draft (above) so a field the
+    // browser dropped cannot blank a saved section.
     try {
       await persistReportTextOrThrow({
         orderId,
@@ -5421,6 +5422,31 @@ async function handlePortalDoctorGenerateReport(req, res) {
       });
       console.error('[doctor][report] could not persist report text — refusing to continue', e && e.message);
       return res.redirect(`/portal/doctor/case/${orderId}?error=report_save_failed`);
+    }
+
+    // AUDIT-2026-08-22 (L2) — refuse an empty report, authoritatively.
+    //
+    // There was no emptiness check at all here, and the three textareas in
+    // portal_doctor_case.ejs are labelled "required" but carry no `required`
+    // attribute (deliberately — the same form's "Save draft" button must keep
+    // accepting a partial report). So one stray click on "Submit report"
+    // produced a PDF whose three clinical sections all read "—", wrote NULL
+    // over diagnosis_text/impression_text/recommendation_text, flipped the
+    // case to COMPLETED, inserted a report_exports row, marked the doctor's
+    // earnings PAID and emailed the patient that their report was ready —
+    // irreversibly, because the editor is hidden and this handler
+    // early-returns on completed.
+    //
+    // Findings and Impression are the clinically load-bearing sections: the
+    // findings are the observation and the impression is the opinion the
+    // patient is paying for. Recommendations can legitimately be empty (an
+    // unremarkable study needs no plan), so it is not required here even
+    // though the editor labels it "required".
+    //
+    // The redirect is safe now: the text above is already saved as a draft, so
+    // the case page renders it straight back into the boxes.
+    if (isReportSectionEmpty(diagnosisText) || isReportSectionEmpty(impressionText)) {
+      return res.redirect(`/portal/doctor/case/${orderId}?error=report_empty`);
     }
 
     // Fetch related entities for a rich PDF
@@ -5551,7 +5577,11 @@ async function handlePortalDoctorGenerateReport(req, res) {
         orderId
       });
       console.error('[doctor][report] completion write failed — case left open', e && e.message);
-      return res.redirect(`/portal/doctor/case/${orderId}?error=report_save_failed`);
+      // AUDIT-2026-08-22: report_complete_failed, not report_save_failed — the
+      // text (and the PDF) ARE saved at this point; only the completion write
+      // failed, and telling the doctor their report was lost would have them
+      // retype a report that is sitting in the boxes in front of them.
+      return res.redirect(`/portal/doctor/case/${orderId}?error=report_complete_failed`);
     }
 
     // AUDIT-P1-4 — close the open assignment and emit the canonical case event.
