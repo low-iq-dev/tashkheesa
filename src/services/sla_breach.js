@@ -17,6 +17,11 @@
  *      → return { skipped: 'already_refunded' }.
  *   2. orders.urgency_uplift_amount <= 0 (already zeroed) → return
  *      { skipped: 'no_uplift_to_refund' }.
+ *   3. AUDIT-2026-08-22 (M7): ANY other refund row already occupying migration
+ *      083's uniq_refunds_open_per_order slot → return
+ *      { skipped: 'blocked_by_existing_refund' } and escalate loudly. Not an
+ *      idempotency gate — the obligation is real and cannot be written, so it
+ *      must reach a human rather than be dropped.
  *
  * Paymob actual-money refund is NOT wired here — Ziad's track lands
  * that separately.  This module records the refund as an OWED obligation
@@ -34,11 +39,60 @@ var { queryOne, execute } = require('../pg');
 var { logErrorToDb } = require('../logger');
 
 /**
+ * AUDIT-2026-08-22 (M7): a breach refund obligation that cannot be written is
+ * the one thing this module must never lose. Three channels, all best-effort
+ * and independently wrapped, because the caller (the SLA cron) must not die
+ * over an alerting failure.
+ *
+ * @param {string} orderId
+ * @param {number} uplift        EGP owed to the patient
+ * @param {object} blocking      the refunds row that occupies the unique slot
+ */
+async function reportBreachRefundBlocked(orderId, uplift, blocking) {
+  var detail = {
+    amount_owed_egp: uplift,
+    blocking_refund_id: blocking && blocking.id,
+    blocking_refund_reason: (blocking && blocking.reason) || null,
+    blocking_refund_status: (blocking && blocking.status) || null,
+    resolution: 'top up or supersede the blocking refund by the uplift ' +
+      '(superadmin refund create, or admin_refund.supersedeBreachRefund)'
+  };
+  try {
+    await execute(
+      `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
+       VALUES ($1, $2, 'sla_breach_refund_blocked', $3, NOW(), NULL, 'system')`,
+      [randomUUID(), orderId, JSON.stringify(detail)]
+    );
+  } catch (e) {
+    logErrorToDb(e, { context: 'sla_breach.report_blocked_timeline', orderId: orderId, category: 'refund' });
+  }
+  try {
+    logErrorToDb(
+      new Error('SLA-breach refund of EGP ' + uplift + ' could not be recorded for order ' +
+        orderId + ' — an existing refund row occupies uniq_refunds_open_per_order'),
+      { context: 'sla_breach.refund_blocked', orderId: orderId, category: 'refund' }
+    );
+  } catch (_) { /* best-effort */ }
+  try {
+    var { sendCriticalAlert } = require('../critical-alert');
+    sendCriticalAlert(
+      'SLA-breach refund BLOCKED on order ' + orderId + ': EGP ' + uplift +
+      ' is owed to the patient but refund ' + (blocking && blocking.id) +
+      ' (' + ((blocking && blocking.reason) || 'unknown') + '/' +
+      ((blocking && blocking.status) || 'unknown') + ') already holds the ' +
+      'one-open-refund-per-order slot. Top that row up by the uplift.',
+      'sla_breach_refund_blocked'
+    );
+  } catch (_) { /* alerting is optional, never load-bearing */ }
+}
+
+/**
  * @param {string} orderId
  * @returns {Promise<{
  *   refunded?: true, refundId?: string, amount?: number,
- *   skipped?: 'order_not_found' | 'no_uplift_to_refund' | 'already_refunded',
- *   refundId?: string
+ *   skipped?: 'order_not_found' | 'not_paid' | 'no_uplift_to_refund'
+ *           | 'already_refunded' | 'blocked_by_existing_refund',
+ *   refundId?: string, amountOwed?: number
  * }>}
  */
 async function issueBreachRefund(orderId) {
@@ -81,6 +135,45 @@ async function issueBreachRefund(orderId) {
     return { skipped: 'already_refunded', refundId: existing.id };
   }
 
+  // ── AUDIT-2026-08-22 (M7): the INSERT below can be REFUSED by the schema ──
+  //
+  // Migration 083's uniq_refunds_open_per_order is UNIQUE on refunds(order_id)
+  // WHERE status IN ('pending','auto_approved','approved','paid') — at most ONE
+  // such row per order, whatever its reason. The gate above only looks for a
+  // prior 'sla_breach' row, so a case that already carries a patient_request or
+  // operator_refund row in any of those statuses (entirely normal: the patient
+  // asked for their money back and THEN the deadline passed) sent the INSERT
+  // straight into a 23505. issueBreachRefundSafe swallowed it and the uplift
+  // obligation vanished with no record anywhere.
+  //
+  // Checking for it here rather than catching the constraint does two things:
+  // it keeps the "no money state was touched" guarantee (the uplift zeroing and
+  // the earnings recompute below are AFTER this point and must not run when the
+  // obligation could not be recorded), and it lets us say WHICH row blocked it.
+  //
+  // The obligation is real and must not disappear quietly, so this is loud:
+  // a case timeline entry naming the amount owed, an error_logs row, and a
+  // page. The operator's supported resolution is to top up the blocking refund
+  // by the uplift — services/admin_refund.supersedeBreachRefund and the
+  // superadmin create form both expose that path.
+  var blocking = await queryOne(
+    `SELECT id, reason, status FROM refunds
+      WHERE order_id = $1
+        AND status IN ('pending','auto_approved','approved','paid')
+      LIMIT 1`,
+    [orderId]
+  );
+  if (blocking && blocking.id) {
+    await reportBreachRefundBlocked(orderId, uplift, blocking);
+    return {
+      skipped: 'blocked_by_existing_refund',
+      refundId: blocking.id,
+      blockingReason: blocking.reason || null,
+      blockingStatus: blocking.status || null,
+      amountOwed: uplift
+    };
+  }
+
   var refundId = randomUUID();
   // B3 fix: an SLA-breach refund is an obligation the SYSTEM has decided is
   // owed (the deadline objectively passed), but NO money has moved yet — there
@@ -118,8 +211,32 @@ async function issueBreachRefund(orderId) {
   // doctor earnings reflects the standard-tier base only.  The doctor's
   // main-case fee (services.doctor_fee absolute EGP) is unchanged; only
   // the upliftShare component falls to 0.
+  //
+  // AUDIT-2026-08-22 (M7): this used to set urgency_uplift_amount = 0 and leave
+  // `price` and `base_price` untouched, which BREAKS migration 037's invariant
+  //     orders.base_price + orders.urgency_uplift_amount = orders.price
+  // on every breached order. Anything reconstructing the case fee from the
+  // snapshot columns — refund_eligibility.maxRefundableEgp's legacy branch,
+  // earnings_writer.caseFeeCollectedEgp, notification_worker's receipt lines —
+  // then reads base_price and is short by the uplift.
+  //
+  // The uplift is MOVED into base_price rather than deducted from `price`.
+  // `price` is what the gateway actually charged: it is the refund ceiling and
+  // the collected-revenue figure, and the refund of the uplift is already
+  // recorded as its own row in `refunds`, so reducing `price` here would
+  // subtract the same money twice. Moving it keeps base_price + uplift exactly
+  // equal to whatever it equalled before, so an order that satisfied the
+  // invariant still satisfies it.
+  //
+  // `AND urgency_uplift_amount > 0` makes the write idempotent — a second run
+  // cannot fold the uplift into base_price twice.
   await execute(
-    'UPDATE orders SET urgency_uplift_amount = 0, updated_at = NOW() WHERE id = $1',
+    `UPDATE orders
+        SET base_price = COALESCE(base_price, 0) + urgency_uplift_amount,
+            urgency_uplift_amount = 0,
+            updated_at = NOW()
+      WHERE id = $1
+        AND urgency_uplift_amount > 0`,
     [orderId]
   );
 
@@ -152,7 +269,44 @@ async function issueBreachRefundSafe(orderId) {
   try {
     return await issueBreachRefund(orderId);
   } catch (err) {
-    logErrorToDb(err, { context: 'sla_breach.issueBreachRefund', orderId: orderId });
+    // AUDIT-2026-08-22 (M7): a 23505 here is NOT a transient hiccup — it is
+    // migration 083's uniq_refunds_open_per_order refusing to record a refund
+    // the system has already decided the patient is owed. The pre-check added
+    // to issueBreachRefund should now catch that case before the INSERT, so
+    // reaching here means either a race (two SLA workers on the same order) or
+    // a refund row created between the check and the write. Either way the
+    // obligation has been DROPPED, and the old generic logErrorToDb — one
+    // error_logs row, no page, no case timeline entry — is not enough for lost
+    // money. Escalate on the same three channels as the pre-check.
+    var code = err && (err.code || (err.original && err.original.code));
+    if (String(code) === '23505') {
+      try {
+        var blocking = await queryOne(
+          `SELECT id, reason, status FROM refunds
+            WHERE order_id = $1
+              AND status IN ('pending','auto_approved','approved','paid')
+            LIMIT 1`,
+          [orderId]
+        );
+        var owed = await queryOne(
+          'SELECT urgency_uplift_amount FROM orders_active WHERE id = $1',
+          [orderId]
+        );
+        await reportBreachRefundBlocked(
+          orderId,
+          Number(owed && owed.urgency_uplift_amount) || 0,
+          blocking || { id: null, reason: null, status: null }
+        );
+      } catch (reportErr) {
+        logErrorToDb(reportErr, {
+          context: 'sla_breach.issueBreachRefund.report_23505',
+          orderId: orderId,
+          category: 'refund'
+        });
+      }
+      return { error: err && err.message, skipped: 'blocked_by_existing_refund' };
+    }
+    logErrorToDb(err, { context: 'sla_breach.issueBreachRefund', orderId: orderId, category: 'refund' });
     return { error: err && err.message };
   }
 }

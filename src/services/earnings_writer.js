@@ -40,6 +40,15 @@ const REASSIGN_EARNINGS_PREFIX = 'earn-reassign-';
 // 100% baseShare.
 const REASSIGN_PARTIAL_PCT = 10;
 
+// AUDIT-2026-08-22 (M3, P0): the marker recomputeOnBreach stamps into
+// clawback_reason. `doctor_earnings` has no column for "an adjustment has been
+// applied to this row" other than clawback_applied_at, and no migration is in
+// this change's scope, so the breach write now uses the SAME two columns — with
+// its own reason value so recomputeOnRefund can still tell a stage-1 breach
+// zeroing (uplift removed, base intact) apart from a finished clawback and
+// carry out the documented second stage.
+const BREACH_UPLIFT_CLAWBACK = 'sla_breach_uplift_zeroed';
+
 // The CASE-FEE portion of what the patient paid, in EGP to 2dp — i.e.
 // maxRefundableEgp minus the add-on lines. This, not the full invoice, is the
 // denominator of the refund ratio in recomputeOnRefund: `doctor_earnings` only
@@ -185,6 +194,53 @@ async function markCaseEarningsPaid(orderId, doctorId) {
   const existing = await findExistingMainRow(orderId, doctorId);
 
   if (existing) {
+    // ── AUDIT-2026-08-22 (M3, P0): completing a case SILENTLY REVERSED an
+    // applied clawback ────────────────────────────────────────────────────
+    //
+    // This UPDATE recomputed earned_amount from the orders snapshot with no
+    // check on clawback_applied_at, unlike recomputeOnRefund which has guarded
+    // on it since side issue #43. So:
+    //
+    //   refund marked paid → recomputeOnRefund sets earned_amount to the
+    //   clawed-back figure (0 on the sla_breach policy) and stamps
+    //   clawback_applied_at → the doctor later submits the report → this line
+    //   restored the FULL fee and marked it 'paid'.
+    //
+    // A late submission on a refunded case therefore paid the doctor in full
+    // out of money that had already been returned to the patient, and left no
+    // trace: clawback_applied_at was still set, so the row looked clawed back.
+    //
+    // Completion is still allowed to settle the row — the STATUS legitimately
+    // moves to 'paid' — but an applied adjustment is a settled fact and the
+    // AMOUNT is left exactly as the clawback left it.
+    //
+    // AUDIT-2026-08-22 (M4): status='reassigned' is held to the same rule. That
+    // row has been written down to 0 by markPartialPayOnReassignment, and the
+    // doctor's 10% token for the case lives in the separate 'earn-reassign-%'
+    // row. Recomputing this one back up to the full fee — which is what happens
+    // when a case is reassigned away and then lands back on the same doctor —
+    // reinstates exactly the 110% double-count M4 removes.
+    const adjusted = !!existing.clawback_applied_at || String(existing.status) === 'reassigned';
+    if (adjusted) {
+      await execute(
+        `UPDATE doctor_earnings
+            SET status = 'paid',
+                paid_at = COALESCE(paid_at, NOW())
+          WHERE id = $1`,
+        [existing.id]
+      );
+      const preserved = Number(existing.earned_amount);
+      return {
+        updated: true,
+        earningsId: existing.id,
+        earnedAmount: Number.isFinite(preserved) ? preserved : null,
+        clawbackPreserved: true,
+        clawbackReason: existing.clawback_reason || null,
+        clawbackAppliedAt: existing.clawback_applied_at || null,
+        previousStatus: existing.status || null
+      };
+    }
+
     await execute(
       `UPDATE doctor_earnings
           SET status = 'paid',
@@ -228,6 +284,22 @@ async function recomputeOnBreach(orderId) {
     return { skipped: 'no_earnings_row', orderId };
   }
 
+  // AUDIT-2026-08-22 (M3, P0): this UPDATE was unguarded, exactly like
+  // markCaseEarningsPaid's. A breach recompute firing after the refund
+  // mark-paid clawback had already zeroed the row (a re-breach, or the SLA
+  // sweep re-running a tick later) restored the whole base fee on a case whose
+  // money had been returned. A settled adjustment is never reversed here; the
+  // row is already at or below the standard-tier figure this function writes.
+  if (existing.clawback_applied_at) {
+    return {
+      skipped: 'clawback_already_applied',
+      orderId,
+      earningsId: existing.id,
+      previousReason: existing.clawback_reason || null,
+      previousAppliedAt: existing.clawback_applied_at
+    };
+  }
+
   // Uplift goes to 0 post-breach. Base fee is the catalog-snapshot
   // value already on the orders row.
   const baseDoctorFee = Number(order.doctor_fee) || 0;
@@ -237,19 +309,36 @@ async function recomputeOnBreach(orderId) {
     upliftDoctorPct: 30
   });
 
-  const earnedAmount = result.baseShare + result.upliftShare;
+  let earnedAmount = result.baseShare + result.upliftShare;
+  // AUDIT-2026-08-22 (M3): belt and braces — a breach recompute is a write-DOWN
+  // by definition (the uplift is being refunded). If the row is already lower
+  // than the standard-tier figure for any reason this function does not know
+  // about, keep the lower number rather than paying the difference back out.
+  const prevEarned = Number(existing.earned_amount);
+  if (Number.isFinite(prevEarned) && prevEarned >= 0 && earnedAmount > prevEarned) {
+    earnedAmount = prevEarned;
+  }
   const grossAmount = baseDoctorFee;
   const commissionPct = grossAmount > 0
     ? Math.round((earnedAmount / grossAmount) * 10000) / 100
     : 100;
 
+  // AUDIT-2026-08-22 (M3): stamp the adjustment so every other writer in this
+  // file can see that this row has been written down. Without the stamp,
+  // markCaseEarningsPaid had nothing to test and a late report submission
+  // restored the uplift the patient had just been refunded — the breach half
+  // of the same bug. BREACH_UPLIFT_CLAWBACK (rather than a generic value) is
+  // what lets recomputeOnRefund still apply the documented stage-2 full
+  // clawback at breach-refund mark-paid time; see the guard there.
   await execute(
     `UPDATE doctor_earnings
         SET earned_amount = $1,
             gross_amount = $2,
-            commission_pct = $3
-      WHERE id = $4`,
-    [earnedAmount, grossAmount, commissionPct, existing.id]
+            commission_pct = $3,
+            clawback_reason = $4,
+            clawback_applied_at = NOW()
+      WHERE id = $5`,
+    [earnedAmount, grossAmount, commissionPct, BREACH_UPLIFT_CLAWBACK, existing.id]
   );
 
   return {
@@ -335,7 +424,18 @@ async function recomputeOnRefund(orderId, opts) {
   }
 
   // Idempotency — never claw-back twice on the same earnings row.
-  if (existing.clawback_applied_at) {
+  //
+  // AUDIT-2026-08-22 (M3): recomputeOnBreach now stamps these same two columns
+  // (it had no way to protect its write otherwise — see the note at the top of
+  // this file). That stage-1 marker must NOT be read as "a clawback already
+  // ran": the breach settlement is deliberately two-stage (uplift zeroed at
+  // breach detection, base clawed back when the refund is actually paid), and
+  // a patient/operator refund on a breached case still has to apply its own
+  // policy. Both stage-2 outcomes only ever move the amount DOWN — `full`
+  // below is computed from orders.urgency_uplift_amount, which sla_breach.js
+  // has already set to 0 — and the clamp before the UPDATE enforces that.
+  // Any OTHER stamp is a finished settlement and still blocks.
+  if (existing.clawback_applied_at && existing.clawback_reason !== BREACH_UPLIFT_CLAWBACK) {
     return {
       skipped: 'clawback_already_applied',
       orderId,
@@ -442,6 +542,17 @@ async function recomputeOnRefund(orderId, opts) {
     return { skipped: 'unrecognised_reason', reason };
   }
 
+  // AUDIT-2026-08-22 (M3): a clawback only ever moves the amount DOWN. If a
+  // prior adjustment (the stage-1 breach zeroing this function is now allowed
+  // to run after, or the reassignment write-down in
+  // markPartialPayOnReassignment) already left the row lower than the policy
+  // figure, keep the lower number — paying the difference back out on a case
+  // that is being refunded is the failure this whole series is closing.
+  const prevEarnedOnRow = Number(existing.earned_amount);
+  if (Number.isFinite(prevEarnedOnRow) && prevEarnedOnRow >= 0 && newEarned > prevEarnedOnRow) {
+    newEarned = prevEarnedOnRow;
+  }
+
   const grossAmount = Number(order.doctor_fee) || 0;
   const commissionPct = grossAmount > 0
     ? Math.round((newEarned / grossAmount) * 10000) / 100
@@ -539,9 +650,35 @@ async function markPartialPayOnReassignment(originalDoctorId, orderId, reason) {
     var partialAmount = Math.round(baseShare * (REASSIGN_PARTIAL_PCT / 100) * 100) / 100;
 
     // Step 5: flip the original row to 'reassigned'.
+    //
+    // ── AUDIT-2026-08-22 (M4): the original doctor was credited 110% ────────
+    //
+    // This UPDATE changed only `status`, leaving the original row's
+    // earned_amount at the FULL fee, and Step 6 then inserted a SECOND
+    // 'reassigned' row worth another 10%. Both rows carry status='reassigned'
+    // and the doctor statement (routes/doctor.js:1136 / :1194) sums
+    // earned_amount over every row for the doctor and reports
+    // SUM(...) FILTER (WHERE status='reassigned') as one figure — so one
+    // reassigned case showed 110% of the fee, for a case the doctor did not
+    // deliver. The header comment at the top of this function (and the
+    // REASSIGN_PARTIAL_PCT constant) says the intent is a 10% token only.
+    //
+    // The 10% lives in the Step 6 row — services/doctor_pause.js counts those
+    // rows by the 'earn-reassign-%' id prefix, so it must keep being written —
+    // therefore the ORIGINAL row goes to zero. gross_amount is left untouched
+    // as the reconciliation record of what the case was worth.
+    //
+    // Idempotency: re-running lands in the Step 3 guard above (status is now
+    // 'reassigned' and the partial row exists) and returns without writing, so
+    // the zeroing cannot compound. The Step 3 half-done fall-through reads
+    // earned_amount BEFORE this UPDATE on a fresh run; on a legacy half-done
+    // row it reads whatever that run left, which is the full fee (the old code
+    // never wrote this column) — i.e. it still recovers the right 10%.
     await client.query(
       `UPDATE doctor_earnings
           SET status = 'reassigned',
+              earned_amount = 0,
+              commission_pct = 0,
               reassignment_reason = $1
         WHERE id = $2`,
       [reason || 'sla_breach', row.id]
@@ -568,7 +705,11 @@ async function markPartialPayOnReassignment(originalDoctorId, orderId, reason) {
       partialRowId: partialId,
       partialAmount: partialAmount,
       partialPct: REASSIGN_PARTIAL_PCT,
-      baseShare: baseShare
+      baseShare: baseShare,
+      // AUDIT-2026-08-22 (M4): the original row's earned_amount is now 0, so
+      // partialAmount IS the doctor's total for this case. Exposed so the
+      // reassignment audit rows can say so.
+      originalRowZeroed: true
     };
   });
 }
@@ -581,5 +722,8 @@ module.exports = {
   markPartialPayOnReassignment,
   MAIN_EARNINGS_PREFIX,
   REASSIGN_EARNINGS_PREFIX,
-  REASSIGN_PARTIAL_PCT
+  REASSIGN_PARTIAL_PCT,
+  // AUDIT-2026-08-22 (M3): exported so tests and reconciliation queries can
+  // tell a stage-1 breach write-down apart from a finished clawback.
+  BREACH_UPLIFT_CLAWBACK
 };

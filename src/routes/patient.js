@@ -3445,16 +3445,22 @@ router.get('/portal/patient/orders/:id/request-refund', requireRole('patient'), 
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
 
+  // AUDIT-2026-08-22 (M5): projection widened to everything maxRefundableEgp
+  // reads (price, addons_json, video_consultation_*). It fetched neither
+  // `price` nor `addons_json`, so the amount below could only ever be the
+  // legacy base_price + urgency_uplift_amount — see the note at requestedAmount.
   const order = await queryOne(
-    `SELECT id, reference_id, status, payment_status, base_price, urgency_uplift_amount,
-            patient_id, no_sla_refund_eligibility
+    `SELECT id, reference_id, status, payment_status, patient_id,
+            no_sla_refund_eligibility,
+            price, base_price, urgency_uplift_amount, addons_json,
+            video_consultation_selected, video_consultation_price
        FROM orders_active
       WHERE id = $1 AND patient_id = $2`,
     [orderId, patientId]
   );
   if (!order) return res.redirect('/dashboard');
 
-  const { isEligibleForRefund } = require('../services/refund_eligibility');
+  const { isEligibleForRefund, maxRefundableEgp } = require('../services/refund_eligibility');
   const eligibility = await isEligibleForRefund(order, patientId);
   if (!eligibility || !eligibility.eligible) {
     return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId));
@@ -3473,8 +3479,15 @@ router.get('/portal/patient/orders/:id/request-refund', requireRole('patient'), 
     return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId));
   }
 
-  const requestedAmount =
-    Number(order.base_price || 0) + Number(order.urgency_uplift_amount || 0);
+  // AUDIT-2026-08-22 (M5): was base_price + urgency_uplift_amount — the legacy
+  // formula every other refund site migrated off on 2026-08-17
+  // (routes/superadmin.js:2688, services/admin_refund.js). It is wrong twice:
+  // it omits the add-ons the patient actually paid for (video consultation,
+  // prescription — priced into the Paymob charge by
+  // order_pricing.owedCentsForOrder), and it evaluates to 0 for every order
+  // whose creation path never wrote base_price. maxRefundableEgp is the single
+  // source of truth: price + the add-ons locked at intention time.
+  const requestedAmount = maxRefundableEgp(order);
 
   res.render('patient_refund_request', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
@@ -3499,9 +3512,13 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
   const reasonRaw = String((req.body && req.body.reason) || '').trim();
   const instapayRaw = String((req.body && req.body.instapay_handle) || '').trim();
 
+  // AUDIT-2026-08-22 (M5): projection widened for maxRefundableEgp — see the
+  // GET handler above.
   const order = await queryOne(
-    `SELECT id, reference_id, status, payment_status, base_price, urgency_uplift_amount,
-            patient_id, no_sla_refund_eligibility
+    `SELECT id, reference_id, status, payment_status, patient_id,
+            no_sla_refund_eligibility,
+            price, base_price, urgency_uplift_amount, addons_json,
+            video_consultation_selected, video_consultation_price
        FROM orders_active
       WHERE id = $1 AND patient_id = $2`,
     [orderId, patientId]
@@ -3509,10 +3526,17 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
   if (!order) return res.redirect('/dashboard');
 
   // Re-check eligibility at submit time (defence against stale form data).
-  const { isEligibleForRefund } = require('../services/refund_eligibility');
+  const { isEligibleForRefund, maxRefundableEgp } = require('../services/refund_eligibility');
   const eligibility = await isEligibleForRefund(order, patientId);
-  const requestedAmount =
-    Number(order.base_price || 0) + Number(order.urgency_uplift_amount || 0);
+  // AUDIT-2026-08-22 (M5): was base_price + urgency_uplift_amount. This is the
+  // value INSERTed as requested_amount below, so the legacy formula
+  // under-refunded by the whole add-on value — and, on the order paths that
+  // never write base_price, wrote a 0 EGP refund row. That row is not merely
+  // useless: it occupies migration 083's uniq_refunds_open_per_order slot in
+  // status 'pending', so every later create path (this one, the operator form,
+  // the Command app) is refused with "a refund already exists" and the case
+  // becomes permanently unrefundable.
+  const requestedAmount = maxRefundableEgp(order);
 
   function rerender(errKey) {
     return res.render('patient_refund_request', {
@@ -3566,6 +3590,31 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
   if (reasonRaw.length > 1000) return rerender('reason_required');
   if (!instapayRaw || instapayRaw.length < 3) return rerender('instapay_required');
   if (instapayRaw.length > 100) return rerender('instapay_required');
+
+  // AUDIT-2026-08-22 (M5): never open a refund for nothing. maxRefundableEgp
+  // returns 0 only when the order genuinely has no money attached to it (no
+  // price, no base_price, no add-ons) — which on a payment_status='paid' order
+  // is a data fault, not a refund. Inserting the row anyway would burn the
+  // one-open-refund-per-order slot (migration 083) on a 0 EGP obligation and
+  // lock the case out of every future refund path. Fail the submit and log it
+  // for reconciliation instead. 'amount_unavailable' is not one of the view's
+  // known keys, so it renders the generic "something went wrong" message —
+  // which is the honest one: this is a data problem, not a policy decision.
+  if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+    logErrorToDb(
+      new Error('refund request blocked: no refundable amount could be established'),
+      {
+        context: 'patient.refund_request_zero_amount',
+        requestId: req.requestId,
+        userId: patientId,
+        orderId,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'refund'
+      }
+    );
+    return rerender('amount_unavailable');
+  }
 
   // Per OQ-4: full case price by default; superadmin can edit down on approve.
   const refundId = randomUUID();
