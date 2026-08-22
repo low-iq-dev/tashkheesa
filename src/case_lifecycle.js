@@ -96,7 +96,13 @@ const SILENT_FAILURE_EVENTS = Object.freeze([
   // AUDIT-ACCEPT-4 — workers/acceptance_watcher: the doctor_assignments mirror
   // INSERT failed after the orders row was already claimed. Used to be a bare
   // `catch {}`; the case it stranded was the definition of a silent failure.
-  'ASSIGNMENT_MIRROR_FAILED'
+  'ASSIGNMENT_MIRROR_FAILED',
+  // AUDIT-2026-08-22 — case_lifecycle.reassignCase, no-alternate-doctor branch.
+  // Both were a bare `catch (e) {}` around an UPDATE that had quietly grown to
+  // six columns. CASE_UNASSIGN_FAILED is the serious one: the case is sitting at
+  // REASSIGNED with a doctor still attached, which matches no sweep at all.
+  'CASE_UNASSIGN_FAILED',
+  'CASE_SLA_RESET_FAILED'
 ]);
 
 
@@ -1844,7 +1850,7 @@ async function transitionCase(caseId, nextStatus, data = {}, client) {
       if (!expectedDeadline) {
         throw new Error('Cannot compute deadline_at from accepted_at');
       }
-      // AUDIT-2026-08-22 — ACCEPTANCE MAY ONLY EVER MOVE A DEADLINE EARLIER.
+      // AUDIT-2026-08-22 — ACCEPTANCE ONLY EVER *BACKFILLS* A DEADLINE.
       //
       // This used to overwrite deadline_at with accepted_at + sla_hours in
       // BOTH directions. markCasePaid anchors an urgent case paid outside the
@@ -1857,23 +1863,41 @@ async function transitionCase(caseId, nextStatus, data = {}, client) {
       // were owed. dispatchSlaReminders already goes to lengths to protect this
       // anchor (see AUDIT-SLA-10); transitionCase runs first and reverted it.
       //
-      // Moving the deadline earlier is still allowed: that is the honest
-      // repair of a legacy paid-anchored value, and it can only ever be in the
-      // patient's favour. Later is a promise being quietly withdrawn.
+      // The first repair gated on DIRECTION ("never move later"), and that was
+      // exactly backwards for the case that matters most. A resumed deadline
+      // is ALWAYS later than accepted_at + sla_hours — that is what the pause
+      // credit IS — so the direction guard let the recompute through and moved
+      // the deadline EARLIER, frequently into the past:
+      //   doctor accepts T0 (48h) -> requests files T0+2h (pauseSla banks 46h)
+      //   -> patient uploads T0+72h -> resumeSla writes T0+118h
+      //   -> routes/patient.js transitions IN_REVIEW -> rewritten to T0+48h,
+      //   24h in the past -> next 5-minute tick breaches the case, zeroes the
+      //   doctor's earnings to a 10% token, reassigns, and refunds the patient
+      //   BECAUSE THE PATIENT TOOK THREE DAYS TO UPLOAD THE FILMS.
       //
-      // Accepted consequence: a legacy row whose deadline_at is paid-anchored
-      // and still AFTER accepted_at (paid 10:00 + 48h, accepted 12:00) keeps
-      // the slightly-early deadline instead of being stretched to
-      // accepted_at + sla_hours. That costs the doctor the gap and costs the
-      // patient nothing. The pathological shape — a deadline at or BEFORE
-      // acceptance — is repaired by dispatchSlaReminders, which owns the
-      // backfill and applies the same never-earlier reasoning in reverse.
-      // This also stops the recompute from eating a pauseSla/resumeSla credit,
-      // whose resumed deadline is deliberately later than accepted + sla.
+      // The rule is now the same one dispatchSlaReminders applies (AUDIT-SLA-10),
+      // and for the same reasons: never touch a deadline somebody deliberately
+      // set. Write only when
+      //   (a) there is no usable deadline at all — the genuine backfill this
+      //       block exists for; or
+      //   (b) the stored deadline is at or before accepted_at, which no valid
+      //       post-acceptance SLA can be. That shape is the legacy
+      //       paid-anchored value, and repairing it moves the deadline LATER,
+      //       in the doctor's favour, never into a surprise breach.
+      // A paused case is skipped outright: its deadline_at is stale ON PURPOSE
+      // (pauseSla banks the remainder in sla_remaining_seconds) and resumeSla
+      // owns recomputing it. Without this a pause taken while the deadline had
+      // already slipped past accepted_at would fall into (b) and be "repaired"
+      // straight over the credit.
       const currentMs = currentDeadline ? new Date(currentDeadline).getTime() : NaN;
-      const expectedMs = new Date(expectedDeadline).getTime();
-      const wouldMoveLater = Number.isFinite(currentMs) && expectedMs > currentMs;
-      if (!wouldMoveLater && shouldUpdateDeadline(currentDeadline, expectedDeadline)) {
+      const acceptedMsForGuard = new Date(acceptedAt).getTime();
+      const deadlineMissing = !currentDeadline || !Number.isFinite(currentMs);
+      const atOrBeforeAcceptance =
+        !deadlineMissing && Number.isFinite(acceptedMsForGuard) && currentMs <= acceptedMsForGuard;
+      const slaPaused = HAS_SLA_PAUSED_AT_COLUMN && Boolean(existing.sla_paused_at);
+      if (!slaPaused &&
+          (deadlineMissing || atOrBeforeAcceptance) &&
+          shouldUpdateDeadline(currentDeadline, expectedDeadline)) {
         data.deadline_at = expectedDeadline;
       }
     }
@@ -2121,18 +2145,51 @@ async function markCasePaid(caseId) {
 }
 
 async function markSlaBreach(caseId) {
+  await ensureColumnCache();
   const existing = await getCase(caseId);
   if (!existing) throw new Error('Case not found');
 
   const currentStatus = normalizeStatus(existing.status);
 
-  // SLA model: deadline is based on accepted_at. If accepted_at exists and the
-  // acceptance-based deadline is not yet passed, do NOT breach.
+  // AUDIT-2026-08-22 — a PAUSED SLA cannot breach. pauseSla stops the clock and
+  // deliberately leaves a stale deadline_at behind (the remainder is banked in
+  // sla_remaining_seconds), so the stored deadline of a paused case is not a
+  // promise that has been missed — it is a promise that is on hold. Both sweeps
+  // filter `sla_paused_at IS NULL`, but the per-id callers do not
+  // (routes/doctor.js accept handler, /superadmin recalc), and neither did this
+  // function. Breaching here would zero the doctor's earnings for a case that is
+  // waiting on the PATIENT.
+  if (HAS_SLA_PAUSED_AT_COLUMN && existing.sla_paused_at) {
+    return existing;
+  }
+
+  // SLA model: the deadline is normally accepted_at + sla_hours, and a sweep
+  // that selected a case before that moment must not breach it (AUDIT-TZ-2:
+  // under the old Cairo/UTC skew the sweep ran ~3h early and this guard was the
+  // only thing standing between a punctual doctor and a wrongful clawback).
+  //
+  // AUDIT-2026-08-22 — but the acceptance-derived value is NOT always the
+  // promise. markCasePaid can anchor an urgent case to the next Cairo window,
+  // and an admin can shorten a deadline; where the STORED deadline_at is
+  // EARLIER than accepted_at + sla_hours, the stored value is what the patient
+  // was told and what the sweep selected on. Deferring to the acceptance
+  // arithmetic there meant the case could not breach until accepted_at +
+  // sla_hours no matter what the row said — so preserving the anchor above
+  // would only have changed the displayed countdown, and the patient still
+  // would not get their breach refund. Take the EARLIER of the two.
+  //
+  // A stored deadline that is LATER (a pause credit, an admin extension) is
+  // deliberately NOT taken as the floor here: the sweeps already hold those
+  // back with `deadline_at <= NOW()`, and widening this guard to trust a later
+  // stored value would disarm the acceptance recheck for any caller that
+  // selected on some other predicate.
   try {
     const expected = deadlineFromAcceptance(existing);
     if (expected) {
       const expectedMs = new Date(expected).getTime();
-      if (Number.isFinite(expectedMs) && Date.now() < expectedMs) {
+      const storedMs = existing.deadline_at ? new Date(existing.deadline_at).getTime() : NaN;
+      const effectiveMs = (Number.isFinite(storedMs) && storedMs < expectedMs) ? storedMs : expectedMs;
+      if (Number.isFinite(effectiveMs) && Date.now() < effectiveMs) {
         return existing;
       }
     }
@@ -2257,6 +2314,14 @@ async function markSlaBreach(caseId) {
 // intentionally — see the worker for the same shape. Consolidating
 // later is fine; for now the duplication keeps the worker untouched.
 async function sweepSlaBreaches() {
+  // AUDIT-2026-08-22 — the pause filter below is the FIRST hard reference to
+  // sla_paused_at in this query, and this file already carries a schema flag
+  // for exactly that column. Without the cache the filter is emitted blind: on
+  // an environment that has not run the pause migration the whole SELECT
+  // throws, the catch below turns it into `{ swept: 0 }`, and the sweep
+  // degrades from "over-selects paused cases" to "silently breaches nothing" —
+  // strictly worse, and invisible.
+  await ensureColumnCache();
   // AUDIT-2026-08-22 — expand through dbStatusValuesFor, the same map
   // case_sla_worker.scanStatusValues uses. This listed only the two canonical
   // keys lowercased, so the twin sweeps did not scan the same set: a row stored
@@ -2289,7 +2354,7 @@ async function sweepSlaBreaches() {
           -- pauseSla deliberately leaves a stale deadline_at behind, so every
           -- dashboard load re-selected every paused rejected-files case and
           -- pushed it at markSlaBreach.
-          AND o.sla_paused_at IS NULL
+          ${HAS_SLA_PAUSED_AT_COLUMN ? 'AND o.sla_paused_at IS NULL' : ''}
           AND o.deadline_at <= NOW()`,
       statuses
     );
@@ -2412,11 +2477,52 @@ async function markOrderRejectedFiles(caseId, doctorId, reason = '', opts = {}) 
 
   // Transition into REJECTED_FILES so the system understands the case is blocked waiting for files.
   // IMPORTANT: We only log an admin/superadmin approval-required event here. Patient notification happens AFTER approval.
-  await transitionCase(caseId, CASE_STATUS.REJECTED_FILES, {
-    rejected_files_at: new Date().toISOString()
-  });
+  //
+  // AUDIT-2026-08-22 — the transition and the pause are ONE UPDATE.
+  //
+  // These used to be two statements: transitionCase(REJECTED_FILES) and then
+  // pauseSla(). Between them the case is REJECTED_FILES with sla_paused_at
+  // still NULL, and REJECTED_FILES -> SLA_BREACH is now a permitted transition
+  // (see the SLA_BREACH block in transitionCase). Both breach sweeps scan
+  // REJECTED_FILES and select on `deadline_at <= NOW() AND sla_paused_at IS
+  // NULL`, so on a case whose deadline had already slipped past — precisely the
+  // case a doctor is most likely to be asking for more films on — that window
+  // is now a REAL breach where it previously threw harmlessly. Anything that
+  // fails in between (a crash, a lost connection) leaves the case permanently
+  // in that shape.
+  //
+  // pauseSla's own arithmetic and guards are reproduced here rather than
+  // called, because pauseSla takes its own pool connection and cannot join this
+  // write. It stays as the fallback below for the paths this cannot cover
+  // (missing columns, no deadline_at, already paused) so its skip events are
+  // still emitted.
+  await ensureColumnCache();
+  const rejectedNow = new Date();
+  const transitionData = { rejected_files_at: rejectedNow.toISOString() };
 
-  await pauseSla(caseId, 'rejected_files');
+  let pausedRemainingSeconds = null;
+  if (HAS_SLA_PAUSED_AT_COLUMN && HAS_SLA_REMAINING_SECONDS_COLUMN &&
+      !existing.sla_paused_at && existing.deadline_at) {
+    const deadlineMs = new Date(existing.deadline_at).getTime();
+    if (Number.isFinite(deadlineMs)) {
+      pausedRemainingSeconds = Math.max(0, Math.floor((deadlineMs - rejectedNow.getTime()) / 1000));
+      transitionData.sla_paused_at = rejectedNow.toISOString();
+      transitionData.sla_remaining_seconds = pausedRemainingSeconds;
+    }
+  }
+
+  await transitionCase(caseId, CASE_STATUS.REJECTED_FILES, transitionData);
+
+  if (pausedRemainingSeconds != null) {
+    // Same event pauseSla writes, so resumeSla / the timeline / any consumer
+    // reading SLA_PAUSED sees no difference between the two paths.
+    await logCaseEvent(caseId, 'SLA_PAUSED', {
+      reason: 'rejected_files',
+      remaining_seconds: pausedRemainingSeconds
+    });
+  } else {
+    await pauseSla(caseId, 'rejected_files');
+  }
 
   await logCaseEvent(caseId, 'FILES_REQUESTED', {
     requested_by: doctorId || null,
@@ -2646,7 +2752,14 @@ VALUES ($1, $2, $3, $4, $5, $6)`,
   return await getCase(caseId);
 }
 
-async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
+// AUDIT-2026-08-22 — `operatorInitiated` marks a reassignment a HUMAN ordered
+// for a non-fault reason (doctor on leave, the patient asked for a different
+// reader, wrong subspecialty). The only caller today is the Command app's
+// assign endpoint (routes/api/admin.js), which was routed through this function
+// in the same fix series. See the auto-pause suppression at the bottom of this
+// function for why it exists.
+async function reassignCase(caseId, newDoctorId, { reason = 'auto', operatorInitiated = false } = {}) {
+  await ensureColumnCache();
   const existing = await getCase(caseId);
   if (!existing) {
     throw new Error('Case not found');
@@ -2654,6 +2767,22 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
   const currentStatus = normalizeStatus(existing.status);
   if (![CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.SLA_BREACH, CASE_STATUS.REASSIGNED].includes(currentStatus)) {
     throw new Error(`Cannot reassign case in status ${currentStatus}`);
+  }
+
+  // AUDIT-2026-08-22 — refuse to hand a doctor their own case back.
+  //
+  // Neither this function nor assignDoctor checked it. routes/api/admin.js does
+  // check, but under SELECT … FOR UPDATE that it then RELEASES before calling
+  // us, so two operators racing on the same case (or one racing the SLA worker)
+  // could both pass that check and the loser would arrive here with
+  // newDoctorId === the doctor already on the row. The consequence is not a
+  // no-op: markPartialPayOnReassignment below would zero that doctor's earnings
+  // row and write them a 10% token, then assignDoctor would hand them back the
+  // very case they are still working on — paid 10% for it, and counted toward
+  // the 3-in-30 auto-pause. Rejecting is the safe side of the race: the caller
+  // surfaces it as "already assigned to this doctor", which is the truth.
+  if (newDoctorId && existing.doctor_id && String(newDoctorId) === String(existing.doctor_id)) {
+    throw new Error('Case is already assigned to this doctor');
   }
 
   const previousAssignment = await getLatestAssignment(caseId);
@@ -2726,36 +2855,93 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
     //     accepted_at / deadline_at / breached_at belong to a doctor who no
     //     longer has the case; leaving breached_at set is specifically what
     //     stops the case ever breaching again for whoever picks it up next.
-    //  2. acceptance_deadline_at is stamped NOW so the acceptance_watcher's
-    //     `acceptance_deadline_at < NOW()` predicate matches it on the very
-    //     next 2-minute tick and retries auto-assign against a fresh doctor
-    //     pool — the case retries itself instead of waiting for a human.
+    //  2. acceptance_deadline_at is stamped so the acceptance_watcher's
+    //     `acceptance_deadline_at < NOW()` predicate matches it and retries
+    //     auto-assign against a fresh doctor pool — the case retries itself
+    //     instead of waiting for a human. (The offset is 0 on the first
+    //     attempt and grows with reassigned_count; see the backoff below.)
     //  3. A case event, so /ops and the timeline show WHY it is sitting there.
     // The patient's total wait is unchanged; a case reassigned late is a
     // patient-comms problem, not a reason to hold the next doctor to a dead
     // deadline (same reasoning as AUDIT-SLA-6 in assignDoctor).
+    // AUDIT-2026-08-22 — the doctor_id null-out is its OWN statement, and
+    // nothing here is silently swallowed any more.
+    //
+    // This UPDATE grew from 2 columns to 6 inside a bare `catch (e) {}`, and
+    // updateCase has no per-column schema guard (contrast HAS_ASSIGNED_AT_COLUMN
+    // / HAS_SLA_PAUSED_AT_COLUMN above). One absent column, or any transient
+    // write failure, and the WHOLE update is lost — including `doctor_id = null`
+    // — leaving the case at REASSIGNED with a doctor still attached, which
+    // matches NO sweep in the system. That is exactly the P0 this branch was
+    // written to fix, reintroduced by the failure mode of the fix itself.
+    //
+    // Nulling the doctor is therefore attempted alone first: it is the one
+    // column that decides whether anything can ever pick this case up again,
+    // and it has existed since the initial schema. The clock reset follows as a
+    // separate best-effort write, and a failure of either is logged rather than
+    // discarded.
+    //
+    // AUDIT-2026-08-22 — acceptance_deadline_at BACKS OFF instead of being
+    // stamped `now` unconditionally. `now` + acceptance_watcher admitting
+    // 'reassigned' is what makes the case retry itself on the next 2-minute
+    // tick, and that property is kept for the first attempt (offset 0). But on
+    // a case that keeps coming back — a specialty with nobody eligible — an
+    // immediate stamp is a 2-minute retry loop that bumps reassigned_count and
+    // writes case_events every cycle until /ops/silent-failures is one case
+    // repeated. The offset grows with reassigned_count and is capped, so the
+    // case stays visible and self-healing without spinning.
+    const reassignAttempts = Math.max(0, Number(existing.reassigned_count) || 0);
+    const retryDelayMinutes = Math.min(30, reassignAttempts * 2);
+    const retryAtIso = new Date(Date.now() + retryDelayMinutes * 60 * 1000).toISOString();
+
+    let doctorCleared = false;
+    try {
+      await updateCase(caseId, { doctor_id: null, updated_at: nowIso() });
+      doctorCleared = true;
+    } catch (e) {
+      console.error('[reassign] could not clear doctor_id on ' + caseId +
+                    ' — case is REASSIGNED with a doctor still attached:', e && e.message);
+      try {
+        await logCaseEvent(caseId, 'CASE_UNASSIGN_FAILED', {
+          reason,
+          from: originalDoctorId,
+          error: String((e && e.message) || e).slice(0, 500)
+        });
+      } catch (_) {}
+    }
+
     try {
       await updateCase(caseId, {
-        doctor_id: null,
         accepted_at: null,
         deadline_at: null,
         breached_at: null,
-        acceptance_deadline_at: nowIso(),
+        acceptance_deadline_at: retryAtIso,
         updated_at: nowIso()
       });
-    } catch (e) {}
+    } catch (e) {
+      console.error('[reassign] SLA clock reset failed on ' + caseId + ':', e && e.message);
+      try {
+        await logCaseEvent(caseId, 'CASE_SLA_RESET_FAILED', {
+          reason,
+          from: originalDoctorId,
+          error: String((e && e.message) || e).slice(0, 500)
+        });
+      } catch (_) {}
+    }
 
     await logCaseEvent(caseId, 'CASE_AWAITING_REASSIGNMENT', {
       reason,
       from: originalDoctorId,
-      sla_clock_reset: true
+      sla_clock_reset: true,
+      doctor_cleared: doctorCleared,
+      retry_after: retryAtIso
     });
 
     // P1-FIN-2: still notify original doctor + check auto-pause when
     // partial pay was written, even if no replacement doctor was found.
     if (originalDoctorId && partialPayResult && (partialPayResult.written || partialPayResult.idempotent)) {
       _queueOriginalDoctorNotification(caseId, originalDoctorId, reason, partialPayResult);
-      _checkPauseAsync(originalDoctorId);
+      if (!operatorInitiated) _checkPauseAsync(originalDoctorId);
     }
 
     return await getCase(caseId);
@@ -2779,9 +2965,30 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
 
   // P1-FIN-2: notify ORIGINAL doctor + run auto-pause check. Both are
   // best-effort — financial state is already correct in DB regardless.
+  //
+  // AUDIT-2026-08-22 — the auto-pause is SKIPPED for an operator-initiated
+  // reassignment. checkAndAutoPauseDoctor counts every `earn-reassign-%` row in
+  // 30 days with no notion of why, and at 3 it sets is_paused with
+  // pause_reason='auto:sla_breach_threshold:3_in_30d'. Routing the Command
+  // app's reassign through this function (routes/api/admin.js, same fix series)
+  // fed it a class of reassignment that is not the doctor's fault at all —
+  // doctor on leave, patient asked for a different reader, wrong subspecialty.
+  // Three of those in a month silently removed a good doctor from
+  // findAlternateDoctor and every broadcast, labelled an SLA offender, in a
+  // launch-sized pool where that is most of the specialty's capacity. The
+  // 'admin_manual' reason was already being stored and simply never consulted;
+  // services/doctor_pause.js now also excludes those rows from the count, so a
+  // caller that forgets this flag still cannot trip the pause on a non-fault
+  // reassignment.
+  //
+  // The 10% partial pay is deliberately NOT suppressed: the pending earnings
+  // row is per (order, doctor) and skipping the write-down would leave a doctor
+  // who did not deliver the case holding a full-fee pending row that
+  // markCaseEarningsPaid can later pay out. Correcting the compensation policy
+  // for non-fault reassignment is an earnings_writer change — see the hand-off.
   if (originalDoctorId && partialPayResult && (partialPayResult.written || partialPayResult.idempotent)) {
     _queueOriginalDoctorNotification(caseId, originalDoctorId, reason, partialPayResult);
-    _checkPauseAsync(originalDoctorId);
+    if (!operatorInitiated) _checkPauseAsync(originalDoctorId);
   }
 
   return await getCase(caseId);
@@ -2792,11 +2999,28 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
 function _queueOriginalDoctorNotification(caseId, doctorId, reason, partialPayResult) {
   try {
     const { queueMultiChannelNotification } = require('./notify');
+    // AUDIT-2026-08-22 — `data:` -> `response:`, and the email channel added.
+    //
+    // queueMultiChannelNotification takes { orderId, toUserId, channels,
+    // template, response, dedupe_key }. There is no `data` parameter, so every
+    // one of these figures was silently dropped and the notification went out
+    // with response = null — the 'case-reassigned-original' email template
+    // renders "You'll receive % partial pay (EGP )" off exactly these fields.
+    //
+    // The email channel is explicit because routes/api/admin.js used to queue a
+    // SECOND copy of this same template to the same doctor for the same event
+    // on ['internal','email'] with a different dedupe key, so the booted doctor
+    // got two messages — one mentioning the 10% and one not. That duplicate is
+    // removed and this is now the single owner of the notification, so it has
+    // to carry the channel the admin path was providing. No whatsapp: the
+    // template is unmapped there (notification_worker whatsappTemplateMap).
     queueMultiChannelNotification({
       orderId: caseId,
       toUserId: doctorId,
+      channels: ['internal', 'email'],
       template: 'order_reassigned_from_doctor',
-      data: {
+      response: {
+        case_id: caseId,
         partialPct: partialPayResult.partialPct,
         partialAmount: partialPayResult.partialAmount,
         reason: reason,

@@ -62,12 +62,31 @@ async function checkAndAutoPauseDoctor(doctorId) {
 
   // Count reassigned-out rows for this doctor in the lookback window.
   // The new index idx_doctor_earnings_doctor_status_created powers this.
+  //
+  // AUDIT-2026-08-22 — NON-FAULT REASSIGNMENTS DO NOT COUNT.
+  //
+  // This counted EVERY 'earn-reassign-%' row with no notion of why it was
+  // written, and at 3 it flips is_paused with
+  // pause_reason='auto:sla_breach_threshold:3_in_30d'. That was defensible
+  // while the only writer was case_sla_worker (breach / acceptance timeout).
+  // Routing the Command app's reassign through case_lifecycle.reassignCase
+  // added a class of reassignment that is nobody's fault — doctor on leave,
+  // patient asked for a different reader, wrong subspecialty — and three of
+  // those in a month silently removed a good doctor from findAlternateDoctor
+  // and every broadcast, labelled an SLA offender.
+  //
+  // markPartialPayOnReassignment already stores the caller's reason on the row
+  // (doctor_earnings.reassignment_reason); it simply was never consulted.
+  // reassignCase also suppresses this check outright for operator-initiated
+  // reassignment — this filter is the backstop for any caller that forgets the
+  // flag, and it retro-corrects rows already written by the Command app.
   var cnt = await queryOne(
     `SELECT COUNT(*)::int AS n
        FROM doctor_earnings
       WHERE doctor_id = $1
         AND status = 'reassigned'
         AND id LIKE 'earn-reassign-%'
+        AND COALESCE(reassignment_reason, '') NOT LIKE 'admin\\_manual%'
         AND created_at >= NOW() - ($2 * INTERVAL '1 day')`,
     [doctorId, windowDays]
   );
