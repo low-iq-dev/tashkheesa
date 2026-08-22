@@ -139,9 +139,29 @@ const DEFAULT_DEDUPE_TEMPLATES = Object.freeze({
   addon_purchased_urgency: true,
   addon_purchased_video: true,
   addon_purchased_prescription: true,
-  // Report delivery. An amended re-upload carries different payload content
-  // and is not suppressed; a double-submitted upload form is.
-  report_ready_patient: true,
+  // AUDIT-2026-08-22 (AUDIT-DEDUPE-AMEND-1) — report_ready_patient REMOVED.
+  //
+  // It was admitted on the claim that "an amended re-upload carries different
+  // payload content and is not suppressed". It does not. The ONLY call site is
+  // src/routes/doctor.js's report upload, and it passes exactly
+  //   { caseReference, doctorName, specialty, reportUrl }
+  // — caseReference is derived from the order id, doctorName/specialty from the
+  // same doctor and order, and reportUrl is `${APP_URL}/portal/case/${orderId}
+  // /report`. Every field is deterministic from (order, doctor), so an amended
+  // re-upload produces a BYTE-IDENTICAL payload, an identical payloadFingerprint
+  // and therefore an identical auto-key — and migration 082's unique index
+  // suppresses email, WhatsApp and the in-app bell on all three channels.
+  //
+  // A doctor uploading a corrected report after a clinical error and the patient
+  // never being told is not a dedupe win; it is the worst outcome this file can
+  // produce. It also fails the membership rule stated above ("at most ONCE per
+  // (order, recipient) in the product's own terms") — a report can legitimately
+  // be re-issued.
+  //
+  // To re-admit it, the call site must first include something that actually
+  // varies per issuance (a report version, the report row id, or the upload
+  // timestamp) in the payload. That call site is in src/routes/doctor.js, which
+  // this agent does not own — see the hand-off note in the audit report.
   // A case is cancelled once.
   case_cancelled_patient: true
 });
@@ -195,6 +215,16 @@ function stripDrPrefix(name) {
  * sites to start passing a field. One indexed primary-key lookup per queued
  * notification, and only on the paths that actually reach the insert (the
  * dedupe pre-check returns before this).
+ *
+ * AUDIT-2026-08-22 (AUDIT-LANG-NPLUS1-1) — callers that ALREADY hold the row
+ * must not pay for a second lookup. queueNotification now takes an optional
+ * `recipientLang`, and the two fan-out helpers in this file pass it:
+ *   * queueMultiChannelNotification already SELECTs the user for the phone /
+ *     email / notify_whatsapp checks, and fired THREE of these per event on top
+ *     of that one lookup;
+ *   * notifyAdmins fans one notification per active superadmin per event.
+ * Both now select `lang` in the query they were making anyway. This function
+ * remains the fallback for the ~110 call sites that hold no user row.
  *
  * Never throws: a failed lookup degrades to 'en', which is exactly the
  * behaviour every call site has today.
@@ -586,7 +616,11 @@ async function queueNotification({
   status = 'queued',
   response = null,
   dedupe_key = null,
-  dedupeKey = null
+  dedupeKey = null,
+  // AUDIT-2026-08-22 (AUDIT-LANG-NPLUS1-1) — optional 'ar' | 'en' from a caller
+  // that has already read the users row. Skips resolveRecipientLang's extra
+  // SELECT. Anything else is ignored and the lookup happens as before.
+  recipientLang = null
 }) {
   const uid = await normalizeToUserId(toUserId);
 
@@ -781,19 +815,29 @@ async function queueNotification({
   // title_ar variant never used anywhere. Resolve against the recipient's
   // language; fall back to English when there is no Arabic copy.
   //
-  // AUDIT-2026-08-22 (N5) — that language came from the PAYLOAD, and exactly
-  // one of ~110 call sites passes it, so in practice it was always '' and the
-  // Arabic half of the registry never rendered. The payload still wins when a
-  // caller does pass a language (case_lifecycle.queueSlaReminder does, and it
-  // is the more specific signal); otherwise resolve the recipient's own
-  // users.lang. See resolveRecipientLang for why this is done here and not at
-  // the call sites.
+  // AUDIT-2026-08-22 (N5) — that language came from the PAYLOAD, and no call
+  // site actually passes it, so in practice it was always '' and the Arabic
+  // half of the registry never rendered.
+  //
+  // AUDIT-2026-08-22 (AUDIT-LANG-NPLUS1-1) — the previous version of this
+  // comment said case_lifecycle.queueSlaReminder passes a payload `lang`. It
+  // does not: its response payload is
+  // { case_id, role, level, seconds_remaining }. The payload branch is
+  // therefore currently unreachable from anywhere in the repo. It is KEPT (not
+  // deleted) because it is the correct precedence if a caller ever needs to
+  // override the recipient's stored preference — but nothing depends on it.
+  //
+  // Precedence: explicit payload lang → caller-supplied recipientLang (the
+  // caller already read the users row) → one indexed lookup on users.lang.
   const _payloadLang = String(
     (parsedResponse && (parsedResponse.lang || parsedResponse.language)) || ''
   ).toLowerCase();
+  const _passedLang = String(recipientLang || '').toLowerCase();
   const _notifLang = (_payloadLang === 'ar' || _payloadLang === 'en')
     ? _payloadLang
-    : await resolveRecipientLang(uid);
+    : ((_passedLang === 'ar' || _passedLang === 'en')
+        ? _passedLang
+        : await resolveRecipientLang(uid));
   const inAppTitle = (_notifLang === 'ar' ? (titles?.title_ar || titles?.title_en) : titles?.title_en) || null;
   // AUDIT-PAY-1 — the body is resolved against the same language as the title.
   // It was called without a language, so a bilingual body had no way to reach
@@ -1026,8 +1070,11 @@ async function notifyAdmins({ template, payload, dedupeKey, orderId, channel } =
 
   let recipients = [];
   try {
+    // AUDIT-2026-08-22 (AUDIT-LANG-NPLUS1-1) — `lang` added to a query that was
+    // already running, so the per-recipient queueNotification below no longer
+    // triggers one resolveRecipientLang SELECT per superadmin per event.
     recipients = await queryAll(
-      "SELECT id FROM users WHERE role = 'superadmin' AND COALESCE(is_active, true) = true"
+      "SELECT id, lang FROM users WHERE role = 'superadmin' AND COALESCE(is_active, true) = true"
     );
   } catch (e) {
     console.error('[notify.notifyAdmins] superadmin lookup failed:', e && e.message);
@@ -1048,6 +1095,7 @@ async function notifyAdmins({ template, payload, dedupeKey, orderId, channel } =
         status: 'queued',
         response: (payload && typeof payload === 'object') ? JSON.stringify(payload) : payload,
         dedupe_key: `${dedupeKey}:${r.id}`,
+        recipientLang: r.lang,
       });
       results.push(result);
     } catch (e) {
@@ -1126,8 +1174,12 @@ async function queueMultiChannelNotification({
   // Look up user preferences once
   let user = null;
   try {
+    // AUDIT-2026-08-22 (AUDIT-LANG-NPLUS1-1) — `lang` added here. This lookup
+    // already happens on every multi-channel event; without the column, the
+    // three queueNotification calls below each ran their own SELECT on the same
+    // row, i.e. four reads of one user per event.
     user = await queryOne(
-      'SELECT id, email, phone, notify_whatsapp FROM users WHERE id = $1 LIMIT 1',
+      'SELECT id, email, phone, lang, role, notify_whatsapp FROM users WHERE id = $1 LIMIT 1',
       [uid]
     );
   } catch (e) {
@@ -1149,9 +1201,24 @@ async function queueMultiChannelNotification({
         emitNotificationDropped({ orderId, reason: 'no_phone', channel: ch, template, toUserId: uid });
         return Promise.resolve([ch, { ok: true, skipped: true, reason: 'no_phone' }]);
       }
-      if (user.notify_whatsapp === 0 || user.notify_whatsapp === false) {
+      // AUDIT-2026-08-22 (AUDIT-STAFF-OPTOUT-1) — the SECOND enforcement point
+      // for notify_whatsapp (the other is notification_worker.processWhatsApp).
+      // They must agree, so the same patient-only rule applies here: on this
+      // database the flag is only meaningful for patients, because migration
+      // 062's backfill was scoped `WHERE role='patient'` while
+      // 001_initial_tables.sql defaulted the column to false. Every pre-062
+      // doctor/admin row still reads false and would otherwise be silently
+      // unreachable over WhatsApp. See the long note in
+      // notification_worker.processWhatsApp for the full reasoning.
+      const _isPatientRecipient = String((user && user.role) || '').toLowerCase() === 'patient';
+      if ((user.notify_whatsapp === 0 || user.notify_whatsapp === false) && _isPatientRecipient) {
         emitNotificationDropped({ orderId, reason: 'whatsapp_opted_out', channel: ch, template, toUserId: uid });
         return Promise.resolve([ch, { ok: true, skipped: true, reason: 'whatsapp_opted_out' }]);
+      }
+      if ((user.notify_whatsapp === 0 || user.notify_whatsapp === false) && !_isPatientRecipient) {
+        console.warn('[notify] staff recipient has notify_whatsapp=false; QUEUEING ANYWAY ' +
+          '(pre-062 default, not a real opt-out — see AUDIT-STAFF-OPTOUT-1)',
+          { uid, role: user.role, template });
       }
     }
     if (ch === 'email') {
@@ -1170,6 +1237,7 @@ async function queueMultiChannelNotification({
       status,
       response,
       dedupe_key: channelDedupeKey,
+      recipientLang: user ? user.lang : null,
     }).then(function (r) { return [ch, r]; });
   });
 

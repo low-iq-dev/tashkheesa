@@ -8,12 +8,16 @@
 # This service has an unusually large number of HARD BOOT ASSERTS — src/bootCheck.js
 # and src/server.js's validateCriticalEnvVars() between them call process.exit(1)
 # for a missing MODE, SLA_MODE, SLA_PRIMARY_TOKEN, BASIC_AUTH_*, DATABASE_URL,
-# NATIONAL_ID_ENCRYPTION_KEY, JWT_SECRET, ANTHROPIC_API_KEY, RESEND_API_KEY,
-# BASE_URL, APP_URL, UPLOADCARE_PUBLIC_KEY, all four R2_* vars, a non-live
-# PAYMENT_MODE/PAYMOB_MODE, and OPENCLAW_* when WhatsApp is on — plus
-# src/job_queue.js exits for a missing DATABASE_URL_DIRECT. Every one of those is
-# a crash-loop discovered only after a deploy starts. "We forgot one" was the
-# single largest deploy risk on this service.
+# JWT_SECRET, ANTHROPIC_API_KEY, RESEND_API_KEY,
+# BASE_URL, APP_URL, UPLOADCARE_PUBLIC_KEY, all four R2_* vars and a non-live
+# PAYMENT_MODE/PAYMOB_MODE — plus src/job_queue.js exits for a missing
+# DATABASE_URL_DIRECT. Every one of those is a crash-loop discovered only after a
+# deploy starts. "We forgot one" was the single largest deploy risk on this
+# service.
+#
+# NATIONAL_ID_ENCRYPTION_KEY and OPENCLAW_BASE_URL/OPENCLAW_SEND_KEY are checked
+# too, but only WARN until STRICT_ENV_ASSERTS=true (see that key below) —
+# AUDIT-BOOT-MIGRATION-1.
 #
 # HOW TO USE IT
 #   Render → Blueprints → New Blueprint Instance → point at this repo.
@@ -89,14 +93,37 @@ services:
       - key: PG_SSL
         value: "true"
       # Connection budget against the 15-slot Supabase ceiling:
-      # 10 (request pool) + 4 (pg-boss) + 1 (Supabase internals/burst) = 15.
-      # Raise ONLY together with the Supabase tier.
+      #   8 (request pool) + 6 (pg-boss) + 1 (Supabase internals/burst) = 15.
+      # AUDIT-2026-08-22 (AUDIT-BOSS-POOL-2) — was 10 + 4. pg-boss registers SIX
+      # workers (case-intelligence, case-reprocess, auto-assign,
+      # specialty-classify, sla-sweep, ai-canary), three with teamSize 2, plus
+      # maintenance and monitor connections; at max=4 its own fetch/complete
+      # queries queued and sla-sweep / auto-assign stalled. The boot-time
+      # migration advisory-lock client is closed before pg-boss starts, so it
+      # never coincides with the 6. Raise ONLY together with the Supabase tier,
+      # and keep PG_POOL_MAX + PG_BOSS_POOL_MAX <= 14.
       - key: PG_POOL_MAX
-        value: "10"
+        value: "8"
       - key: PG_BOSS_POOL_MAX
-        value: "4"
+        value: "6"
       - key: PG_STATEMENT_TIMEOUT_MS
         value: "30000"
+      # AUDIT-2026-08-22 (AUDIT-STARTUP-OPTIONS-2) — THE RECOVERY LEVER.
+      # src/pg.js can append `?options=-c timezone=UTC -c statement_timeout=...`
+      # to DATABASE_URL. That is now OPT-IN and OFF here, because Supavisor
+      # consumes the `options` startup parameter itself for `reference=<project-
+      # ref>` tenant routing — sending our own value is an all-or-nothing boot
+      # gamble whose failure mode is every connection failing ~2s in. timezone
+      # and statement_timeout come from the ALTER ROLE defaults in the operator
+      # note at the bottom of this file instead.
+      #
+      # If a future pooler change makes startup options desirable, set this to
+      # `on` here. If a deploy ever fails at boot with connection errors and
+      # this is anything but `off`, set it to `off` — that is the one-variable
+      # rollback. (src/pg.js preflightPool() already self-heals that case and
+      # logs it, so this should never be needed mid-incident.)
+      - key: PG_STARTUP_OPTIONS
+        value: "off"
 
       # ── SLA / worker mode ────────────────────────────────────────────────
       # SLA_MODE=primary is the ONLY value that starts the notification worker,
@@ -141,6 +168,7 @@ services:
       # first national-ID write without it (src/services/national-id.js:23-25).
       # Rotating it later requires re-encrypting every row in one transaction —
       # set it once, before the first doctor signs up, and never change it.
+      # bootCheck.js WARNS if unset; it becomes fatal once STRICT_ENV_ASSERTS=true.
       - key: NATIONAL_ID_ENCRYPTION_KEY
         sync: false
       - key: SESSION_COOKIE_NAME
@@ -161,8 +189,14 @@ services:
         value: https://tashkheesa.com
       - key: APP_URL
         value: https://tashkheesa.com
+      # AUDIT-2026-08-22 (AUDIT-MEDIA-BASE-1) — was `https://tashkheesa.com`,
+      # the bare origin. src/instagram/config.js:14 defaults this to
+      # `https://tashkheesa.com/media/instagram`, and the value is used as the
+      # PREFIX for every Instagram media URL — the bare origin rewrote every
+      # image to the site root, so Meta fetched the homepage instead of a JPEG.
+      # Must match the code default unless the media host actually moves.
       - key: MEDIA_BASE_URL
-        value: https://tashkheesa.com
+        value: https://tashkheesa.com/media/instagram
 
       # ── AI (alwaysRequired) ──────────────────────────────────────────────
       - key: ANTHROPIC_API_KEY
@@ -188,7 +222,8 @@ services:
 
       # ── WhatsApp ─────────────────────────────────────────────────────────
       # NOTIFICATIONS_WHATSAPP_ENABLED=true + TRANSPORT=openclaw makes
-      # OPENCLAW_BASE_URL and OPENCLAW_SEND_KEY boot-required (bootCheck.js).
+      # OPENCLAW_BASE_URL and OPENCLAW_SEND_KEY boot-checked (bootCheck.js) —
+      # a WARNING until STRICT_ENV_ASSERTS=true, fatal after.
       # Without them every send returns oc_env_misconfigured and ZERO WhatsApp is
       # delivered — silently. To launch without WhatsApp, set this to "false"
       # deliberately rather than leaving the OPENCLAW_* vars blank.
@@ -282,6 +317,21 @@ services:
       - key: OPS_AGENT_KEY
         sync: false
 
+      # ── Boot-assert severity ─────────────────────────────────────────────
+      # AUDIT-2026-08-22 (AUDIT-BOOT-MIGRATION-1). src/bootCheck.js's two NEWEST
+      # checks — NATIONAL_ID_ENCRYPTION_KEY, and OPENCLAW_BASE_URL +
+      # OPENCLAW_SEND_KEY when WhatsApp is on — guard variables that are
+      # `sync: false` above, i.e. they do not exist until an operator types them
+      # into the dashboard. Shipping them as hard asserts would crash-loop the
+      # FIRST deploy of that change, after the previous deploy is already gone.
+      #
+      # They therefore WARN (`⚠️  BOOT CHECK WARNING` in the deploy log) while
+      # this is "false". FLIP IT TO "true" once the deploy log shows no such
+      # warnings — from then on a regression that unsets one of those secrets
+      # fails the deploy instead of shipping a silently broken platform.
+      - key: STRICT_ENV_ASSERTS
+        value: "false"
+
       # ── Feature flags held OFF for launch ────────────────────────────────
       - key: ADDON_SYSTEM_V2
         value: "false"
@@ -301,9 +351,21 @@ services:
 # ONE-TIME OPERATOR SETUP, not expressible in this file:
 #   1. ALTER ROLE <app role> SET timezone = 'UTC';
 #      ALTER ROLE <app role> SET statement_timeout = '30s';
-#      Belt and braces for AUDIT-POOL-SET-1 — role defaults are applied by the
-#      backend at connection start regardless of pooler. Verify from the deploy
-#      log: grep for `[pg] verified on`.
+#      REQUIRED, not optional. Since PG_STARTUP_OPTIONS is off (see above), this
+#      is the ONLY mechanism that reliably sets both on every backend the
+#      Supavisor pooler can route to — role defaults are applied by the backend
+#      at connection start regardless of pooler. Verify from the deploy log:
+#      grep for `[pg] verified on`.
+#
+#      SAFE WITH THE MIGRATION RUNNER: a role-level statement_timeout also
+#      applies to src/db.js's dedicated migration Client, which carries no
+#      per-connection override. Under the old code that meant any migration —
+#      or the advisory-lock wait itself — running past 30s was CANCELLED, the
+#      runner threw, and the service crash-looped permanently with no skip
+#      mechanism. src/db.js now issues `SET statement_timeout = 0` (plus
+#      `SET TIME ZONE 'UTC'` and a lock_timeout) on that session immediately
+#      after connect, and takes the lock with a BOUNDED pg_try_advisory_lock
+#      retry instead of a blocking pg_advisory_lock. Do not remove either.
 #   2. Confirm the app's DB role has rolbypassrls = true, or migration 070's
 #      default-deny RLS makes every table return zero rows. See the RLS check in
 #      src/migrations/070_rls_enable_default_deny.sql.

@@ -23,11 +23,17 @@ const { Pool } = require('pg');
 const { major: logMajor } = require('./logger');
 
 // Pool tuning. Supabase Free pgbouncer transaction-mode caps client
-// connections at 15 per project; running a single Render instance with
-// max=10 leaves headroom for pg-boss direct (port 5432, separate pool),
-// Supabase internal connections, and burst spikes. Raise via env if the
-// project moves to a higher Supabase tier; lower if a second Render
-// instance starts (max × instances must stay under the pgbouncer cap).
+// connections at 15 per project.
+//
+// AUDIT-2026-08-22 (AUDIT-BOSS-POOL-2) — default lowered 10 → 8. The old split
+// assumed pg-boss needed 4; it registers SIX workers (three with teamSize 2)
+// plus maintenance and monitor, and 4 made its own fetch/complete queries queue
+// — stalling sla-sweep and auto-assign. The budget is now:
+//   8 (this pool) + 6 (pg-boss, src/job_queue.js) + 1 (Supabase internals) = 15
+// The boot-time migration advisory-lock Client (src/db.js) is closed before
+// pg-boss starts, so it never coincides with the 6.
+// Raise via env if the project moves to a higher Supabase tier; lower if a
+// second Render instance starts (max × instances must stay under the cap).
 //
 // connectionTimeoutMillis raised from 5s → 15s: the SLA sweep periodically
 // hit the 5s threshold under request-burst contention, throwing
@@ -35,7 +41,7 @@ const { major: logMajor } = require('./logger');
 // fetchDoctorTimeouts. 15s tolerates the brief pgbouncer queueing without
 // failing fast — request handlers don't sit on pool waits anywhere near
 // that long in the steady state.
-var PG_POOL_MAX                 = parseInt(process.env.PG_POOL_MAX, 10)                 || 10;
+var PG_POOL_MAX                 = parseInt(process.env.PG_POOL_MAX, 10)                 || 8;
 var PG_POOL_CONNECT_TIMEOUT_MS  = parseInt(process.env.PG_POOL_CONNECT_TIMEOUT_MS, 10)  || 15000;
 var PG_POOL_IDLE_TIMEOUT_MS     = parseInt(process.env.PG_POOL_IDLE_TIMEOUT_MS, 10)     || 30000;
 // Theme 5 sub-issue B. Cap any single query at PG_STATEMENT_TIMEOUT_MS so a
@@ -70,25 +76,51 @@ var PG_STATEMENT_TIMEOUT_MS     = parseInt(process.env.PG_STATEMENT_TIMEOUT_MS, 
 // when the server connection is established, so every backend the pooler can
 // route us to carries them — there is no per-session state to lose.
 //
-// ESCAPE HATCH: `options` is a startup parameter, and poolers vary in whether
-// they forward it. If a pooler ever rejects it the symptom is total connection
-// failure at boot, so this is switchable WITHOUT a code change:
-//   PG_STARTUP_OPTIONS=off        → send no options; fall back to the SETs below
-//   PG_STARTUP_OPTIONS='-c ...'   → send exactly this string instead
-// An `options=` already present in DATABASE_URL is left alone.
+// AUDIT-2026-08-22 (AUDIT-STARTUP-OPTIONS-2) — DEFAULT IS NOW **OFF**. Read this
+// before turning it on.
 //
-// BELT AND BRACES: the operator-side equivalent that needs no client support is
+// The paragraph above is still the right ANALYSIS; sending `options` by default
+// was the wrong ACTION, for one specific reason: **Supavisor consumes the
+// `options` startup parameter itself**, for `reference=<project-ref>` tenant
+// routing. Supabase's own pooler therefore parses this field looking for
+// something else entirely — this is not the generic "poolers vary in whether
+// they forward it" risk, it is a known conflict with the exact pooler
+// DATABASE_URL points at on this deployment.
+//
+// The failure mode is total: every pool connection fails, the first pool query
+// (src/db.js's `CREATE TABLE IF NOT EXISTS schema_migrations`) throws, and the
+// process exits ~2s into boot. There is no partial degradation to notice and no
+// second chance — and the previous deploy is already gone. An all-or-nothing
+// boot gamble is not worth taking to enforce a setting that has a supported,
+// pooler-independent alternative:
+//
 //   ALTER ROLE <app role> SET timezone = 'UTC';
 //   ALTER ROLE <app role> SET statement_timeout = '30s';
-// which Supabase recommends and which applies at backend start regardless of
-// pooler. See the operator note in .env.example / render.yaml.
+//
+// Role defaults are applied by the BACKEND at connection start, so they hold on
+// every backend the pooler can route to — the exact property `options` was
+// reached for. This is what Supabase recommends and it is now the primary
+// mechanism. render.yaml lists it as required one-time operator setup and
+// preflightPool()/verifyPoolSettings() below report whether it actually took.
+//
+// TO OPT IN (a non-Supavisor pooler, or a direct connection):
+//   PG_STARTUP_OPTIONS=on         → send `-c timezone=UTC -c statement_timeout=<ms>`
+//   PG_STARTUP_OPTIONS='-c ...'   → send exactly this string instead
+//   PG_STARTUP_OPTIONS=off        → explicit off (same as unset; the default)
+// An `options=` already present in DATABASE_URL is left alone either way.
+//
+// Turning it on is now SAFE TO GET WRONG: preflightPool() retries once WITHOUT
+// startup options and logs loudly rather than letting the process exit.
 function _withStartupOptions(url) {
   if (!url) return url;
   var override = String(process.env.PG_STARTUP_OPTIONS || '').trim();
-  if (override.toLowerCase() === 'off') return url;
+  var lowered = override.toLowerCase();
+  // Default off (unset / 'off' / 'false' / '0'). Only an explicit opt-in sends it.
+  if (!override || lowered === 'off' || lowered === 'false' || lowered === '0') return url;
   if (/[?&]options=/i.test(url)) return url;   // operator set their own — don't fight it
-  var optionString = override ||
-    ('-c timezone=UTC -c statement_timeout=' + PG_STATEMENT_TIMEOUT_MS);
+  var optionString = (lowered === 'on' || lowered === 'true' || lowered === '1')
+    ? ('-c timezone=UTC -c statement_timeout=' + PG_STATEMENT_TIMEOUT_MS)
+    : override;
   var sep = url.indexOf('?') === -1 ? '?' : '&';
   return url + sep + 'options=' + encodeURIComponent(optionString);
 }
@@ -224,10 +256,13 @@ logMajor('[pg] pool ready: max=' + PG_POOL_MAX +
   ' statement_timeout=' + PG_STATEMENT_TIMEOUT_MS + 'ms (requested)');
 logMajor('[pg] startup options: ' + (PG_STARTUP_OPTIONS_APPLIED
   ? 'sent via connection-string options= (timezone=UTC, statement_timeout=' +
-    PG_STATEMENT_TIMEOUT_MS + ') — verified below'
-  : 'NOT sent (PG_STARTUP_OPTIONS=off, options= already in DATABASE_URL, or no ' +
-    'DATABASE_URL). On a transaction-mode pooler the per-connection SETs are ' +
-    'NOT a guarantee — see verifyPoolSettings output.'));
+    PG_STATEMENT_TIMEOUT_MS + ') — OPT-IN via PG_STARTUP_OPTIONS; preflight will ' +
+    'fall back automatically if the pooler rejects it'
+  : 'NOT sent (default since AUDIT-STARTUP-OPTIONS-2 — Supavisor uses the ' +
+    '`options` startup parameter for its own tenant routing). timezone and ' +
+    'statement_timeout must come from `ALTER ROLE ... SET ...` on the app role; ' +
+    'the per-connection SETs below are a fallback, NOT a guarantee on a ' +
+    'transaction-mode pooler. See verifyPoolSettings output.'));
 logMajor('[pg] env: mode=' + _modeForLog + ' DATABASE_URL_DIRECT=' + _directUrlSet);
 
 /**
@@ -249,7 +284,20 @@ logMajor('[pg] env: mode=' + _modeForLog + ' DATABASE_URL_DIRECT=' + _directUrlS
  * @returns {Promise<{ok:boolean, timezones?:string[], timeouts?:string[], sampled?:number, error?:string}>}
  */
 async function verifyPoolSettings(sampleSize) {
-  var n = Math.max(1, Math.min(parseInt(sampleSize, 10) || 5, PG_POOL_MAX));
+  // AUDIT-2026-08-22 (AUDIT-POOL-SAMPLE-1) — this used to grab min(5, PG_POOL_MAX)
+  // slots CONCURRENTLY, i.e. half the request pool, on a 15s timer that landed
+  // exactly as Render ramps traffic onto the new instance. It now runs once from
+  // migrate(), BEFORE app.listen, so it competes with nothing — and the sample is
+  // capped at 3 and at half the pool anyway, so it cannot starve the pool even if
+  // a future caller invokes it on a live instance.
+  // AUDIT-2026-08-22 — PG_VERIFY_SETTINGS=off used to be honoured by the
+  // setTimeout that armed this; that timer is gone, so the switch is read here.
+  if (!process.env.DATABASE_URL ||
+      String(process.env.PG_VERIFY_SETTINGS || '').trim().toLowerCase() === 'off') {
+    return { ok: false, skipped: true };
+  }
+  var cap = Math.max(1, Math.min(3, Math.floor(PG_POOL_MAX / 2) || 1));
+  var n = Math.max(1, Math.min(parseInt(sampleSize, 10) || cap, cap));
   var clients = [];
   try {
     for (var i = 0; i < n; i++) clients.push(pool.connect());
@@ -293,26 +341,83 @@ async function verifyPoolSettings(sampleSize) {
   }
 }
 
-// Self-scheduled one-shot so the check needs no wiring in server.js (owned
-// elsewhere). unref()'d: it must never hold the event loop open, and it must
-// not race the boot migration for pool slots.
-if (process.env.DATABASE_URL &&
-    String(process.env.PG_VERIFY_SETTINGS || '').trim().toLowerCase() !== 'off') {
-  var _verifyTimer = setTimeout(function () {
-    verifyPoolSettings(5).catch(function () {});
-  }, 15000);
-  if (_verifyTimer.unref) _verifyTimer.unref();
+/**
+ * AUDIT-2026-08-22 (AUDIT-STARTUP-OPTIONS-2) — prove the pool can connect AT ALL,
+ * and self-heal the one failure this file can cause.
+ *
+ * WHY IT REPLACED A TIMER: verifyPoolSettings used to be armed on a 15s
+ * setTimeout, which could never fire in the case it existed to diagnose. The
+ * first pool query in the process is src/db.js's
+ * `CREATE TABLE IF NOT EXISTS schema_migrations`, ~2s in; if the pooler rejects
+ * the `options` startup parameter that query throws, server.js exits, and the
+ * only log line is "migrate failed". The diagnostic has to run BEFORE the first
+ * migration query or it is decoration — so src/db.js's migrate() awaits this and
+ * verifyPoolSettings() as its first two statements.
+ *
+ * SELF-HEAL: an `options`-shaped connection failure is recoverable — the setting
+ * it carries has a documented alternative (ALTER ROLE). Rather than exiting, we
+ * strip the startup options and retry once. pg-pool builds every new client from
+ * `pool.options`, and at this point in boot NO connection has ever succeeded, so
+ * there is no live client carrying the old string to worry about.
+ *
+ * Never throws. A genuine DB outage still surfaces where it always did — as the
+ * migration query's own error — with a clearer preceding log line.
+ *
+ * @returns {Promise<{ok:boolean, healed?:boolean, error?:string, skipped?:boolean}>}
+ */
+async function preflightPool() {
+  if (!process.env.DATABASE_URL) return { ok: false, skipped: true };
+  try {
+    await pool.query('SELECT 1');
+    return { ok: true };
+  } catch (err) {
+    var msg = err && err.message ? err.message : String(err);
+    if (!PG_STARTUP_OPTIONS_APPLIED) {
+      logMajor('[pg] preflight FAILED: ' + msg + ' — the database is unreachable or ' +
+        'rejecting this connection string. Startup options were not in play.');
+      return { ok: false, error: msg };
+    }
+    logMajor('[pg] preflight FAILED with startup options in the connection string: ' +
+      msg + ' — this is the documented `options=` rejection (Supavisor consumes that ' +
+      'startup parameter for tenant routing). RETRYING WITHOUT startup options. ' +
+      'Set PG_STARTUP_OPTIONS=off to make this permanent, and set timezone / ' +
+      'statement_timeout with `ALTER ROLE <app role> SET ...` instead.');
+    try {
+      // pg-pool builds every new client with `new this.Client(this.options)`, so
+      // rewriting connectionString here changes what the NEXT connection uses.
+      // Defensive: if a future pg-pool stops exposing `options`, say so rather
+      // than throwing inside a function documented as never throwing.
+      if (!pool.options) {
+        logMajor('[pg] cannot self-heal: this pg-pool build does not expose ' +
+          'pool.options. Set PG_STARTUP_OPTIONS=off on the service and redeploy.');
+        return { ok: false, error: msg };
+      }
+      pool.options.connectionString = process.env.DATABASE_URL;
+      PG_STARTUP_OPTIONS_APPLIED = false;
+      await pool.query('SELECT 1');
+      logMajor('[pg] preflight recovered WITHOUT startup options. timezone and ' +
+        'statement_timeout are NOT guaranteed on this pooler until the ALTER ROLE ' +
+        'defaults are in place — check the verification line below.');
+      return { ok: true, healed: true };
+    } catch (err2) {
+      var msg2 = err2 && err2.message ? err2.message : String(err2);
+      logMajor('[pg] preflight STILL failing without startup options: ' + msg2 +
+        ' — this is not an options problem. Check DATABASE_URL, PG_SSL and whether ' +
+        'the Supabase project is paused.');
+      return { ok: false, error: msg2 };
+    }
+  }
 }
 
 // Supabase Free pgbouncer caps client connections at 15 per project.
-// max=10 leaves headroom for pg-boss direct (separate pool, see job_queue.js)
-// + Supabase internal heartbeats + burst. Anything above 12 starts cutting
-// into that headroom; with two Render instances it cuts into the actual
-// 15-slot ceiling. Warn loud — it's almost always a misconfiguration.
-if (PG_POOL_MAX > 12) {
-  logMajor('[pg] WARNING: PG_POOL_MAX=' + PG_POOL_MAX + ' is close to the ' +
-    'Supabase Free 15-slot ceiling. Reduce to ≤12 if running >1 Render instance, ' +
-    'or upgrade Supabase tier.');
+// AUDIT-2026-08-22 (AUDIT-BOSS-POOL-2) — the threshold follows the corrected
+// split: 8 here + 6 for pg-boss + 1 for Supabase internals. Anything above 8
+// eats into pg-boss's share, which is what stalls sla-sweep and auto-assign.
+if (PG_POOL_MAX > 8) {
+  logMajor('[pg] WARNING: PG_POOL_MAX=' + PG_POOL_MAX + ' exceeds its share of the ' +
+    'Supabase Free 15-slot ceiling (8 request pool + 6 pg-boss + 1 internals). ' +
+    'Lower PG_BOSS_POOL_MAX to match, run only ONE Render instance, or upgrade the ' +
+    'Supabase tier.');
 }
 
 pool.on('error', (err) => {
@@ -390,4 +495,4 @@ async function withTransaction(fn) {
   }
 }
 
-module.exports = { pool, queryOne, queryAll, execute, withTransaction, verifyPoolSettings };
+module.exports = { pool, queryOne, queryAll, execute, withTransaction, verifyPoolSettings, preflightPool };

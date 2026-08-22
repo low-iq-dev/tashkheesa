@@ -3139,18 +3139,22 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
     [randomUUID(), newDoctorId, resetToken, tokenExpiresAt, tokenNow.toISOString()]
   );
 
-  // Resolve the public base URL the same way the manual reset-link
-  // generator below does (env var first, request headers as fallback;
-  // never default to localhost in prod).
-  let baseUrl = String(process.env.BASE_URL || process.env.APP_URL || '').trim().replace(/\/+$/, '');
-  if (!baseUrl) {
-    try {
-      const protoRaw = (req.get('x-forwarded-proto') || req.protocol || 'http');
-      const proto = String(protoRaw).split(',')[0].trim() || 'http';
-      const host = req.get('x-forwarded-host') || req.get('host');
-      baseUrl = host ? `${proto}://${host}` : '';
-    } catch (_) { baseUrl = ''; }
-  }
+  // Resolve the public base URL from CONFIGURATION ONLY.
+  //
+  // AUDIT-2026-08-22 (AUDIT-RESET-HOST-1) — this used to fall back to
+  // `x-forwarded-host || host`, i.e. to a request header, when BASE_URL and
+  // APP_URL were both empty. That puts an attacker-controllable value into the
+  // body of an EMAILED password-setup link: anyone who can reach this service on
+  // a hostname of their choosing gets the token delivered to their own host. The
+  // route is superadmin-gated and BASE_URL is set in render.yaml, so this was
+  // mitigated rather than exploitable — but "never derives a link from the
+  // request" is a property the codebase claims, and it only actually held in
+  // src/routes/auth.js. It holds here now too.
+  //
+  // No link is better than a wrong link: with neither env var set the caller
+  // below reports `base_url_unresolved` and the operator fixes the config.
+  const baseUrl = String(process.env.BASE_URL || process.env.APP_URL || '')
+    .trim().replace(/\/+$/, '');
   const resetLink = baseUrl ? `${baseUrl}/reset-password/${resetToken}?lang=en` : null;
 
   let emailOk = false;
@@ -4294,16 +4298,14 @@ router.get('/superadmin/debug/reset-link/:userId', requireSuperadmin, async (req
     [uuidv4(), user.id, token, expiresAt, now.toISOString()]
   );
 
-  const baseUrl = String(process.env.BASE_URL || '').trim() || (() => {
-    try {
-      const protoRaw = (req.get('x-forwarded-proto') || req.protocol || 'http');
-      const proto = String(protoRaw).split(',')[0].trim() || 'http';
-      const host = req.get('x-forwarded-host') || req.get('host');
-      return host ? `${proto}://${host}` : '';
-    } catch (_) {
-      return '';
-    }
-  })();
+  // AUDIT-2026-08-22 (AUDIT-RESET-HOST-1) — configuration only; the
+  // `x-forwarded-host || host` fallback is gone. See the identical note on the
+  // doctor-welcome reset link above: this value is emailed with a live reset
+  // token in it, so it must never be derived from the request. APP_URL is
+  // accepted as a second source because render.yaml sets both to the same value
+  // and the welcome-link path above already reads it.
+  const baseUrl = String(process.env.BASE_URL || process.env.APP_URL || '')
+    .trim().replace(/\/+$/, '');
 
   const emailLang = (user.lang === 'ar') ? 'ar' : 'en';
   // Prefer absolute URLs when possible; never default to localhost.

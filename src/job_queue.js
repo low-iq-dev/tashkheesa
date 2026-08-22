@@ -53,23 +53,45 @@ async function startJobQueue() {
 
   // AUDIT-2026-08-22 (AUDIT-BOSS-POOL-1) — PgBoss was constructed with NO
   // connection bound, so it used pg-boss v12's default of max=10. Combined with
-  // src/pg.js's PG_POOL_MAX (also 10 by default) that is ~20 client connections
-  // against the 15-slot Supabase Free ceiling that src/pg.js:26-33 and 163-169
-  // are explicitly sized around — the request pool's own comment reserves the
-  // remaining 5 slots for "pg-boss direct + Supabase internal heartbeats +
-  // burst", and pg-boss was quietly taking twice that.
+  // src/pg.js's PG_POOL_MAX that is ~20 client connections against the 15-slot
+  // Supabase Free ceiling that src/pg.js:26-33 is explicitly sized around.
   //
-  // 4 is the budget that comment implies: 10 (request pool) + 4 (pg-boss) + 1
-  // for Supabase internals/burst = 15. pg-boss needs one connection per
-  // long-polling worker plus one for maintenance; four workers are registered
-  // below, all with teamConcurrency 1, and pg-boss shares the pool across them.
+  // AUDIT-2026-08-22 (AUDIT-BOSS-POOL-2) — the first fix bounded it to 4 on the
+  // strength of a worker count that was simply WRONG. The comment said "four
+  // workers, all teamConcurrency 1". The real registration is:
+  //   createQueue × 6 : case-intelligence, case-reprocess, auto-assign,
+  //                     specialty-classify, sla-sweep, ai-canary
+  //   boss.work   × 6 : the four below, plus sla-sweep (scheduleSlaSweep) and
+  //                     ai-canary (scheduleAiCanary) — both registered from
+  //                     server.js after start()
+  //   teamSize 2 on THREE of them (case-intelligence, auto-assign,
+  //                     specialty-classify) → up to 9 concurrent handlers
+  // …plus pg-boss's own maintenance and monitor (monitorStateIntervalSeconds:30)
+  // connections. Against max=4, pg-boss's fetch/complete queries queue behind
+  // its own pool and surface as connection timeouts; the two SCHEDULED queues
+  // (sla-sweep, auto-assign) are the ones that visibly stall, and a stalled
+  // sla-sweep means breaches are not detected.
+  //
+  // The handlers themselves do their database work on the REQUEST pool
+  // (require('./pg')), not on this one, so this bound sizes pg-boss's own
+  // traffic: up to 6 concurrent queue fetches + completes + maintenance +
+  // monitor. 6 covers that without queueing.
+  //
+  // BUDGET AGAINST THE 15-SLOT SUPABASE FREE CEILING (see src/pg.js:26-33):
+  //     8  request pool          (PG_POOL_MAX, lowered from 10 to pay for this)
+  //   + 6  pg-boss               (PG_BOSS_POOL_MAX, raised from 4)
+  //   + 1  Supabase internals / burst
+  //   = 15
+  // The migration advisory-lock Client (src/db.js) is a 16th connection but it
+  // exists only during boot and is closed before startJobQueue() runs, so the
+  // peak is 8 + 1 = 9 at boot and 8 + 6 = 14 in steady state.
   // Raise via PG_BOSS_POOL_MAX only together with the Supabase tier, and keep
-  // PG_POOL_MAX + PG_BOSS_POOL_MAX under the ceiling.
+  // PG_POOL_MAX + PG_BOSS_POOL_MAX ≤ 14.
   //
   // NOTE: pg-boss connects on DATABASE_URL_DIRECT (session pooler, 5432) while
   // the request pool uses the transaction pooler (6543). Different endpoints,
   // but the same Supabase project-wide connection budget.
-  var PG_BOSS_POOL_MAX = parseInt(process.env.PG_BOSS_POOL_MAX, 10) || 4;
+  var PG_BOSS_POOL_MAX = parseInt(process.env.PG_BOSS_POOL_MAX, 10) || 6;
 
   boss = new PgBoss({
     connectionString: connectionString,
