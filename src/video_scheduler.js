@@ -187,11 +187,21 @@ async function detectNoShows() {
               [now, appt.payment_id]);
           }
 
+          // ── AUDIT-2026-08-22 (N2): the auto-detect sweep reached this branch
+          // because the PATIENT joined and the DOCTOR never did, and it then
+          // told the patient — using `video_no_show_doctor`, whose registry
+          // suffix means "doctor-facing", not "the doctor no-showed". Its title
+          // is "Patient did not join the video consultation" and its OpenClaw
+          // body says the patient did not join, with a doctor-portal deep link.
+          // The patient who WAS stood up got blamed for it. Correct recipient
+          // (patient, unchanged) with a patient-facing doctor-no-show template.
+          // dedupe keys are left as-is so appointments already notified under
+          // the old template are not re-notified.
           await queueNotification({
             orderId: appt.order_id,
             toUserId: appt.patient_id,
             channel: 'internal',
-            template: 'video_no_show_doctor',
+            template: 'video_doctor_no_show_patient',
             status: 'queued',
             response: JSON.stringify({ appointment_id: appt.id, refund: 'full' }),
             dedupe_key: `video:noshow:${appt.id}:doctor`
@@ -200,9 +210,9 @@ async function detectNoShows() {
             orderId: appt.order_id,
             toUserId: appt.patient_id,
             channel: 'whatsapp',
-            template: 'video_no_show_doctor',
+            template: 'video_doctor_no_show_patient',
             status: 'queued',
-            response: JSON.stringify({ appointment_id: appt.id }),
+            response: JSON.stringify({ appointment_id: appt.id, refund: 'full' }),
             dedupe_key: `video:noshow:whatsapp:${appt.id}:doctor`
           });
 
