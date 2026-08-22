@@ -1,6 +1,8 @@
 const express = require('express');
 const crypto = require('crypto');
-const { queryOne, queryAll, execute } = require('../pg');
+// AUDIT-2026-08-22 (R3): `pool` is needed for the per-transaction advisory
+// lock that serialises this webhook — see the lock block in POST /callback.
+const { pool, queryOne, queryAll, execute } = require('../pg');
 const { logOrderEvent } = require('../audit');
 const { queueNotification, queueMultiChannelNotification, notifyAdmins } = require('../notify');
 const { verifyPaymobHmac } = require('../paymob-hmac');
@@ -359,6 +361,11 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
 
 
 router.post('/callback', async (req, res, next) => {
+  // AUDIT-2026-08-22 (R3, P0): declared OUTSIDE the try so the finally at the
+  // bottom of this handler can release the advisory lock on EVERY exit path,
+  // including the `return next(err)` in the catch. See the lock block below.
+  let _txnLockClient = null;
+  let _txnLockKey = null;
   try {
     // P1-PAY-1 commit 4: HMAC is the only auth path. The legacy
     // PAYMENT_WEBHOOK_SECRET shared-secret fallback was deleted in
@@ -535,15 +542,107 @@ router.post('/callback', async (req, res, next) => {
     // provisional: that is an abandoned attempt, not a completed one, and it
     // must be re-processed rather than swallowed.
     //
-    // A provisional row is also the operational signal that this used to lack:
+    // A provisional row is the RAW MATERIAL for an operational signal:
     //   SELECT * FROM payment_events WHERE event_type = 'webhook_processing';
     // is exactly the list of deliveries that died mid-flight.
+    //
+    // AUDIT-2026-08-22 (R7, P1): it is NOT a signal anyone currently sees, and
+    // the original wording claimed otherwise. Nothing reads this event_type —
+    // routes/ops.js:598 deliberately restricts lastWebhookAt to
+    // ('webhook_received','payment_succeeded','payment_failed'), and no other
+    // reader mentions it. HAND-OFF (ops owner): add a webhook_processing count
+    // + oldest-age tile to /ops; a row older than a few minutes is a webhook
+    // that died holding the claim. Until that exists, the two paths that leave
+    // a row provisional AND end the request (order-not-found below, and the
+    // outer catch) are the ones that page on-call directly.
     const PROVISIONAL_EVENT_TYPE = 'webhook_processing';
     // Long enough that two near-simultaneous deliveries of the same
     // transaction cannot both process it (the second is told to retry), short
     // enough that a crashed attempt is retried inside Paymob's retry schedule.
     const CLAIM_TAKEOVER_SECONDS = 60;
     let _claimOwned = false;
+
+    // ── AUDIT-2026-08-22 (R3, P0): REAL serialisation, held for the whole
+    //    handler ────────────────────────────────────────────────────────────
+    //
+    // M6 replaced an unconditional `ON CONFLICT DO NOTHING` — which made
+    // concurrent processing of one transaction STRUCTURALLY impossible — with a
+    // 60-second, heartbeat-free takeover window. A slow-but-alive attempt is
+    // indistinguishable from a dead one under that rule, and 60s is reachable
+    // here: markCasePaid does assignment + broadcast + notifications,
+    // getOrCreatePaymentUrl (:1125) makes an outbound HTTPS call, and the pool
+    // is capped at ~12 against Supabase Free. Sequence that resulted:
+    //
+    //   A claims at t=0 and is slow. Paymob retries. B at t≥61s takes the claim
+    //   and runs the handler CONCURRENTLY with A. A has already committed
+    //   payment_status='paid' but not finished markCasePaid, so B's read sees
+    //   status != 'paid' and no deadline_at → needsBackfill is true (:1090) → B
+    //   does not short-circuit, calls markCasePaid again and re-runs the whole
+    //   add-on fulfilment block: safeDualWrite('video_consult','onPurchase'),
+    //   the purchase notifications, the addons_json merge.
+    //
+    // The lock below restores the lost property without giving back M6's: only
+    // one delivery of a given transaction id can be inside this handler at a
+    // time, and a transient failure still cannot strand the payment (the claim
+    // row stays provisional and a retry re-processes it).
+    //
+    // WHY pg_try_advisory_XACT_lock ON A DEDICATED CLIENT, AND NOT
+    // pg_try_advisory_lock: DATABASE_URL is the Supabase TRANSACTION-mode
+    // pooler (port 6543), where a node-pg client is NOT bound to a backend. A
+    // session-scoped advisory lock is taken on backend A and unlocked on
+    // whichever backend is free — that is the exact bug AUDIT-WATCHDOG-LOCK-1
+    // found in services/worker_watchdog.js, where the leaked lock silently
+    // disabled every ops push. An xact lock inside an explicit BEGIN is
+    // released by the server at COMMIT/ROLLBACK and cannot be released on the
+    // wrong backend, and the pooler pins one backend for the duration of a
+    // transaction. Only the lock lives in this transaction — every query in
+    // this handler still runs on the ordinary pool, so nothing below is holding
+    // rows or reading a stale snapshot.
+    //
+    // NOT acquired (`false`) means a sibling delivery is genuinely mid-flight:
+    // answer 503 and let Paymob redeliver, exactly as for the in-flight claim
+    // below. An ERROR acquiring it (pool exhausted, connect timeout) also
+    // answers 503 rather than proceeding unserialised — on the money path,
+    // "try again" beats "run the non-idempotent block twice".
+    //
+    // COST, stated so it is not a surprise: one pooled client (of PG_POOL_MAX,
+    // default 10) is held idle-in-transaction for the length of the handler.
+    // Paymob webhook volume on this platform is a handful per minute, so the
+    // budget is not close; and if it ever were, the failure mode is a
+    // connect-timeout here → 503 → redelivery, not a corrupted order. If the
+    // deployment ever sets idle_in_transaction_session_timeout below the
+    // handler's worst case, the backend is killed and the lock drops early —
+    // the ROLLBACK below then fails harmlessly and serialisation degrades to
+    // the takeover window. Neither is silent: both land in error_logs.
+    if (paymobTxnId) {
+      _txnLockKey = 'paymob:txn:' + paymobTxnId;
+      try {
+        _txnLockClient = await pool.connect();
+        await _txnLockClient.query('BEGIN');
+        const lockRow = await _txnLockClient.query(
+          'SELECT pg_try_advisory_xact_lock(hashtext($1)) AS locked',
+          [_txnLockKey]
+        );
+        const gotLock = !!(lockRow && lockRow.rows && lockRow.rows[0] && lockRow.rows[0].locked);
+        if (!gotLock) {
+          logOrderEvent({
+            orderId,
+            label: 'Payment callback: concurrent delivery in flight — asked Paymob to retry',
+            meta: JSON.stringify({ paymob_transaction_id: paymobTxnId, status }),
+            actorRole: 'system'
+          });
+          return res.status(503).json({ ok: false, error: 'processing_in_progress' });
+        }
+      } catch (lockErr) {
+        logErrorToDb(lockErr, {
+          context: 'payment_callback_txn_lock',
+          orderId,
+          requestId: req.requestId,
+          category: 'payment'
+        });
+        return res.status(503).json({ ok: false, error: 'lock_unavailable' });
+      }
+    }
 
     if (paymobTxnId) {
       // ON CONFLICT must repeat the partial-index predicate
@@ -570,13 +669,29 @@ router.post('/callback', async (req, res, next) => {
         // provisional AND stale — i.e. an attempt that died without applying
         // an outcome. The predicate makes the takeover atomic: if a finaliser
         // commits first, event_type no longer matches and we match 0 rows.
+        // AUDIT-2026-08-22 (R10, P2): the takeover used to bump received_at
+        // ONLY, leaving payload_json / order_id / paymob_intention_id from the
+        // ABANDONED attempt. Forensics on a re-processed delivery — the
+        // amount-mismatch join in routes/api/admin.js, services/
+        // payment_event_review, any manual reconciliation — then read a body
+        // that is not the one this run acted on. The claim now carries THIS
+        // delivery's body, which is the whole point of taking it over.
         const takeover = await execute(
           `UPDATE payment_events
-              SET received_at = NOW()
+              SET received_at = NOW(),
+                  order_id = $3,
+                  paymob_intention_id = $4,
+                  payload_json = $5
             WHERE paymob_transaction_id = $1
               AND event_type = $2
               AND received_at < NOW() - INTERVAL '${CLAIM_TAKEOVER_SECONDS} seconds'`,
-          [paymobTxnId, PROVISIONAL_EVENT_TYPE]
+          [
+            paymobTxnId,
+            PROVISIONAL_EVENT_TYPE,
+            orderId,
+            paymobIntentionId,
+            JSON.stringify(req.body || {})
+          ]
         );
         if (takeover && takeover.rowCount > 0) {
           _claimOwned = true;
@@ -593,11 +708,19 @@ router.post('/callback', async (req, res, next) => {
           );
           if (heldRow && String(heldRow.event_type) === PROVISIONAL_EVENT_TYPE) {
             // A concurrent delivery of this same transaction is in flight right
-            // now. Deliberately NOT a 200: if that attempt dies, a 200 here is
-            // precisely the swallow this fix removes. A non-2xx makes Paymob
-            // retry — and the retry either finds the row finalised (200 replay
+            // now (or died inside the takeover window). Deliberately NOT a 200:
+            // if that attempt dies, a 200 here is precisely the swallow this
+            // fix removes. The retry either finds the row finalised (200 replay
             // below) or clears the takeover window above and re-processes.
-            return res.status(409).json({ ok: false, error: 'processing_in_progress' });
+            //
+            // AUDIT-2026-08-22 (R7, P1): 503, not 409. Nothing in this repo
+            // establishes that Paymob retries on 4xx, and many gateways treat
+            // 4xx as terminal and retry only 5xx — under that contract the
+            // loser of a concurrent pair was simply DROPPED, and if the winner
+            // then threw, nobody redelivered: patient charged, order never
+            // paid, which is the exact failure M6 set out to remove. 503 is the
+            // conventional retriable answer and is safe under both contracts.
+            return res.status(503).json({ ok: false, error: 'processing_in_progress' });
           }
           // Finalised row → a genuine replay of an already-APPLIED
           // transaction. No-op, 200, Paymob stops retrying. Unchanged.
@@ -660,8 +783,30 @@ router.post('/callback', async (req, res, next) => {
     // order we cannot see (orders_active hides soft-deleted rows, so the 48h
     // unpaid sweep can produce exactly this) — nothing has been applied, so a
     // redelivery must re-run the lookup rather than be swallowed as a replay.
-    // The claim stays provisional and is itself the reconciliation signal.
-    return res.status(404).json({ ok: false, error: 'order not found' });
+    //
+    // AUDIT-2026-08-22 (R7, P1): 503, not 404. Leaving the claim provisional
+    // only helps if the delivery actually comes back, and a 404 is terminal
+    // under most gateway retry contracts — so "re-run the lookup" never
+    // happened and the patient stayed charged on an unpaid order. 503 asks for
+    // a redelivery, which is what a soft-deleted-then-restored order or an
+    // in-flight write needs. If the order genuinely does not exist the retries
+    // stop of their own accord and the provisional row remains as the record.
+    //
+    // The claim row alone was NOT a working reconciliation signal: nothing
+    // reads event_type='webhook_processing' today (routes/ops.js:599 excludes
+    // it deliberately), so this now pages on-call directly. sendCriticalAlert
+    // throttles per key, so a probe flood cannot spam the founder's phone.
+    // HAND-OFF (ops owner): surface webhook_processing rows on /ops — they are
+    // the list of deliveries that died mid-flight, and there is currently no
+    // view of them anywhere.
+    try {
+      sendCriticalAlert(
+        'Paymob webhook for UNKNOWN order ' + orderId +
+        ' (txn ' + (paymobTxnId || 'n/a') + ') — money taken, no order to apply it to',
+        'paymob_order_not_found'
+      );
+    } catch (_) {}
+    return res.status(503).json({ ok: false, error: 'order not found' });
   }
 
   // ── FIX 2: a refund/void is audited and paged, never silently dropped ─────
@@ -1462,6 +1607,25 @@ router.post('/callback', async (req, res, next) => {
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, context: 'payment_callback' });
     return next(err);
+  } finally {
+    // AUDIT-2026-08-22 (R3): release the serialisation lock on EVERY exit —
+    // the 200s, the 4xx/503 early returns and the next(err) above. ROLLBACK is
+    // what actually drops the xact lock (nothing else ran in this transaction,
+    // so there is nothing to commit); releasing the client without it would
+    // hand a pooler backend back mid-transaction. Both are wrapped: a failure
+    // here must never turn a delivered webhook into a 500, and destroying the
+    // client on error guarantees the backend — and the lock with it — is gone.
+    if (_txnLockClient) {
+      const c = _txnLockClient;
+      _txnLockClient = null;
+      try {
+        await c.query('ROLLBACK');
+        c.release();
+      } catch (unlockErr) {
+        console.error('[callback] txn lock release failed:', unlockErr && unlockErr.message);
+        try { c.release(true); } catch (_) {}
+      }
+    }
   }
 });
 

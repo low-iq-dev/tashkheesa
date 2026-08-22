@@ -148,6 +148,45 @@ async function closeOrderIfFullyRefunded(orderId, opts) {
     // writers cannot land on opposite sides of a rounding piastre.
     if (refundedPt < chargedPt - FULL_REFUND_EPSILON_CENTS) {
       // The ordinary partial case — an SLA breach uplift refund lands here.
+      //
+      // ── AUDIT-2026-08-22 (R9, P2): STATE THE CONSEQUENCE ────────────────
+      //
+      // This branch is correct per the module's intent (a partial refund must
+      // not abandon a patient who is still owed a report), but the M2 ceiling
+      // change gave it a new and much less obvious failure mode that an
+      // operator has to be told about:
+      //
+      //   Invoice 1800 = 1000 case fee + 800 video add-on. The operator's
+      //   intent is "refund the case, the patient is not getting a report".
+      //   They refund 1000. 1000 < 1800, so NOTHING closes: the order stays
+      //   status='in_progress'/'paid', keeps occupying one of its doctor's
+      //   concurrent slots, stays eligible for reassignment, stays in the
+      //   Command app's NEEDS ACTION card and in every revenue KPI — with its
+      //   entire case fee already returned. That is exactly the live-data
+      //   defect at the top of this file, re-created by a correct partial.
+      //
+      // There is no safe way to infer intent here: the `refunds` table has no
+      // line items and no scope column (see the same note in
+      // earnings_writer.recomputeOnRefund), so "1000 of 1800" is genuinely
+      // ambiguous between "the case fee" and "most of the invoice". Guessing
+      // would close cases patients are still owed reports on — strictly worse
+      // than leaving them open and visible.
+      //
+      // Two things narrow it in practice, and both are already in place:
+      //   1. maxRefundableEgp now excludes a CONSUMED video add-on
+      //      (services/refund_eligibility.js, R5). On the common shape of this
+      //      invoice — the patient booked the consultation — the ceiling IS
+      //      1000, so the 1000 refund closes the case correctly and this
+      //      branch is never reached.
+      //   2. Topping the refund up to the full amount closes the case then,
+      //      which falls out of the arithmetic for free.
+      //
+      // HAND-OFF (refunds owner): the real fix is scope on the refund form —
+      // an operator marking a refund 'case fee, no report owed' should close
+      // the case regardless of arithmetic, and the same flag already has a
+      // waiting consumer in recomputeOnRefund's `{ scope: 'addon' }` opt-in.
+      // Until then, an operator who has refunded the case fee on a
+      // multi-line invoice MUST also close the case by hand.
       return {
         closed: false,
         skipped: 'partial_refund',

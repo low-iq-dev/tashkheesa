@@ -17,6 +17,11 @@ const { getAddon, safeDualWrite } = require('../services/addons/registry');
 // Booking must not re-derive that from the catalogue — the catalogue can drift
 // from what the patient was actually charged (see FIX 9 in addons/video_consult.js).
 const { parseSelectedAddons } = require('../services/order_pricing');
+// AUDIT-2026-08-22 (R1/R2): terminal transitions on an appointment funded by
+// the case add-on must RELEASE the entitlement, not fake a refund against a
+// payment row that never held any money. See the module header for why
+// releasing (rather than writing a `refunds` row) is the right repair.
+const { releaseVideoAddonEntitlement } = require('../services/video_addon_entitlement');
 
 const router = express.Router();
 
@@ -432,6 +437,16 @@ router.post('/portal/video/book', requireRole('patient'), async (req, res) => {
       // just with the money already collected. Without the doctor's review
       // request the slot would sit untouched until the 48h stale sweep
       // auto-cancels it (video_scheduler.sweepStalePendingSlots).
+      //
+      // AUDIT-2026-08-22 (R6, P1): these three are FIRE-AND-FORGET and must
+      // therefore be .catch()'d. queueNotification is async and awaits a
+      // `users` lookup (notify.js normalizeToUserId), so any transient DB error
+      // rejects the promise; nothing awaits it, and server.js's
+      // `unhandledRejection` handler is fatal — it calls process.exit(1). These
+      // fire immediately after the transaction that CONSUMED the entitlement
+      // committed, so the crash would land after the money is spent and before
+      // the patient ever sees the redirect. Same treatment routes/payments.js
+      // already gives its fire-and-forget notification calls.
       queueNotification({
         orderId: order_id,
         toUserId: req.user.id,
@@ -442,6 +457,8 @@ router.post('/portal/video/book', requireRole('patient'), async (req, res) => {
           appointment_id: result.appointmentId,
           scheduled_at: scheduledDate.toISOString()
         })
+      }).catch(function (err) {
+        console.error('[video] video_payment_confirmed (internal) queue failed:', err && err.message);
       });
       queueNotification({
         orderId: order_id,
@@ -453,6 +470,8 @@ router.post('/portal/video/book', requireRole('patient'), async (req, res) => {
           appointment_id: result.appointmentId,
           scheduled_at: scheduledDate.toISOString()
         })
+      }).catch(function (err) {
+        console.error('[video] video_payment_confirmed (whatsapp) queue failed:', err && err.message);
       });
       if (order.doctor_id) {
         queueNotification({
@@ -465,6 +484,24 @@ router.post('/portal/video/book', requireRole('patient'), async (req, res) => {
             appointment_id: result.appointmentId,
             patient_preferred_slot: scheduledDate.toISOString()
           })
+        }).catch(function (err) {
+          console.error('[video] video_slot_review_requested queue failed:', err && err.message);
+        });
+      } else {
+        // AUDIT-2026-08-22 (R1): the case has no doctor yet, so there is nobody
+        // to ask to accept this slot. The appointment still sits in
+        // 'pending_doctor' and video_scheduler.sweepStalePendingSlots will
+        // auto-cancel it at 48h (the entitlement is now released when it does,
+        // so the patient is no longer out of pocket — but they will rebook into
+        // the same dead end). Leave a timeline marker so the 24h admin
+        // escalation has something to act on. HAND-OFF: assignment should
+        // notify the doctor about any pending_doctor appointment it inherits.
+        logOrderEvent({
+          orderId: order_id,
+          label: 'video_slot_awaiting_doctor_assignment',
+          meta: JSON.stringify({ appointment_id: result.appointmentId }),
+          actorUserId: req.user.id,
+          actorRole: 'patient'
         });
       }
       return res.redirect(`/portal/video/appointment/${result.appointmentId}`);
@@ -1020,8 +1057,33 @@ router.post('/portal/video/appointment/:id/cancel', requireRole('patient', 'doct
       ? 'Cancelled by doctor'
       : 'Cancelled 24h+ before appointment';
     if (appointment.payment_id) {
-      await execute(`UPDATE appointment_payments SET status = 'refunded', refund_reason = $1, refunded_at = $2 WHERE id = $3`,
-        [refundReason, now, appointment.payment_id]);
+      // ── AUDIT-2026-08-22 (R2, P0): "full refund" on an add-on-funded
+      // appointment refunded nothing ────────────────────────────────────────
+      //
+      // When POST /portal/video/book funds a booking out of the case add-on it
+      // writes appointment_payments with method='order_addon' — a marker row,
+      // not a charge. Flipping it to 'refunded' moves no money, writes no
+      // `refunds` row, and leaves
+      // orders.addons_json.video_consultation_consumed_by pointing at this
+      // appointment, so readVideoAddonEntitlement returns null forever and the
+      // patient is quoted the add-on price again to rebook. Meanwhile both
+      // notifications below told them refund_status='full_refund'.
+      //
+      // Release hands the consultation back instead — the patient paid for one
+      // consultation and has not had one. refundStatus follows so the message
+      // stops promising money that is not coming.
+      const addonRelease = await releaseVideoAddonEntitlement({
+        appointmentId: appointment.id,
+        orderId: appointment.order_id,
+        paymentId: appointment.payment_id,
+        reason: refundReason + ' — consultation entitlement returned'
+      });
+      if (addonRelease.addonFunded) {
+        refundStatus = 'entitlement_released';
+      } else {
+        await execute(`UPDATE appointment_payments SET status = 'refunded', refund_reason = $1, refunded_at = $2 WHERE id = $3`,
+          [refundReason, now, appointment.payment_id]);
+      }
     }
   }
 
@@ -1563,9 +1625,22 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
       return res.status(409).json({ ok: false, error: 'Appointment is no longer in a markable state' });
     }
 
+    // ── AUDIT-2026-08-22 (R2, P0): the same empty refund as the cancel path.
+    // method='order_addon' means there is no separate payment to reverse; the
+    // honest remedy is to hand the consultation back so the patient the doctor
+    // stood up can rebook at no cost. See services/video_addon_entitlement.js.
+    let nsAddonRelease = { addonFunded: false };
     if (appointment.payment_id) {
-      await execute(`UPDATE appointment_payments SET status = 'refunded', refund_reason = 'Doctor no-show', refunded_at = $1 WHERE id = $2`,
-        [now, appointment.payment_id]);
+      nsAddonRelease = await releaseVideoAddonEntitlement({
+        appointmentId: appointment.id,
+        orderId: appointment.order_id,
+        paymentId: appointment.payment_id,
+        reason: 'Doctor no-show — consultation entitlement returned'
+      });
+      if (!nsAddonRelease.addonFunded) {
+        await execute(`UPDATE appointment_payments SET status = 'refunded', refund_reason = 'Doctor no-show', refunded_at = $1 WHERE id = $2`,
+          [now, appointment.payment_id]);
+      }
     }
 
     // ── AUDIT-2026-08-22 (N2): the DOCTOR no-showed; tell the PATIENT so.
@@ -1577,13 +1652,21 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
     // no-show. `video_no_show_doctor` / `video_no_show_patient` are the
     // PATIENT-no-show pair; the doctor-no-show event needs its own
     // patient-facing name — see the hand-off note.
+    //
+    // AUDIT-2026-08-22 (R2): `refund:'full'` was hard-coded, and the OpenClaw
+    // body says "You have been refunded in full" because of it. That is false
+    // on an add-on-funded appointment. HAND-OFF: the notifications owner must
+    // branch video_doctor_no_show_patient on this value ("your paid
+    // consultation is still yours — book a new time at no extra cost");
+    // until then the payload at least carries the truth.
+    const nsRefundOutcome = nsAddonRelease.addonFunded ? 'entitlement_released' : 'full';
     queueNotification({
       orderId: appointment.order_id,
       toUserId: appointment.patient_id,
       channel: 'internal',
       template: 'video_doctor_no_show_patient',
       status: 'queued',
-      response: JSON.stringify({ appointment_id: appointment.id, refund: 'full' })
+      response: JSON.stringify({ appointment_id: appointment.id, refund: nsRefundOutcome })
     });
     queueNotification({
       orderId: appointment.order_id,
@@ -1591,10 +1674,16 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
       channel: 'whatsapp',
       template: 'video_doctor_no_show_patient',
       status: 'queued',
-      response: JSON.stringify({ appointment_id: appointment.id, refund: 'full' })
+      response: JSON.stringify({ appointment_id: appointment.id, refund: nsRefundOutcome })
     });
   } else {
-    // Patient no-show: no refund, doctor keeps payment
+    // Patient no-show: no refund, doctor keeps payment.
+    //
+    // AUDIT-2026-08-22 (R2): deliberately NOT released. The consultation WAS
+    // delivered as far as the platform and the doctor are concerned — the
+    // doctor showed up and is paid below — so the entitlement is legitimately
+    // spent, exactly as a card payment on this branch is legitimately kept.
+    // Same reasoning applies to the completion path in /api/video/end.
     const flipped = await execute(
       `UPDATE appointments SET status = 'no_show_patient', updated_at = $1
         WHERE id = $2 AND status = ANY($3::text[])`,

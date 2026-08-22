@@ -135,11 +135,6 @@ async function writePendingForCase(orderId) {
   const { order } = inputs;
   if (!order.doctor_id) return { skipped: 'no_doctor_assigned' };
 
-  const existing = await findExistingMainRow(orderId, order.doctor_id);
-  if (existing) {
-    return { skipped: 'already_exists', earningsId: existing.id, status: existing.status };
-  }
-
   const result = buildResult(inputs);
   // gross_amount = base + uplift the doctor's share is computed against.
   // earned_amount = base + uplift share only (addons live in addon_earnings).
@@ -150,6 +145,69 @@ async function writePendingForCase(orderId) {
   const commissionPct = grossAmount > 0
     ? Math.round((earnedAmount / grossAmount) * 10000) / 100
     : 100;
+
+  // (buildResult and the three amounts above are pure functions of the order
+  // snapshot; hoisted above the existing-row check by AUDIT-2026-08-22 (R4)
+  // so the re-assignment branch below can reuse them. No behaviour change on
+  // the insert path.)
+  const existing = await findExistingMainRow(orderId, order.doctor_id);
+  if (existing) {
+    // ── AUDIT-2026-08-22 (R4, P0): A → B → A pays A nothing ─────────────────
+    //
+    // findExistingMainRow is keyed on (order, doctor), NOT on the current
+    // assignment. When a case is reassigned away from A, M4 zeroes A's main row
+    // and flips it to status='reassigned'. If the case later lands back on A —
+    // routine: case_sla_worker.js:513 excludes only the CURRENT holder and
+    // routes/api/admin.js:1446 excludes nobody — this function found that
+    // zeroed row and returned 'already_exists', so no pending row was ever
+    // re-opened, and markCaseEarningsPaid then settled A at 0 for a report A
+    // actually delivered.
+    //
+    // The row belongs to the doctor the order is assigned to RIGHT NOW (that is
+    // what order.doctor_id means here), so a 'reassigned' row found at this
+    // point means exactly one thing: the case has come back. Re-open it at the
+    // current snapshot figures.
+    if (String(existing.status) === 'reassigned') {
+      await execute(
+        `UPDATE doctor_earnings
+            SET status = 'pending',
+                gross_amount = $1,
+                commission_pct = $2,
+                earned_amount = $3
+          WHERE id = $4
+            AND status = 'reassigned'`,
+        [grossAmount, commissionPct, earnedAmount, existing.id]
+      );
+
+      // The 10% token in the separate 'earn-reassign-%' row compensated A for a
+      // case A did NOT deliver. A is delivering it now and is being paid the
+      // full fee above, so leaving the token standing recreates precisely the
+      // 110% double-count M4 removed. The ROW stays (services/doctor_pause.js
+      // counts these rows by id prefix + status to drive the pause policy, and
+      // the reassignment did happen) — only its money goes to zero.
+      await execute(
+        `UPDATE doctor_earnings
+            SET earned_amount = 0,
+                commission_pct = 0
+          WHERE appointment_id = $1
+            AND doctor_id = $2
+            AND id LIKE '${REASSIGN_EARNINGS_PREFIX}%'
+            AND status = 'reassigned'
+            AND earned_amount <> 0`,
+        [orderId, order.doctor_id]
+      );
+
+      return {
+        reopened: true,
+        earningsId: existing.id,
+        status: 'pending',
+        earnedAmount,
+        baseShare: result.baseShare,
+        upliftShare: result.upliftShare
+      };
+    }
+    return { skipped: 'already_exists', earningsId: existing.id, status: existing.status };
+  }
 
   const earningsId = MAIN_EARNINGS_PREFIX + randomUUID();
   await execute(
@@ -214,13 +272,28 @@ async function markCaseEarningsPaid(orderId, doctorId) {
     // moves to 'paid' — but an applied adjustment is a settled fact and the
     // AMOUNT is left exactly as the clawback left it.
     //
-    // AUDIT-2026-08-22 (M4): status='reassigned' is held to the same rule. That
-    // row has been written down to 0 by markPartialPayOnReassignment, and the
-    // doctor's 10% token for the case lives in the separate 'earn-reassign-%'
-    // row. Recomputing this one back up to the full fee — which is what happens
-    // when a case is reassigned away and then lands back on the same doctor —
-    // reinstates exactly the 110% double-count M4 removes.
-    const adjusted = !!existing.clawback_applied_at || String(existing.status) === 'reassigned';
+    // AUDIT-2026-08-22 (R4, P0) — M4's `|| status === 'reassigned'` clause is
+    // REMOVED from this guard. It paid ZERO to a doctor who delivered.
+    //
+    // M4 reasoned that a 'reassigned' row is settled. It is not, in the one
+    // case that reaches here with that status: this function is called at
+    // COMPLETION with the doctor who completed, so a 'reassigned' main row for
+    // that doctor means the case was reassigned away and then came back to
+    // them (A → B → A, which case_sla_worker.js:513 and
+    // routes/api/admin.js:1446 both permit) and they then delivered the report.
+    // writePendingForCase re-opens the row on that re-assignment now; this
+    // guard would have overridden the re-open and settled it at 0 anyway.
+    //
+    // The 110% double-count M4 was protecting against is closed at its source
+    // instead: writePendingForCase zeroes the 'earn-reassign-%' token when it
+    // re-opens the main row, so the doctor is paid 100% once and never 110%.
+    // A case reassigned away and NOT returned never reaches this branch — the
+    // new holder has no main row, so completion takes the legacy-insert path
+    // below and the old doctor's zeroed row is left alone.
+    //
+    // clawback_applied_at remains the sole preserve condition: an applied
+    // adjustment IS a settled fact and completion must never reverse it.
+    const adjusted = !!existing.clawback_applied_at;
     if (adjusted) {
       await execute(
         `UPDATE doctor_earnings
@@ -251,7 +324,29 @@ async function markCaseEarningsPaid(orderId, doctorId) {
         WHERE id = $4`,
       [grossAmount, commissionPct, earnedAmount, existing.id]
     );
-    return { updated: true, earningsId: existing.id, earnedAmount };
+
+    // AUDIT-2026-08-22 (R4): settling a row that was still 'reassigned' means
+    // the case came back to this doctor and they delivered it, WITHOUT
+    // writePendingForCase having re-opened the row (not every re-assignment
+    // path calls it — routes/api/admin.js:1446 assigns directly). Zero the 10%
+    // token here too, for the same reason writePendingForCase does: the doctor
+    // is being paid 100% for a case they delivered, so the not-delivered token
+    // must not stack on top of it. The row itself stays for doctor_pause.js.
+    if (String(existing.status) === 'reassigned') {
+      await execute(
+        `UPDATE doctor_earnings
+            SET earned_amount = 0,
+                commission_pct = 0
+          WHERE appointment_id = $1
+            AND doctor_id = $2
+            AND id LIKE '${REASSIGN_EARNINGS_PREFIX}%'
+            AND status = 'reassigned'
+            AND earned_amount <> 0`,
+        [orderId, doctorId]
+      );
+    }
+
+    return { updated: true, earningsId: existing.id, earnedAmount, reopenedFromReassigned: String(existing.status) === 'reassigned' };
   }
 
   // Legacy path: order completed without ever having a pending row.
@@ -290,15 +385,24 @@ async function recomputeOnBreach(orderId) {
   // sweep re-running a tick later) restored the whole base fee on a case whose
   // money had been returned. A settled adjustment is never reversed here; the
   // row is already at or below the standard-tier figure this function writes.
-  if (existing.clawback_applied_at) {
-    return {
-      skipped: 'clawback_already_applied',
-      orderId,
-      earningsId: existing.id,
-      previousReason: existing.clawback_reason || null,
-      previousAppliedAt: existing.clawback_applied_at
-    };
-  }
+  //
+  // AUDIT-2026-08-22 (R8, P2): the guard was UNCONDITIONAL while the symmetric
+  // one in recomputeOnRefund was narrowed to let the breach marker through.
+  // The asymmetry meant that once ANY refund clawback had stamped the row, the
+  // uplift could never be removed — even though the breach is refunding it. A
+  // small partial refund leaves the row at `full × (1 − 0.9r)`, which for a
+  // large uplift is comfortably ABOVE the base-only figure this function
+  // writes, so the doctor kept a share of an uplift that had gone back to the
+  // patient.
+  //
+  // It is safe to let it through because this function only ever writes DOWN:
+  // the clamp below keeps the lower of (post-breach figure, current row). What
+  // must NOT happen is the stamp being rewritten — overwriting a finished
+  // settlement's clawback_reason with BREACH_UPLIFT_CLAWBACK would re-open
+  // recomputeOnRefund's guard and let a second refund clawback run. So an
+  // existing stamp is PRESERVED verbatim (reason and timestamp both), and only
+  // an unstamped row is marked as a stage-1 breach write-down.
+  const priorClawbackApplied = !!existing.clawback_applied_at;
 
   // Uplift goes to 0 post-breach. Base fee is the catalog-snapshot
   // value already on the orders row.
@@ -330,21 +434,29 @@ async function recomputeOnBreach(orderId) {
   // of the same bug. BREACH_UPLIFT_CLAWBACK (rather than a generic value) is
   // what lets recomputeOnRefund still apply the documented stage-2 full
   // clawback at breach-refund mark-paid time; see the guard there.
+  // AUDIT-2026-08-22 (R8): COALESCE keeps the FIRST settlement's marker. See
+  // the note on priorClawbackApplied above — re-stamping a finished clawback
+  // as a breach write-down would unlock a second refund clawback.
+  const clawbackReasonToStamp = priorClawbackApplied
+    ? (existing.clawback_reason || BREACH_UPLIFT_CLAWBACK)
+    : BREACH_UPLIFT_CLAWBACK;
   await execute(
     `UPDATE doctor_earnings
         SET earned_amount = $1,
             gross_amount = $2,
             commission_pct = $3,
             clawback_reason = $4,
-            clawback_applied_at = NOW()
+            clawback_applied_at = COALESCE(clawback_applied_at, NOW())
       WHERE id = $5`,
-    [earnedAmount, grossAmount, commissionPct, BREACH_UPLIFT_CLAWBACK, existing.id]
+    [earnedAmount, grossAmount, commissionPct, clawbackReasonToStamp, existing.id]
   );
 
   return {
     recomputed: true,
     earningsId: existing.id,
-    newEarnedAmount: earnedAmount
+    newEarnedAmount: earnedAmount,
+    priorClawbackPreserved: priorClawbackApplied,
+    clawbackReason: clawbackReasonToStamp
   };
 }
 

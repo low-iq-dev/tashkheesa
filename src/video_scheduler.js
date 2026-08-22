@@ -6,6 +6,10 @@
 const cron = require('node-cron');
 const { queryAll, execute } = require('./pg');
 const { queueNotification, notifyAdmins } = require('./notify');
+// AUDIT-2026-08-22 (R1/R2): an appointment funded by the case add-on has NO
+// separate payment to reverse. Flipping its marker row to 'refunded' moved no
+// money and burned the entitlement forever. See the module header.
+const { releaseVideoAddonEntitlement } = require('./services/video_addon_entitlement');
 const { major: logMajor, logErrorToDb } = require('./logger');
 const dayjs = require('dayjs');
 
@@ -182,9 +186,38 @@ async function detectNoShows() {
           await execute(`UPDATE appointments SET status = 'no_show_doctor', updated_at = $1 WHERE id = $2`,
             [now, appt.id]);
 
+          // AUDIT-2026-08-22 (R2, P0): same split as the 48h sweep below — an
+          // appointment funded by the case add-on has no separate payment, so
+          // 'refunded' here moved nothing and burned the entitlement. Release
+          // it so the patient the doctor stood up can rebook for free.
+          let dnsRelease = { addonFunded: false };
+          let dnsReleaseFailed = false;
           if (appt.payment_id) {
-            await execute(`UPDATE appointment_payments SET status = 'refunded', refund_reason = 'Doctor no-show (auto)', refunded_at = $1 WHERE id = $2`,
-              [now, appt.payment_id]);
+            try {
+              dnsRelease = await releaseVideoAddonEntitlement({
+                appointmentId: appt.id,
+                orderId: appt.order_id,
+                paymentId: appt.payment_id,
+                reason: 'Doctor no-show (auto) — consultation entitlement returned'
+              });
+            } catch (relErr) {
+              // We could not classify the payment. Do NOT fall through to the
+              // 'refunded' UPDATE: on an add-on row that would re-create the
+              // exact lie this fix removes, and the row is un-refunded either
+              // way — the next sweep of this appointment is not guaranteed, so
+              // this is logged loudly for reconciliation instead.
+              dnsReleaseFailed = true;
+              logErrorToDb(relErr, {
+                context: 'video_scheduler.doctor_no_show_addon_release',
+                category: 'video_scheduler',
+                workerPhase: 'interval'
+              });
+              console.error('[video-scheduler] add-on entitlement release failed for', appt.id, relErr.message);
+            }
+            if (!dnsRelease.addonFunded && !dnsReleaseFailed) {
+              await execute(`UPDATE appointment_payments SET status = 'refunded', refund_reason = 'Doctor no-show (auto)', refunded_at = $1 WHERE id = $2`,
+                [now, appt.payment_id]);
+            }
           }
 
           // ── AUDIT-2026-08-22 (N2): the auto-detect sweep reached this branch
@@ -197,13 +230,21 @@ async function detectNoShows() {
           // (patient, unchanged) with a patient-facing doctor-no-show template.
           // dedupe keys are left as-is so appointments already notified under
           // the old template are not re-notified.
+          //
+          // AUDIT-2026-08-22 (R2): `refund:'full'` was a constant, and the
+          // template says "refunded in full" because of it. On an
+          // add-on-funded appointment nothing was refunded — the consultation
+          // the patient already owns was handed back. HAND-OFF: the
+          // notifications owner must branch video_doctor_no_show_patient on
+          // this value; until then the payload at least records the truth.
+          const dnsRefundOutcome = dnsRelease.addonFunded ? 'entitlement_released' : 'full';
           await queueNotification({
             orderId: appt.order_id,
             toUserId: appt.patient_id,
             channel: 'internal',
             template: 'video_doctor_no_show_patient',
             status: 'queued',
-            response: JSON.stringify({ appointment_id: appt.id, refund: 'full' }),
+            response: JSON.stringify({ appointment_id: appt.id, refund: dnsRefundOutcome }),
             dedupe_key: `video:noshow:${appt.id}:doctor`
           });
           await queueNotification({
@@ -212,7 +253,7 @@ async function detectNoShows() {
             channel: 'whatsapp',
             template: 'video_doctor_no_show_patient',
             status: 'queued',
-            response: JSON.stringify({ appointment_id: appt.id, refund: 'full' }),
+            response: JSON.stringify({ appointment_id: appt.id, refund: dnsRefundOutcome }),
             dedupe_key: `video:noshow:whatsapp:${appt.id}:doctor`
           });
 
@@ -245,7 +286,12 @@ async function sweepStalePendingSlots() {
               a.updated_at, a.created_at,
               u_pat.name AS patient_name, u_pat.email AS patient_email, u_pat.phone AS patient_phone,
               u_doc.name AS doctor_name, u_doc.email AS doctor_email,
-              ap.amount AS payment_amount, ap.currency AS payment_currency
+              ap.amount AS payment_amount, ap.currency AS payment_currency,
+              -- AUDIT-2026-08-22 (R1): 'order_addon' marks an appointment funded
+              -- by the case add-on. There is no money behind that row, so the
+              -- 48h auto-cancel below must RELEASE the entitlement instead of
+              -- pretending to refund it.
+              ap.method AS payment_method
        FROM appointments a
        LEFT JOIN users u_pat ON u_pat.id = a.patient_id
        LEFT JOIN users u_doc ON u_doc.id = a.doctor_id
@@ -266,11 +312,52 @@ async function sweepStalePendingSlots() {
           `UPDATE appointments SET status = 'cancelled', updated_at = $1 WHERE id = $2 AND status IN ('pending_doctor','reschedule_proposed')`,
           [iso, slot.id]
         );
+        // ── AUDIT-2026-08-22 (R1, P0): add-on-funded slots are RELEASED, not
+        // "refunded" ────────────────────────────────────────────────────────
+        //
+        // The old code ran the 'refunded' UPDATE unconditionally. On a slot
+        // funded by the case add-on (method='order_addon' — see POST
+        // /portal/video/book) that row is a marker, not a payment: no money
+        // moves, no `refunds` row is written, and
+        // orders.addons_json.video_consultation_consumed_by stays stamped with
+        // this appointment id. readVideoAddonEntitlement then returns null for
+        // good, so the patient — who paid for a consultation, never got one,
+        // and was WhatsApped "auto-cancelled, amount 800" — is quoted the full
+        // 800 again to rebook. Releasing hands the entitlement back so the
+        // rebooking really is free. See services/video_addon_entitlement.js.
+        // Read off the joined payment row, NOT off the release result: if the
+        // release throws, the slot is still add-on funded and the patient must
+        // still not be told a refund is coming.
+        const slotIsAddonFunded = String(slot.payment_method || '').toLowerCase() === 'order_addon';
+        let addonRelease = { addonFunded: slotIsAddonFunded, released: false };
         if (slot.payment_id) {
-          await execute(
-            `UPDATE appointment_payments SET status = 'refunded', refund_reason = 'Auto-cancelled: slot unresolved after 48h', refunded_at = $1 WHERE id = $2 AND status != 'refunded'`,
-            [iso, slot.payment_id]
-          );
+          if (slotIsAddonFunded) {
+            try {
+              addonRelease = await releaseVideoAddonEntitlement({
+                appointmentId: slot.id,
+                orderId: slot.order_id,
+                paymentId: slot.payment_id,
+                reason: 'Auto-cancelled: slot unresolved after 48h — consultation entitlement returned'
+              });
+            } catch (relErr) {
+              // One bad row must not abort the sweep for every other slot. The
+              // appointment is already cancelled at this point; leaving the
+              // entitlement stamped is recoverable (the next tick retries,
+              // because the release is keyed on this appointment id and is
+              // idempotent), silently swallowing it is not.
+              logErrorToDb(relErr, {
+                context: 'video_scheduler.stale_slot_addon_release',
+                category: 'video_scheduler',
+                workerPhase: 'interval'
+              });
+              console.error('[video-scheduler] add-on entitlement release failed for', slot.id, relErr.message);
+            }
+          } else {
+            await execute(
+              `UPDATE appointment_payments SET status = 'refunded', refund_reason = 'Auto-cancelled: slot unresolved after 48h', refunded_at = $1 WHERE id = $2 AND status != 'refunded'`,
+              [iso, slot.payment_id]
+            );
+          }
         }
         // Notify patient
         // Theme 6 §4-D / P3-WORKER-N6:
@@ -294,10 +381,20 @@ async function sweepStalePendingSlots() {
             toUserId: slot.patient_id,
             channel: 'whatsapp',
             template: 'video_slot_auto_cancelled_patient',
+            // AUDIT-2026-08-22 (R1): say what actually happened to the money.
+            // `amount` alongside a cancellation reads as "this was refunded to
+            // you" — false on an add-on-funded slot, where nothing was charged
+            // separately and nothing was returned. `outcome` distinguishes the
+            // two cases for the template; HAND-OFF to the notifications owner:
+            // branch video_slot_auto_cancelled_patient on it so the
+            // entitlement_released copy says "your paid consultation is still
+            // yours — pick a new time, at no extra cost".
             response: JSON.stringify({
               patient_name: slot.patient_name,
-              amount: slot.payment_amount,
-              currency: slot.payment_currency || 'EGP'
+              amount: slotIsAddonFunded ? 0 : slot.payment_amount,
+              currency: slot.payment_currency || 'EGP',
+              outcome: slotIsAddonFunded ? 'entitlement_released' : 'refund_due',
+              entitlement_amount: slotIsAddonFunded ? slot.payment_amount : null
             }),
             orderId: slot.order_id,
             dedupe_key: `video:slot:autocancelled:${slot.id}`
@@ -316,7 +413,8 @@ async function sweepStalePendingSlots() {
           dedupeKey: `video:slot:autocancelled:admin:${slot.id}`,
           orderId: slot.order_id,
         });
-        logMajor(`[video-scheduler] Auto-cancelled slot ${slot.id} (order ${slot.order_id}) — unresolved 48h`);
+        logMajor(`[video-scheduler] Auto-cancelled slot ${slot.id} (order ${slot.order_id}) — unresolved 48h` +
+          (slotIsAddonFunded ? ` — add-on entitlement ${addonRelease.released ? 'released' : 'NOT released'}` : ''));
 
       } else if (ageHours >= 24) {
         // ESCALATION: notify admin once at 24h mark
