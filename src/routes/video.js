@@ -21,7 +21,7 @@ const { parseSelectedAddons } = require('../services/order_pricing');
 // the case add-on must RELEASE the entitlement, not fake a refund against a
 // payment row that never held any money. See the module header for why
 // releasing (rather than writing a `refunds` row) is the right repair.
-const { releaseVideoAddonEntitlement } = require('../services/video_addon_entitlement');
+const { releaseVideoAddonEntitlement, ADDON_PAYMENT_METHOD } = require('../services/video_addon_entitlement');
 
 const router = express.Router();
 
@@ -195,6 +195,56 @@ function readVideoAddonEntitlement(order) {
     price: price,
     currency: String(order.currency || order.locked_currency || 'EGP').toUpperCase()
   };
+}
+
+/**
+ * AUDIT-2026-08-22 (M1 follow-up, P0): may the V2 `onComplete` dual-write mint
+ * an addon_earnings row for this appointment?
+ *
+ * ONE SALE MUST NOT PAY THE DOCTOR TWICE. Since M1, POST /portal/video/book
+ * can fund an appointment out of the video-consultation add-on the patient
+ * already paid for at case checkout; it records that with a MARKER row —
+ * appointment_payments.status='paid', method='order_addon' — and no second
+ * charge behind it. On such an appointment the two payout ledgers are fed by
+ * the SAME revenue line: doctor_earnings (appointment.price × commission) and
+ * addon_earnings (order_addons.price_at_purchase_egp × commission). A real
+ * card payment writes method='paymob' (see the Paymob callback) and still has
+ * two independent revenue lines, so it keeps both.
+ *
+ * Detection reuses the established test — `method` lower-cased against
+ * ADDON_PAYMENT_METHOD, exactly as services/video_addon_entitlement.js does
+ * on the cancel / no-show release paths — resolved through
+ * appointments.payment_id, the same row every other money guard here resolves.
+ *
+ * FAIL SAFE = DO NOT PAY. When the payment row cannot be resolved (no
+ * payment_id, row missing) the funding method is unknown, and the two error
+ * directions are not symmetric: suppressing wrongly under-pays a doctor by an
+ * amount that is visible in addon_earnings and correctable by an operator,
+ * while writing wrongly pays real money twice out of one sale and is only
+ * caught by reconciliation. So an unknown method is treated as add-on funded.
+ * (An unresolvable row also already fails the `paid` guards upstream, so this
+ * is a backstop, not the primary gate.)
+ *
+ * @param {object|null} payment  appointment_payments row; must carry `method`
+ * @param {object} appointment
+ * @returns {boolean} true only when a second, independent payout is warranted
+ */
+function allowAddonEarningsWrite(payment, appointment) {
+  if (!payment) {
+    console.warn('[video] addon_earnings suppressed — payment row unresolved, funding method unknown', {
+      appointment_id: appointment && appointment.id,
+      payment_id: (appointment && appointment.payment_id) || null
+    });
+    return false;
+  }
+  if (String(payment.method || '').toLowerCase() === ADDON_PAYMENT_METHOD) {
+    console.warn('[video] addon_earnings suppressed — appointment funded by the case add-on; doctor_earnings is the paying ledger', {
+      appointment_id: appointment && appointment.id,
+      payment_id: payment.id
+    });
+    return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1319,8 +1369,12 @@ router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), a
     && String(appointment.doctor_id) === String(req.user.id);
 
   // Guard 3 — the appointment must actually have been paid for.
+  // AUDIT-2026-08-22 (M1 follow-up, P0): `method` joins the projection so the
+  // V2 dual-write below can tell an add-on-funded booking from a real card
+  // payment without a second round trip. `method` is on the base table
+  // (migration 004), so this cannot break an un-migrated deploy.
   const payment = appointment.payment_id
-    ? await queryOne('SELECT id, status FROM appointment_payments WHERE id = $1', [appointment.payment_id])
+    ? await queryOne('SELECT id, status, method FROM appointment_payments WHERE id = $1', [appointment.payment_id])
     : null;
   const isPaid = !!(payment && String(payment.status || '').toLowerCase() === 'paid');
 
@@ -1454,21 +1508,32 @@ router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), a
     // insert above: owning doctor + paid appointment. onFulfill above is a
     // pure state transition (the call did happen) and stays ungated.
     //
-    // ── AUDIT-2026-08-22 (M1 follow-up, NOT fixed here) ────────────────────
-    // When ADDON_SYSTEM_V2 is turned on AND the appointment was funded by the
-    // case add-on (appointment_payments.method = 'order_addon' — see POST
-    // /portal/video/book), the doctor is paid TWICE for one sale: once from
-    // doctor_earnings above (appointment.price × commission) and once from
-    // addon_earnings here (order_addons.price_at_purchase_egp × commission),
-    // both derived from the SAME add-on line the patient paid at checkout.
-    // Before M1 the appointment carried its own separate payment, so the two
-    // ledgers had two revenue lines behind them; they no longer do. Deciding
-    // which ledger owns the add-on payout crosses this file, the earnings
-    // writer and the doctor dashboard, so it is handed off rather than guessed
-    // at here. Harmless while ADDON_SYSTEM_V2 is false (the default) — it MUST
-    // be resolved before that flag is flipped. Same applies to the identical
-    // onComplete block in the patient-no-show branch below.
-    if (result.earningsEligible) {
+    // ── AUDIT-2026-08-22 (M1 follow-up, P0 — RESOLVED) ─────────────────────
+    // ADDON_SYSTEM_V2 is TRUE in the live Render environment (Phase 3 has
+    // happened — see services/addons/registry.isEnabled), so this block runs
+    // in production. Since M1, an appointment funded by the case add-on
+    // (appointment_payments.method='order_addon') carries no second charge,
+    // and doctor_earnings above (appointment.price × commission) plus
+    // addon_earnings here (order_addons.price_at_purchase_egp × commission)
+    // would both be paid out of the SAME add-on line the patient paid once at
+    // checkout.
+    //
+    // DECISION: doctor_earnings keeps the payout, addon_earnings is suppressed
+    // on add-on-funded appointments. doctor_earnings is the ledger the money
+    // actually flows through — the doctor's video dashboard below reads it
+    // alone, and the superadmin finance "owed" figure and payout basis are
+    // SUM(doctor_earnings.earned_amount) WHERE status='pending' (routes/
+    // admin.js, routes/api/admin.js). /portal/doctor/earnings sums BOTH
+    // ledgers, which is precisely where the duplicate was visible to the
+    // doctor. Suppressing the other direction would have meant rewriting the
+    // payout basis.
+    //
+    // Only the earnings write is suppressed. onFulfill above stays ungated —
+    // the call did happen, so the order_addons row must still reach
+    // 'fulfilled'; its lifecycle is untouched by this gate (onComplete writes
+    // addon_earnings and stamps the derived doctor_commission_amount_egp,
+    // nothing else). The V1 doctor_earnings path above is unchanged.
+    if (result.earningsEligible && allowAddonEarningsWrite(payment, appointment)) {
       await safeDualWrite('video_consult', 'onComplete', appointment.order_id, async () => {
         const existing = await queryOne(
           `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'video_consult'`,
@@ -1609,8 +1674,11 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
   // appointment must have been PAID, the status transition must carry a
   // from-state predicate (the check above is a read-then-write and races two
   // concurrent submits), and the earnings INSERT must be idempotent.
+  // AUDIT-2026-08-22 (M1 follow-up, P0): `method` joins the projection for the
+  // add-on-funding test on the V2 onComplete block below — same reason as the
+  // guard-3 read in /api/video/end.
   const nsPayment = appointment.payment_id
-    ? await queryOne('SELECT id, status FROM appointment_payments WHERE id = $1', [appointment.payment_id])
+    ? await queryOne('SELECT id, status, method FROM appointment_payments WHERE id = $1', [appointment.payment_id])
     : null;
   const nsIsPaid = !!(nsPayment && String(nsPayment.status || '').toLowerCase() === 'paid');
 
@@ -1732,7 +1800,11 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
       });
     });
     // Same money guard as the V1 insert above: onComplete writes addon_earnings.
-    if (nsIsPaid) {
+    // AUDIT-2026-08-22 (M1 follow-up, P0): plus the add-on-funding gate — an
+    // appointment paid for out of the case add-on has one revenue line, so the
+    // doctor_earnings row written above is the whole payout. Full rationale on
+    // the identical block in /api/video/end. onFulfill above stays ungated.
+    if (nsIsPaid && allowAddonEarningsWrite(nsPayment, appointment)) {
       await safeDualWrite('video_consult', 'onComplete', appointment.order_id, async () => {
         const existing = await queryOne(
           `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'video_consult'`,

@@ -344,8 +344,64 @@ services:
         value: "false"
 
       # ── Feature flags held OFF for launch ────────────────────────────────
+      # AUDIT-2026-08-22, CORRECTED: I first wrote `false` here from the code
+      # default. The LIVE Render environment has it TRUE — registry.js:37 calls
+      # flipping it "Phase 3", and Phase 3 has happened. Syncing a blueprint
+      # carrying `false` would have silently switched the add-on system off in
+      # production. The value below is the observed live value, not the default.
       - key: ADDON_SYSTEM_V2
-        value: "false"
+        value: "true"
+      # ── Present on the LIVE service, absent from my first cut ─────────────
+      # AUDIT-2026-08-22. I derived this file from the code, so it only carried
+      # what the code asserts on. Reading the actual Render dashboard turned up
+      # 19 more variables the service is running with. They are recorded here so
+      # that IF this blueprint is ever synced it cannot delete them — which is
+      # exactly what would have happened before this edit. Values are secrets or
+      # account-specific, so sync:false throughout.
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: FB_PAGE_ID
+        sync: false
+      - key: IG_ACCESS_TOKEN
+        sync: false
+      - key: IG_BUSINESS_ACCOUNT_ID
+        sync: false
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: MESSAGES_R2_ENABLED
+        sync: false
+      - key: UPLOAD_R2_DIRECT_ENABLED
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: PORTAL_DB_PATH
+        sync: false
+      - key: SLA_AUTO_PAUSE_BREACHES
+        sync: false
+      - key: SLA_AUTO_PAUSE_WINDOW_DAYS
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_VERIFY_SERVICE_SID
+        sync: false
+      - key: WIZARD_AVAILABLE_FROM
+        sync: false
+      #
+      # ALLOW_PRIMARY_IN_DEV is set to `true` on the live service. It is a
+      # DEVELOPMENT escape hatch (bootCheck.js:60-66) and is inert while
+      # MODE=production, so it is not urgent — but it should be deleted, because
+      # it is one MODE typo away from letting a non-production instance run the
+      # SLA sweep, the reassignment clawbacks and the notification worker
+      # against production data. Deliberately NOT declared here.
+      #
       # ── Missing from the first cut of this file (AUDIT-2026-08-22) ────────
       # CRITICAL_ALERT_TEMPLATE_NAME: while empty, sendCriticalAlert returns early
       # and EIGHTEEN alerts are silent — Paymob HMAC failure, intention mismatch,
