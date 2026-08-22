@@ -10,6 +10,44 @@ function assert(condition, message) {
   }
 }
 
+// AUDIT-2026-08-22 (AUDIT-BOOT-MIGRATION-1) — STAGED assert.
+//
+// WHY THIS EXISTS: a NEW hard `assert` on a variable that does not exist yet is
+// not a safety check, it is a scheduled outage. Both callers below (
+// NATIONAL_ID_ENCRYPTION_KEY and the OPENCLAW_* pair) are `sync: false` in
+// render.yaml, i.e. an operator has to type them into the Render dashboard
+// before they exist. Merging this branch deploys the check BEFORE the operator
+// can possibly have set them: boot fails, Render crash-loops, and the previous
+// (working) deploy is already gone. There is no code path out — every retry
+// runs the same check.
+//
+// So these two land as a LOUD WARNING for one deploy cycle. Once the variables
+// are set on Render (verify from the deploy log: no `⚠️  BOOT CHECK WARNING`
+// lines), set STRICT_ENV_ASSERTS=true — the same message then exits 1 exactly
+// as an assert would, and a later regression cannot ship silently.
+//
+// The checks themselves are unchanged and CORRECT; only their severity is
+// staged. Nothing else in this file uses softAssert — the pre-existing asserts
+// guard variables that are already set in production and stay fatal.
+function strictEnvAsserts() {
+  var v = String(process.env.STRICT_ENV_ASSERTS || '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+function softAssert(condition, message) {
+  if (condition) return true;
+  if (strictEnvAsserts()) {
+    assert(false, message + ' [STRICT_ENV_ASSERTS=true — fatal]');
+    return false;
+  }
+  console.error('\n⚠️  BOOT CHECK WARNING (would be fatal with STRICT_ENV_ASSERTS=true)');
+  console.error('➡', message);
+  console.error('➡ Booting anyway so the deploy can complete. Set this variable on ' +
+    'Render, redeploy, confirm this warning is gone, then set STRICT_ENV_ASSERTS=true ' +
+    'to make it fatal.\n');
+  return false;
+}
+
 function bootCheck({ ROOT, MODE }) {
   console.log('🔒 Running boot checks...');
 
@@ -103,8 +141,12 @@ function bootCheck({ ROOT, MODE }) {
     // national-ID write and on every admin national-ID review. Doctor onboarding
     // is a day-one flow, so an unset key is a launch-blocking failure that
     // currently surfaces as a 500 on a doctor's signup form.
+    // AUDIT-2026-08-22 (AUDIT-BOOT-MIGRATION-1) — softAssert, not assert. See the
+    // softAssert header: this variable is `sync: false` in render.yaml and does
+    // not exist on the service until an operator sets it, so a hard assert here
+    // crash-loops the FIRST deploy that carries it.
     const nationalIdKey = String(process.env.NATIONAL_ID_ENCRYPTION_KEY || '').trim();
-    assert(
+    softAssert(
       nationalIdKey,
       'Missing required environment variable: NATIONAL_ID_ENCRYPTION_KEY. ' +
         'pgcrypto pgp_sym_encrypt key for users.national_id_encrypted. Without it, ' +
@@ -126,7 +168,10 @@ function bootCheck({ ROOT, MODE }) {
     if (waEnabled && waTransport === 'openclaw' && !waStub) {
       const ocBase = String(process.env.OPENCLAW_BASE_URL || '').trim();
       const ocKey = String(process.env.OPENCLAW_SEND_KEY || '').trim();
-      assert(
+      // AUDIT-2026-08-22 (AUDIT-BOOT-MIGRATION-1) — softAssert, not assert.
+      // Both OPENCLAW_* vars are `sync: false` in render.yaml. Same staging
+      // rationale as NATIONAL_ID_ENCRYPTION_KEY above.
+      softAssert(
         ocBase && ocKey,
         'NOTIFICATIONS_WHATSAPP_ENABLED=true with NOTIFICATIONS_WHATSAPP_TRANSPORT=openclaw ' +
           'requires BOTH OPENCLAW_BASE_URL and OPENCLAW_SEND_KEY' +
@@ -159,7 +204,10 @@ function bootCheck({ ROOT, MODE }) {
 
   console.log(
     `🔧 MODE=${mode} SLA_MODE=${slaMode}` +
-      (dbPath ? ` DB=${dbPath}` : '')
+      (dbPath ? ` DB=${dbPath}` : '') +
+      // AUDIT-2026-08-22 (AUDIT-BOOT-MIGRATION-1) — make the staging state
+      // greppable. `off` means the two softAssert checks above can only warn.
+      ` STRICT_ENV_ASSERTS=${strictEnvAsserts() ? 'on' : 'off'}`
   );
 
   // 2. Project structure

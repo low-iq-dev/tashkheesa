@@ -389,10 +389,37 @@ async function processWhatsApp(notification, user, order) {
   //      escalation to the on-call operator because someone once replied STOP
   //      to a different message is a worse failure than the consent question
   //      it answers, and a superadmin is staff on a work number rather than a
-  //      marketing recipient. Superadmins are therefore exempt and everyone
-  //      else — patients and doctors alike — is honoured, including a doctor
-  //      whose flag an admin unticked in the doctor form, which is an explicit
-  //      administrative setting rather than a reply-STOP.
+  //      marketing recipient.
+  //
+  // ── AUDIT-2026-08-22 (AUDIT-STAFF-OPTOUT-1): THE EXEMPTION WAS TOO NARROW ──
+  //
+  // The previous revision exempted `superadmin` ONLY, and reasoned that a
+  // doctor's false flag is "an explicit administrative setting". On this
+  // database it is nothing of the sort — it is the ORIGINAL DEFAULT:
+  //
+  //   * 001_initial_tables.sql declares users.notify_whatsapp DEFAULT false.
+  //   * 062_notify_whatsapp_default_true.sql flipped the DEFAULT to true, but
+  //     its backfill UPDATE is scoped `WHERE role = 'patient'` (062:41-44).
+  //
+  // So EVERY doctor and admin row created before migration 062 still holds
+  // false, indistinguishable from a deliberate opt-out. Under the old check
+  // those users silently stopped receiving case-assignment, acceptance-window
+  // and SLA-breach WhatsApp: status='skipped', which /ops deliberately excludes
+  // from the failure pill, and no NOTIFICATION_DROPPED event. Nothing anywhere
+  // would have said so.
+  //
+  // THE RULE NOW: `notify_whatsapp` is CONSENT FOR PATIENTS, where reply-STOP
+  // is the only opt-out that exists and the 062 backfill made the value
+  // meaningful. For STAFF (doctor / admin / superadmin / anything non-patient)
+  // it is not a consent signal at all on this data, so it is NOT treated as a
+  // kill switch — a false value there is logged and the message is still sent.
+  //
+  // This deliberately means a staff member who replies STOP keeps receiving
+  // operational WhatsApp. That is the correct trade for medical-deadline
+  // traffic on a work number, and the honest way to opt a staff member out is
+  // to clear their phone number (handled by the no_phone branch above) or to
+  // give staff their own preference column with a trustworthy default. Until
+  // one exists, the send is logged so it is at least visible.
   //
   // Modelled as `skipped` (not a failure): the row lands on status='skipped',
   // which /ops deliberately excludes from both the sent and failure pills.
@@ -405,9 +432,31 @@ async function processWhatsApp(notification, user, order) {
   // NULL column (rows predating migration 062) is therefore NOT an opt-out,
   // which matches that migration flipping the DEFAULT to true.
   const optedOut = (user.notify_whatsapp === false || user.notify_whatsapp === 0);
-  const isOperationsRecipient = String(user.role || '').toLowerCase() === 'superadmin';
-  if (optedOut && !isOperationsRecipient) {
+  // AUDIT-2026-08-22 (AUDIT-STAFF-OPTOUT-1) — patient vs staff, not
+  // superadmin vs everyone. An unknown/empty role is treated as STAFF (send
+  // rather than silently drop): the failure mode of an extra message is
+  // recoverable, the failure mode of an invisible skip is not.
+  const isPatientRecipient = String(user.role || '').toLowerCase() === 'patient';
+  if (optedOut && isPatientRecipient) {
     return { skipped: 'whatsapp_opted_out' };
+  }
+  if (optedOut && !isPatientRecipient) {
+    // Visible on stdout AND in error_logs, so a staff member whose flag is
+    // false is discoverable instead of silently unreachable. Not a
+    // NOTIFICATION_DROPPED event: nothing is being dropped — we are sending.
+    console.warn('[notify-worker] staff recipient has notify_whatsapp=false; SENDING ANYWAY ' +
+      '(pre-062 default, not a real opt-out — see AUDIT-STAFF-OPTOUT-1)', {
+        userId: user.id, role: user.role, template: notification.template
+      });
+    try {
+      logErrorToDb(new Error('staff notify_whatsapp=false ignored for operational WhatsApp'), {
+        context: 'notification_worker.staff_optout_ignored',
+        category: 'notifications',
+        level: 'warn',
+        orderId: notification.order_id || null,
+        userId: user.id
+      });
+    } catch (_) {}
   }
 
   // Parse response payload for template variables

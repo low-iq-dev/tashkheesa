@@ -285,6 +285,9 @@ async function runWorkerWatchdogSweep(pool, opts) {
     var toPushRecovered = [];  // worker names claimed for a recovery push
     var pushClient = null;
     var pushClaimError = null;
+    // AUDIT-2026-08-22 (AUDIT-WATCHDOG-RELEASE-1) — set when ROLLBACK itself
+    // fails; passed to release() so the pool destroys the connection.
+    var pushRollbackFailed = null;
     try {
       pushClient = await pool.connect();
       var gotPushLock = false;
@@ -350,7 +353,16 @@ async function runWorkerWatchdogSweep(pool, opts) {
         // COMMIT both persists the claim writes and releases the xact lock.
         await pushClient.query('COMMIT');
       } catch (eTx) {
-        try { await pushClient.query('ROLLBACK'); } catch (_) {}
+        // AUDIT-2026-08-22 (AUDIT-WATCHDOG-RELEASE-1) — capture a FAILING
+        // rollback. node-pg does not reset a released connection, so a client
+        // left inside an aborted transaction is handed straight to the next
+        // borrower, who gets "current transaction is aborted, commands ignored
+        // until end of transaction block" for a fault they did not cause.
+        // Passing the rollback error to release() makes the pool DESTROY the
+        // connection instead. src/pg.js withTransaction:383-386 already does
+        // exactly this; the finally below now does the same.
+        try { await pushClient.query('ROLLBACK'); }
+        catch (rollbackErr) { pushRollbackFailed = rollbackErr; }
         throw eTx;
       }
     } catch (e4) {
@@ -380,7 +392,12 @@ async function runWorkerWatchdogSweep(pool, opts) {
         });
       } catch (_) {}
     } finally {
-      if (pushClient && pushClient.release) pushClient.release();
+      // AUDIT-2026-08-22 (AUDIT-WATCHDOG-RELEASE-1) — release(err) destroys the
+      // connection rather than returning a poisoned one to the pool.
+      if (pushClient && pushClient.release) {
+        try { pushClient.release(pushRollbackFailed || undefined); }
+        catch (_) { try { pushClient.release(); } catch (_e) {} }
+      }
     }
 
     // Send AFTER releasing the lock. Each slot is already claimed (stamp written),

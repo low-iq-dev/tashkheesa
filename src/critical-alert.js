@@ -201,6 +201,46 @@ async function sendCriticalAlert(message, alertKey) {
     transport = require('./notify/whatsapp').whatsappTransport();
   } catch (_) { /* default stands */ }
 
+  // ── AUDIT-2026-08-22 (AUDIT-ALERT-TRANSPORT-1): DON'T LET THE ROUTING FIX
+  //    BECOME A NEW SINGLE POINT OF FAILURE. ───────────────────────────────
+  //
+  // whatsappTransport() returns 'openclaw' for ANY value that is not exactly
+  // 'meta' — including unset — so the block above made every critical alert
+  // depend on OpenClaw being configured, and made the Meta branch below
+  // UNREACHABLE unless someone explicitly sets
+  // NOTIFICATIONS_WHATSAPP_TRANSPORT=meta.
+  //
+  // That combination is a configuration bootCheck.js positively blesses: with
+  // NOTIFICATIONS_WHATSAPP_ENABLED=false the OPENCLAW_* pair is not required at
+  // all, so a deploy can boot green with valid WHATSAPP_PHONE_NUMBER_ID /
+  // WHATSAPP_ACCESS_TOKEN / CRITICAL_ALERT_TEMPLATE_NAME and no OpenClaw creds.
+  // On that deploy all 18 critical alerts returned oc_env_misconfigured — the
+  // Paymob HMAC failure, the three markCasePaid-failed-after-capture sites, the
+  // worker-down alarm — while a perfectly good Meta path sat unused.
+  //
+  // Ops paging must use whatever transport is ACTUALLY configured, so fall back
+  // to Meta when the OpenClaw credentials are absent. Note this checks the same
+  // two variables lib/openclaw_client.js:60-71 checks, so the fallback triggers
+  // in exactly the cases that would have returned oc_env_misconfigured.
+  if (transport === 'openclaw') {
+    var ocBaseConfigured = String(process.env.OPENCLAW_BASE_URL || '').trim();
+    var ocKeyConfigured  = String(process.env.OPENCLAW_SEND_KEY || '').trim();
+    var ocStubbed = String(process.env.WHATSAPP_TEST_STUB || '').trim().toLowerCase() === 'true';
+    if (!ocStubbed && !(ocBaseConfigured && ocKeyConfigured)) {
+      if (phoneNumberId && accessToken) {
+        console.warn('[critical-alert] OpenClaw is the configured transport but ' +
+          'OPENCLAW_BASE_URL/OPENCLAW_SEND_KEY are unset — falling back to the Meta ' +
+          'Cloud API so this alert is not silently dropped.');
+        transport = 'meta';
+      } else {
+        // Neither transport can send. Say so precisely rather than letting the
+        // OpenClaw branch log the misleading oc_env_misconfigured 18 times.
+        _suppressed(claimId, 'env_missing_openclaw_and_meta', key);
+        return;
+      }
+    }
+  }
+
   if (transport === 'openclaw') {
     var sendViaOpenClaw;
     try {

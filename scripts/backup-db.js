@@ -115,7 +115,16 @@ if (result.error) {
 if (result.status !== 0) {
   console.error('⛔ pg_dump exited with code ' + result.status + ' — backup NOT created.');
   try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch (_) {}
-  process.exit(result.status || EXIT_FAIL);
+  // AUDIT-2026-08-22 (AUDIT-BACKUP-EXITCODE-1) — was
+  // `process.exit(result.status || EXIT_FAIL)`, which forwarded pg_dump's RAW
+  // status into this script's SEMANTIC exit space (0 ok · 1 genuine failure ·
+  // 2 misconfigured · 3 pg_dump not installed). pg_dump exits 2 or 3 on real
+  // errors of its own, and scripts/preflight.js:48-62 reads those numbers as
+  // "BACKUP SKIPPED — pg_dump not installed" / "DATABASE_URL_DIRECT not set"
+  // and CONTINUES with a warning. A genuine dump failure therefore looked like
+  // a missing tool, and preflight passed with no backup before a risky change.
+  // pg_dump ran; whatever it says, this is a FAILURE.
+  process.exit(EXIT_FAIL);
 }
 
 // ── Verify. A dump nobody has opened is a hope, not a backup. ────────────────

@@ -1,7 +1,7 @@
 var fs = require('fs');
 var path = require('path');
 var { Client } = require('pg');
-var { pool, queryOne, queryAll, execute, withTransaction } = require('./pg');
+var { pool, queryOne, queryAll, execute, withTransaction, verifyPoolSettings, preflightPool } = require('./pg');
 var { major: logMajor, fatal: logFatal } = require('./logger');
 
 // ---------------------------------------------------------------------------
@@ -17,6 +17,19 @@ var MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 // pg-boss internal key. Changing it silently disables the lock for a deploy
 // that straddles the change, so don't.
 var MIGRATION_LOCK_KEY = 705120260822;
+
+// AUDIT-2026-08-22 (AUDIT-MIGRATE-HANG-1) — bounds for the lock acquisition.
+// See _acquireMigrationLock for why an unbounded pg_advisory_lock is a total,
+// self-perpetuating outage rather than a delay.
+var MIGRATION_LOCK_CONNECT_TIMEOUT_MS =
+  parseInt(process.env.MIGRATION_LOCK_CONNECT_TIMEOUT_MS, 10) || 15000;
+// How long to keep re-trying pg_try_advisory_lock before giving up and
+// migrating unlocked. Two minutes is well above a normal boot-migration run
+// (the whole loop is sub-second when there is nothing to apply) and well below
+// Render's health-check patience.
+var MIGRATION_LOCK_WAIT_MS =
+  parseInt(process.env.MIGRATION_LOCK_WAIT_MS, 10) || 120000;
+var MIGRATION_LOCK_RETRY_MS = 3000;
 
 /**
  * AUDIT-2026-08-22 (AUDIT-MIGRATE-LOCK-1) — open the dedicated session used to
@@ -51,10 +64,100 @@ async function _openMigrationLockSession() {
 
   var client = new Client({
     connectionString: directUrl,
-    ssl: process.env.PG_SSL === 'false' ? false : { rejectUnauthorized: false }
+    ssl: process.env.PG_SSL === 'false' ? false : { rejectUnauthorized: false },
+    // AUDIT-2026-08-22 (AUDIT-MIGRATE-HANG-1) — a bare `new Client` has NO
+    // connect timeout: if the direct endpoint is unreachable (Supabase paused,
+    // security-group change, DNS) `connect()` never settles, `_dbReady` never
+    // resolves and app.listen is never reached, so Render's health check times
+    // out with no log line after the pool banner. Bound it.
+    connectionTimeoutMillis: MIGRATION_LOCK_CONNECT_TIMEOUT_MS
   });
   await client.connect();
+
+  // AUDIT-2026-08-22 (AUDIT-MIGRATE-TZ-1) — this Client deliberately skips
+  // src/pg.js's _withStartupOptions, so it carries NONE of the guarantees that
+  // file spends 90 lines defending. It then runs every migration's DDL and the
+  // schema_migrations ledger write. Pin the session explicitly:
+  //
+  //   TIME ZONE 'UTC'  — migrations contain `DEFAULT NOW()` and `AT TIME ZONE`
+  //     conversions; on the production role default (Africa/Cairo) a naive
+  //     column written during a migration lands 2-3h off. Same reasoning as
+  //     the AUDIT-TZ-1 block in src/pg.js.
+  //
+  //   statement_timeout = 0 — MANDATORY, not tuning. render.yaml's operator
+  //     note recommends `ALTER ROLE <app role> SET statement_timeout = '30s'`,
+  //     and a ROLE-level setting applies to this Client too (it has no
+  //     `?options=` override). With it in force, ANY migration that legitimately
+  //     runs longer than 30s — an index build on `orders` — is cancelled, the
+  //     runner throws and the service crash-loops permanently with no skip
+  //     mechanism. Migrations are the one place where an unbounded statement is
+  //     the correct setting.
+  //
+  //   lock_timeout — belt and braces. The lock below is taken with
+  //     pg_try_advisory_lock (non-blocking), but a migration's own
+  //     ALTER TABLE can still queue behind someone else's lock forever.
+  try { await client.query("SET TIME ZONE 'UTC'"); }
+  catch (e) { logMajor('[migrate] failed to pin lock session to UTC: ' + e.message); }
+  try { await client.query('SET statement_timeout = 0'); }
+  catch (e) { logFatal('[migrate] failed to clear statement_timeout on the migration ' +
+    'session: ' + e.message + ' — a long migration may be cancelled by the role default'); }
+  try { await client.query('SET lock_timeout = 30000'); }
+  catch (e) { logMajor('[migrate] failed to SET lock_timeout: ' + e.message); }
+
   return client;
+}
+
+/**
+ * AUDIT-2026-08-22 (AUDIT-MIGRATE-HANG-1) — take the migration lock WITHOUT
+ * the possibility of hanging forever.
+ *
+ * WHAT WAS WRONG: `SELECT pg_advisory_lock($1)` blocks indefinitely, and
+ * app.listen sits inside _dbReady.then(). Instance A being SIGKILLed mid-
+ * migration (deploy timeout, OOM) leaves its Postgres backend — and the lock —
+ * alive until TCP keepalive expires, which is HOURS on Supabase defaults.
+ * Instance B then boots, blocks here forever, never binds a port, fails the
+ * health check, and autoDeploy rolls forward into a boot that hangs identically.
+ * There was no code path out of that state.
+ *
+ * WHAT IT DOES NOW: polls pg_try_advisory_lock (returns immediately) until
+ * MIGRATION_LOCK_WAIT_MS elapses. On timeout it gives up LOUDLY and migrates
+ * unlocked — the same degraded-but-booting mode already used when
+ * DATABASE_URL_DIRECT is unset. That is the right trade: every .sql file is
+ * idempotent, the realistic cause of a stuck lock is a DEAD holder (so nothing
+ * is actually racing us), and a service that boots and logs is recoverable
+ * while a service that hangs is not.
+ *
+ * @returns {Promise<boolean>} true when the lock is held by this session.
+ */
+async function _acquireMigrationLock(client) {
+  var deadline = Date.now() + MIGRATION_LOCK_WAIT_MS;
+  var waited = false;
+  for (;;) {
+    var r = await client.query('SELECT pg_try_advisory_lock($1) AS got', [MIGRATION_LOCK_KEY]);
+    if (r && r.rows && r.rows[0] && r.rows[0].got === true) {
+      logMajor('[migrate] holding migration advisory lock ' + MIGRATION_LOCK_KEY +
+               ' on DATABASE_URL_DIRECT' + (waited ? ' (after waiting)' : ''));
+      return true;
+    }
+    if (Date.now() >= deadline) {
+      logFatal('[migrate] could NOT acquire migration advisory lock ' + MIGRATION_LOCK_KEY +
+        ' within ' + MIGRATION_LOCK_WAIT_MS + 'ms — proceeding WITHOUT it so the process ' +
+        'still binds a port. Either another instance is genuinely migrating right now, or ' +
+        'a previous instance was killed mid-migration and its backend still holds the lock ' +
+        '(Supabase TCP keepalive can keep that backend alive for hours). If migrations ' +
+        'then fail with duplicate-object or duplicate-key errors, clear the stale holder: ' +
+        "SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype='advisory' AND " +
+        'objid = ' + (MIGRATION_LOCK_KEY % 4294967296) + ';  -- verify with pg_locks first. ' +
+        'Tune the wait with MIGRATION_LOCK_WAIT_MS.');
+      return false;
+    }
+    if (!waited) {
+      logMajor('[migrate] migration advisory lock is held by another session — retrying ' +
+               'every ' + MIGRATION_LOCK_RETRY_MS + 'ms for up to ' + MIGRATION_LOCK_WAIT_MS + 'ms');
+      waited = true;
+    }
+    await new Promise(function (resolve) { setTimeout(resolve, MIGRATION_LOCK_RETRY_MS); });
+  }
 }
 
 /**
@@ -78,11 +181,36 @@ async function migrate() {
   // from server.js's initDatabase catch. Hold ONE session-scoped advisory lock
   // for the entire loop so the second instance waits and then finds every file
   // already recorded.
-  var lockClient = await _openMigrationLockSession();
+  // AUDIT-2026-08-22 (AUDIT-POOL-SET-1 follow-up) — the pool's startup-options
+  // gamble used to be diagnosed by a 15s setTimeout in src/pg.js that could
+  // never fire: the FIRST pool query is three lines below, so an `options=`
+  // that the pooler rejects killed the process at ~t+2s with nothing in the log
+  // but "migrate failed". Probe (and self-heal) the pool HERE, before that
+  // query, and report what the connections actually carry.
+  await preflightPool();
+  await verifyPoolSettings();
+
+  // AUDIT-2026-08-22 (AUDIT-MIGRATE-HANG-1) — opening the lock session must not
+  // be able to fail the boot on its own. It is a bare `new Client` against
+  // DATABASE_URL_DIRECT, and with the connect timeout added above an
+  // unreachable direct endpoint now REJECTS (it used to hang forever). A reject
+  // here would propagate out of migrate() and exit(1) the process — trading a
+  // hang for a crash-loop, which is not an improvement. Degrade to the
+  // already-supported unlocked path instead, loudly.
+  var lockClient = null;
+  var lockHeld = false;
+  try {
+    lockClient = await _openMigrationLockSession();
+  } catch (lockErr) {
+    logFatal('[migrate] could NOT open the migration lock session on ' +
+      'DATABASE_URL_DIRECT: ' + (lockErr && lockErr.message ? lockErr.message : lockErr) +
+      ' — running migrations WITHOUT the advisory lock so the process still boots. ' +
+      'Check DATABASE_URL_DIRECT (Supabase Session pooler, port 5432): pg-boss ' +
+      'needs the same endpoint and will exit 1 shortly if it is genuinely down.');
+    lockClient = null;
+  }
   if (lockClient) {
-    await lockClient.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_KEY]);
-    logMajor('[migrate] holding migration advisory lock ' + MIGRATION_LOCK_KEY +
-             ' on DATABASE_URL_DIRECT');
+    lockHeld = await _acquireMigrationLock(lockClient);
   }
 
   try {
@@ -152,7 +280,12 @@ async function migrate() {
     }
   } finally {
     if (lockClient) {
-      try { await lockClient.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY]); } catch (_) {}
+      // AUDIT-2026-08-22 (AUDIT-MIGRATE-HANG-1) — only unlock what we took.
+      // pg_advisory_unlock on a lock this session does not hold logs a warning
+      // and returns false; harmless, but it would misreport in the server log.
+      if (lockHeld) {
+        try { await lockClient.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY]); } catch (_) {}
+      }
       // end() drops the session, which releases any advisory lock regardless of
       // whether the unlock above succeeded.
       try { await lockClient.end(); } catch (_) {}
