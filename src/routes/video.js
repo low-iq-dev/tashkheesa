@@ -12,6 +12,11 @@ const { logOrderEvent } = require('../audit');
 const { generateToken, getRoomName, isVideoEnabled } = require('../video_helpers');
 const { sendCriticalAlert } = require('../critical-alert');
 const { getAddon, safeDualWrite } = require('../services/addons/registry');
+// AUDIT-2026-08-22 (M1): the SAME parser routes/payments.js uses to read the
+// add-on selection + charged price locked on the order at intention time.
+// Booking must not re-derive that from the catalogue — the catalogue can drift
+// from what the patient was actually charged (see FIX 9 in addons/video_consult.js).
+const { parseSelectedAddons } = require('../services/order_pricing');
 
 const router = express.Router();
 
@@ -102,6 +107,92 @@ function getPatientCurrency(req) {
 }
 
 // ---------------------------------------------------------------------------
+// AUDIT-2026-08-22 (M1): VIDEO ADD-ON ENTITLEMENT
+//
+// The video consultation add-on is priced into the CASE checkout
+// (routes/payments.js create-intention, :158-197) and fulfilled by the Paymob
+// webhook (:1132-1213), which persists the selection + the CHARGED price on
+// orders.addons_json / orders.video_consultation_selected. Booking then
+// unconditionally opened a SECOND checkout (a 'pending' appointment_payments
+// row + /portal/video/pay), so the patient either paid twice for one product
+// or refused and left the appointment in 'pending_payment' forever while the
+// platform kept the add-on money.
+//
+// A paid, unconsumed add-on now funds exactly ONE appointment, with no second
+// checkout. Two rules govern this code:
+//
+//   * Source of truth is orders.addons_json, NOT order_addons. The
+//     order_addons row is written through safeDualWrite(), which is gated on
+//     ADDON_SYSTEM_V2 — false by default (see services/addons/registry.js), so
+//     that row is ABSENT on most paid orders. addons_json is written
+//     unconditionally by the webhook and is what the refund ceiling
+//     (services/refund_eligibility.js) and the earnings writer already read.
+//
+//   * Never fail open. Anything we cannot read with certainty (unparseable
+//     addons_json, order not paid, add-on priced at zero, entitlement already
+//     claimed, claim lost a race) falls through to the existing paid flow. A
+//     free consultation is only ever minted by a claim that WON.
+//
+// Consumption is recorded as `video_consultation_consumed_by` on addons_json.
+// That key is claimed by ONE conditional UPDATE (see the booking transaction),
+// so a second booking against the same add-on can never mint a second free
+// consultation — the same class of hole FIX 1 closed on /api/video/end.
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse orders.addons_json defensively. The column is TEXT holding JSON
+ * (migration 002), but pg hands back an object if it is ever migrated to
+ * jsonb, so handle both.
+ * @returns {object|null} null = unreadable; caller MUST fall back to paying.
+ */
+function parseAddonsJsonSafe(order) {
+  const raw = order ? order.addons_json : null;
+  if (raw == null) return {};
+  if (typeof raw === 'object') return raw;
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return (parsed && typeof parsed === 'object') ? parsed : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Is there a PAID, UNCONSUMED video-consultation add-on on this order?
+ * Read-only pre-check — the authoritative, race-proof claim is the conditional
+ * UPDATE inside POST /portal/video/book.
+ * @returns {{price:number, currency:string}|null}
+ */
+function readVideoAddonEntitlement(order) {
+  if (!order) return null;
+  // Only a PAID case can have paid for the add-on. The webhook writes the
+  // add-on state and payment_status='paid' on the same callback.
+  if (String(order.payment_status || '').toLowerCase() !== 'paid') return null;
+
+  // Unreadable addons_json => the `::jsonb` cast in the claim would abort the
+  // booking transaction. Bail to the paid flow instead.
+  const rawAddons = parseAddonsJsonSafe(order);
+  if (rawAddons === null) return null;
+
+  // Already consumed by an earlier booking on this order.
+  if (rawAddons.video_consultation_consumed_by) return null;
+
+  const sel = parseSelectedAddons(order);
+  if (!sel.video_consultation) return null;
+
+  // A selected add-on priced at 0 added 0 to the Paymob intention
+  // (order_pricing.owedCentsForOrder) — nothing was bought, so nothing is owed.
+  const price = Number(sel.video_consultation_price) || 0;
+  if (!(price > 0)) return null;
+
+  return {
+    price: price,
+    currency: String(order.currency || order.locked_currency || 'EGP').toUpperCase()
+  };
+}
+
+// ---------------------------------------------------------------------------
 // GET /portal/video/book/:orderId — Show booking form (patient)
 // ---------------------------------------------------------------------------
 router.get('/portal/video/book/:orderId', requireRole('patient'), async (req, res) => {
@@ -135,6 +226,13 @@ router.get('/portal/video/book/:orderId', requireRole('patient'), async (req, re
     [orderId, req.user.id]
   );
 
+  // AUDIT-2026-08-22 (M1): the CTA read "Book & Pay — N EGP" even when the
+  // patient had already bought this consultation at case checkout and POST
+  // /portal/video/book will charge them nothing. Telling a patient they are
+  // about to pay for something they already paid for is the visible half of
+  // the double-charge bug.
+  const bookEntitlement = readVideoAddonEntitlement(order);
+
   res.render('video_appointment', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     layout: 'portal',
@@ -147,8 +245,9 @@ router.get('/portal/video/book/:orderId', requireRole('patient'), async (req, re
     order,
     doctor: null,
     service,
-    price: resolved.price,
-    priceCurrency: resolved.currency,
+    price: bookEntitlement ? bookEntitlement.price : resolved.price,
+    priceCurrency: bookEntitlement ? bookEntitlement.currency : resolved.currency,
+    addonPaid: !!bookEntitlement,
     commissionPct: (service && service.video_doctor_commission_pct) ? service.video_doctor_commission_pct : 80,
     existingAppointment,
     appointment: null,
@@ -197,6 +296,12 @@ router.post('/portal/video/book', requireRole('patient'), async (req, res) => {
   const priceCurrency = resolved.currency;
   const commissionPct = (service && service.video_doctor_commission_pct) ? Number(service.video_doctor_commission_pct) : 80;
 
+  // AUDIT-2026-08-22 (M1): read-only pre-check. The binding decision is the
+  // conditional UPDATE inside the transaction below — this only avoids doing
+  // the JSON work twice and lets us skip the claim entirely when there is
+  // plainly nothing to claim.
+  const entitlement = readVideoAddonEntitlement(order);
+
   try {
     const result = await withTransaction(async (client) => {
       const appointmentId = `appt-${randomUUID()}`;
@@ -204,26 +309,84 @@ router.post('/portal/video/book', requireRole('patient'), async (req, res) => {
       const videoCallId = `vcall-${randomUUID()}`;
       const now = nowIso();
 
-      await client.query(`
-        INSERT INTO appointment_payments (id, appointment_id, patient_id, amount, currency, status, created_at)
-        VALUES ($1, $2, $3, $4, $5, 'pending', $6)
-      `, [paymentId, appointmentId, req.user.id, price, priceCurrency, now]);
+      // ── AUDIT-2026-08-22 (M1): CLAIM THE ADD-ON, ATOMICALLY ──────────────
+      // One statement does the whole check-and-consume: the WHERE clause
+      // re-verifies (inside the transaction, under the orders row lock) that
+      // the case is paid, that the add-on really is selected on it, and that
+      // nobody has consumed it yet; the SET stamps THIS appointment id onto
+      // addons_json as the consumer. rowCount === 1 means this request is the
+      // one that won. Two concurrent bookings therefore cannot both be funded:
+      // the loser sees rowCount 0 and falls through to the normal paid flow.
+      // Rolling the transaction back releases the claim with it.
+      //
+      // The predicate mirrors order_pricing.parseSelectedAddons: the JSON flag
+      // OR the legacy video_consultation_selected column. Text comparison, not
+      // `::boolean` — a malformed value must not raise and abort the booking.
+      let funded = false;
+      if (entitlement) {
+        const claim = await client.query(`
+          UPDATE orders
+             SET addons_json = COALESCE(addons_json, '{}')::jsonb || $3::jsonb
+           WHERE id = $1
+             AND patient_id = $2
+             AND LOWER(COALESCE(payment_status, '')) = 'paid'
+             AND (COALESCE(addons_json, '{}')::jsonb ->> 'video_consultation_consumed_by') IS NULL
+             AND (
+                   (COALESCE(addons_json, '{}')::jsonb ->> 'video_consultation') IN ('true', 't', '1')
+                   OR COALESCE(video_consultation_selected, false) = true
+                 )
+        `, [order_id, req.user.id, JSON.stringify({
+          video_consultation_consumed_by: appointmentId,
+          video_consultation_consumed_at: now
+        })]);
+        funded = !!(claim && claim.rowCount === 1);
+      }
 
-      // status = 'pending_payment' — slot requested, awaiting payment
+      if (funded) {
+        // Paid at case checkout. The appointment_payments row is written
+        // 'paid' rather than skipped so that every downstream guard which
+        // resolves payment through appointment.payment_id keeps working
+        // unchanged: the /api/video/end earnings gate (guard 3), the no-show
+        // earnings gate, the cancel/refund path and the doctor dashboard.
+        // amount = the price the patient was ACTUALLY charged for the add-on,
+        // read off the order — never the catalogue. method='order_addon' is
+        // the marker the refund path needs to see that this consultation was
+        // funded by the case order, not by a separate card payment.
+        await client.query(`
+          INSERT INTO appointment_payments
+            (id, appointment_id, patient_id, amount, currency, status, method, reference, paid_at, created_at)
+          VALUES ($1, $2, $3, $4, $5, 'paid', 'order_addon', $6, $7, $7)
+        `, [paymentId, appointmentId, req.user.id, entitlement.price, entitlement.currency, `order:${order_id}`, now]);
+      } else {
+        await client.query(`
+          INSERT INTO appointment_payments (id, appointment_id, patient_id, amount, currency, status, created_at)
+          VALUES ($1, $2, $3, $4, $5, 'pending', $6)
+        `, [paymentId, appointmentId, req.user.id, price, priceCurrency, now]);
+      }
+
+      // Funded by the add-on → 'pending_doctor', which is EXACTLY the state the
+      // Paymob video callback leaves a freshly paid appointment in: money
+      // settled, slot still to be accepted by the doctor. It is deliberately
+      // not 'confirmed' — 'confirmed' is the doctor's own act (accept-slot),
+      // and minting it here would put appointments on the doctor's calendar
+      // that they never agreed to, then bill the platform for a doctor no-show
+      // refund when they don't show. Otherwise: 'pending_payment' as before.
+      const apptStatus = funded ? 'pending_doctor' : 'pending_payment';
+      const apptPrice = funded ? entitlement.price : price;
       await client.query(`
         INSERT INTO appointments
           (id, order_id, patient_id, doctor_id, specialty_id, scheduled_at, status,
            video_call_id, payment_id, price, doctor_commission_pct,
            patient_requested_at, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, 'pending_payment', $7, $8, $9, $10, $11, $12, $13)
+        VALUES ($1, $2, $3, $4, $5, $6, $14, $7, $8, $9, $10, $11, $12, $13)
       `, [
         appointmentId, order_id,
         req.user.id,
         order.doctor_id || null,       // may be null if no doctor yet — assigned on acceptance
         order.specialty_id || null,
         scheduledDate.toISOString(),
-        videoCallId, paymentId, price, commissionPct,
-        now, now, now
+        videoCallId, paymentId, apptPrice, commissionPct,
+        now, now, now, apptStatus
       ]);
 
       await client.query(`
@@ -231,16 +394,81 @@ router.post('/portal/video/book', requireRole('patient'), async (req, res) => {
         VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)
       `, [videoCallId, appointmentId, req.user.id, order.doctor_id || null, getRoomName(appointmentId), now, now]);
 
-      return { appointmentId, paymentId };
+      return { appointmentId, paymentId, funded };
     });
 
     logOrderEvent({
       orderId: order_id,
       label: 'video_slot_requested',
-      meta: JSON.stringify({ appointment_id: result.appointmentId, preferred_slot: scheduledDate.toISOString(), price }),
+      meta: JSON.stringify({
+        appointment_id: result.appointmentId,
+        preferred_slot: scheduledDate.toISOString(),
+        price: result.funded ? entitlement.price : price,
+        funded_by: result.funded ? 'order_addon' : 'appointment_payment'
+      }),
       actorUserId: req.user.id,
       actorRole: 'patient'
     });
+
+    if (result.funded) {
+      // AUDIT-2026-08-22 (M1): money trail for the consumed entitlement —
+      // reconciliation has to be able to tie the free-at-booking appointment
+      // back to the add-on line the patient paid for at case checkout.
+      logOrderEvent({
+        orderId: order_id,
+        label: 'video_addon_entitlement_consumed',
+        meta: JSON.stringify({
+          appointment_id: result.appointmentId,
+          payment_id: result.paymentId,
+          addon_price: entitlement.price,
+          currency: entitlement.currency
+        }),
+        actorUserId: req.user.id,
+        actorRole: 'patient'
+      });
+
+      // Same notifications the Paymob video callback sends once a payment
+      // settles — this appointment reaches 'pending_doctor' by the same route,
+      // just with the money already collected. Without the doctor's review
+      // request the slot would sit untouched until the 48h stale sweep
+      // auto-cancels it (video_scheduler.sweepStalePendingSlots).
+      queueNotification({
+        orderId: order_id,
+        toUserId: req.user.id,
+        channel: 'internal',
+        template: 'video_payment_confirmed',
+        status: 'queued',
+        response: JSON.stringify({
+          appointment_id: result.appointmentId,
+          scheduled_at: scheduledDate.toISOString()
+        })
+      });
+      queueNotification({
+        orderId: order_id,
+        toUserId: req.user.id,
+        channel: 'whatsapp',
+        template: 'video_payment_confirmed',
+        status: 'queued',
+        response: JSON.stringify({
+          appointment_id: result.appointmentId,
+          scheduled_at: scheduledDate.toISOString()
+        })
+      });
+      if (order.doctor_id) {
+        queueNotification({
+          orderId: order_id,
+          toUserId: order.doctor_id,
+          channel: 'internal',
+          template: 'video_slot_review_requested',
+          status: 'queued',
+          response: JSON.stringify({
+            appointment_id: result.appointmentId,
+            patient_preferred_slot: scheduledDate.toISOString()
+          })
+        });
+      }
+      return res.redirect(`/portal/video/appointment/${result.appointmentId}`);
+    }
 
     return res.redirect(`/portal/video/pay/${result.appointmentId}`);
   } catch (err) {
@@ -807,31 +1035,51 @@ router.post('/portal/video/appointment/:id/cancel', requireRole('patient', 'doct
       [now, appointment.video_call_id]);
   }
 
-  // Notify other participant
-  const otherUserId = req.user.id === appointment.patient_id ? appointment.doctor_id : appointment.patient_id;
-  queueNotification({
-    orderId: appointment.order_id,
-    toUserId: otherUserId,
-    channel: 'internal',
-    template: 'video_appointment_cancelled',
-    status: 'queued',
-    response: JSON.stringify({
-      appointment_id: appointment.id,
-      refund_status: refundStatus,
-      cancelled_by: req.user.role
-    })
-  });
-  queueNotification({
-    orderId: appointment.order_id,
-    toUserId: appointment.patient_id,
-    channel: 'whatsapp',
-    template: 'video_appointment_cancelled',
-    status: 'queued',
-    response: JSON.stringify({
-      appointment_id: appointment.id,
-      refund_status: refundStatus
-    })
-  });
+  // ── AUDIT-2026-08-22 (P2): notify the party who did NOT cancel, on BOTH
+  // channels. The bell went to `otherUserId` while the WhatsApp always went to
+  // `patient_id`, so a doctor-cancel told the patient twice and told the
+  // doctor nothing, and a patient-cancel WhatsApped the patient about their own
+  // click while the doctor got only a bell.
+  //
+  // The template has to follow the recipient too: per the registry convention
+  // in notify/notification_titles.js ("patient-facing unless the name ends in
+  // _doctor"), `video_appointment_cancelled` is patient-voiced ("YOUR video
+  // consultation has been cancelled"). Sending it to the doctor addresses them
+  // as the patient. When the recipient is the doctor we emit the doctor-facing
+  // name instead — see the hand-off note for the template the notifications
+  // owner must add.
+  const cancelNotifyUserId = isDoctorCancel ? appointment.patient_id : appointment.doctor_id;
+  const cancelTemplate = isDoctorCancel ? 'video_appointment_cancelled' : 'video_appointment_cancelled_doctor';
+  // A patient can cancel an appointment on a case that has no doctor yet
+  // (appointments.doctor_id is nullable — see the booking insert). Queuing to a
+  // null recipient is not an error, but notify.js records it as a dropped
+  // notification in /ops; there is genuinely nobody to tell, so skip.
+  if (cancelNotifyUserId) {
+    queueNotification({
+      orderId: appointment.order_id,
+      toUserId: cancelNotifyUserId,
+      channel: 'internal',
+      template: cancelTemplate,
+      status: 'queued',
+      response: JSON.stringify({
+        appointment_id: appointment.id,
+        refund_status: refundStatus,
+        cancelled_by: req.user.role
+      })
+    });
+    queueNotification({
+      orderId: appointment.order_id,
+      toUserId: cancelNotifyUserId,
+      channel: 'whatsapp',
+      template: cancelTemplate,
+      status: 'queued',
+      response: JSON.stringify({
+        appointment_id: appointment.id,
+        refund_status: refundStatus,
+        cancelled_by: req.user.role
+      })
+    });
+  }
 
   logOrderEvent({
     orderId: appointment.order_id,
@@ -1143,6 +1391,21 @@ router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), a
     // the SAME request. It carries the same guards as the doctor_earnings
     // insert above: owning doctor + paid appointment. onFulfill above is a
     // pure state transition (the call did happen) and stays ungated.
+    //
+    // ── AUDIT-2026-08-22 (M1 follow-up, NOT fixed here) ────────────────────
+    // When ADDON_SYSTEM_V2 is turned on AND the appointment was funded by the
+    // case add-on (appointment_payments.method = 'order_addon' — see POST
+    // /portal/video/book), the doctor is paid TWICE for one sale: once from
+    // doctor_earnings above (appointment.price × commission) and once from
+    // addon_earnings here (order_addons.price_at_purchase_egp × commission),
+    // both derived from the SAME add-on line the patient paid at checkout.
+    // Before M1 the appointment carried its own separate payment, so the two
+    // ledgers had two revenue lines behind them; they no longer do. Deciding
+    // which ledger owns the add-on payout crosses this file, the earnings
+    // writer and the doctor dashboard, so it is handed off rather than guessed
+    // at here. Harmless while ADDON_SYSTEM_V2 is false (the default) — it MUST
+    // be resolved before that flag is flipped. Same applies to the identical
+    // onComplete block in the patient-no-show branch below.
     if (result.earningsEligible) {
       await safeDualWrite('video_consult', 'onComplete', appointment.order_id, async () => {
         const existing = await queryOne(
@@ -1305,11 +1568,20 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
         [now, appointment.payment_id]);
     }
 
+    // ── AUDIT-2026-08-22 (N2): the DOCTOR no-showed; tell the PATIENT so.
+    // These two sends addressed the patient with `video_no_show_doctor`, whose
+    // suffix the registry reads as the RECIPIENT role, not the party at fault:
+    // its title is "Patient did not join the video consultation" and its
+    // OpenClaw body says the patient did not join, with a doctor-portal deep
+    // link. A patient who was stood up by their doctor was told they were the
+    // no-show. `video_no_show_doctor` / `video_no_show_patient` are the
+    // PATIENT-no-show pair; the doctor-no-show event needs its own
+    // patient-facing name — see the hand-off note.
     queueNotification({
       orderId: appointment.order_id,
       toUserId: appointment.patient_id,
       channel: 'internal',
-      template: 'video_no_show_doctor',
+      template: 'video_doctor_no_show_patient',
       status: 'queued',
       response: JSON.stringify({ appointment_id: appointment.id, refund: 'full' })
     });
@@ -1317,9 +1589,9 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
       orderId: appointment.order_id,
       toUserId: appointment.patient_id,
       channel: 'whatsapp',
-      template: 'video_no_show_doctor',
+      template: 'video_doctor_no_show_patient',
       status: 'queued',
-      response: JSON.stringify({ appointment_id: appointment.id })
+      response: JSON.stringify({ appointment_id: appointment.id, refund: 'full' })
     });
   } else {
     // Patient no-show: no refund, doctor keeps payment
@@ -1548,11 +1820,18 @@ router.post('/portal/video/appointment/:id/confirm-slot', requireRole('patient')
     WHERE id = $4
   `, [now, now, now, appointment.id]);
 
+  // ── AUDIT-2026-08-22 (P2): the PATIENT performed this action (confirming the
+  // doctor's proposed time), so both channels go to the DOCTOR — the party who
+  // did not act and does not yet know. The bell already did; the WhatsApp went
+  // to the patient, telling them about their own click.
+  // `video_slot_confirmed` is patient-voiced ("YOUR video consultation is
+  // confirmed ... Join from"), so the doctor gets the doctor-facing name per
+  // the registry's _doctor convention — see the hand-off note.
   queueNotification({
     orderId: appointment.order_id,
     toUserId: appointment.doctor_id,
     channel: 'internal',
-    template: 'video_slot_confirmed',
+    template: 'video_slot_confirmed_doctor',
     status: 'queued',
     response: JSON.stringify({
       appointment_id: appointment.id,
@@ -1561,9 +1840,9 @@ router.post('/portal/video/appointment/:id/confirm-slot', requireRole('patient')
   });
   queueNotification({
     orderId: appointment.order_id,
-    toUserId: appointment.patient_id,
+    toUserId: appointment.doctor_id,
     channel: 'whatsapp',
-    template: 'video_slot_confirmed',
+    template: 'video_slot_confirmed_doctor',
     status: 'queued',
     response: JSON.stringify({ appointment_id: appointment.id, confirmed_slot: appointment.doctor_proposed_time })
   });

@@ -140,7 +140,14 @@
         <div style="margin-bottom:20px;">
           <p><strong><%= tt('Doctor', 'Doctor', 'الطبيب') %>:</strong> <%= doctor ? doctor.name : tt('Assigned Doctor', 'Assigned Doctor', 'الطبيب المعين') %></p>
           <p><strong><%= tt('Case', 'Case', 'الحالة') %>:</strong> #<%= order.id.substring(0, 8) %></p>
-          <p><strong><%= tt('Consultation Fee', 'Consultation Fee', 'رسوم الاستشارة') %>:</strong> <span style="font-size:1.25rem;font-weight:700;color:var(--primary);"><%= price %> <%= typeof priceCurrency !== 'undefined' ? priceCurrency : 'EGP' %></span></p>
+          <%# AUDIT-2026-08-22 (M1): when the video add-on was already paid for at
+              case checkout, booking charges nothing — say so instead of quoting
+              a fee the patient is not about to be charged again. %>
+          <% if (typeof addonPaid !== 'undefined' && addonPaid) { %>
+            <p><strong><%= tt('Consultation Fee', 'Consultation Fee', 'رسوم الاستشارة') %>:</strong> <span style="font-size:1.05rem;font-weight:700;color:var(--primary);"><%= tt('Already paid with your case', 'Already paid with your case', 'مدفوعة بالفعل مع حالتك') %> (<%= price %> <%= typeof priceCurrency !== 'undefined' ? priceCurrency : 'EGP' %>)</span></p>
+          <% } else { %>
+            <p><strong><%= tt('Consultation Fee', 'Consultation Fee', 'رسوم الاستشارة') %>:</strong> <span style="font-size:1.25rem;font-weight:700;color:var(--primary);"><%= price %> <%= typeof priceCurrency !== 'undefined' ? priceCurrency : 'EGP' %></span></p>
+          <% } %>
         </div>
 
         <% if (!videoEnabled) { %>
@@ -171,7 +178,11 @@
             </div>
 
             <button type="submit" class="btn btn-primary btn-full" style="margin-top:20px;">
-              <%= tt('Book & Pay', 'Book & Pay', 'احجز وادفع') %> — <%= price %> EGP
+              <% if (typeof addonPaid !== 'undefined' && addonPaid) { %>
+                <%= tt('Request This Time', 'Request This Time', 'اطلب هذا الموعد') %>
+              <% } else { %>
+                <%= tt('Book & Pay', 'Book & Pay', 'احجز وادفع') %> — <%= price %> <%= typeof priceCurrency !== 'undefined' ? priceCurrency : 'EGP' %>
+              <% } %>
             </button>
           </form>
         <% } %>
