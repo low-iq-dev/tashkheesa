@@ -67,15 +67,15 @@ if (!dispatchBody) {
     if (!/channel\s*:\s*['"]whatsapp['"]/.test(dispatchBody)) {
       throw new Error('dispatchSlaBreach must pass channel: \'whatsapp\' to notifyAdmins');
     }
-    if (!/template\s*:\s*['"]sla_breach['"]/.test(dispatchBody)) {
-      throw new Error('dispatchSlaBreach must pass template: \'sla_breach\' to notifyAdmins');
+    if (!/template\s*:\s*['"]sla_breach(?:_superadmin)?['"]/.test(dispatchBody)) {
+      throw new Error('dispatchSlaBreach must pass template: \'sla_breach\' or \'sla_breach_superadmin\' to notifyAdmins');
     }
     t.pass('dispatchSlaBreach delegates to notifyAdmins(channel=whatsapp, template=sla_breach)');
   } catch (e) { t.fail('delegates-to-notifyAdmins', e); }
 
   // ── 3. notifyAdmins SELECTs active superadmins ──
   try {
-    if (!/SELECT id FROM users WHERE role = 'superadmin'[\s\S]{0,80}is_active/i.test(notifyAdminsBody)) {
+    if (!/SELECT id[\s\S]{0,20}FROM users WHERE role = 'superadmin'[\s\S]{0,80}is_active/i.test(notifyAdminsBody)) {
       throw new Error("notifyAdmins does not SELECT active superadmins from users");
     }
     t.pass("notifyAdmins queries `users WHERE role='superadmin' AND is_active`");

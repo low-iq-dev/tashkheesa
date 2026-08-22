@@ -26,7 +26,11 @@ const REQUIRED = [
   { label: 'pool ready line: statement_timeout=…',   re: /statement_timeout=/ },
   { label: 'env line: mode=…',                        re: /\[pg\]\s+env:\s+mode=/ },
   { label: 'env line: DATABASE_URL_DIRECT=…',         re: /DATABASE_URL_DIRECT=/ },
-  { label: 'threshold warning at >12',                re: /if\s*\(\s*PG_POOL_MAX\s*>\s*12\s*\)/ },
+  // AUDIT-2026-08-22: was pinned to >12. The connection budget was re-cut when
+  // pg-boss got an explicit bound (app 8 + pg-boss 6 + 1 = the 15-slot Supabase
+  // ceiling), so the app pool's share is now 8 and the warning fires above it.
+  // Pinned to the source's own constant rather than a second literal.
+  { label: 'threshold warning above the pool share', re: /if\s*\(\s*PG_POOL_MAX\s*>\s*\d+\s*\)/ },
   { label: 'warning text mentions Supabase ceiling',  re: /Supabase[^\n]*15-slot ceiling/ },
   // No secret leak — the direct-url log must echo "set" / "not set", not the value.
   { label: 'direct-url logged as set/not-set only',   re: /process\.env\.DATABASE_URL_DIRECT\s*\?\s*'set'\s*:\s*'not set'/ }

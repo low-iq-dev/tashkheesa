@@ -109,6 +109,12 @@ async function closeOrderIfFullyRefunded(orderId, opts) {
               video_consultation_selected, video_consultation_price
          FROM orders
         WHERE id = $1`,
+      // include-deleted-ok: deliberately `orders`, not `orders_active`. If a
+      // case was soft-deleted while a refund was in flight we still want to
+      // close it out rather than skip it and leave the money state
+      // inconsistent — orders_active would hide it. (Marker restored
+      // 2026-08-22: the M2 rewrite replaced the original comment block and
+      // dropped it, turning tests/lint/orders-table-readers-allowlist red.)
       [orderId]
     );
     if (!order) return { closed: false, skipped: 'order_not_found' };

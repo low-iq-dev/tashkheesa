@@ -583,6 +583,10 @@ async function processWhatsApp(notification, user, order) {
     // NOT 'skipped' (the worker's permanent branch marks it failed and writes
     // to error_logs, so it shows on /ops as the undelivered message it is).
     if (!mapped) {
+      // THEME8-LINT-EXEMPT-HELPER: no logErrorToDb here on purpose — the
+      // `permanent: true` return below routes this through the worker's
+      // permanent branch, which is what writes error_logs and surfaces it on
+      // /ops. Logging here too would double-count every occurrence.
       console.error('[notify-worker] NO META TEMPLATE MAPPING for event — message NOT delivered', {
         template: notification.template, lang: userLang
       });

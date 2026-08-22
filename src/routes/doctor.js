@@ -4597,8 +4597,9 @@ async function getTableColumns(tableName) {
     if (!names.length) return [];
     _tableColumnsCache[tableName] = names;
   } catch (e) {
-    // Deliberately console-only: the DB is the thing that just failed, so
-    // logErrorToDb would most likely fail too and could storm on retry.
+    // THEME8-LINT-EXEMPT-HELPER: the DB is the thing that just failed, so
+    // logErrorToDb would most likely fail too and could storm on retry. The
+    // caller returns [] WITHOUT caching, so the next request re-probes.
     console.error('[schema-probe] column probe for', tableName, 'failed — NOT cached:', e && e.message ? e.message : e);
     return [];
   }
@@ -4687,6 +4688,9 @@ async function getOrdersColumns() {
     if (!names.length) return [];
     _ordersColumnCache = names;
   } catch (e) {
+    // THEME8-LINT-EXEMPT-HELPER: same as getTableColumns above — the probe
+    // failing means the DB is unreachable, so an error_logs INSERT would fail
+    // too. Not cached, so the next request re-probes.
     console.error('[schema-probe] orders column probe failed — NOT cached:', e && e.message ? e.message : e);
     return [];
   }
