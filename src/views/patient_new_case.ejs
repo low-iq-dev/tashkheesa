@@ -1283,6 +1283,13 @@
       (function() {
         var form = document.getElementById('upload-form');
         var hiddenKey = document.getElementById('file_key_input');
+        // AUDIT-2026-08-22 (L6): the `label` hidden field has existed since the
+        // uploader was written and NEITHER branch ever assigned it, so
+        // order_files.label was NULL for every wizard upload and the doctor's
+        // file list rendered every single file as "Uploaded file". A
+        // radiologist could not tell a current CT from a prior MRI without
+        // opening each one. The browser knows the original filename — send it.
+        var hiddenLabel = document.getElementById('label_input');
         var nativeFile = document.getElementById('native_file');
         var progress = document.getElementById('upload-progress');
         var filesList = document.getElementById('files-list');
@@ -1310,8 +1317,18 @@
         }
         if (nativeFile) nativeFile.addEventListener('change', function(e) { var f = e.target.files && e.target.files[0]; if (f) doUpload(f); nativeFile.value = ''; });
 
+        // AUDIT-2026-08-22 (L6): the server clamps this to 120 chars
+        // (routes/patient.js cleanLabel), so trim here rather than let it be
+        // cut mid-extension.
+        function setLabelFrom(file) {
+          if (!hiddenLabel) return;
+          var name = (file && file.name) ? String(file.name).trim() : '';
+          hiddenLabel.value = name.slice(0, 120);
+        }
+
         function doUpload(file) {
           if (!file || !hiddenKey || !form) return;
+          setLabelFrom(file);
           showProgress(statusMsg.uploading);
           var fd = new FormData();
           fd.append('file', file);
@@ -1400,6 +1417,10 @@
     (function() {
       var form = document.getElementById('upload-form');
       var hidden = document.getElementById('file_url_input');
+      // AUDIT-2026-08-22 (L6): see the R2 branch above — the `label` field was
+      // never populated here either, so every wizard upload reached the doctor
+      // as an unnamed "Uploaded file".
+      var hiddenLabel = document.getElementById('label_input');
       var nativeFile = document.getElementById('native_file');
       var progress = document.getElementById('upload-progress');
       var filesList = document.getElementById('files-list');
@@ -1429,14 +1450,23 @@
       }
       if (nativeFile) nativeFile.addEventListener('change', function(e) { var f = e.target.files && e.target.files[0]; if (f) doUpload(f); nativeFile.value = ''; });
 
+      // Prefer the local File's name; fall back to whatever Uploadcare
+      // reports for the stored object (drag-and-drop from another tab, etc).
+      function setLabel(name) {
+        if (!hiddenLabel) return;
+        hiddenLabel.value = String(name || '').trim().slice(0, 120);
+      }
+
       function doUpload(file) {
         if (!file) return;
+        setLabel(file.name);
         waitFor(function(ok) {
           if (!ok) { showProgress(statusMsg.failed); return; }
           showProgress(statusMsg.uploading);
           var f = window.uploadcare.fileFrom('object', file);
           f.done(function(info) {
             var url = info && info.cdnUrl ? info.cdnUrl : '';
+            if (info && info.name && hiddenLabel && !hiddenLabel.value) setLabel(info.name);
             if (url && hidden && form) { hidden.value = url; form.submit(); }
             else showProgress(statusMsg.failed);
           }).fail(function() { showProgress(statusMsg.failed); });

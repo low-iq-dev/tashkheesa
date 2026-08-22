@@ -1919,7 +1919,9 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
   let files = [];
   try {
     const urlCol = await getOrderFilesUrlColumnName();
-    const labelCol = await getOrderFilesLabelColumnName();
+    // AUDIT-2026-08-22 (L6): COALESCE over every label-bearing column instead
+    // of the first one that exists — see getOrderFilesLabelExpression.
+    const labelCol = await getOrderFilesLabelExpression();
     const atCol = await getOrderFilesCreatedAtColumnName();
 
     if (urlCol) {
@@ -2055,6 +2057,31 @@ const canAccept =
     isCompleted && !reportAvailable
       ? (isAr ? 'التقرير غير متوفر بعد.' : 'Report not available yet.')
       : null;
+
+  // AUDIT-2026-08-22 (L2/L4/L5/P2): the report-submit and save-notes handlers
+  // bounce back here with ?error=<code> instead of a bare 500 or a silent
+  // no-op, so the doctor is told what happened and whether their text is safe.
+  // Codes only — never a message from the query string.
+  const REPORT_SUBMIT_ERRORS = {
+    report_empty: {
+      en: 'Findings and Impression are required before a report can be submitted. Nothing was sent to the patient.',
+      ar: 'النتائج والانطباع مطلوبان قبل إرسال التقرير. لم يتم إرسال أي شيء للمريض.'
+    },
+    report_pdf_failed: {
+      en: 'Your report was saved, but the PDF could not be produced. Nothing was sent to the patient — please press Submit report again.',
+      ar: 'تم حفظ تقريرك، لكن تعذّر إنشاء ملف PDF. لم يُرسل شيء للمريض — يرجى الضغط على إرسال التقرير مرة أخرى.'
+    },
+    report_save_failed: {
+      en: 'We could not save this report right now, so the case has been left open. Your text is still in the editor — please try again in a moment.',
+      ar: 'تعذّر حفظ التقرير الآن، لذا بقيت الحالة مفتوحة. نصّك ما زال في المحرر — يرجى المحاولة بعد قليل.'
+    },
+    case_completed: {
+      en: 'This case has already been delivered to the patient, so its report can no longer be edited.',
+      ar: 'تم تسليم هذه الحالة للمريض بالفعل، لذا لم يعد بالإمكان تعديل تقريرها.'
+    }
+  };
+  const submitErrorEntry = REPORT_SUBMIT_ERRORS[String((req.query && req.query.error) || '')];
+  const submitErrorMessage = submitErrorEntry ? (isAr ? submitErrorEntry.ar : submitErrorEntry.en) : null;
 
   const viewStatus = isUnaccepted ? normalizedStatus : 'in_review';
   const viewReportUrl = reportAvailable ? reportUrl : null;
@@ -2229,6 +2256,8 @@ const canAccept =
     ...(reportMissingMessage ? { errorMessage: reportMissingMessage } : {}),
     ...(viewQuery ? { query: viewQuery } : {}),
     ...(capacityMessage ? { errorMessage: capacityMessage } : {}),
+    // Last, so a just-refused submit wins over the ambient banners above.
+    ...(submitErrorMessage ? { errorMessage: submitErrorMessage } : {}),
   };
 
   // Try canonical template name first
@@ -2837,6 +2866,18 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, 
   const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order || String(order.doctor_id || '') !== doctorId) {
     return res.redirect('/portal/doctor/dashboard');
+  }
+
+  // AUDIT-2026-08-22 (P2): a COMPLETED case has already been delivered — the
+  // PDF is signed, uploaded, recorded in report_exports and emailed to the
+  // patient, and the doctor has been paid. This route had no status guard, so
+  // a POST here rewrote diagnosis_text / impression_text / recommendation_text
+  // on a delivered case: the patient's on-site report silently changed while
+  // the PDF in their inbox did not, with no version marker and no audit trail
+  // distinguishing the two. Amendments need their own versioned flow; until
+  // there is one, the honest answer is to refuse.
+  if (normalizeStatus(order.status) === 'completed') {
+    return res.redirect(`/portal/doctor/case/${orderId}?error=case_completed`);
   }
 
   const diagnosisText = String(req.body.diagnosis || '').trim();
@@ -4517,17 +4558,37 @@ const SAFE_SCHEMA_TABLES = new Set([
 ]);
 const _tableColumnsCache = Object.create(null);
 
+// AUDIT-2026-08-22 (L5): a failed probe must NEVER be cached.
+//
+// This used to write [] into the cache on any error, and the guard above
+// treats [] as "already probed" — so ONE transient DB blip (a dropped
+// connection, a pool timeout during a deploy) permanently convinced this
+// process that order_files has no columns at all, for its whole lifetime.
+// Downstream that renders the doctor's file list empty with no error, and the
+// order-completion writers build SET lists with no report text in them.
+// Return the empty list to the caller for this request, but leave the cache
+// unset so the very next call re-probes. Also filter on table_schema='public'
+// — without it a same-named table in another schema (or a leftover temp
+// table) can answer the probe with the wrong column set. Every migration
+// guard in src/migrations already pins the schema this way.
 async function getTableColumns(tableName) {
   if (!tableName || !SAFE_SCHEMA_TABLES.has(tableName)) return [];
   if (_tableColumnsCache[tableName]) return _tableColumnsCache[tableName];
   try {
     const cols = await queryAll(
-      "SELECT column_name AS name FROM information_schema.columns WHERE table_name = $1",
+      "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1",
       [tableName]
     );
-    _tableColumnsCache[tableName] = Array.isArray(cols) ? cols.map((c) => c.name) : [];
+    const names = Array.isArray(cols) ? cols.map((c) => c.name) : [];
+    // An empty result is itself a failed probe: every table in
+    // SAFE_SCHEMA_TABLES exists in every supported schema snapshot.
+    if (!names.length) return [];
+    _tableColumnsCache[tableName] = names;
   } catch (e) {
-    _tableColumnsCache[tableName] = [];
+    // Deliberately console-only: the DB is the thing that just failed, so
+    // logErrorToDb would most likely fail too and could storm on retry.
+    console.error('[schema-probe] column probe for', tableName, 'failed — NOT cached:', e && e.message ? e.message : e);
+    return [];
   }
   return _tableColumnsCache[tableName];
 }
@@ -4544,8 +4605,31 @@ async function getOrderFilesUrlColumnName() {
   return await pickFirstExistingTableColumn('order_files', ['url', 'file_url', 'cdn_url']);
 }
 
+// AUDIT-2026-08-22 (L6): `filename` added to the probe list. The mobile API
+// (routes/api/cases.js, column added by migration 043) stores the real
+// original filename there and leaves `label` NULL.
 async function getOrderFilesLabelColumnName() {
-  return await pickFirstExistingTableColumn('order_files', ['label', 'file_label', 'name']);
+  return await pickFirstExistingTableColumn('order_files', ['label', 'file_label', 'name', 'filename']);
+}
+
+// AUDIT-2026-08-22 (L6): probing for a single label column is not enough on
+// its own. `label` DOES exist (migration 001), so the probe always answered
+// 'label' and never looked at `filename` — and a mobile-uploaded row has
+// label NULL / filename set, so the doctor saw the generic "Uploaded file"
+// for every one of them. A radiologist must be able to tell a current CT from
+// a prior MRI without opening each. Build a COALESCE over whichever
+// label-bearing columns this schema actually has, in preference order, so a
+// row resolves through whichever one carries its name.
+//
+// Column names come from the fixed allow-list below, never from user input.
+const ORDER_FILES_LABEL_CANDIDATES = ['label', 'file_label', 'name', 'filename'];
+async function getOrderFilesLabelExpression() {
+  const cols = await getTableColumns('order_files');
+  const present = ORDER_FILES_LABEL_CANDIDATES.filter((c) => cols.includes(c));
+  if (!present.length) return null;
+  if (present.length === 1) return present[0];
+  // NULLIF('') so an empty-string label falls through to the next candidate.
+  return 'COALESCE(' + present.map((c) => `NULLIF(${c}, '')`).join(', ') + ')';
 }
 
 async function getOrderFilesCreatedAtColumnName() {
@@ -4577,15 +4661,24 @@ async function getAdditionalFilesUploadedAtColumnName() {
 }
 
 let _ordersColumnCache = null;
+// AUDIT-2026-08-22 (L5): same poisoned-cache defect as getTableColumns above,
+// but with clinical consequences — markOrderCompletedFallback and
+// POST /diagnosis both build their SET lists from this list, so a cached []
+// meant a case was marked COMPLETED and the doctor paid with no report text
+// and no report_url written at all. Never cache a failed (or empty) probe, and
+// pin table_schema='public' like every migration guard does.
 async function getOrdersColumns() {
   if (_ordersColumnCache) return _ordersColumnCache;
   try {
     const cols = await queryAll(
-      "SELECT column_name AS name FROM information_schema.columns WHERE table_name = 'orders'"
+      "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'orders'"
     );
-    _ordersColumnCache = Array.isArray(cols) ? cols.map((c) => c.name) : [];
+    const names = Array.isArray(cols) ? cols.map((c) => c.name) : [];
+    if (!names.length) return [];
+    _ordersColumnCache = names;
   } catch (e) {
-    _ordersColumnCache = [];
+    console.error('[schema-probe] orders column probe failed — NOT cached:', e && e.message ? e.message : e);
+    return [];
   }
   return _ordersColumnCache;
 }
@@ -4967,6 +5060,83 @@ async function getReportUrlColumnName() {
   ]);
 }
 
+// AUDIT-2026-08-22 (L5) — a case must never be completed on an unresolved
+// schema probe.
+//
+// getOrdersColumns() answers [] when the information_schema query itself
+// failed. Before this guard the writers below happily carried on: every
+// `if (col)` test was false, the SET list came out holding nothing but
+// `status = 'completed'`, and the case was delivered and the doctor paid with
+// no findings, no impression, no recommendation and no report_url in the row.
+// The patient's on-site report was permanently blank and the editor was
+// already hidden. Throwing is the only safe answer — the caller keeps the
+// doctor's text and lets them retry.
+class ReportSchemaUnresolvedError extends Error {
+  constructor(detail) {
+    super('report columns could not be resolved: ' + detail);
+    this.name = 'ReportSchemaUnresolvedError';
+    this.code = 'REPORT_SCHEMA_UNRESOLVED';
+  }
+}
+
+// AUDIT-2026-08-22 (L4) — persist the doctor's written report BEFORE anything
+// that can fail.
+//
+// The submit handler used to call generateMedicalReportPdf() (which renders
+// with pdfkit and uploads to R2) FIRST and only wrote the text columns
+// afterwards. Any storage or rendering failure threw, the handler answered
+// 500, and the doctor's report — which may be twenty minutes of work — had
+// never touched the database. Writing the text first is a plain draft-shaped
+// UPDATE: it does not change status, so if the PDF step then fails the case
+// is still open, the editor is still rendered, the text is still in the boxes
+// and the doctor can simply press Submit again.
+async function persistReportTextOrThrow({ orderId, diagnosisText, impressionText, recommendationsText }) {
+  const diagnosisCol = await getDiagnosisColumnName();
+  const impressionCol = await getImpressionColumnName();
+  const recsCol = await getRecommendationsColumnName();
+
+  if (!diagnosisCol) {
+    throw new ReportSchemaUnresolvedError('no diagnosis column on orders');
+  }
+
+  const nowIso = new Date().toISOString();
+  const orderCols = await getOrdersColumns();
+
+  // Mirrors the draft-save path: findings own the diagnosis column when the
+  // other two sections have columns of their own, otherwise the combined blob
+  // is the only way not to drop them.
+  const diagnosisValue = (impressionCol && recsCol)
+    ? diagnosisText
+    : buildCombinedReportText(
+        String(diagnosisText || '').trim(),
+        String(impressionText || '').trim(),
+        String(recommendationsText || '').trim()
+      );
+
+  const sets = [];
+  const params = [];
+  let idx = 1;
+
+  sets.push(`${diagnosisCol} = $${idx++}`);
+  params.push(diagnosisValue || null);
+
+  if (impressionCol) {
+    sets.push(`${impressionCol} = $${idx++}`);
+    params.push(impressionText || null);
+  }
+  if (recsCol) {
+    sets.push(`${recsCol} = $${idx++}`);
+    params.push(recommendationsText || null);
+  }
+  if (orderCols.includes('updated_at')) {
+    sets.push(`updated_at = $${idx++}`);
+    params.push(nowIso);
+  }
+
+  params.push(orderId);
+  await execute(`UPDATE orders SET ${sets.join(', ')} WHERE id = $${idx}`, params);
+}
+
 async function markOrderCompletedFallback({
   orderId,
   doctorId,
@@ -4979,6 +5149,16 @@ async function markOrderCompletedFallback({
   const nowIso = new Date().toISOString();
   const diagnosisCol = await getDiagnosisColumnName();
   const reportCol = await getReportUrlColumnName();
+
+  // AUDIT-2026-08-22 (L5): refuse to complete a case whose report columns the
+  // probe could not resolve — see ReportSchemaUnresolvedError above. Checked
+  // before a single write, so nothing is half-applied.
+  const orderColsProbe = await getOrdersColumns();
+  if (!orderColsProbe.length || !diagnosisCol || !reportCol) {
+    throw new ReportSchemaUnresolvedError(
+      `orders columns=${orderColsProbe.length}, diagnosis=${diagnosisCol || 'none'}, report_url=${reportCol || 'none'}`
+    );
+  }
   // Submit used to persist the diagnosis column only. The doctor's Impression
   // and Recommendation went into the PDF and were then thrown away, so the
   // patient's on-site report (which reads impression_text /
@@ -5022,7 +5202,7 @@ async function markOrderCompletedFallback({
   }
 
   // Only set timestamps if those columns exist in this DB schema.
-  const orderCols = await getOrdersColumns();
+  const orderCols = orderColsProbe;
 
   // Ensure the order remains attributable to the doctor who completed it (helps dashboard visibility).
   if (orderCols.includes('doctor_id') && doctorId) {
@@ -5112,11 +5292,48 @@ async function markOrderCompletedFallback({
   }
 }
 
-async function handlePortalDoctorGenerateReport(req, res) {
-  try {
-    const doctorId = req.user && req.user.id;
-    const orderId = req.params.caseId;
+// AUDIT-2026-08-22 (L2) — what "empty" means for a report section.
+//
+// A submitted report is irreversible: it renders a PDF, writes the text
+// columns, flips the case to COMPLETED, inserts report_exports, marks the
+// doctor's earnings PAID and emails the patient "your report is ready". The
+// editor is then hidden and the handler early-returns on completed, so an
+// accidental submit could not be corrected by anyone. A section counts as
+// empty when nothing but whitespace, dashes and the em-dash placeholder the
+// PDF itself prints for "nothing here" remains — otherwise a doctor who typed
+// "—" to move on would still deliver a blank report.
+function isReportSectionEmpty(text) {
+  const t = String(text == null ? '' : text).trim();
+  if (!t) return true;
+  return !t.replace(/[\s\-—–_.·•*]+/g, '');
+}
 
+// AUDIT-2026-08-22 (L7): users.gender is free text. Map the values the product
+// writes and pass anything else through rather than hiding it; the em-dash is
+// reserved for genuinely unknown.
+function reportGenderLabel(raw) {
+  const g = String(raw == null ? '' : raw).trim();
+  if (!g) return '';
+  const k = g.toLowerCase();
+  if (k === 'male' || k === 'm') return 'Male';
+  if (k === 'female' || k === 'f') return 'Female';
+  if (k === 'other') return 'Other';
+  if (k === 'prefer_not_to_say' || k === 'unspecified') return 'Not specified';
+  return g;
+}
+
+async function handlePortalDoctorGenerateReport(req, res) {
+  // AUDIT-2026-08-22 (L4): declared OUT here on purpose. `orderId` used to be
+  // a `const` inside the try block, and the sibling catch at the bottom of
+  // this function references it in its logErrorToDb payload — a
+  // ReferenceError that fired BEFORE logErrorToDb ran, so /ops/errors recorded
+  // "orderId is not defined" instead of the real cause of every failed report
+  // submission. Same for doctorId, which the catch does not read today but
+  // would be just as unsafe to reach for.
+  const doctorId = req.user && req.user.id;
+  const orderId = req.params.caseId;
+
+  try {
     if (!doctorId || !orderId) {
       return res.status(400).send('Invalid request');
     }
@@ -5155,13 +5372,67 @@ async function handlePortalDoctorGenerateReport(req, res) {
     const recommendationsText =
       (req.body && (req.body.recommendations || req.body.recommendation_text)) || storedDraft.recommendations || '';
 
+    // AUDIT-2026-08-22 (L2) — refuse an empty report, authoritatively.
+    //
+    // There was no emptiness check at all here, and the three textareas in
+    // portal_doctor_case.ejs are labelled "required" but carry no `required`
+    // attribute (deliberately — the same form's "Save draft" button must keep
+    // accepting a partial report). So one stray click on "Submit report"
+    // produced a PDF whose three clinical sections all read "—", wrote NULL
+    // over diagnosis_text/impression_text/recommendation_text, flipped the
+    // case to COMPLETED, inserted a report_exports row, marked the doctor's
+    // earnings PAID and emailed the patient that their report was ready —
+    // irreversibly, because the editor is hidden and this handler
+    // early-returns on completed.
+    //
+    // Findings and Impression are the clinically load-bearing sections: the
+    // findings are the observation and the impression is the opinion the
+    // patient is paying for. Recommendations can legitimately be empty (an
+    // unremarkable study needs no plan), so it is not required here even
+    // though the editor labels it "required".
+    if (isReportSectionEmpty(diagnosisText) || isReportSectionEmpty(impressionText)) {
+      return res.redirect(`/portal/doctor/case/${orderId}?error=report_empty`);
+    }
+
+    // AUDIT-2026-08-22 (L4) — persist the written report BEFORE the PDF.
+    //
+    // generateMedicalReportPdf renders with pdfkit and uploads to R2. It used
+    // to run first, with the text columns written only afterwards, so an R2
+    // outage or a pdfkit throw lost the doctor's entire report: the catch
+    // below answered 500 and nothing had been saved. This write does not
+    // touch `status`, so a later failure leaves the case open, the editor
+    // rendered, the text back in the boxes and Submit retryable.
+    try {
+      await persistReportTextOrThrow({
+        orderId,
+        diagnosisText,
+        impressionText,
+        recommendationsText
+      });
+    } catch (e) {
+      logErrorToDb(e, {
+        context: 'doctor.report_persist_text',
+        requestId: req.requestId,
+        userId: doctorId,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_case',
+        orderId
+      });
+      console.error('[doctor][report] could not persist report text — refusing to continue', e && e.message);
+      return res.redirect(`/portal/doctor/case/${orderId}?error=report_save_failed`);
+    }
+
     // Fetch related entities for a rich PDF
     let patient = {};
     let doctor = {};
     let specialty = {};
     let annotations = [];
     try {
-      patient = (await queryOne('SELECT name, email, phone FROM users WHERE id = $1', [order.patient_id])) || {};
+      // AUDIT-2026-08-22 (L7): date_of_birth and gender added to the SELECT —
+      // every delivered PDF printed a hardcoded "Age: —  Gender: —" while the
+      // case page beside it rendered both from these very columns.
+      patient = (await queryOne('SELECT name, email, phone, date_of_birth, gender FROM users WHERE id = $1', [order.patient_id])) || {};
       doctor  = (await queryOne('SELECT name, specialty_id FROM users WHERE id = $1', [doctorId])) || {};
       if (doctor.specialty_id) {
         specialty = (await queryOne('SELECT name FROM specialties WHERE id = $1', [doctor.specialty_id])) || {};
@@ -5176,21 +5447,52 @@ async function handlePortalDoctorGenerateReport(req, res) {
       );
     } catch (_) { /* non-critical — proceed without */ }
 
-    const reportUrl = await generateMedicalReportPdf({
-      caseId:          orderId,
-      doctorName:      doctor.name  || '',
-      specialty:       specialty.name || '',
-      createdAt:       order.created_at,
-      findings:        diagnosisText || order.diagnosis_text || order.notes || '',
-      impression:      impressionText,
-      recommendations: recommendationsText,
-      patient: {
-        name:   patient.name   || '—',
-        age:    '—',
-        gender: '—',
-      },
-      annotations,
-    });
+    // AUDIT-2026-08-22 (L7): real demographics. computeAgeFromDob already
+    // rejects nonsense (unparseable, negative, >120) and returns null, so the
+    // em-dash still stands for genuinely unknown.
+    const reportPatientAge = computeAgeFromDob(patient.date_of_birth);
+    const reportPatientGender = reportGenderLabel(patient.gender);
+
+    let reportUrl;
+    try {
+      reportUrl = await generateMedicalReportPdf({
+        caseId:          orderId,
+        doctorName:      doctor.name  || '',
+        specialty:       specialty.name || '',
+        createdAt:       order.created_at,
+        // AUDIT-2026-08-22 (L2): `|| order.notes` REMOVED. orders.notes is
+        // patient-written intake text. On any order carrying it, a findings
+        // box the doctor left blank fell through to the patient's own words,
+        // which were then printed into the PDF's "Findings / Observations"
+        // section under the doctor's signature and delivered as a clinical
+        // opinion. The diagnosis_text fallback is kept: that column is the
+        // doctor's own saved draft.
+        findings:        diagnosisText || order.diagnosis_text || '',
+        impression:      impressionText,
+        recommendations: recommendationsText,
+        patient: {
+          name:   patient.name || '—',
+          age:    (reportPatientAge != null) ? String(reportPatientAge) : '—',
+          gender: reportPatientGender || '—',
+        },
+        annotations,
+      });
+    } catch (e) {
+      // AUDIT-2026-08-22 (L4): the text is already saved above, so this is
+      // recoverable — send the doctor back to a still-open case with their
+      // report intact rather than a bare 500 on a case that looks lost.
+      logErrorToDb(e, {
+        context: 'doctor.report_pdf_generate',
+        requestId: req.requestId,
+        userId: doctorId,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_case',
+        orderId
+      });
+      console.error('[doctor][report] PDF generation failed (text was saved)', e && e.message);
+      return res.redirect(`/portal/doctor/case/${orderId}?error=report_pdf_failed`);
+    }
 
     // AUDIT-P1-4 — walk the case into IN_REVIEW before completing it.
     //
@@ -5223,15 +5525,34 @@ async function handlePortalDoctorGenerateReport(req, res) {
       console.error('[report] IN_REVIEW transition before completion failed:', e && e.message);
     }
 
-    await markOrderCompletedFallback({
-      orderId,
-      doctorId,
-      reportUrl,
-      diagnosisText,
-      impressionText,
-      recommendationsText,
-      annotatedFiles: []
-    });
+    // AUDIT-2026-08-22 (L5): markOrderCompletedFallback now throws rather than
+    // completing a case on an unresolved schema probe. Bounce the doctor back
+    // to a still-open case (their text is already persisted) instead of a bare
+    // 500 — completing without the report columns is the outcome we are
+    // preventing, and a retry once the DB recovers is the fix.
+    try {
+      await markOrderCompletedFallback({
+        orderId,
+        doctorId,
+        reportUrl,
+        diagnosisText,
+        impressionText,
+        recommendationsText,
+        annotatedFiles: []
+      });
+    } catch (e) {
+      logErrorToDb(e, {
+        context: 'doctor.report_mark_completed',
+        requestId: req.requestId,
+        userId: doctorId,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_case',
+        orderId
+      });
+      console.error('[doctor][report] completion write failed — case left open', e && e.message);
+      return res.redirect(`/portal/doctor/case/${orderId}?error=report_save_failed`);
+    }
 
     // AUDIT-P1-4 — close the open assignment and emit the canonical case event.
     // Without the close, sweepDoctorTimeouts kept selecting this completed case
