@@ -11,6 +11,20 @@ const { eligibleDoctorClause } = require('./services/doctor_eligibility');
 
 // SLA breach scanning should only apply once the case is in active review.
 // Keep this resilient even if older code uses a string literal for rejected_files.
+//
+// AUDIT-2026-08-22 — REJECTED_FILES stays in this set, and the OTHER end was
+// fixed to match. case_lifecycle.transitionCase used to refuse any SLA_BREACH
+// target unless the current status was exactly IN_REVIEW, so a rejected-files
+// candidate selected here could never complete its transition: handleBreach
+// threw, breached_at was never written, the row was re-selected on the next
+// 5-minute tick and the loop ran forever with no breach and no refund. The
+// `sla_paused_at IS NULL` filter below covers a PAUSED case but not a RESUMED
+// one — resumeSla clears the pause and writes a live deadline_at, while the
+// REJECTED_FILES -> IN_REVIEW flip that should follow it is a separate,
+// independently-failing try block in routes/patient.js. transitionCase now
+// admits REJECTED_FILES (and STATUS_TRANSITIONS lists SLA_BREACH under it), so
+// the scan set and the transition guard can no longer disagree. Do not remove
+// REJECTED_FILES here without removing it from that guard in the same change.
 const SCAN_STATUSES = [CASE_STATUS.IN_REVIEW, (CASE_STATUS.REJECTED_FILES || 'rejected_files')];
 
 // AUDIT 2026-08-17 — expand each canonical status into EVERY spelling that has

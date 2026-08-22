@@ -41,7 +41,18 @@ async function runAcceptanceWatcherSweep() {
       WHERE o.doctor_id IS NULL
         AND o.acceptance_deadline_at IS NOT NULL
         AND o.acceptance_deadline_at < NOW()
-        AND LOWER(COALESCE(o.status, '')) IN ('pending', 'available', 'submitted', 'new', 'paid')
+        -- AUDIT-2026-08-22 (P0) — 'reassigned' added. case_lifecycle.reassignCase
+        -- with no alternate doctor transitions a PAID case to REASSIGNED and
+        -- nulls doctor_id; before this, that row matched NO sweep in the system
+        -- (wrong status here, wrong status for fetchDoctorTimeouts, breached_at
+        -- set for fetchSlaCandidates) and was not re-enqueued for auto-assign.
+        -- A paid patient whose case breached during a doctor shortage was
+        -- dropped permanently. reassignCase now also stamps
+        -- acceptance_deadline_at = now, so the predicate above matches on the
+        -- next tick and this sweep retries auto-assign against a fresh pool.
+        -- doctor_id IS NULL above keeps a normally-reassigned case (which goes
+        -- straight on to ASSIGNED with a new doctor) out of this set.
+        AND LOWER(COALESCE(o.status, '')) IN ('pending', 'available', 'submitted', 'new', 'paid', 'reassigned')
         AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured')
     `);
 
@@ -112,7 +123,22 @@ function pingOps(agentName, task) {
 async function notifyUrgentUnaccepted(order) {
   try {
     if (!order) return;
-    const isUrgent = Boolean(order.urgency_flag) || normalizeTier(order.tier) === 'urgent';
+    // AUDIT-2026-08-22 — the urgency_flag leg is gone. urgency_flag does NOT
+    // mean "urgent tier": every writer sets it to `tier !== 'standard'`
+    // (services/wizard_pricing.js:118, routes/api/cases.js), so it is true for
+    // VIP too. Ops was pushed "Urgent case unaccepted — the 4h SLA clock is
+    // running" for 18-hour VIP cases, which is both false and exactly the kind
+    // of wrong alarm that trains someone to swipe the channel away.
+    //
+    // The tier columns are the only honest signal, and it is read the same way
+    // acceptanceMinutesForOrder reads it — `tier || urgency_tier` — so the
+    // window quoted in the body and the tier claimed in the title come from one
+    // source. (Same reasoning as the DO-NOT-RE-ADD note in acceptance_window.js.)
+    const declaredTier = order.tier || order.urgency_tier;
+    const slaHours = Number(order.sla_hours);
+    const isUrgent = declaredTier
+      ? normalizeTier(declaredTier) === 'urgent'
+      : (Number.isFinite(slaHours) && slaHours > 0 && slaHours <= 4);
     if (!isUrgent) return;
 
     const caseRef = order.reference_id || String(order.id).slice(0, 12).toUpperCase();
