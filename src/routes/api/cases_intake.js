@@ -43,6 +43,32 @@ router.post('/intake', async (req, res) => {
   const email             = String(body.email || '').trim().toLowerCase();
   const phone             = body.phone ? String(body.phone).trim() : null;
   const age               = body.age != null && String(body.age).trim() !== '' ? String(body.age).trim() : null;
+  // AUDIT-2026-08-22 (L8) — the form's `age` must NEVER reach date_of_birth.
+  //
+  // Both writes below used to push `age` into users.date_of_birth (a TEXT
+  // column). Postgres stores the string as-is and every downstream reader
+  // parses it as a date: "45" becomes the year 2045, computeAgeFromDob
+  // (routes/doctor.js) returns -19, its `age < 0` guard drops it and the
+  // doctor's report header shows nothing. Worse, the enrichment UPDATE is a
+  // COALESCE(NULLIF(date_of_birth,''), $n) — it only fills BLANKS — so once
+  // "45" is in there it permanently blocks the patient's real date of birth
+  // from ever being written, on this and on every later case they file.
+  //
+  // A real ISO date is accepted if the caller sends one; the reported age is
+  // kept only as a note on the account (see signupNotes below), never as a
+  // date. There is no honest age column on users today — see the hand-off.
+  const dobRaw = body.date_of_birth ? String(body.date_of_birth).trim() : '';
+  const date_of_birth = /^\d{4}-\d{2}-\d{2}$/.test(dobRaw) && !Number.isNaN(Date.parse(dobRaw))
+    ? dobRaw
+    : null;
+  const reportedAge = (() => {
+    if (age == null) return null;
+    const n = Number(age);
+    return Number.isInteger(n) && n >= 0 && n <= 120 ? String(n) : null;
+  })();
+  const signupNotes = reportedAge
+    ? `website_portal_intake; reported_age=${reportedAge}`
+    : 'website_portal_intake';
   const country           = body.country ? coerceCountry(body.country) : null;
   const test_type         = String(body.test_type || '').trim();
   const clinical_question = body.clinical_question ? String(body.clinical_question).trim() : null;
@@ -92,7 +118,10 @@ router.post('/intake', async (req, res) => {
              country = COALESCE(NULLIF(country, ''), $2),
              date_of_birth = COALESCE(NULLIF(date_of_birth, ''), $3)
          WHERE id = $4 AND role = 'patient'`,
-        [full_name, country, age, userId]
+        // AUDIT-2026-08-22 (L8): $3 is a validated ISO date or NULL — it used
+        // to be the submitted AGE. COALESCE(NULLIF(...)) still only fills a
+        // blank, which is correct for a real DOB from an anonymous form.
+        [full_name, country, date_of_birth, userId]
       );
     } else {
       // AUDIT (2026-08-17, regression F9) — the `role = 'patient'` filter above
@@ -132,10 +161,14 @@ router.post('/intake', async (req, res) => {
       userId = randomUUID();
       const ins = await client.query(
         `INSERT INTO users (id, email, name, phone, role, country, date_of_birth, signup_notes, is_active)
-         VALUES ($1, $2, $3, $4, 'patient', $5, $6, 'website_portal_intake', true)
+         VALUES ($1, $2, $3, $4, 'patient', $5, $6, $7, true)
          ON CONFLICT (email) DO NOTHING
          RETURNING id`,
-        [userId, email, full_name, insertPhone, country, age]
+        // AUDIT-2026-08-22 (L8): $6 is a validated ISO date or NULL (was the
+        // submitted age). The reported age is carried in signup_notes ($7)
+        // instead — free text this endpoint already owns and already writes, so
+        // the lead detail is not thrown away while the date column stays clean.
+        [userId, email, full_name, insertPhone, country, date_of_birth, signupNotes]
       );
 
       if (!ins.rows.length) {

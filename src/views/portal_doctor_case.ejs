@@ -395,7 +395,10 @@
                 <label class="v2-field__label" for="rep-diag"><%= tt('Findings', 'Findings', 'النتائج') %><span class="v2-field__req"><%= tt('required', 'required', 'مطلوب') %></span></label>
                 <span class="v2-field__count" data-wc-for="rep-diag" data-numeric><%= _wc(_exDiag) %> <%= tt('words', 'words', 'كلمة') %></span>
               </div>
-              <textarea class="v2-field__textarea" id="rep-diag" name="diagnosis" rows="6"><%= _exDiag %></textarea>
+              <%# AUDIT-2026-08-22 (L2): aria-required, NOT the `required`
+                  attribute — the same form's "Save draft" button must keep
+                  accepting a partial report, and `required` would block it. %>
+              <textarea class="v2-field__textarea" id="rep-diag" name="diagnosis" rows="6" aria-required="true"><%= _exDiag %></textarea>
               <div class="v2-field__hint"><%= tt('Describe what you see. Measurements, locations, comparisons with priors.', 'Describe what you see. Measurements, locations, comparisons with priors.', 'صف ما تراه. القياسات، المواقع، والمقارنة بالفحوص السابقة.') %></div>
             </div>
             <div class="v2-field">
@@ -403,7 +406,7 @@
                 <label class="v2-field__label" for="rep-impr"><%= tt('Impression', 'Impression', 'الانطباع') %><span class="v2-field__req"><%= tt('required', 'required', 'مطلوب') %></span></label>
                 <span class="v2-field__count" data-wc-for="rep-impr" data-numeric><%= _wc(_exImpr) %> <%= tt('words', 'words', 'كلمة') %></span>
               </div>
-              <textarea class="v2-field__textarea" id="rep-impr" name="impression" rows="4"><%= _exImpr %></textarea>
+              <textarea class="v2-field__textarea" id="rep-impr" name="impression" rows="4" aria-required="true"><%= _exImpr %></textarea>
               <div class="v2-field__hint"><%= tt('Your clinical interpretation. One or two sentences.', 'Your clinical interpretation. One or two sentences.', 'تفسيرك السريري. جملة أو جملتان.') %></div>
             </div>
             <div class="v2-field">
@@ -414,11 +417,16 @@
               <textarea class="v2-field__textarea" id="rep-rec" name="recommendations" rows="4" placeholder="<%= tt('Plain language. The patient reads this directly.', 'Plain language. The patient reads this directly.', 'لغة بسيطة. المريض يقرأ هذا مباشرة.') %>"><%= _exRec %></textarea>
               <div class="v2-field__hint"><%= tt('Calm, specific, actionable. Avoid jargon — the patient reads this directly.', 'Calm, specific, actionable. Avoid jargon — the patient reads this directly.', 'هادئة، محددة، قابلة للتنفيذ. تجنّب المصطلحات — المريض يقرأها مباشرة.') %></div>
             </div>
+            <%# AUDIT-2026-08-22 (L2): inline refusal message for an empty
+                submit. The server refuses independently — this is only the
+                helpful half, so the doctor is told before the round-trip. %>
+            <div id="report-submit-error" role="alert" hidden
+                 style="font-size:13px;font-weight:600;color:var(--v2-danger);background:var(--v2-danger-bg);border-radius:10px;padding:10px 12px;"></div>
             <div style="display:flex;justify-content:space-between;align-items:center;border-block-start:1px solid var(--v2-rule);padding-block-start:14px;flex-wrap:wrap;gap:8px;">
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button type="submit" class="v2-btn v2-btn--secondary"><%= tt('Save draft', 'Save draft', 'حفظ مسودة') %></button>
               </div>
-              <button type="submit" formaction="/portal/doctor/case/<%= _orderIdEnc %>/report" formmethod="POST" class="v2-btn v2-btn--brass v2-btn--lg"><%= tt('Submit report', 'Submit report', 'إرسال التقرير') %></button>
+              <button type="submit" id="report-submit-btn" formaction="/portal/doctor/case/<%= _orderIdEnc %>/report" formmethod="POST" class="v2-btn v2-btn--brass v2-btn--lg"><%= tt('Submit report', 'Submit report', 'إرسال التقرير') %></button>
             </div>
           </div>
         </form>
@@ -544,22 +552,71 @@
 <% } %>
 
 <script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
-  // Live word counter for the report editor
+  // Live word AND character counter for the report editor.
+  //
+  // AUDIT-2026-08-22 (L3): the delivered PDF used to silently cut findings at
+  // ~950 characters and impression/recommendations at ~570, so a doctor had no
+  // way to know the patient's copy was truncated. The PDF now flows onto
+  // continuation pages and truncates nothing, but the doctor still deserves to
+  // see how long a section is running while writing it — so the existing word
+  // counter (rather than a second one bolted alongside) also reports
+  // characters, and updates on load, not only on the first keystroke.
   (function() {
     var nodes = document.querySelectorAll('[data-wc-for]');
+    var isAr = document.documentElement.dir === 'rtl';
+    var wordUnit = isAr ? ' كلمة' : ' words';
+    var charUnit = isAr ? ' حرف' : ' chars';
     nodes.forEach(function(node) {
       var id = node.getAttribute('data-wc-for');
       var ta = document.getElementById(id);
       if (!ta) return;
-      var unitEn = ' words', unitAr = ' كلمة';
-      var isAr = document.documentElement.dir === 'rtl';
-      var unit = isAr ? unitAr : unitEn;
       function recount() {
-        var t = (ta.value || '').trim();
-        var c = t ? t.split(/\s+/).length : 0;
-        node.textContent = c + unit;
+        var raw = ta.value || '';
+        var t = raw.trim();
+        var words = t ? t.split(/\s+/).length : 0;
+        node.textContent = words + wordUnit + ' · ' + raw.length + charUnit;
       }
       ta.addEventListener('input', recount);
+      recount();
+    });
+  })();
+
+  // AUDIT-2026-08-22 (L2): refuse an empty submit in the browser too.
+  //
+  // Submitting is irreversible — it renders and delivers the PDF, completes
+  // the case, pays the doctor and emails the patient — and the three boxes
+  // were labelled "required" with no validation of any kind behind the label.
+  // Bound to the Submit button only: "Save draft" posts the same form and must
+  // keep accepting a partial report. The server enforces the same rule; this
+  // just saves a round-trip and points at the offending box.
+  (function() {
+    var btn = document.getElementById('report-submit-btn');
+    if (!btn) return;
+    var box = document.getElementById('report-submit-error');
+    var isAr = document.documentElement.dir === 'rtl';
+    var MSG = isAr
+      ? 'النتائج والانطباع مطلوبان قبل إرسال التقرير.'
+      : 'Findings and Impression are required before you can submit this report.';
+
+    // Mirrors isReportSectionEmpty() in routes/doctor.js: a box holding only
+    // whitespace or dashes is empty, so a placeholder "—" cannot be delivered.
+    function isEmpty(el) {
+      var t = (el && el.value ? el.value : '').trim();
+      if (!t) return true;
+      return !t.replace(/[\s\-—–_.·•*]+/g, '');
+    }
+
+    btn.addEventListener('click', function(e) {
+      var findings = document.getElementById('rep-diag');
+      var impression = document.getElementById('rep-impr');
+      var offender = isEmpty(findings) ? findings : (isEmpty(impression) ? impression : null);
+      if (!offender) {
+        if (box) { box.hidden = true; box.textContent = ''; }
+        return;
+      }
+      e.preventDefault();
+      if (box) { box.textContent = MSG; box.hidden = false; }
+      try { offender.focus(); } catch (_) {}
     });
   })();
 

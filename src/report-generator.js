@@ -108,21 +108,39 @@ function formatReportDate(iso) {
   return `${dd} ${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+// AUDIT-2026-08-22 (L3): this used to do one `raw.split(/\s+/)` over the whole
+// body, which destroys every newline. A findings section written as paragraphs
+// -- or as one observation per line, which is how radiology reports are
+// actually written -- arrived in the delivered PDF as a single run-on block.
+// Wrap each SOURCE line on its own and keep blank lines between paragraphs, so
+// the structure the doctor typed survives into the report the patient keeps.
 function wrapLines(text, maxChars) {
-  const raw = String(text || '').replace(/\r/g, '');
-  const words = raw.split(/\s+/).filter(Boolean);
+  const raw = String(text || '').replace(/\r\n?/g, '\n');
   const lines = [];
-  let line = '';
-  for (const w of words) {
-    const next = line ? `${line} ${w}` : w;
-    if (next.length <= maxChars) {
-      line = next;
-    } else {
-      if (line) lines.push(line);
-      line = w;
+
+  for (const source of raw.split('\n')) {
+    const words = source.split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      lines.push('');
+      continue;
     }
+    let line = '';
+    for (const w of words) {
+      const next = line ? `${line} ${w}` : w;
+      if (next.length <= maxChars) {
+        line = next;
+      } else {
+        if (line) lines.push(line);
+        line = w;
+      }
+    }
+    if (line) lines.push(line);
   }
-  if (line) lines.push(line);
+
+  // Leading/trailing blank lines are just stray newlines around the text.
+  while (lines.length && !lines[0]) lines.shift();
+  while (lines.length && !lines[lines.length - 1]) lines.pop();
+
   if (!lines.length) lines.push('—');
   return lines;
 }
@@ -271,7 +289,12 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
 
   const arabicFontPath = findArabicFontPath();
 
-  const doc = new PDFDocument({ size: 'LETTER', margin: 54 });
+  // AUDIT-2026-08-22 (L3): bufferPages so the page numbering pass at the very
+  // bottom of this function can revisit every page once the true page count is
+  // known. The report body now flows onto as many pages as it needs, and an
+  // unnumbered multi-page clinical document cannot be checked for completeness
+  // by the patient or the referring physician.
+  const doc = new PDFDocument({ size: 'LETTER', margin: 54, bufferPages: true });
 
   // Layout helpers (keeps content from colliding with the footer)
   function footerTopY() {
@@ -381,9 +404,12 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
   // Tighten spacing after the top row
   doc.y = yRow + rowH + 14;
 
-  function sectionHeader(en, arText) {
-    // Ensure we don't start a section header in the footer zone
-    ensureSpace(34);
+  function sectionHeader(en, arText, reserve) {
+    // Ensure we don't start a section header in the footer zone.
+    // AUDIT-2026-08-22 (L3): callers whose content is a flowing notes box pass
+    // a larger reserve, so the header cannot be left stranded alone at the
+    // bottom of a page while its box starts on the next one.
+    ensureSpace(Number(reserve) > 0 ? Number(reserve) : 34);
 
     const y = doc.y;
     doc.fillColor(BLUE);
@@ -455,47 +481,188 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
     doc.y = startY + h + 14;
   }
 
-  function notesBox(textBody, maxLines) {
-    const w = x1 - x0;
-    const lines = wrapLines(textBody || '—', 95);
-    const visible = lines.slice(0, maxLines);
+  // AUDIT-2026-08-22 (L3) — measured, multi-page report body.
+  //
+  // WHY: the previous renderer wrapped at a fixed 95 characters against a
+  // fixed pixel width, advanced the cursor by a fixed 14pt per line, and then
+  // threw away everything past `maxLines` (10 for findings, 6 for impression
+  // and recommendations). Two separate ways to lose clinical text in the very
+  // PDF the patient keeps:
+  //   * a normal ~2,000-character findings section was cut mid-sentence, with
+  //     no ellipsis and no continuation page, while the on-site HTML report
+  //     showed the whole thing — patient and doctor saw different documents;
+  //   * a character-wrapped line that is physically WIDER than the box was
+  //     wrapped a second time inside doc.text() into two visual lines while
+  //     the cursor advanced only one, overlapping the next line and spilling
+  //     out of the box.
+  // Both are fixed by measuring with pdfkit's own metrics (widthOfString /
+  // heightOfString) and letting the box flow onto as many pages as the report
+  // needs. Nothing is truncated, ever.
+  const BODY_SIZE = 10;
 
-    const lineH = 14;
-    const boxH = Math.max(58, lineH * visible.length + 18);
-
-    // If the box won’t fit, move to a fresh page (so we never clash with footer)
-    ensureSpace(boxH + 22);
-
-    const y = doc.y;
-    doc.rect(x0, y, w, boxH).strokeColor(BORDER).stroke();
-
-    doc.fillColor('#111827');
-    doc.fontSize(10);
-
-    // AUDIT-P0-20: this used to be an unconditional doc.font('Helvetica').
-    // Helvetica is a PDF standard-14 font under WinAnsiEncoding and has no
-    // mapping for Arabic codepoints, so an Arabic report body encoded to
-    // .notdef -- a blank box -- without throwing, which meant the legacy
-    // fallback generator never engaged either. A doctor writing in Arabic for
-    // an Arabic patient produced a structurally valid, empty PDF.
-    //
-    // Per line, because a single findings box routinely mixes an Arabic
-    // narrative with Latin drug names and measurements.
-    let ty = y + 10;
-    for (const line of visible) {
-      if (arabicFontPath && ARABIC_RANGE.test(line)) {
+  // AUDIT-P0-20 (preserved): the body font is chosen PER LINE, never an
+  // unconditional doc.font('Helvetica'). Helvetica is a PDF standard-14 font
+  // under WinAnsiEncoding and has no mapping for Arabic codepoints, so an
+  // Arabic report body encoded to .notdef -- a blank box -- without throwing,
+  // which meant the legacy fallback generator never engaged either. A doctor
+  // writing in Arabic for an Arabic patient produced a structurally valid,
+  // empty PDF. Per line, because a single findings box routinely mixes an
+  // Arabic narrative with Latin drug names and measurements.
+  //
+  // Returns true only when the Arabic face was actually applied, so callers
+  // never claim RTL treatment for a line rendered in Helvetica.
+  function selectBodyFont(wantArabic) {
+    if (wantArabic && arabicFontPath) {
+      try {
         doc.font(arabicFontPath);
-        doc.text(line, x0 + 10, ty, { width: w - 20, align: 'right', features: ['rtla'] });
-      } else {
-        doc.font('Helvetica');
-        doc.text(line, x0 + 10, ty, { width: w - 20 });
+        doc.fontSize(BODY_SIZE);
+        return true;
+      } catch (_) {
+        // Unusable font file — fall through to Helvetica rather than throw.
       }
-      ty += lineH;
     }
     doc.font('Helvetica');
+    doc.fontSize(BODY_SIZE);
+    return false;
+  }
 
-    // Compact spacing after the box
-    doc.y = y + boxH + 14;
+  // Turn a report section into concrete, measured lines. Paragraph breaks the
+  // doctor typed survive as short blank rows.
+  function layoutBodyLines(textBody, innerW) {
+    const source = String(textBody == null ? '' : textBody).replace(/\r\n?/g, '\n');
+    const out = [];
+
+    for (const para of source.split('\n')) {
+      const arabic = selectBodyFont(!!(arabicFontPath && ARABIC_RANGE.test(para)));
+
+      if (!para.trim()) {
+        out.push({ text: '', arabic: false, height: Math.round(doc.currentLineHeight() * 0.6) });
+        continue;
+      }
+
+      const words = para.trim().split(/\s+/);
+      let line = '';
+      const flush = () => {
+        if (!line) return;
+        // heightOfString with the SAME width doc.text() will use, so the
+        // cursor advance always matches what actually got drawn.
+        out.push({ text: line, arabic, height: doc.heightOfString(line, { width: innerW }) + 2 });
+        line = '';
+      };
+
+      // A single token wider than the box (a pasted URL, an accession string,
+      // a long DICOM series description) has no space to break at. Split it
+      // to fit rather than hand doc.text() something it would silently rewrap
+      // onto a second visual line — the overlap defect this rewrite fixes.
+      const fitPieces = (word) => {
+        if (doc.widthOfString(word) <= innerW) return [word];
+        const pieces = [];
+        let cur = '';
+        for (const ch of Array.from(word)) {
+          const next = cur + ch;
+          if (cur && doc.widthOfString(next) > innerW) {
+            pieces.push(cur);
+            cur = ch;
+          } else {
+            cur = next;
+          }
+        }
+        if (cur) pieces.push(cur);
+        return pieces;
+      };
+
+      for (const word of words) {
+        for (const piece of fitPieces(word)) {
+          const next = line ? line + ' ' + piece : piece;
+          if (!line || doc.widthOfString(next) <= innerW) {
+            line = next;
+          } else {
+            flush();
+            line = piece;
+          }
+        }
+      }
+      flush();
+    }
+
+    while (out.length && !out[0].text) out.shift();
+    while (out.length && !out[out.length - 1].text) out.pop();
+
+    if (!out.length) {
+      selectBodyFont(false);
+      out.push({ text: '—', arabic: false, height: doc.heightOfString('—', { width: innerW }) + 2 });
+    }
+
+    doc.font('Helvetica');
+    return out;
+  }
+
+  function notesBox(textBody) {
+    const w = x1 - x0;
+    const innerW = w - 20;
+    const PAD = 10;
+    const MIN_BOX_H = 58;
+
+    const lines = layoutBodyLines(textBody || '—', innerW);
+
+    let idx = 0;
+    let firstSegment = true;
+
+    while (idx < lines.length) {
+      // Never open a box that cannot hold its minimum height clear of the footer.
+      ensureSpace(MIN_BOX_H + 22);
+
+      const segTop = doc.y;
+      const limit = bottomLimit();
+
+      // How much of the remaining text fits in this page's box segment.
+      let used = PAD;
+      let end = idx;
+      while (end < lines.length && segTop + used + lines[end].height + PAD <= limit) {
+        used += lines[end].height;
+        end++;
+      }
+
+      if (end === idx) {
+        // Nothing fit. On a fresh page that can only mean a single line is
+        // taller than a whole page — render it rather than loop forever.
+        const atPageTop = segTop <= doc.page.margins.top + 1;
+        if (!atPageTop) {
+          doc.addPage();
+          continue;
+        }
+        used += lines[idx].height;
+        end = idx + 1;
+      }
+
+      const boxH = Math.max(firstSegment ? MIN_BOX_H : 0, used + PAD);
+      doc.rect(x0, segTop, w, boxH).strokeColor(BORDER).stroke();
+      doc.fillColor('#111827');
+
+      let ty = segTop + PAD;
+      for (let k = idx; k < end; k++) {
+        const ln = lines[k];
+        if (ln.text) {
+          const isArabic = selectBodyFont(ln.arabic);
+          if (isArabic) {
+            doc.text(ln.text, x0 + 10, ty, { width: innerW, align: 'right', features: ['rtla'] });
+          } else {
+            doc.text(ln.text, x0 + 10, ty, { width: innerW });
+          }
+        }
+        ty += ln.height;
+      }
+      doc.font('Helvetica');
+
+      // Compact spacing after the box
+      doc.y = segTop + boxH + 14;
+      idx = end;
+      firstSegment = false;
+
+      // More to say — continue on a fresh page. The pageAdded handler redraws
+      // the watermark and footer, so continuation pages are fully dressed.
+      if (idx < lines.length) doc.addPage();
+    }
   }
 
   // Patient
@@ -523,16 +690,17 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
   infoTable(docRow);
 
   // Findings
-  sectionHeader('Findings / Observations', ar.findings);
-  notesBox(sections.findings, 10);
+  // AUDIT-2026-08-22 (L3): the reserve keeps the header with its box.
+  sectionHeader('Findings / Observations', ar.findings, 114);
+  notesBox(sections.findings);
 
   // Impression
-  sectionHeader('Impression / Conclusion', ar.impression);
-  notesBox(sections.impression || '—', 6);
+  sectionHeader('Impression / Conclusion', ar.impression, 114);
+  notesBox(sections.impression || '—');
 
   // Recommendations
-  sectionHeader('Recommendations', ar.recommendations);
-  notesBox(sections.recommendations || '—', 6);
+  sectionHeader('Recommendations', ar.recommendations, 114);
+  notesBox(sections.recommendations || '—');
 
   // Annotated Images (if available)
   const annotationImages = Array.isArray(annotations) ? annotations.filter(function(a) { return a.annotated_image_data; }) : [];
@@ -563,18 +731,46 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
   }
 
   // Disclaimer
-  sectionHeader('Disclaimer', ar.disclaimer);
+  sectionHeader('Disclaimer', ar.disclaimer, 114);
   const disclaimer =
     'This report represents a professional medical opinion based on the files provided. It is intended to assist in medical decision-making and does not replace in-person clinical evaluation.';
-  notesBox(disclaimer, 4);
+  notesBox(disclaimer);
 
   // Signature
-  sectionHeader('Doctor Signature', ar.signature);
+  // AUDIT-2026-08-22 (L3): reserve the header + rule + name as one unit so the
+  // signature is never split across a continuation page break.
+  sectionHeader('Doctor Signature', ar.signature, 92);
   doc.moveTo(x0, doc.y + 8).lineTo(x0 + 240, doc.y + 8).strokeColor('#111827').stroke();
   doc.moveDown(1.2);
   doc.fillColor('#111827');
   doc.font('Helvetica').fontSize(10).text(`${doctorName || '—'}`, x0, doc.y - 4);
 
+
+  // AUDIT-2026-08-22 (L3): the body flows onto continuation pages now, so a
+  // delivered report is routinely more than one page. Number every page once
+  // the final count is known — a patient handed an unnumbered multi-page
+  // report has no way to tell a complete document from a partial print.
+  try {
+    const range = doc.bufferedPageRange();
+    for (let i = range.start; i < range.start + range.count; i++) {
+      doc.switchToPage(i);
+      doc.save();
+      doc.fillColor(MUTED).font('Helvetica').fontSize(8);
+      doc.text(
+        `Page ${i - range.start + 1} of ${range.count}`,
+        doc.page.margins.left,
+        doc.page.height - doc.page.margins.bottom - 42,
+        {
+          width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
+          align: 'center',
+          lineBreak: false
+        }
+      );
+      doc.restore();
+    }
+  } catch (_) {
+    // Numbering is cosmetic — never lose a written report over it.
+  }
 
   const buf = await pdfkitToBuffer(doc);
 
@@ -616,6 +812,22 @@ async function generateStyledReportPdfLegacy({ caseId, doctorName, specialty, cr
   const findingsLines = wrapLines(sections.findings, 95);
   const impressionLines = wrapLines(sections.impression || '—', 95);
   const recLines = wrapLines(sections.recommendations || '—', 95);
+
+  // AUDIT-2026-08-22 (L3): this legacy builder emits a single hard-coded
+  // /Count 1 page (see buildPdf), so it genuinely cannot flow onto
+  // continuation pages the way the PDFKit generator above now does. It only
+  // runs when pdfkit is missing or the Unicode generator threw. It must NOT,
+  // however, keep dropping clinical text in silence: mark the cut so whoever
+  // holds the PDF can tell it is partial and go to the on-site report.
+  const TRUNCATED_NOTICE =
+    '[... continues — this copy is truncated. Open the full report in your Tashkheesa account.]';
+  function capLines(lines, max) {
+    if (lines.length <= max) return lines;
+    return lines.slice(0, Math.max(0, max - 1)).concat([TRUNCATED_NOTICE]);
+  }
+  const findingsOut = capLines(findingsLines, 10);
+  const impressionOut = capLines(impressionLines, 6);
+  const recOut = capLines(recLines, 6);
 
   // Colors
   const BLUE = '0.00 0.45 0.70';
@@ -718,10 +930,10 @@ async function generateStyledReportPdfLegacy({ caseId, doctorName, specialty, cr
   cs += arBlock(left + 205, y - 10, 90, 10);
   y -= 14;
 
-  let boxH = Math.max(74, 16 * Math.min(10, findingsLines.length) + 18);
+  let boxH = Math.max(74, 16 * findingsOut.length + 18);
   cs += rect(left, y - boxH, right - left, boxH, null, GRAY_STROKE);
   let ty = y - 18;
-  for (const line of findingsLines.slice(0, 10)) {
+  for (const line of findingsOut) {
     cs += text('F1', 10, left + 10, ty, line, null);
     ty -= 14;
   }
@@ -732,10 +944,10 @@ async function generateStyledReportPdfLegacy({ caseId, doctorName, specialty, cr
   cs += arBlock(left + 200, y - 10, 90, 10);
   y -= 14;
 
-  boxH = Math.max(56, 16 * Math.min(6, impressionLines.length) + 18);
+  boxH = Math.max(56, 16 * impressionOut.length + 18);
   cs += rect(left, y - boxH, right - left, boxH, null, GRAY_STROKE);
   ty = y - 18;
-  for (const line of impressionLines.slice(0, 6)) {
+  for (const line of impressionOut) {
     cs += text('F1', 10, left + 10, ty, line, null);
     ty -= 14;
   }
@@ -746,10 +958,10 @@ async function generateStyledReportPdfLegacy({ caseId, doctorName, specialty, cr
   cs += arBlock(left + 140, y - 10, 90, 10);
   y -= 14;
 
-  boxH = Math.max(56, 16 * Math.min(6, recLines.length) + 18);
+  boxH = Math.max(56, 16 * recOut.length + 18);
   cs += rect(left, y - boxH, right - left, boxH, null, GRAY_STROKE);
   ty = y - 18;
-  for (const line of recLines.slice(0, 6)) {
+  for (const line of recOut) {
     cs += text('F1', 10, left + 10, ty, line, null);
     ty -= 14;
   }
