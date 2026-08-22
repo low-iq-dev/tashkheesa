@@ -169,10 +169,16 @@ const TEMPLATE_TITLES = {
   payment_amount_mismatch:                { en: 'Payment amount mismatch — review required',   ar: 'اختلاف في قيمة الدفع — مطلوب مراجعة' },
   // src/case_sla_worker.js — superadmin pre-breach escalation (no payload).
   order_sla_prebreach:                    { en: 'Case approaching SLA deadline',               ar: 'حالة تقترب من الموعد النهائي' },
-  // src/notify.js dispatchSlaBreach — LIVE (called from case_lifecycle.js on
-  // every SLA breach). Fans out to every active superadmin on the whatsapp
-  // channel. Not a dead path; see the note in the task write-up.
+  // notify.sendSlaReminder({level:'breach'}) — DOCTOR-facing. Queued to the
+  // assigned doctor on the whatsapp channel from case_lifecycle.js on every
+  // SLA breach.
   sla_breach:                             { en: 'SLA breached — immediate action needed',      ar: 'تم تجاوز المهلة — مطلوب إجراء فوري' },
+  // AUDIT-2026-08-22: dispatchSlaBreach used to fan `sla_breach` — copy
+  // addressed to the ASSIGNED DOCTOR, CTA pointing at /portal/doctor/case/ —
+  // out to every active superadmin. An operator cannot "complete the review",
+  // and the doctor portal is not their surface; the ops action on a breach is
+  // to reassign or escalate. Superadmins now get their own template.
+  sla_breach_superadmin:                  { en: 'SLA breached — escalation required',          ar: 'تم تجاوز المهلة — مطلوب تصعيد' },
 
   // ── Doctor / patient assignment ───────────────────────────────────────
   // src/routes/superadmin.js — auto-assign after superadmin marks paid.
@@ -210,6 +216,28 @@ const TEMPLATE_TITLES = {
   // Admin-facing (video_scheduler sweeps).
   video_slot_auto_cancelled_admin:        { en: 'Video slot auto-cancelled — no confirmation', ar: 'إلغاء تلقائي لموعد مرئي — لم يتم التأكيد' },
   video_slot_stale_admin:                 { en: 'Video slot pending too long',                 ar: 'موعد مرئي معلّق منذ فترة طويلة' },
+
+  // ── AUDIT-2026-08-22: three NEW video events (routes/video.js) ────────
+  //
+  // Registered here AND in openclawTemplates.js before the emitting code
+  // ships: an unregistered title falls through to humanizeTemplate() ("Video
+  // Doctor No Show Patient"), and a missing OpenClaw body is a HARD failure
+  // (whatsapp.js returns { permanent: true }), so the send lands on /ops as
+  // undelivered rather than silently degrading.
+  //
+  // Note the existing video_no_show_patient / video_no_show_doctor pair is the
+  // PATIENT-no-show pair — both are about the patient failing to join, and the
+  // suffix names the RECIPIENT, not the absentee. These three are distinct
+  // events and deliberately do not reuse those names.
+  //
+  // Doctor no-showed; patient is fully refunded. The refund is the single most
+  // important fact for the patient, so it is in the title, not buried in the
+  // body — this is the message that decides whether they open a support ticket.
+  video_doctor_no_show_patient:           { en: 'Your video consultation was missed — you have been refunded in full', ar: 'لم تتم استشارتك المرئية — تم رد المبلغ بالكامل' },
+  // Patient cancelled; the doctor's slot is now free.
+  video_appointment_cancelled_doctor:     { en: 'Patient cancelled the video consultation',    ar: 'المريض ألغى الاستشارة المرئية' },
+  // Patient accepted the time the doctor proposed.
+  video_slot_confirmed_doctor:            { en: 'Patient confirmed the video consultation time', ar: 'المريض أكد موعد الاستشارة المرئية' },
 
   // ── Doctor broadcast + assignment over WhatsApp (notify/templates.js) ─
   // These are queued as `template: TEMPLATES.X`, i.e. via a constant rather

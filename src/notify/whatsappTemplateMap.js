@@ -164,6 +164,23 @@ const whatsappTemplateMap = {
     }),
   },
 
+  // AUDIT-2026-08-22 (N6): the superadmin breach escalation was split out of
+  // `sla_breach` into its own event so the OpenClaw body could stop telling
+  // operators to "complete the review" in the doctor portal. On the Meta
+  // transport there is no ops-worded HSM to point at — approving one is the
+  // same multi-day Business-verification process as the `ar` slots — so this
+  // deliberately reuses the approved doctor template rather than becoming an
+  // unmapped event, which the worker now treats as a permanent failure. That
+  // keeps the (currently blocked) Meta path exactly as good as it was before
+  // the split, no better and no worse. Replace `sla_breach_superadmin_en` here
+  // the day an ops-worded template clears approval.
+  sla_breach_superadmin: {
+    templateNames: { en: 'sla_breached_en', ar: null },
+    paramBuilder: (data) => ({
+      case_ref: data.caseReference || data.case_id || '',
+    }),
+  },
+
   doctor_approved: {
     templateNames: { en: 'doctor_welcome_en', ar: null },
     paramBuilder: (data) => ({
