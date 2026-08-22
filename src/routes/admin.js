@@ -1533,7 +1533,22 @@ router.post('/admin/orders/:id/additional-files/approve', requireAdmin, async (r
       toUserId: order.patient_id,
       channel: 'internal',
       template: 'additional_files_requested_patient',
-      status: 'queued'
+      status: 'queued',
+      // AUDIT-2026-08-22 (N7): no dedupe key at all, so a double-submitted
+      // approve form (or an admin re-approving the same request after a
+      // browser back) told the patient twice that files are needed.
+      //
+      // Keyed on request_event_id rather than on the order: an additional-files
+      // request can legitimately be raised MORE THAN ONCE on the same case —
+      // superadmin.js's equivalent site documents that by deliberately defeating
+      // its own key with Date.now() — so an order-scoped key would silently
+      // swallow every request after the first. The request event id is the
+      // natural idempotency token: same approval, same key; new request, new
+      // key. Omitted entirely when the form did not carry one, which leaves
+      // today's behaviour rather than risking a permanent suppression.
+      dedupe_key: request_event_id
+        ? 'additional_files_approved:' + orderId + ':' + request_event_id
+        : null
     });
   }
 
@@ -1643,7 +1658,14 @@ router.post('/admin/orders/:id/mark-paid', requireAdmin, async (req, res) => {
         sendCriticalAlert(
           'markCasePaid FAILED for order ' + orderId + ' after an ADMIN marked it paid: ' +
           msg.slice(0, 300) + ' — case is paid but is not in the assignment queue',
-          'markcasepaid_failed'
+          // AUDIT-2026-08-22 (N4): distinct throttle key per site. Three
+          // separate call sites (this one, routes/payments.js and
+          // routes/superadmin.js) shared the literal 'markcasepaid_failed',
+          // and critical-alert buckets the 5-minute throttle by key — so a
+          // webhook capture failing moments after an admin mark-paid failure
+          // suppressed the second alert entirely. Different actor, different
+          // order, different remediation: they must not share a bucket.
+          'markcasepaid_failed_admin'
         );
       } catch (_) {}
       return res.redirect(`/admin/orders/${orderId}?payment=marked_paid&lifecycle=failed`);

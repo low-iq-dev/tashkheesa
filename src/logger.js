@@ -232,5 +232,12 @@ module.exports = {
   attachRequestId,
   accessLogger,
   logError,
-  logErrorToDb
+  logErrorToDb,
+  // AUDIT-2026-08-22: scrubUrl was defined here and used internally but never
+  // exported, so every other module that needed to redact a reset-password /
+  // magic-login path segment had to re-declare SENSITIVE_PATH_PATTERN. Two
+  // copies of a redaction regex is one copy too many — the day a new sensitive
+  // route is added, only one of them gets updated and the other leaks a live
+  // credential into logs. Behaviour is unchanged; this is export-only.
+  scrubUrl
 };
