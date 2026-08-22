@@ -146,10 +146,11 @@ services:
         value: "60"
       - key: SLA_DRY_RUN
         value: "false"
-      - key: NOTIFICATION_WORKER_ENABLED
-        value: "true"
-      - key: NOTIFICATION_WORKER_INTERVAL_MS
-        value: "30000"
+      # AUDIT-2026-08-22: NOTIFICATION_WORKER_ENABLED and
+      # NOTIFICATION_WORKER_INTERVAL_MS were declared here and are read NOWHERE
+      # in src/ — I invented them from .env.example. Removed rather than left to
+      # look load-bearing. The notification worker is gated by SLA_MODE=primary
+      # and nothing else.
       - key: NOTIFICATION_DRY_RUN
         value: "false"
 
