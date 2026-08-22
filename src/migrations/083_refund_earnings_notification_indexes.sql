@@ -53,7 +53,7 @@ BEGIN
 
     IF dupe_count > 0 THEN
         RAISE EXCEPTION
-            'Migration 082 aborted: % order(s) already have more than one refund row in an open-or-settled status. uniq_refunds_open_per_order cannot be created until each order has at most one. These are the double-refund rows the widened status set is meant to prevent. Reconcile them (cancel or deny the duplicates) before retrying: SELECT order_id, count(*) AS refund_row_count, array_agg(id) AS refund_ids, array_agg(status) AS statuses, sum(COALESCE(amount_egp, approved_amount, requested_amount, 0)) AS total_egp FROM refunds WHERE status IN (''pending'', ''auto_approved'', ''approved'', ''paid'') GROUP BY 1 HAVING count(*) > 1 ORDER BY 2 DESC;',
+            'Migration 083 aborted: % order(s) already have more than one refund row in an open-or-settled status. uniq_refunds_open_per_order cannot be created until each order has at most one. These are the double-refund rows the widened status set is meant to prevent. Reconcile them (cancel or deny the duplicates) before retrying: SELECT order_id, count(*) AS refund_row_count, array_agg(id) AS refund_ids, array_agg(status) AS statuses, sum(COALESCE(amount_egp, approved_amount, requested_amount, 0)) AS total_egp FROM refunds WHERE status IN (''pending'', ''auto_approved'', ''approved'', ''paid'') GROUP BY 1 HAVING count(*) > 1 ORDER BY 2 DESC;',
             dupe_count;
     END IF;
 END $$;
@@ -102,7 +102,7 @@ BEGIN
 
     IF dupe_count > 0 THEN
         RAISE EXCEPTION
-            'Migration 082 aborted: % appointment_id value(s) already have duplicate video doctor_earnings rows. These are the payout rows the unguarded /api/video/end endpoint created. Reconcile them before retrying: SELECT appointment_id, count(*), sum(earned_amount) FROM doctor_earnings WHERE appointment_id IS NOT NULL AND id NOT LIKE ''earn-main-%%'' AND id NOT LIKE ''earn-reassign-%%'' GROUP BY 1 HAVING count(*) > 1;',
+            'Migration 083 aborted: % appointment_id value(s) already have duplicate video doctor_earnings rows. These are the payout rows the unguarded /api/video/end endpoint created. Reconcile them before retrying: SELECT appointment_id, count(*), sum(earned_amount) FROM doctor_earnings WHERE appointment_id IS NOT NULL AND id NOT LIKE ''earn-main-%%'' AND id NOT LIKE ''earn-reassign-%%'' GROUP BY 1 HAVING count(*) > 1;',
             dupe_count;
     END IF;
 END $$;
@@ -145,13 +145,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_dedupe
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'uniq_refunds_open_per_order') THEN
-        RAISE EXCEPTION 'Migration 082: uniq_refunds_open_per_order was not created';
+        RAISE EXCEPTION 'Migration 083: uniq_refunds_open_per_order was not created';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'uniq_doctor_earnings_appointment_video') THEN
-        RAISE EXCEPTION 'Migration 082: uniq_doctor_earnings_appointment_video was not created';
+        RAISE EXCEPTION 'Migration 083: uniq_doctor_earnings_appointment_video was not created';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_notifications_dedupe') THEN
-        RAISE EXCEPTION 'Migration 082: idx_notifications_dedupe was not created';
+        RAISE EXCEPTION 'Migration 083: idx_notifications_dedupe was not created';
     END IF;
 END $$;
 

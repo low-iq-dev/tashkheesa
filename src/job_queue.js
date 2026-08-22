@@ -51,8 +51,29 @@ async function startJobQueue() {
       '(dev only). LISTEN/NOTIFY + cross-instance singletons may misbehave.');
   }
 
+  // AUDIT-2026-08-22 (AUDIT-BOSS-POOL-1) — PgBoss was constructed with NO
+  // connection bound, so it used pg-boss v12's default of max=10. Combined with
+  // src/pg.js's PG_POOL_MAX (also 10 by default) that is ~20 client connections
+  // against the 15-slot Supabase Free ceiling that src/pg.js:26-33 and 163-169
+  // are explicitly sized around — the request pool's own comment reserves the
+  // remaining 5 slots for "pg-boss direct + Supabase internal heartbeats +
+  // burst", and pg-boss was quietly taking twice that.
+  //
+  // 4 is the budget that comment implies: 10 (request pool) + 4 (pg-boss) + 1
+  // for Supabase internals/burst = 15. pg-boss needs one connection per
+  // long-polling worker plus one for maintenance; four workers are registered
+  // below, all with teamConcurrency 1, and pg-boss shares the pool across them.
+  // Raise via PG_BOSS_POOL_MAX only together with the Supabase tier, and keep
+  // PG_POOL_MAX + PG_BOSS_POOL_MAX under the ceiling.
+  //
+  // NOTE: pg-boss connects on DATABASE_URL_DIRECT (session pooler, 5432) while
+  // the request pool uses the transaction pooler (6543). Different endpoints,
+  // but the same Supabase project-wide connection budget.
+  var PG_BOSS_POOL_MAX = parseInt(process.env.PG_BOSS_POOL_MAX, 10) || 4;
+
   boss = new PgBoss({
     connectionString: connectionString,
+    max: PG_BOSS_POOL_MAX,
     ssl: process.env.PG_SSL === 'false' ? false : { rejectUnauthorized: false },
     retryLimit: 3,
     retryDelay: 30,
@@ -67,7 +88,8 @@ async function startJobQueue() {
   });
 
   await boss.start();
-  logMajor('[job-queue] pg-boss started');
+  logMajor('[job-queue] pg-boss started (max=' + PG_BOSS_POOL_MAX + ' connections, ' +
+           (directUrl ? 'DATABASE_URL_DIRECT' : 'DATABASE_URL fallback') + ')');
 
   // pg-boss v12: queues must be created explicitly before workers attach
   await boss.createQueue('case-intelligence');
