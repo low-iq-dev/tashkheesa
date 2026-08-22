@@ -140,6 +140,10 @@ function establishWebSession(res, user) {
   });
 }
 
+// Request-derived origin. AUDIT-2026-08-22: NOT safe for anything that leaves
+// the process — see getEmailBaseUrl() below. Retained only for same-request,
+// in-band use (redirects/absolute URLs served back to the caller who set the
+// header); it currently has no callers in this file.
 function getBaseUrl(req) {
   const envUrl = String(process.env.BASE_URL || '').trim();
   if (envUrl) return envUrl;
@@ -156,6 +160,30 @@ function getBaseUrl(req) {
 
   // Never leak localhost in production. In dev, localhost is fine.
   return IS_PROD ? '' : 'http://localhost:3000';
+}
+
+// AUDIT-2026-08-22: origin for links that get EMAILED. Must never consult the
+// request.
+//
+// getBaseUrl() above falls back to `x-forwarded-host || host` when BASE_URL is
+// unset, and `app.set('trust proxy', 1)` (src/server.js) makes Express accept
+// those headers. Both are attacker-supplied on any inbound request, so an
+// unauthenticated attacker could POST /forgot-password for a victim's address
+// with `Host: attacker.example` and the victim would receive a genuine,
+// correctly-signed Tashkheesa reset email whose link points at the attacker —
+// handing over a live single-use reset token (and the account) the moment the
+// victim clicks. sendMagicLoginLink() had the identical exposure.
+//
+// So: configured origin only. If neither BASE_URL nor APP_URL is set we return
+// '' and the callers skip sending rather than mailing an origin an attacker
+// picked — a reset email that never arrives is a support ticket, one that
+// arrives pointing at attacker.example is an account takeover.
+function getEmailBaseUrl() {
+  const configured = String(process.env.BASE_URL || process.env.APP_URL || '').trim();
+  if (configured) return configured.replace(/\/+$/, '');
+  if (!IS_PROD) return 'http://localhost:3000';
+  console.error('[auth] BASE_URL/APP_URL is not configured — refusing to build an emailed link from request headers. No link will be sent.');
+  return '';
 }
 
 async function createMagicLoginToken(userId) {
@@ -179,7 +207,8 @@ async function createMagicLoginToken(userId) {
 async function sendMagicLoginLink({ user, req }) {
   if (!user || !user.id) return null;
   const token = await createMagicLoginToken(user.id);
-  const baseUrl = getBaseUrl(req);
+  // AUDIT-2026-08-22: emailed link — configured origin only, never req headers.
+  const baseUrl = getEmailBaseUrl();
   const link = baseUrl ? `${baseUrl}/magic-login/${token}` : null;
 
   if (!IS_PROD && link) {
@@ -507,7 +536,8 @@ router.post('/forgot-password', welcomeTokenIpLimiter, async (req, res) => {
       [randomUUID(), user.id, token, expiresAt, now.toISOString()]
     );
 
-    const baseUrl = getBaseUrl(req);
+    // AUDIT-2026-08-22: emailed link — configured origin only, never req headers.
+    const baseUrl = getEmailBaseUrl();
     const emailLang = (user.lang === 'ar' || getReqLang(req) === 'ar') ? 'ar' : 'en';
     const resetLink = baseUrl ? `${baseUrl}/reset-password/${token}?lang=${emailLang}` : null;
 

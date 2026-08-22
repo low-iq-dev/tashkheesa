@@ -3,7 +3,25 @@
 
 var { randomBytes } = require('crypto');
 var path = require('path');
-var { major: logMajor } = require('../logger');
+var logger = require('../logger');
+var logMajor = logger.major;
+
+// AUDIT-2026-08-22: the CSRF failure log below printed req.originalUrl raw.
+// Reset / magic-login / set-password / welcome tokens travel as PATH SEGMENTS
+// (GET /reset-password/<token>), and those routes DO reach CSRF enforcement —
+// so a single failed POST wrote a live, still-redeemable credential to stdout
+// and, via logMajor, to anywhere logs are shipped. src/logger.js already
+// defines the canonical redactor for exactly these four prefixes and the
+// access logger uses it, but it is not on logger.js's module.exports today, so
+// prefer the export when it appears and otherwise apply the same pattern here.
+// Keep this regex identical to SENSITIVE_PATH_PATTERN in src/logger.js.
+var SENSITIVE_PATH_PATTERN = /\/(reset-password|magic-login|set-password|welcome)\/[^/?#]+/gi;
+var scrubUrl = (typeof logger.scrubUrl === 'function')
+  ? logger.scrubUrl
+  : function(url) {
+      if (!url) return url;
+      return String(url).replace(SENSITIVE_PATH_PATTERN, '/$1/[REDACTED]');
+    };
 
 var EXEMPT_PATHS = new Set(['/health', '/status', '/healthz', '/__version']);
 var ASSET_EXTENSIONS = new Set([
@@ -129,7 +147,7 @@ function setupCsrf(app, opts) {
     var ok = provided && provided === cookieToken;
 
     if (!ok) {
-      var msg = '[CSRF] ' + CSRF_MODE + ' missing/invalid token for ' + req.method + ' ' + (req.originalUrl || req.url) + ' req=' + req.requestId;
+      var msg = '[CSRF] ' + CSRF_MODE + ' missing/invalid token for ' + req.method + ' ' + scrubUrl(req.originalUrl || req.url) + ' req=' + req.requestId;
       if (CSRF_MODE === 'enforce') {
         logMajor(msg);
         return csrfFail(req, res);
