@@ -2982,6 +2982,106 @@ router.post('/superadmin/orders/:id/additional-files/reject', requireSuperadmin,
 });
 
 // DOCTOR MANAGEMENT
+
+// AUDIT-2026-08-23 (P0-DOC-FORM) — the doctor create/edit form and these two
+// routes disagreed about every field name it posts: the form sent full_name /
+// active / send_whatsapp_alerts / service_ids_csv, the routes read name /
+// is_active / notify_whatsapp / service_ids. Nothing lined up, so "Add doctor"
+// always 400'd on `!name` and "Edit doctor" wrote is_active=false,
+// notify_whatsapp=false and deleted every doctor_services row for the doctor.
+//
+// The view now posts the canonical names (the users column names) and these
+// helpers keep accepting the old spellings, so a bookmarked POST, a cached
+// page still open in an admin's tab, or any other caller keeps working instead
+// of silently doing the wrong thing.
+
+// First non-empty value among `keys`. Empty string counts as absent so that
+// `name=&full_name=Dr+X` resolves to the value the caller actually filled in.
+function pickDoctorField(body, keys) {
+  const b = body || {};
+  for (const k of keys) {
+    const v = b[k];
+    if (v === undefined || v === null) continue;
+    if (String(v).trim() === '') continue;
+    return v;
+  }
+  return undefined;
+}
+
+// A checkbox that is not ticked posts NOTHING, which makes `undefined`
+// ambiguous between "the admin unticked it" and "this caller never sent the
+// field at all". The form pairs each checkbox with a hidden companion of the
+// same name carrying "0", posted first — so unticked arrives as "0" and, when
+// ticked, qs gives ["0","1"] and the last value wins. A field that is truly
+// absent returns `fallback`, which is how the edit route preserves the stored
+// value instead of stamping false over it.
+function readDoctorFlag(body, keys, fallback) {
+  const b = body || {};
+  for (const k of keys) {
+    if (!Object.prototype.hasOwnProperty.call(b, k)) continue;
+    let v = b[k];
+    if (Array.isArray(v)) v = v.length ? v[v.length - 1] : '';
+    const sv = String(v == null ? '' : v).trim().toLowerCase();
+    return !(sv === '' || sv === '0' || sv === 'false' || sv === 'off' || sv === 'no');
+  }
+  return fallback;
+}
+
+// The sub-specialty picker serialises to CSV in two hidden inputs
+// (service_ids_csv + the legacy sub_specialties_csv mirror, both written by
+// public/js/superadmin_doctor_form.js as a bare comma-joined id list, no
+// spaces, empty string when nothing is selected). It never posts a
+// `service_ids` array — accept all three shapes.
+//
+// Returns null when the request carried no service field and no
+// `service_ids_submitted` marker, i.e. the caller said nothing about services.
+// The edit route MUST NOT touch doctor_services in that case: a doctor with no
+// doctor_services rows is unassignable forever (see the EXISTS gate in
+// src/services/doctor_eligibility.js), and that deletion used to happen on
+// every single save.
+function readDoctorServiceIds(body) {
+  const b = body || {};
+  let present = Object.prototype.hasOwnProperty.call(b, 'service_ids_submitted');
+  const seen = new Set();
+  const out = [];
+  for (const key of ['service_ids', 'service_ids_csv', 'sub_specialties_csv']) {
+    if (!Object.prototype.hasOwnProperty.call(b, key)) continue;
+    present = true;
+    const chunks = Array.isArray(b[key]) ? b[key] : [b[key]];
+    for (const chunk of chunks) {
+      String(chunk == null ? '' : chunk).split(',').forEach((piece) => {
+        const v = piece.trim();
+        if (v && !seen.has(v)) { seen.add(v); out.push(v); }
+      });
+    }
+  }
+  return present ? out : null;
+}
+
+// Specialties an admin may actually put a doctor on.
+//
+// AUDIT-2026-08-23 (P0-DOC-FORM): the pickers listed every row in the table —
+// specialties deliberately hidden from patients (migrations 060 psychiatry,
+// 066 oncology, …) and the internal 'addon' bucket from migration 041, which
+// is not a clinical specialty at all but a parent for cross-specialty add-ons.
+// Assigning a doctor there produces a doctor no patient can ever reach.
+//
+// `keepId` re-admits one specific row: a doctor already sitting on a
+// now-hidden specialty must keep seeing their real value on the edit form,
+// otherwise the <select> renders blank and the next save silently clears
+// users.specialty_id.
+async function loadAssignableSpecialties(keepId) {
+  const keep = keepId ? String(keepId) : '';
+  return queryAll(
+    `SELECT id, name
+       FROM specialties
+      WHERE (COALESCE(is_visible, true) = true AND id <> 'addon')
+         OR ($1::text <> '' AND id = $1::text)
+      ORDER BY name ASC`,
+    [keep]
+  );
+}
+
 router.get('/superadmin/doctors', requireSuperadmin, async (req, res) => {
   const statusFilter = req.query.status || 'all';
   const conditions = ["u.role = 'doctor'"];
@@ -3032,7 +3132,7 @@ router.get('/superadmin/doctors', requireSuperadmin, async (req, res) => {
 });
 
 router.get('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
-  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  const specialties = await loadAssignableSpecialties(null);
   const subSpecialties = await queryAll(
     'SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC'
   );
@@ -3050,36 +3150,54 @@ router.get('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
 });
 
 router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
-  const { name, email, specialty_id, phone, notify_whatsapp, is_active, service_ids } = req.body || {};
-  if (!name || !email) {
-    const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  // AUDIT-2026-08-23 (P0-DOC-FORM): the form posts full_name / active /
+  // send_whatsapp_alerts / service_ids_csv, this route only ever read name /
+  // is_active / notify_whatsapp / service_ids — so `!name` was true on every
+  // submission and this form has never created a doctor. Accept both spellings.
+  const body = req.body || {};
+  const name = pickDoctorField(body, ['name', 'full_name']);
+  const email = pickDoctorField(body, ['email']);
+  const specialty_id = pickDoctorField(body, ['specialty_id']);
+  const phone = pickDoctorField(body, ['phone']);
+  // A new doctor with is_active absent stays active (the form's previous,
+  // intended default) rather than being created switched off.
+  const notify_whatsapp = readDoctorFlag(body, ['notify_whatsapp', 'send_whatsapp_alerts'], false);
+  const is_active = readDoctorFlag(body, ['is_active', 'active'], true);
+  const submittedServiceIds = readDoctorServiceIds(body);
+
+  // Re-render helper for the two 400 paths below — same locals, one message.
+  const renderInvalid = async (message) => {
+    const specialties = await loadAssignableSpecialties(specialty_id);
     const subSpecialties = await queryAll('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC');
-    const selectedServiceIds = Array.isArray(service_ids) ? service_ids : (service_ids ? [service_ids] : []);
     return res.status(400).render('superadmin_doctor_form', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       user: req.user,
       specialties,
       subSpecialties,
-      selectedServiceIds,
-      error: 'Name and email are required.',
-      doctor: { name, email, specialty_id, phone, notify_whatsapp, is_active },
+      selectedServiceIds: submittedServiceIds || [],
+      error: message,
+      // Repopulation only — deliberately carries no `id`, and `isEdit: false`
+      // keeps the page titled "Add doctor" (the view used to flip to "Edit
+      // doctor" here purely because this object is truthy).
+      doctor: {
+        name: name || '',
+        email: email || '',
+        specialty_id: specialty_id || '',
+        phone: phone || '',
+        notify_whatsapp,
+        is_active
+      },
       isEdit: false
     });
+  };
+
+  if (!name || !email) {
+    return renderInvalid('Name and email are required.');
   }
 
   const existing = await queryOne('SELECT id FROM users WHERE email = $1', [email]);
   if (existing) {
-    const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
-    const subSpecialties = await queryAll('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC');
-    const selectedServiceIds = Array.isArray(service_ids) ? service_ids : (service_ids ? [service_ids] : []);
-    return res.status(400).render('superadmin_doctor_form', {
-      user: req.user,
-      specialties,
-      subSpecialties,
-      selectedServiceIds,
-      error: 'Email already exists.',
-      doctor: { name, email, specialty_id, phone, notify_whatsapp, is_active },
-      isEdit: false
-    });
+    return renderInvalid('Email already exists.');
   }
 
   // No password is generated here. The doctor sets their own password by
@@ -3102,8 +3220,7 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
   );
 
   // Map selected sub-specialties (services) to the doctor
-  const rawServiceIds = Array.isArray(service_ids) ? service_ids : (service_ids ? [service_ids] : []);
-  const cleanedServiceIds = rawServiceIds.map((v) => String(v || '').trim()).filter(Boolean);
+  const cleanedServiceIds = submittedServiceIds || [];
 
   if (cleanedServiceIds.length && specialty_id) {
     const ph = cleanedServiceIds.map((_, i) => `$${i + 1}`).join(',');
@@ -3214,7 +3331,9 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
 router.get('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) => {
   const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [req.params.id]);
   if (!doctor) return res.redirect('/superadmin/doctors');
-  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  // Pass the doctor's current specialty as `keepId` so a doctor sitting on a
+  // specialty that has since been hidden still sees it selected (AUDIT-2026-08-23).
+  const specialties = await loadAssignableSpecialties(doctor.specialty_id);
   const subSpecialties = await queryAll('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC');
   const selectedServiceIds = (await queryAll('SELECT service_id FROM doctor_services WHERE doctor_id = $1', [req.params.id]))
     .map((r) => r.service_id);
@@ -3224,40 +3343,82 @@ router.get('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) =
 router.post('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) => {
   const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [req.params.id]);
   if (!doctor) return res.redirect('/superadmin/doctors');
-  const { name, specialty_id, phone, notify_whatsapp, is_active, service_ids } = req.body || {};
+  // AUDIT-2026-08-23 (P0-DOC-FORM): this destructured is_active /
+  // notify_whatsapp / service_ids, none of which the form posts. Every save
+  // therefore wrote is_active=false (deactivating the doctor), wiped
+  // notify_whatsapp, and — via the unconditional DELETE below — destroyed the
+  // doctor's whole doctor_services mapping, all while redirecting as if it had
+  // worked. Accept both spellings, and treat an absent field as "unchanged"
+  // rather than as false.
+  const body = req.body || {};
+  const name = pickDoctorField(body, ['name', 'full_name']);
+  const phone = pickDoctorField(body, ['phone']);
+  const hasSpecialtyField = Object.prototype.hasOwnProperty.call(body, 'specialty_id');
+  const specialty_id = pickDoctorField(body, ['specialty_id']);
+  const notify_whatsapp = readDoctorFlag(body, ['notify_whatsapp', 'send_whatsapp_alerts'], doctor.notify_whatsapp === true);
+  const is_active = readDoctorFlag(body, ['is_active', 'active'], doctor.is_active === true);
+  const submittedServiceIds = readDoctorServiceIds(body);
+  // Same rule for the specialty: only clear it when the form actually sent an
+  // empty specialty_id, never because the field was missing from the request.
+  const nextSpecialtyId = hasSpecialtyField ? (specialty_id || null) : (doctor.specialty_id || null);
+
   await execute(
     `UPDATE users
      SET name = $1, specialty_id = $2, phone = $3, notify_whatsapp = $4, is_active = $5
      WHERE id = $6 AND role = 'doctor'`,
     [
       name || doctor.name,
-      specialty_id || null,
+      nextSpecialtyId,
       phone || null,
       notify_whatsapp ? true : false,
       is_active ? true : false,
       req.params.id
     ]
   );
-  // Refresh sub-specialties (services) mapping
-  try {
-    await execute('DELETE FROM doctor_services WHERE doctor_id = $1', [req.params.id]);
+  // Refresh sub-specialties (services) mapping.
+  //
+  // AUDIT-2026-08-23 (P0-DOC-FORM): `submittedServiceIds === null` means the
+  // request said nothing about services — leave the existing rows alone. A
+  // doctor with zero doctor_services rows fails the EXISTS gate in
+  // src/services/doctor_eligibility.js and can never be assigned a case again,
+  // so an unconditional DELETE here is not a recoverable mistake.
+  if (submittedServiceIds !== null) {
+    try {
+      const cleanedServiceIds = submittedServiceIds;
+      let allowed = [];
 
-    const rawServiceIds = Array.isArray(service_ids) ? service_ids : (service_ids ? [service_ids] : []);
-    const cleanedServiceIds = rawServiceIds.map((v) => String(v || '').trim()).filter(Boolean);
-
-    if (cleanedServiceIds.length && specialty_id) {
-      const ph = cleanedServiceIds.map((_, i) => `$${i + 1}`).join(',');
-      const allowed = (await queryAll(
-        `SELECT id FROM services WHERE id IN (${ph}) AND specialty_id = $${cleanedServiceIds.length + 1}`,
-        [...cleanedServiceIds, specialty_id]
-      )).map((r) => r.id);
-
-      for (const sid of allowed) {
-        await execute('INSERT INTO doctor_services (doctor_id, service_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.params.id, sid]);
+      if (cleanedServiceIds.length && nextSpecialtyId) {
+        const ph = cleanedServiceIds.map((_, i) => `$${i + 1}`).join(',');
+        allowed = (await queryAll(
+          `SELECT id FROM services WHERE id IN (${ph}) AND specialty_id = $${cleanedServiceIds.length + 1}`,
+          [...cleanedServiceIds, nextSpecialtyId]
+        )).map((r) => r.id);
       }
+
+      // Resolve the replacement set BEFORE deleting. If the admin submitted a
+      // non-empty selection but none of it validated (ids from another
+      // specialty, or no specialty at all), keep what the doctor already has
+      // rather than leaving them with nothing — that is a bad submission, not
+      // an instruction to unassign. An explicitly empty selection still clears.
+      if (allowed.length || cleanedServiceIds.length === 0) {
+        await execute('DELETE FROM doctor_services WHERE doctor_id = $1', [req.params.id]);
+
+        for (const sid of allowed) {
+          await execute('INSERT INTO doctor_services (doctor_id, service_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.params.id, sid]);
+        }
+      } else {
+        await logErrorToDb(
+          new Error('doctor_services rewrite skipped: no submitted service id belongs to specialty ' + String(nextSpecialtyId)),
+          { context: 'superadmin.doctor_edit_services', level: 'warn', userId: req.user?.id, url: req.originalUrl, method: req.method, category: 'superadmin_action' }
+        );
+      }
+    } catch (err) {
+      // Was a bare `catch (_) { /* no-op */ }`. The DELETE can succeed and the
+      // re-INSERT fail, stripping a doctor of every service with no trace while
+      // the route redirects as if the save worked. Non-fatal for the profile
+      // update, but it must be visible in /ops/errors.
+      logErrorToDb(err, { context: 'superadmin.doctor_edit_services', userId: req.user?.id, url: req.originalUrl, method: req.method, category: 'superadmin_action' });
     }
-  } catch (_) {
-    // no-op
   }
   // Edit can flip is_active AND rewrite doctor_services → both change supply.
   // Recompute coming_soon after the mapping rewrite (§4.3), best-effort.

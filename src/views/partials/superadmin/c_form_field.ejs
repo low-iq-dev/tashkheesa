@@ -6,7 +6,15 @@
   //   value      — current value
   //   placeholder
   //   help       — small text under the input
-  //   error      — error text under the input (puts .has-error on wrapper)
+  //   fieldError — error text under the input (puts .has-error on wrapper).
+  //                AUDIT-2026-08-23 (P0-DOC-FORM): this used to be called `error`.
+  //                EJS `include` merges the PARENT's locals into the partial, so a
+  //                page-level `error` local (every superadmin form re-render passes
+  //                one) was inherited here and the single form-level message was
+  //                repeated under every field on the page — four copies plus the
+  //                flash on superadmin_doctor_form. Renaming to a name no page uses
+  //                as a top-level local means only an explicitly passed value can
+  //                ever land here. No caller passed `error`, so nothing regresses.
   //   required   — boolean
   //   options    — for type=select|radio: [{ value, label }] (or strings)
   //   rows       — for textarea
@@ -19,7 +27,7 @@
   var _value = (typeof value !== 'undefined' && value != null) ? String(value) : '';
   var _placeholder = (typeof placeholder !== 'undefined' && placeholder) ? String(placeholder) : '';
   var _help = (typeof help !== 'undefined' && help) ? String(help) : '';
-  var _error = (typeof error !== 'undefined' && error) ? String(error) : '';
+  var _error = (typeof fieldError !== 'undefined' && fieldError) ? String(fieldError) : '';
   var _required = (typeof required !== 'undefined') ? Boolean(required) : false;
   var _options = (typeof options !== 'undefined' && Array.isArray(options)) ? options : [];
   var _rows = (typeof rows !== 'undefined' && rows) ? Number(rows) : 4;
