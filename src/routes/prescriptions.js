@@ -16,6 +16,26 @@ const { queueMultiChannelNotification } = require('../notify');
 const upload = require('../middleware/upload');
 const { uploadFile, getSignedDownloadUrl } = require('../storage');
 const { computeDoctorStreakCount } = require('./messaging');
+const { queryOne } = require('../pg');
+const { getAddon } = require('../services/addons/registry');
+const { resolvePrescriptionAccess } = require('../services/addons/prescription_access');
+
+// AUDIT-2026-08-23 (C4) — the paywall this route never had.
+//
+// `prescription` is a paid add-on with a purchase -> fulfil -> earnings
+// lifecycle in src/services/addons/prescription.js. Neither handler below
+// consulted it: any doctor assigned to any case could write and deliver a
+// prescription, so the add-on was free to every patient who never bought one.
+//
+// Review round 2 caught the obvious first draft of this gate being WORSE than
+// no gate: it read only `order_addons`, which is written solely through
+// safeDualWrite and is empty in production, so every patient who HAD paid at
+// checkout would have been told they had not. resolvePrescriptionAccess reads
+// both that table and orders.addons_json (the record the payment is actually
+// tied to) — see src/services/addons/prescription_access.js.
+//
+// A doctor who believes a prescription is indicated on a case that did not buy
+// one raises a request instead: POST /portal/doctor/case/:id/request-prescription.
 
 const router = express.Router();
 
@@ -40,6 +60,25 @@ router.get('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), async
       [caseId, doctorId], null
     );
     if (!order) return res.status(404).send(isAr ? 'الحالة غير موجودة' : 'Case not found');
+
+    // AUDIT-2026-08-23 (C4): no purchased add-on, no prescription form.
+    var rxAccess = await resolvePrescriptionAccess(order);
+    if (!rxAccess.canWrite) {
+      return res.status(403).render('doctor_prescription_locked', {
+        cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+        portalFrame: true,
+        portalRole: 'doctor',
+        portalActive: 'prescriptions',
+        brand: 'Tashkheesa',
+        title: isAr ? 'الوصفة غير متاحة' : 'Prescription not available',
+        user: req.user,
+        caseId: caseId,
+        addonStatus: rxAccess.status,
+        requestUrl: '/portal/doctor/case/' + encodeURIComponent(caseId) + '/request-prescription',
+        lang: lang,
+        isAr: isAr
+      });
+    }
 
     // Check if prescription already exists
     var existing = await safeGet('SELECT id FROM prescriptions WHERE order_id = $1 AND doctor_id = $2', [caseId, doctorId], null);
@@ -89,6 +128,15 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), uplo
       [caseId, doctorId], null
     );
     if (!order) return res.status(404).send(isAr ? 'الحالة غير موجودة' : 'Case not found');
+
+    // AUDIT-2026-08-23 (C4): enforced on the WRITE too, not only on the form.
+    // Gating the GET alone would leave the POST openly craftable.
+    var rxAccess = await resolvePrescriptionAccess(order);
+    if (!rxAccess.canWrite) {
+      return res.status(403).send(isAr
+        ? 'الروشتة خدمة إضافية لم يشترها المريض لهذه الحالة.'
+        : 'A prescription is a paid add-on and has not been purchased for this case.');
+    }
 
     var notes = sanitizeHtml(sanitizeString(req.body.notes || '', 5000));
     var diagnosis = sanitizeHtml(sanitizeString(req.body.diagnosis || '', 5000));
@@ -153,6 +201,62 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), uplo
        VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, $9, $10, $11)`,
       [prescriptionId, caseId, doctorId, order.patient_id, JSON.stringify(medications), diagnosis || null, notes || null, null, pdfUrl, now, now]
     );
+
+    // AUDIT-2026-08-23 (C4): close the add-on lifecycle.
+    //
+    // Without this the add-on stays at 'paid' forever, prescription.onComplete
+    // hard-refuses anything not 'fulfilled' (deliberately), and the doctor is
+    // never paid the commission. prescription.onFulfill had no caller anywhere
+    // in the codebase before now.
+    //
+    // Deliberately NOT wrapped in safeDualWrite: that helper no-ops entirely
+    // when ADDON_SYSTEM_V2 is off, which would leave the paywall live and the
+    // settlement dead — the doctor blocked from writing unpaid prescriptions
+    // AND unpaid for the ones they do write. Fulfilment is bookkeeping on a
+    // row that already exists; it is correct to run it either way. The
+    // try/catch keeps a bookkeeping failure from losing the prescription the
+    // doctor just wrote, which is already committed above.
+    try {
+      var rxSvc = getAddon('prescription');
+      var rxRow = rxAccess.addon;
+      if (rxSvc && rxRow && String(rxRow.status || '').toLowerCase() === 'paid') {
+        var fulfilled = await rxSvc.onFulfill({
+          order: order,
+          addon: rxRow,
+          doctor: req.user,
+          payload: {
+            pdf_storage_key: pdfUrl || null,
+            // onFulfill requires at least one of the two. A prescription with
+            // structured medications and no uploaded PDF is valid, so fall
+            // back to the medication list as the text body rather than
+            // letting the fulfilment throw and silently not happen.
+            text_body: pdfUrl ? null : JSON.stringify({ medications: medications, diagnosis: diagnosis || null }),
+            attached_by: doctorId
+          }
+        });
+
+        // AUDIT-2026-08-23 (C4, review round 2) — settle immediately when the
+        // case is ALREADY completed.
+        //
+        // Writing a prescription after the report is submitted is explicitly
+        // supported: the eligible-cases query below includes 'completed' and
+        // neither prescribe handler gates on status. But onComplete is only
+        // called from the completion path in routes/doctor.js, which runs once
+        // at report submit — i.e. before this prescription existed. Without
+        // this branch the row sits at 'fulfilled' forever, no addon_earnings
+        // is ever inserted, and the doctor works for free.
+        var isCompletedCase = String(order.status || '').toLowerCase() === 'completed';
+        if (fulfilled && isCompletedCase) {
+          try {
+            await rxSvc.onComplete({ order: order, addon: fulfilled, doctorId: doctorId });
+          } catch (settleErr) {
+            logErrorToDb(settleErr, { context: 'prescription_addon_late_settle', orderId: caseId });
+          }
+        }
+      }
+    } catch (fulfilErr) {
+      logErrorToDb(fulfilErr, { context: 'prescription_addon_fulfil', orderId: caseId });
+    }
 
     // Future ML feed — see PHASE_2_BACKLOG.md "Medication learning loop".
     // Each signed medication entry is logged with full context (diagnosis +
@@ -506,8 +610,36 @@ router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function
          LEFT JOIN users u ON u.id = o.patient_id
          LEFT JOIN services sv ON sv.id = o.service_id
          LEFT JOIN prescriptions p ON p.order_id = o.id AND p.doctor_id = o.doctor_id
+         LEFT JOIN order_addons oa
+           ON oa.order_id = o.id
+          AND oa.addon_service_id = 'prescription'
         WHERE o.doctor_id = $1
           AND p.id IS NULL
+          -- AUDIT-2026-08-23 (C4): "eligible" means the patient actually bought
+          -- the prescription add-on. Listing every accepted case offered the
+          -- doctor a form /prescribe now refuses, and before the gate existed
+          -- it handed out a paid product for free.
+          --
+          -- Review round 2: this must mirror resolvePrescriptionAccess exactly,
+          -- or the list and the form disagree. An INNER JOIN on order_addons —
+          -- the obvious first draft — would have hidden every case the patient
+          -- paid for at checkout, because that row is written only through
+          -- safeDualWrite and order_addons is empty in production. The real
+          -- purchase record is orders.addons_json.prescription.
+          --
+          -- Matched with a regex rather than a ::jsonb cast on purpose:
+          -- orders.addons_json is a TEXT column, and a single malformed row
+          -- anywhere in the table would make the cast throw and take the whole
+          -- doctor prescriptions page down with it. The pattern matches what
+          -- JSON.stringify actually writes ("prescription":true) and tolerates
+          -- whitespace; it can never raise.
+          AND (
+                o.addons_json ~ '"prescription"[[:space:]]*:[[:space:]]*true'
+                OR LOWER(COALESCE(oa.status, '')) IN ('paid', 'fulfilled')
+              )
+          -- An explicit cancellation/refund is newer information than the
+          -- checkout flag it cancels, so it wins.
+          AND LOWER(COALESCE(oa.status, '')) NOT IN ('cancelled', 'refunded')
           -- Theme 7 sub-issue D (2026-05-10): 'awaiting_files' is a
           -- transitional fallback. Migration 047 converts to
           -- 'REJECTED_FILES'; new code never writes the legacy value.

@@ -294,6 +294,91 @@
             </div>
           </div>
 
+          <%
+            /* AUDIT-2026-08-23 (C4) — prescription add-on queue.
+
+               `prescription` is a paid add-on (EGP 400, 50% doctor
+               commission). A doctor who judges one is clinically indicated on
+               a case that did not buy one raises a request from their case
+               page; it lands as an order_addons row at status 'pending' and
+               shows up here. This card is steps 3 and 4 of that sequence:
+               tell the patient, then release it once they have paid.
+
+               Release is the only path to 'paid' outside the payment webhook,
+               and the handler refuses anything not currently 'pending', so it
+               cannot overwrite a genuine purchase or revive a cancelled one. */
+            const rx = (typeof prescriptionAddon !== 'undefined' && prescriptionAddon) ? prescriptionAddon : null;
+            const rxStatus = rx ? String(rx.status || '').toLowerCase() : null;
+            let rxMeta = {};
+            try {
+              rxMeta = rx && rx.metadata_json
+                ? (typeof rx.metadata_json === 'string' ? JSON.parse(rx.metadata_json) : rx.metadata_json)
+                : {};
+            } catch (e) { rxMeta = {}; }
+            const rxPrice = rx ? Number(rx.price_at_purchase_amount != null ? rx.price_at_purchase_amount : rx.price_at_purchase_egp) : null;
+            const rxCurrency = rx ? String(rx.price_at_purchase_currency || 'EGP').toUpperCase() : 'EGP';
+          %>
+          <% if (rx) { %>
+          <div class="admin-card" style="margin-top:20px;">
+            <div class="card-header">
+              <div class="card-title">Prescription add-on</div>
+              <span class="muted" style="font-size:12px;">
+                <%= rxStatus === 'pending' ? 'Awaiting payment' :
+                    rxStatus === 'paid' ? 'Paid — doctor can write it' :
+                    rxStatus === 'fulfilled' ? 'Written and delivered' :
+                    rxStatus === 'cancelled' ? 'Cancelled' :
+                    rxStatus === 'refunded' ? 'Refunded' : String(rxStatus || '') %>
+              </span>
+            </div>
+
+            <dl style="margin:0 0 12px;display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px;">
+              <% if (rxPrice) { %>
+                <dt class="muted">Price</dt><dd style="margin:0;"><%= rxCurrency %> <%= rxPrice %></dd>
+              <% } %>
+              <% if (rxMeta && rxMeta.requested_at) { %>
+                <dt class="muted">Requested</dt><dd style="margin:0;"><%= rxMeta.requested_at %></dd>
+              <% } %>
+              <% if (rxMeta && rxMeta.clinical_reason) { %>
+                <dt class="muted">Doctor's reason</dt><dd style="margin:0;"><%= rxMeta.clinical_reason %></dd>
+              <% } %>
+              <% if (rxMeta && rxMeta.payment_note) { %>
+                <dt class="muted">Payment note</dt><dd style="margin:0;"><%= rxMeta.payment_note %></dd>
+              <% } %>
+            </dl>
+
+            <% if (rxStatus === 'pending') { %>
+              <form method="POST" action="/admin/orders/<%= encodeURIComponent(order.id) %>/prescription/notify-patient" style="margin-bottom:12px;">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <button class="admin-btn admin-btn-outline" type="submit">Tell the patient it is recommended</button>
+                <span class="muted" style="font-size:12px;margin-left:8px;">Emails them the recommendation and the price. Safe to send more than once.</span>
+              </form>
+
+              <form method="POST" action="/admin/orders/<%= encodeURIComponent(order.id) %>/prescription/release" style="margin-bottom:12px;">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <input type="text" name="payment_note" placeholder="How was it paid? e.g. Instapay ref 88213" value="" />
+                <div style="margin-top:8px;">
+                  <button class="admin-btn" type="submit">Payment received — release to doctor</button>
+                </div>
+              </form>
+
+              <form method="POST" action="/admin/orders/<%= encodeURIComponent(order.id) %>/prescription/decline">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <button class="admin-btn admin-btn-outline" type="submit">Decline request</button>
+              </form>
+
+              <p class="muted" style="font-size:12px;margin-top:10px;">
+                Only release once the money is actually in. Releasing unlocks the prescription editor for the
+                doctor and puts the case on the hook for a 50% commission when it completes.
+              </p>
+            <% } else if (rxStatus === 'paid') { %>
+              <p class="muted" style="font-size:12px;margin:0;">
+                The doctor can write the prescription now. If the case completes without one being written,
+                the add-on is flagged for refund automatically.
+              </p>
+            <% } %>
+          </div>
+          <% } %>
+
           <div class="admin-card" style="margin-top:20px;">
             <div class="card-header">
               <div class="card-title">Reassign doctor</div>

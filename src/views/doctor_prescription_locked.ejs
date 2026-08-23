@@ -1,0 +1,65 @@
+<%- include('partials/header', { title: 'Prescription not available', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'prescriptions', portalNext: '/portal/doctor/prescriptions' }) %>
+<%
+  /* AUDIT-2026-08-23 (C4) — shown when a doctor reaches /prescribe on a case
+     whose patient never bought the prescription add-on. The old behaviour was
+     to render the full form and let them deliver a EGP 400 product for free.
+
+     This is deliberately not a bare 403: the doctor may well be right that a
+     prescription is indicated, so the page carries the request action rather
+     than a dead end. */
+  var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
+  var _caseId = (typeof caseId !== 'undefined' && caseId) ? String(caseId) : '';
+  var _st = (typeof addonStatus !== 'undefined' && addonStatus) ? String(addonStatus) : null;
+  var _requestUrl = (typeof requestUrl !== 'undefined' && requestUrl) ? String(requestUrl) : '';
+  var _caseUrl = _caseId ? ('/portal/doctor/case/' + encodeURIComponent(_caseId)) : '/portal/doctor/cases';
+  function _t(en, ar) { return _isAr ? ar : en; }
+
+  var _headline, _body, _showRequest;
+  if (_st === 'pending') {
+    _headline = _t('Prescription requested — waiting on payment',
+                   'تم طلب الروشتة — بانتظار الدفع');
+    _body = _t('Your request has been sent to the clinical operations team. They will contact the patient to arrange payment for the prescription add-on. This page will unlock as soon as it is settled.',
+               'تم إرسال طلبك إلى فريق العمليات السريرية. سيتواصلون مع المريض لترتيب دفع قيمة الروشتة، وستُفتح هذه الصفحة فور إتمام الدفع.');
+    _showRequest = false;
+  } else if (_st === 'cancelled' || _st === 'refunded') {
+    _headline = _t('The prescription add-on for this case was cancelled',
+                   'تم إلغاء خدمة الروشتة لهذه الحالة');
+    _body = _t('No prescription can be issued on this case. If the patient still needs one, contact clinical operations.',
+               'لا يمكن إصدار روشتة لهذه الحالة. إذا كان المريض ما زال بحاجة إليها، تواصل مع فريق العمليات السريرية.');
+    _showRequest = false;
+  } else {
+    _headline = _t('This patient has not purchased a prescription',
+                   'لم يشترِ هذا المريض خدمة الروشتة');
+    _body = _t('A digital prescription is a paid add-on, not part of the standard report. If you believe one is clinically indicated for this case, raise a request and clinical operations will arrange it with the patient.',
+               'الروشتة الرقمية خدمة إضافية مدفوعة وليست جزءاً من التقرير الأساسي. إذا رأيت أنها ضرورية طبياً لهذه الحالة، أرسل طلباً وسيتولى فريق العمليات ترتيبها مع المريض.');
+    _showRequest = true;
+  }
+%>
+
+<div class="v2-card" style="max-width:640px;margin-inline:auto;">
+  <div class="v2-card__body" style="padding:32px;">
+    <div style="width:48px;height:48px;border-radius:14px;background:var(--v2-brass-bg);color:var(--v2-accent);display:flex;align-items:center;justify-content:center;margin-block-end:18px;">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    </div>
+    <h1 style="font-size:20px;line-height:1.3;font-weight:650;color:var(--v2-ink);margin:0 0 10px;"><%= _headline %></h1>
+    <p style="font-size:14px;line-height:1.6;color:var(--v2-ink-2);margin:0 0 22px;"><%= _body %></p>
+
+    <% if (_showRequest && _requestUrl) { %>
+      <form method="POST" action="<%= _requestUrl %>" style="display:flex;flex-direction:column;gap:12px;">
+        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+        <label class="v2-field__label" for="rx-reason" style="font-size:13px;">
+          <%= _t('Why is a prescription indicated? (optional — helps operations explain it to the patient)', 'لماذا الروشتة ضرورية؟ (اختياري — يساعد الفريق في شرح الأمر للمريض)') %>
+        </label>
+        <textarea class="v2-field__textarea" id="rx-reason" name="clinical_reason" rows="3" maxlength="1000"></textarea>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button type="submit" class="v2-btn v2-btn--brass"><%= _t('Request a prescription for this patient', 'اطلب روشتة لهذا المريض') %></button>
+          <a class="v2-btn v2-btn--ghost" href="<%= _caseUrl %>"><%= _t('Back to case', 'العودة للحالة') %></a>
+        </div>
+      </form>
+    <% } else { %>
+      <a class="v2-btn v2-btn--primary" href="<%= _caseUrl %>"><%= _t('Back to case', 'العودة للحالة') %></a>
+    <% } %>
+  </div>
+</div>
+
+<%- include('partials/footer') %>

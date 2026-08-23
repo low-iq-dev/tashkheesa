@@ -1411,6 +1411,11 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
       text: 'Reassign failed — the case lifecycle refused the change and nothing was written. The case is unchanged; check the activity log below, then retry or escalate.'
     },
     'payment:marked_paid': { type: 'success', text: 'Payment marked as paid.' },
+    'rx:notified': { type: 'success', text: 'The patient has been told a prescription is recommended, with the price. Release it once they have paid.' },
+    'rx:released': { type: 'success', text: 'Prescription add-on released — the doctor can now write it.' },
+    'rx:declined': { type: 'success', text: 'Prescription request declined. The doctor cannot write one on this case.' },
+    'rx:not_pending': { type: 'error', text: 'That prescription add-on is not awaiting payment — nothing was changed.' },
+    'rx:failed': { type: 'error', text: 'The prescription add-on action failed — nothing was changed.' },
     'payment:failed': { type: 'error', text: 'Marking the payment failed — the order is unchanged.' },
     'lifecycle:failed': {
       type: 'error',
@@ -1418,12 +1423,34 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
     }
   };
   const flashes = [];
-  for (const key of ['reassign', 'payment', 'lifecycle']) {
+  for (const key of ['reassign', 'payment', 'lifecycle', 'rx']) {
     const raw = req.query && req.query[key];
     if (!raw) continue;
     const hit = FLASH_CODES[key + ':' + String(raw)];
     if (hit) flashes.push(hit);
     else flashes.push({ type: 'error', text: key + ': ' + String(raw).slice(0, 80) });
+  }
+
+  // AUDIT-2026-08-23 (C4) — the operations half of the prescription add-on
+  // pipeline. A doctor who finds a prescription clinically indicated on a case
+  // that never bought one raises a request (POST
+  // /portal/doctor/case/:id/request-prescription), which lands as an
+  // order_addons row at status 'pending'. It surfaces here so an operator can
+  // tell the patient, take the money and release it — steps 3 and 4 of the
+  // sequence documented on that route.
+  let prescriptionAddon = null;
+  try {
+    prescriptionAddon = await queryOne(
+      `SELECT oa.*, asv.name_en AS addon_name_en, asv.name_ar AS addon_name_ar,
+              asv.base_price_egp
+         FROM order_addons oa
+         JOIN addon_services asv ON asv.id = oa.addon_service_id
+        WHERE oa.order_id = $1 AND oa.addon_service_id = 'prescription'
+        LIMIT 1`,
+      [orderId]
+    );
+  } catch (_) {
+    prescriptionAddon = null;
   }
 
   const langCode = (req.user && req.user.lang) ? req.user.lang : 'en';
@@ -1436,6 +1463,7 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
     doctors,
     flashes,
     additionalFilesRequest,
+    prescriptionAddon,
     portalFrame: true,
     portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'orders'
@@ -1582,6 +1610,181 @@ router.post('/admin/orders/:id/additional-files/reject', requireAdmin, async (re
 });
 
 // Mark order as paid manually (admin)
+// ---------------------------------------------------------------------------
+// AUDIT-2026-08-23 (C4) — prescription add-on: the operator's three actions.
+//
+// A doctor raising a prescription request writes an order_addons row at
+// status 'pending' (see POST /portal/doctor/case/:caseId/request-prescription
+// in routes/doctor.js for the full sequence and why step 3 is a human).
+// These handlers are that human step:
+//
+//   notify-patient — tell the patient a prescription is recommended and what
+//                    it costs. Does NOT change the add-on's state; it can be
+//                    sent more than once as a chase.
+//   release        — payment has been collected. 'pending' → 'paid', which is
+//                    what unlocks the doctor's Write-prescription CTA and what
+//                    prescription.onFulfill requires.
+//   decline        — the patient said no, or the request was not appropriate.
+//                    'pending' → 'cancelled'. Terminal.
+//
+// Release is deliberately the ONLY way an add-on reaches 'paid' outside the
+// payment webhook, and it refuses anything not currently 'pending' so it can
+// never overwrite a real Paymob purchase or resurrect a cancelled one.
+async function loadPendingPrescription(orderId) {
+  return queryOne(
+    `SELECT * FROM order_addons
+      WHERE order_id = $1 AND addon_service_id = 'prescription'
+      LIMIT 1`,
+    [orderId]
+  );
+}
+
+router.post('/admin/orders/:id/prescription/notify-patient', requireAdmin, async (req, res) => {
+  const orderId = req.params.id;
+  const back = '/admin/orders/' + encodeURIComponent(orderId);
+  try {
+    const order = await queryOne('SELECT id, patient_id FROM orders_active WHERE id = $1', [orderId]);
+    if (!order) return res.redirect('/admin');
+    const addon = await loadPendingPrescription(orderId);
+    if (!addon || String(addon.status || '').toLowerCase() !== 'pending') {
+      return res.redirect(back + '?rx=not_pending');
+    }
+    await queueMultiChannelNotification({
+      orderId,
+      toUserId: order.patient_id,
+      // Email + in-app only. A WhatsApp channel here would need a template
+      // approved on the Meta side first; whatsappTemplateMap treats an
+      // unmapped event as a PERMANENT failure, so queueing it unregistered
+      // would just bury the notification in 'failed'.
+      channels: ['email', 'internal'],
+      template: 'prescription_recommended_patient',
+      response: {
+        case_id: orderId,
+        caseReference: String(orderId).slice(0, 12).toUpperCase(),
+        // Quote the amount AND the currency the add-on was actually priced in.
+        // Hardcoding "EGP" in the template would misquote every non-EGP order
+        // (order_addons stores price_at_purchase_currency for exactly this).
+        addonPrice: Number(addon.price_at_purchase_amount || addon.price_at_purchase_egp) || 0,
+        addonCurrency: String(addon.price_at_purchase_currency || 'EGP').toUpperCase()
+      }
+      // No dedupe_key: an operator may legitimately chase the same patient
+      // more than once, and a dedupe would silently swallow the second send.
+    });
+    logOrderEvent({
+      orderId,
+      label: 'Patient told a prescription is recommended',
+      meta: JSON.stringify({ priceEgp: Number(addon.price_at_purchase_egp) || 0 }),
+      actorUserId: req.user && req.user.id,
+      actorRole: (req.user && req.user.role) || 'admin'
+    });
+    return res.redirect(back + '?rx=notified');
+  } catch (err) {
+    logErrorToDb(err, { context: 'admin.prescription_notify_patient', orderId });
+    return res.redirect(back + '?rx=failed');
+  }
+});
+
+router.post('/admin/orders/:id/prescription/release', requireAdmin, async (req, res) => {
+  const orderId = req.params.id;
+  const back = '/admin/orders/' + encodeURIComponent(orderId);
+  try {
+    // d.name feeds the "Dr. {{doctorName}}" salutation and the subject line;
+    // without it notification_worker's stripDrPrefix(undefined) renders "Dr. ,".
+    const order = await queryOne(
+      `SELECT o.id, o.patient_id, o.doctor_id, d.name AS doctor_name
+         FROM orders_active o
+         LEFT JOIN users d ON d.id = o.doctor_id
+        WHERE o.id = $1`,
+      [orderId]
+    );
+    if (!order) return res.redirect('/admin');
+
+    const note = String((req.body && req.body.payment_note) || '').trim().slice(0, 500);
+
+    // The WHERE clause carries the state check, so two operators clicking at
+    // once cannot both "release" — the second updates zero rows.
+    const updated = await queryOne(
+      `UPDATE order_addons
+          SET status = 'paid',
+              metadata_json = COALESCE(metadata_json, '{}'::jsonb) || $2::jsonb
+        WHERE order_id = $1
+          AND addon_service_id = 'prescription'
+          AND status = 'pending'
+      RETURNING *`,
+      [orderId, JSON.stringify({
+        released_by: (req.user && req.user.id) || null,
+        released_at: new Date().toISOString(),
+        payment_note: note || null
+      })]
+    );
+    if (!updated) return res.redirect(back + '?rx=not_pending');
+
+    logOrderEvent({
+      orderId,
+      label: 'Prescription add-on released (payment collected)',
+      meta: JSON.stringify({ payment_note: note || null }),
+      actorUserId: req.user && req.user.id,
+      actorRole: (req.user && req.user.role) || 'admin'
+    });
+
+    // Tell the doctor they can now write it — otherwise the request they
+    // raised simply goes quiet and they have to keep reopening the case.
+    if (order.doctor_id) {
+      try {
+        await queueMultiChannelNotification({
+          orderId,
+          toUserId: order.doctor_id,
+          channels: ['internal', 'email'],
+          template: 'prescription_unlocked_doctor',
+          response: {
+            case_id: orderId,
+            caseReference: String(orderId).slice(0, 12).toUpperCase(),
+            doctorName: order.doctor_name || ''
+          },
+          dedupe_key: 'rx-unlocked:' + orderId
+        });
+      } catch (_) {}
+    }
+    return res.redirect(back + '?rx=released');
+  } catch (err) {
+    logErrorToDb(err, { context: 'admin.prescription_release', orderId });
+    return res.redirect(back + '?rx=failed');
+  }
+});
+
+router.post('/admin/orders/:id/prescription/decline', requireAdmin, async (req, res) => {
+  const orderId = req.params.id;
+  const back = '/admin/orders/' + encodeURIComponent(orderId);
+  try {
+    const updated = await queryOne(
+      `UPDATE order_addons
+          SET status = 'cancelled',
+              cancelled_at = NOW(),
+              metadata_json = COALESCE(metadata_json, '{}'::jsonb) || $2::jsonb
+        WHERE order_id = $1
+          AND addon_service_id = 'prescription'
+          AND status = 'pending'
+      RETURNING *`,
+      [orderId, JSON.stringify({
+        declined_by: (req.user && req.user.id) || null,
+        declined_at: new Date().toISOString()
+      })]
+    );
+    if (!updated) return res.redirect(back + '?rx=not_pending');
+    logOrderEvent({
+      orderId,
+      label: 'Prescription request declined',
+      meta: '{}',
+      actorUserId: req.user && req.user.id,
+      actorRole: (req.user && req.user.role) || 'admin'
+    });
+    return res.redirect(back + '?rx=declined');
+  } catch (err) {
+    logErrorToDb(err, { context: 'admin.prescription_decline', orderId });
+    return res.redirect(back + '?rx=failed');
+  }
+});
+
 router.post('/admin/orders/:id/mark-paid', requireAdmin, async (req, res) => {
   const orderId = req.params.id;
   const { payment_method, payment_reference } = req.body || {};

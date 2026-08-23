@@ -105,6 +105,10 @@ const TEMPLATE_TITLES = {
   addon_purchased_video:        { en: 'Video consultation booked',  ar: 'تم حجز استشارة الفيديو' },
   addon_purchased_urgency:      { en: 'Case upgraded to urgent',    ar: 'تم ترقية الحالة لعاجلة' },
   addon_purchased_prescription: { en: 'Prescription add-on added',  ar: 'تمت إضافة الروشتة' },
+  // AUDIT-2026-08-23 (C4) — the doctor-requested prescription pipeline.
+  admin_prescription_requested:     { en: 'Prescription requested by {doctorName} — {caseReference}', ar: 'طلب روشتة من {doctorName} — {caseReference}' },
+  prescription_recommended_patient: { en: 'Your specialist recommends a prescription', ar: 'استشاريك يوصي بروشتة طبية' },
+  prescription_unlocked_doctor:     { en: 'Prescription unlocked — {caseReference}', ar: 'تم فتح الروشتة — {caseReference}' },
 
   // #66: payment-reminder series. Subject lines mirror the tone
   // progression of the email bodies — soft (30m), warmer (6h),

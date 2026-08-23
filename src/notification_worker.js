@@ -158,6 +158,11 @@ const TEMPLATE_TO_EMAIL = {
   addon_purchased_video:        'addon-video-purchased',
   addon_purchased_urgency:      'addon-urgency-purchased',
   addon_purchased_prescription: 'addon-prescription-purchased',
+  // AUDIT-2026-08-23 (C4) — doctor-requested prescription pipeline. Without a
+  // mapping here processEmail answers no_email_template_mapping_for_<t> and
+  // burns three retries straight into 'failed'.
+  prescription_recommended_patient: 'prescription-recommended',
+  prescription_unlocked_doctor:     'prescription-unlocked',
   // #66: payment-reminder series for unpaid cases. Queued by
   // case_lifecycle.dispatchUnpaidCaseReminders at 30m / 6h / 24h
   // elapsed from order creation. The 24h reminder is included for

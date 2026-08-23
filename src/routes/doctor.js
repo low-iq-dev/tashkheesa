@@ -20,6 +20,8 @@ const dbStatusValuesFor = caseLifecycle.dbStatusValuesFor;
 // action is implemented directly against the `orders` table to support human-friendly case IDs.
 const { generateMedicalReportPdf } = require('../report-generator');
 const { computeDoctorEarnings } = require('../services/earnings_calc');
+const { getAddon } = require('../services/addons/registry');
+const { resolvePrescriptionAccess, resolvePrescriptionQuote, prescriptionCommissionPct } = require('../services/addons/prescription_access');
 const { loadDoctorServiceCatalog, diffServiceSelection } = require('../services/doctor_service_catalog');
 const { resyncComingSoon } = require('../services/services_coming_soon_sync');
 const { shouldLandOnServices } = require('../services/doctor_landing');
@@ -2149,13 +2151,60 @@ const canAccept =
   const patientAge = computeAgeFromDob(order && order.patient_date_of_birth);
   const reportDraft = buildReportDraftFields(order);
 
+  // AUDIT-2026-08-23 (C1) — the pre-accept screen quoted an SLA that does not
+  // exist.
+  //
+  // The template hardcoded a "Fast-track · 24h" chip and a "24-hour
+  // turnaround" line in the "Accepting this case commits you to" list, because
+  // the minimal pre-accept `order` below carried neither urgency_tier nor
+  // sla_hours and there was nothing real to render. No order in the database
+  // has ever had a 24-hour SLA (they are 4 / 18 / 48 / 72), so the doctor was
+  // consenting to a deadline that was wrong on every single case and then
+  // shown a different one the moment they accepted. Tier and window are
+  // clinical scheduling facts, not patient identity, so they belong in the
+  // pre-accept payload.
+  const slaHoursRaw = Number(order && order.sla_hours);
+  const slaHoursForView = Number.isFinite(slaHoursRaw) && slaHoursRaw > 0 ? slaHoursRaw : null;
+
   // IMPORTANT: When a case is unaccepted we still pass a minimal `order` object
   // so the template can read `order.payment_status` without leaking case details.
+  //
+  // AUDIT-2026-08-23 (C2) — a doctor could not tell what the case WAS before
+  // committing to it. The minimal object below carried an id, a status and a
+  // payment status and nothing else, so the preview screen said "a patient is
+  // waiting for your specialist review" and left the doctor to accept a
+  // 48-hour clinical commitment blind. The fields added here are the ones a
+  // worklist has always shown at triage — service, specialty, tier, window,
+  // patient age and sex, report language, submission time and the clinical
+  // question. None of them identify the patient: name, contact details and the
+  // files themselves stay locked until accept.
   const viewOrder = isUnaccepted
     ? {
         id: orderId,
         status: viewStatus,
-        payment_status: paymentStatus || null
+        payment_status: paymentStatus || null,
+        specialty_name: (order && order.specialty_name) || null,
+        specialty_name_ar: (order && order.specialty_name_ar) || null,
+        service_name: (order && order.service_name) || null,
+        urgency_tier: (order && order.urgency_tier) || null,
+        sla_hours: slaHoursForView,
+        patient_age: patientAge,
+        patient_gender: (order && order.patient_gender) || null,
+        report_language: (order && (order.report_language || order.language)) || null,
+        created_at_human: createdAtHuman
+        // NOT doctor_fee. `order` here is the output of stripPricingFields(),
+        // which deletes doctor_fee outright, so passing it would be dead.
+        //
+        // AUDIT-2026-08-23 (C5, unresolved) — that strip means the fee has
+        // NEVER rendered on this page in either state: portal_doctor_case.ejs
+        // reads _order.doctor_fee for both the "Fee breakdown" card and the
+        // fee line in the accept commitments, and both have silently been
+        // false since the strip was introduced. A specialist is therefore
+        // asked to commit to a deadline without being told what the case
+        // pays. Deliberately NOT patched here: reconstructing the figure
+        // means going through computeDoctorEarnings with base fee, urgency
+        // uplift and uplift share, and a wrong number on a compensation
+        // screen is worse than no number. Raised for a decision instead.
       }
     : {
         ...order,
@@ -2163,6 +2212,7 @@ const canAccept =
         report_url: viewReportUrl || null,
         reportUrl: viewReportUrl || null,
         sla: caseSla,
+        sla_hours: slaHoursForView,
         created_at_human: createdAtHuman,
         accepted_at_human: acceptedAtHuman,
         patient_age: patientAge,
@@ -2235,6 +2285,1787 @@ const canAccept =
     );
   } catch (_) {}
 
+  // AUDIT-2026-08-23 (C3) — "Why you got this case" was fabricated.
+  //
+  // The card hardcoded the strings "Trusted reviewer" and "Your SLA compliance
+  // and patient ratings made you a top match." for EVERY doctor, with no query
+  // behind either one, and fell back to the literal "Your primary specialty"
+  // for the specialty line. A doctor onboarded the same day — zero completed
+  // cases, no SLA history, no rating — was told the platform had assessed a
+  // track record it does not have. Telling a clinician a fact about themselves
+  // that the database cannot support is not a design flourish, it is a lie in
+  // the consent step of a medical workflow.
+  //
+  // These are the facts that ARE knowable, and they are the ones that actually
+  // answer the question: the doctor is listed for this exact service, the case
+  // is in a specialty they cover, and here is when it reached them and by when
+  // they must answer.
+  let routingFacts = null;
+  try {
+    const assignment = await queryOne(
+      `SELECT assigned_at, accept_by_at, reassigned_from_doctor_id
+         FROM doctor_assignments
+        WHERE case_id = $1 AND doctor_id = $2
+        ORDER BY assigned_at DESC NULLS LAST
+        LIMIT 1`,
+      [orderId, doctorId]
+    );
+    let listedForService = false;
+    if (order && order.service_id) {
+      const listed = await queryOne(
+        `SELECT 1 AS ok FROM doctor_services WHERE doctor_id = $1 AND service_id = $2 LIMIT 1`,
+        [doctorId, order.service_id]
+      );
+      listedForService = !!listed;
+    }
+    routingFacts = {
+      serviceName: (order && order.service_name) || null,
+      specialtyName: (order && order.specialty_name) || null,
+      specialtyNameAr: (order && order.specialty_name_ar) || null,
+      listedForService,
+      assignedAtHuman: assignment && assignment.assigned_at ? formatDisplayDate(assignment.assigned_at) : null,
+      respondByHuman: assignment && assignment.accept_by_at ? formatDisplayDate(assignment.accept_by_at) : null,
+      isReassignment: !!(assignment && assignment.reassigned_from_doctor_id)
+    };
+  } catch (_) {
+    routingFacts = null;
+  }
+
+  // AUDIT-2026-08-23 (C4) — the prescription CTA ignored the add-on it sells.
+  //
+  // `prescription` is a paid add-on (addon_services: EGP 400, doctor
+  // commission 50%) with a full purchase → fulfil → earnings lifecycle in
+  // src/services/addons/prescription.js. The case page rendered an
+  // unconditional "Write prescription" card AND a second shortcut in the
+  // header on every accepted case, both pointing at /prescribe — a route
+  // that writes the `prescriptions` table and never touches `order_addons`.
+  // So a patient who never bought it received a EGP 400 service free, and a
+  // patient who DID buy it had it delivered while the add-on stayed unpaid,
+  // which routes to onRefund at completion: patient refunded, doctor paid
+  // nothing, prescription delivered anyway.
+  //
+  // The CTA is now driven by the add-on's real state, and a doctor who thinks
+  // one is clinically indicated raises a request instead of writing it.
+  let prescriptionAddon = null;
+  try {
+    // Review round 2: reads BOTH purchase records via the shared resolver.
+    // The first draft consulted order_addons alone, which is written only
+    // through safeDualWrite and is empty in production — so every patient who
+    // had genuinely paid for a prescription at checkout would have been shown
+    // the "not purchased, request one?" card, and an operator invited to bill
+    // them a second time.
+    const access = await resolvePrescriptionAccess(order);
+    const existingRx = await queryOne(
+      `SELECT id FROM prescriptions WHERE order_id = $1 AND doctor_id = $2 LIMIT 1`,
+      [orderId, doctorId]
+    );
+    prescriptionAddon = {
+      exists: !!access.addon || access.purchasedV1,
+      status: access.status,
+      isRequested: access.isRequested,
+      isPaid: access.canWrite && !access.isFulfilled,
+      isFulfilled: access.isFulfilled,
+      isTerminal: access.isTerminal,
+      canWrite: access.canWrite,
+      hasPrescription: !!existingRx,
+      prescriptionId: existingRx ? existingRx.id : null,
+      priceEgp: access.priceEgp
+    };
+  } catch (_) {
+    // Never let the add-on probe take down a case the doctor can work. Failing
+    // CLOSED (canWrite false) is the safe direction: the worst outcome is a
+    // doctor being told to raise a request for something already paid, which
+    // an operator sees and resolves. Failing open would give the product away.
+    prescriptionAddon = { exists: false, status: null, isRequested: false, isPaid: false,
+                          isFulfilled: false, isTerminal: false, canWrite: false,
+                          hasPrescription: false, prescriptionId: null, priceEgp: null };
+  }
+
+  const payload = {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'dashboard',
+    brand: 'Tashkheesa',
+    title: isAr ? 'لوحة التحكم' : 'Dashboard',
+    user: req.user,
+    lang,
+    isAr,
+    activeTab: 'dashboard',
+    nextPath: '/portal/doctor/dashboard',
+    streakCount,
+    newCases,
+    newCasesTotal,
+    reviewCases,
+    inReviewTotal,
+    availableCases: newCases,
+    activeCases: reviewCases,
+    inReviewCases: reviewCases,
+    completedCases,
+    completedTotal,
+    alerts: Array.isArray(alerts) ? alerts : [],
+    notifications: buildPortalNotifications(newCases, reviewCases, lang),
+    // --- Dashboard redesign payload additions ---
+    monthMetrics,
+    priorityQueue,
+    activityFeed: enrichedActivityFeed,
+    perfSnapshot,
+    // P1-DOC-5: smart routing + SLA banner + welcome modal
+    dashboardMode,
+    showWelcomeModal: isFirstLogin,
+    slaBanner,
+    // P1-DOC-7: activity widgets (unread messages + recent earnings)
+    unreadMessages,
+    recentEarning,
+    // Single source of truth — see the TECH DEBT note above DASHBOARD_ACTIVITY_LABEL_MAP.
+    activityLabelMap: DASHBOARD_ACTIVITY_LABEL_MAP,
+    activityLabelPatterns: DASHBOARD_ACTIVITY_LABEL_PATTERNS.map(function (p) {
+      // Serialize regex as { source, flags } so the view can reconstruct it.
+      return { source: p.match.source, flags: p.match.flags, template: p.template };
+    })
+  };
+
+  try {
+    assertRenderableView('portal_doctor_dashboard');
+    payload.cspNonce = req.cspNonce || (res.locals && res.locals.cspNonce) || '';
+    return res.render('portal_doctor_dashboard', payload);
+  } catch (_) {
+    // Safe fallback (never 404)
+    return res.status(200).send(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Doctor Dashboard</title>
+          <link rel="stylesheet" href="/styles.css" />
+        </head>
+        <body>
+          <div class="container" style="max-width:900px;margin:32px auto;">
+            <h1>Doctor Dashboard</h1>
+            <p>New cases: ${newCasesTotal}</p>
+            <p>Cases in review: ${inReviewTotal}</p>
+            <p>Completed cases: ${completedTotal}</p>
+            <p><a href="/portal/doctor/profile">Profile</a></p>
+          </div>
+        </body>
+      </html>
+    `);
+  }
+});
+
+// Doctor queue list (filterable, paginated)
+router.get('/portal/doctor/queue', requireDoctor, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  const doctorSpecialtyId = req.user && req.user.specialty_id ? String(req.user.specialty_id) : '';
+
+  const bucket = normalizeQueueBucket(req.query.bucket, 'review');
+  const q = normalizeTextQuery(req.query.q);
+  const page = parsePositiveInt(req.query.page, 1);
+  const limit = parsePositiveInt(req.query.limit, 20, 100);
+  const offset = (page - 1) * limit;
+
+  const newBucketTotal = await countQueueNewCases(doctorId, doctorSpecialtyId, UNACCEPTED_STATUSES, '');
+  const reviewBucketTotal = await countPortalCasesByStatuses(doctorId, ACCEPTED_STATUSES, '');
+
+  const cases = bucket === 'new'
+    ? await buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, UNACCEPTED_STATUSES, limit, offset, lang, q)
+    : await buildPortalCasesPaged(doctorId, ACCEPTED_STATUSES, limit, offset, lang, q);
+  const total = bucket === 'new'
+    ? await countQueueNewCases(doctorId, doctorSpecialtyId, UNACCEPTED_STATUSES, q)
+    : await countPortalCasesByStatuses(doctorId, ACCEPTED_STATUSES, q);
+
+  const showingFrom = total > 0 ? offset + 1 : 0;
+  const showingTo = total > 0 ? Math.min(offset + cases.length, total) : 0;
+  const hasMore = (offset + cases.length) < total;
+
+  return res.render('portal_doctor_cases', {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'cases',
+    brand: 'Tashkheesa',
+    title: isAr ? 'الحالات' : 'Cases',
+    user: req.user,
+    lang,
+    isAr,
+    activeTab: 'active',
+    canonicalUrl: '/portal/doctor/cases?tab=active',
+    nextPath: '/portal/doctor/cases',
+    bucket,
+    q,
+    page,
+    limit,
+    total,
+    showingFrom,
+    showingTo,
+    hasMore,
+    newBucketTotal,
+    reviewBucketTotal,
+    cases: Array.isArray(cases) ? cases : [],
+    activeTotal: reviewBucketTotal,
+    completedTotal: null,
+    allTotal: null,
+    activeCount: reviewBucketTotal
+  });
+});
+
+// Doctor completed list (paginated)
+router.get('/portal/doctor/completed', requireDoctor, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+
+  const q = normalizeTextQuery(req.query.q);
+  const page = parsePositiveInt(req.query.page, 1);
+  const limit = parsePositiveInt(req.query.limit, 20, 100);
+  const offset = (page - 1) * limit;
+
+  const completedStatuses = ['completed'];
+  const cases = await buildPortalCasesPaged(doctorId, completedStatuses, limit, offset, lang, q);
+  const total = await countPortalCasesByStatuses(doctorId, completedStatuses, q);
+  const showingFrom = total > 0 ? offset + 1 : 0;
+  const showingTo = total > 0 ? Math.min(offset + cases.length, total) : 0;
+  const hasMore = (offset + cases.length) < total;
+
+  return res.render('portal_doctor_cases', {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'cases',
+    brand: 'Tashkheesa',
+    title: isAr ? 'الحالات المكتملة' : 'Completed',
+    user: req.user,
+    lang,
+    isAr,
+    activeTab: 'completed',
+    canonicalUrl: '/portal/doctor/cases?tab=completed',
+    nextPath: '/portal/doctor/cases',
+    q,
+    page,
+    limit,
+    total,
+    showingFrom,
+    showingTo,
+    hasMore,
+    cases: Array.isArray(cases) ? cases : [],
+    activeTotal: null,
+    completedTotal: total,
+    allTotal: null
+  });
+});
+
+// Doctor "Cases" — merged Active / Completed / All surface (Phase 1 IA).
+// Fetches counts for all three tabs; only the active tab's rows are loaded.
+router.get('/portal/doctor/cases', requireDoctor, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+
+  const tabRaw = String(req.query.tab || 'active').toLowerCase();
+  const tab = ['active', 'completed', 'all'].includes(tabRaw) ? tabRaw : 'active';
+  const q = normalizeTextQuery(req.query.q);
+  const page = parsePositiveInt(req.query.page, 1);
+  const limit = parsePositiveInt(req.query.limit, 20, 100);
+  const offset = (page - 1) * limit;
+
+  const completedStatuses = ['completed'];
+  const allStatuses = [...new Set([...ACCEPTED_STATUSES, ...completedStatuses])];
+
+  const statusesForTab = tab === 'completed' ? completedStatuses
+                       : tab === 'all'        ? allStatuses
+                       :                        ACCEPTED_STATUSES;
+
+  const [activeTotal, completedTotal, allTotal, cases, total] = await Promise.all([
+    countPortalCasesByStatuses(doctorId, ACCEPTED_STATUSES, ''),
+    countPortalCasesByStatuses(doctorId, completedStatuses, ''),
+    countPortalCasesByStatuses(doctorId, allStatuses, ''),
+    buildPortalCasesPaged(doctorId, statusesForTab, limit, offset, lang, q),
+    countPortalCasesByStatuses(doctorId, statusesForTab, q)
+  ]);
+
+  const showingFrom = total > 0 ? offset + 1 : 0;
+  const showingTo   = total > 0 ? Math.min(offset + cases.length, total) : 0;
+  const hasMore     = (offset + cases.length) < total;
+
+  return res.render('portal_doctor_cases', {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'cases',
+    brand: 'Tashkheesa',
+    title: isAr ? 'الحالات' : 'Cases',
+    user: req.user,
+    lang,
+    isAr,
+    activeTab: tab,
+    canonicalUrl: `/portal/doctor/cases?tab=${tab}`,
+    nextPath: '/portal/doctor/cases',
+    q,
+    page,
+    limit,
+    total,
+    showingFrom,
+    showingTo,
+    hasMore,
+    cases: Array.isArray(cases) ? cases : [],
+    activeTotal,
+    completedTotal,
+    allTotal,
+    activeCount: activeTotal // for the sidebar count badge
+  });
+});
+
+// ── My Services ─────────────────────────────────────────────────────────────
+// Doctor confirms which services they accept. Their doctor_services rows are
+// treated as unconfirmed defaults (pre-ticked). Service list = the UNION of
+// (a) visible services in their own specialty + (b) every service they already
+// hold a row for (cross-specialty). Empty-union doctors see a "finalising"
+// note and are NOT marked onboarding_complete (see POST handler / spec §4.1).
+router.get('/portal/doctor/services', requireDoctor, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  const specialtyId = req.user && req.user.specialty_id ? String(req.user.specialty_id) : '';
+
+  // Context: the doctor's own specialty name (for the primary heading) + their
+  // sub_specialties chips. Resilient to schema drift / missing rows.
+  let specialtyName = '';
+  let specialtyNameAr = null;
+  let subSpecialties = [];
+  try {
+    const ctx = await queryOne(
+      `SELECT u.sub_specialties AS sub_specialties,
+              sp.name AS specialty_name, sp.name_ar AS specialty_name_ar
+         FROM users u
+         LEFT JOIN specialties sp ON sp.id = u.specialty_id
+        WHERE u.id = $1`,
+      [doctorId]
+    );
+    if (ctx) {
+      specialtyName = ctx.specialty_name || '';
+      specialtyNameAr = ctx.specialty_name_ar || null;
+      let ss = ctx.sub_specialties;
+      if (typeof ss === 'string') { try { ss = JSON.parse(ss); } catch (_) { ss = []; } }
+      subSpecialties = Array.isArray(ss) ? ss.filter((x) => typeof x === 'string' && x) : [];
+    }
+  } catch (_) { /* context is best-effort; the list still renders */ }
+
+  const catalog = await withTransaction((client) =>
+    loadDoctorServiceCatalog(client, { doctorId, specialtyId })
+  );
+
+  assertRenderableView('portal_doctor_services');
+  return res.render('portal_doctor_services', {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'services',
+    brand: 'Tashkheesa',
+    title: isAr ? 'خدماتي' : 'My Services',
+    user: req.user,
+    lang,
+    isAr,
+    nextPath: '/portal/doctor/services',
+    canonicalUrl: '/portal/doctor/services',
+    groups: Array.isArray(catalog.groups) ? catalog.groups : [],
+    isEmpty: !!catalog.isEmpty,
+    subSpecialties,
+    specialtyName,
+    specialtyNameAr,
+    error: null,
+    warning: null,
+    confirmEmpty: false,
+    success: req.query.success || null
+  });
+});
+
+// POST My Services — diff-save the doctor's confirmed services.
+// Server recomputes the allowed union from the DB (never trusts the client).
+// Zero ticked requires an explicit confirm_empty. On any explicit save we set
+// onboarding_complete=true; on save we also re-sync services.coming_soon.
+router.post('/portal/doctor/services', requireDoctor, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  const specialtyId = req.user && req.user.specialty_id ? String(req.user.specialty_id) : '';
+
+  // Body: service_ids can be an array, a single string, or absent.
+  let ticked = req.body ? req.body.service_ids : undefined;
+  if (ticked == null) ticked = [];
+  else if (!Array.isArray(ticked)) ticked = [ticked];
+  ticked = ticked.map((x) => String(x)).filter(Boolean);
+  const confirmEmpty = String(req.body && req.body.confirm_empty || '') === '1';
+
+  async function rerender(opts) {
+    let specialtyName = '', specialtyNameAr = null, subSpecialties = [];
+    try {
+      const ctx = await queryOne(
+        `SELECT u.sub_specialties AS sub_specialties, sp.name AS specialty_name, sp.name_ar AS specialty_name_ar
+           FROM users u LEFT JOIN specialties sp ON sp.id = u.specialty_id WHERE u.id = $1`,
+        [doctorId]
+      );
+      if (ctx) {
+        specialtyName = ctx.specialty_name || '';
+        specialtyNameAr = ctx.specialty_name_ar || null;
+        let ss = ctx.sub_specialties;
+        if (typeof ss === 'string') { try { ss = JSON.parse(ss); } catch (_) { ss = []; } }
+        subSpecialties = Array.isArray(ss) ? ss.filter((x) => typeof x === 'string' && x) : [];
+      }
+    } catch (_) {}
+    const cat = await withTransaction((client) =>
+      loadDoctorServiceCatalog(client, { doctorId, specialtyId })
+    );
+    // Reflect the doctor's just-submitted ticks so re-render shows their intent.
+    const tickedSet = new Set(ticked);
+    for (const g of cat.groups) for (const s of g.services) s.ticked = tickedSet.has(s.id);
+    if (opts.status) res.status(opts.status);
+    return res.render('portal_doctor_services', {
+      portalFrame: true, portalRole: 'doctor', portalActive: 'services', brand: 'Tashkheesa',
+      title: isAr ? 'خدماتي' : 'My Services', user: req.user, lang, isAr,
+      nextPath: '/portal/doctor/services', canonicalUrl: '/portal/doctor/services',
+      groups: cat.groups, isEmpty: !!cat.isEmpty, subSpecialties, specialtyName, specialtyNameAr,
+      error: opts.error || null, warning: opts.warning || null, confirmEmpty
+    });
+  }
+
+  try {
+    const result = await withTransaction(async (client) => {
+      const cat = await loadDoctorServiceCatalog(client, { doctorId, specialtyId });
+      const held = (await client.query('SELECT service_id FROM doctor_services WHERE doctor_id = $1', [doctorId]))
+        .rows.map((r) => String(r.service_id));
+      const diff = diffServiceSelection(cat.allowedIds, held, ticked);
+
+      if (diff.rejected.length) {
+        // DOCTOR_SERVICE_NOT_OFFERED — a ticked id is outside the allowed union.
+        const err = new Error('DOCTOR_SERVICE_NOT_OFFERED');
+        err.kind = 'rejected';
+        throw err;
+      }
+      if (!ticked.length && !confirmEmpty) {
+        const err = new Error('ZERO_NO_CONFIRM');
+        err.kind = 'zero';
+        throw err;
+      }
+
+      for (const id of diff.toInsert) {
+        await client.query(
+          'INSERT INTO doctor_services (doctor_id, service_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [doctorId, id]
+        );
+      }
+      if (diff.toDelete.length) {
+        await client.query(
+          'DELETE FROM doctor_services WHERE doctor_id = $1 AND service_id = ANY($2)',
+          [doctorId, diff.toDelete]
+        );
+      }
+      // Any explicit save (incl. confirmed-empty) marks onboarding complete.
+      await client.query('UPDATE users SET onboarding_complete = true WHERE id = $1', [doctorId]);
+      // Re-sync coming_soon in the SAME txn (contract: resyncComingSoon(client)).
+      await resyncComingSoon(client);
+      return true;
+    });
+    if (result) {
+      return res.redirect('/portal/doctor/services?success=' +
+        encodeURIComponent(isAr ? 'تم حفظ خدماتك' : 'Your services were saved'));
+    }
+  } catch (err) {
+    if (err && err.kind === 'rejected') {
+      return rerender({
+        status: 400,
+        error: isAr ? 'خدمة غير مسموح بها في قائمتك.' : 'One of the selected services is not available to you.'
+      });
+    }
+    if (err && err.kind === 'zero') {
+      return rerender({
+        status: 400,
+        warning: isAr
+          ? 'لم تحدد أي خدمة. أكد أنك لا تقبل أي خدمة حالياً للحفظ.'
+          : 'You selected no services. Confirm you accept none right now to save.'
+      });
+    }
+    logErrorToDb(err, {
+      context: 'doctor.services_save', requestId: req.requestId, userId: req.user?.id,
+      url: req.originalUrl, method: req.method, category: 'doctor_case'
+    });
+    console.error('[doctor-services] save error for user ' + doctorId + ':', err && err.message ? err.message : err);
+    return rerender({
+      status: 500,
+      error: isAr ? 'تعذَّر حفظ خدماتك. يرجى المحاولة مرة أخرى.' : 'Could not save your services. Please try again.'
+    });
+  }
+});
+
+// P1-DOC-1 (2026-05-05): the doctor messages experience already lives at
+// `/portal/messages` (shared patient + doctor handler in src/routes/messaging.js).
+// 301 here so any external links / mobile push deep-links / bookmarks that
+// targeted the doctor-namespaced URL keep working. The destination route's
+// requireRole('patient','doctor') gate handles auth for both roles.
+router.get('/portal/doctor/messages', (req, res) => res.redirect(301, '/portal/messages'));
+
+// Earnings — monthly statement reading doctor_earnings + addon_earnings.
+// P1-DOC-2: replaces the "Coming in v1.5" stub. Reads main-case earnings
+// (base + uplift) from doctor_earnings and add-on earnings (video,
+// prescription) from addon_earnings, grouped by month.
+router.get('/portal/doctor/earnings', requireDoctor, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id;
+
+  let monthlyMain = [];
+  let monthlyAddons = [];
+  let lifetime = { total: 0, paid: 0, pending: 0, reassigned: 0 };
+
+  try {
+    monthlyMain = await queryAll(
+      `SELECT date_trunc('month', created_at)::date AS month,
+              COUNT(*) AS case_count,
+              COALESCE(SUM(earned_amount), 0) AS total,
+              COALESCE(SUM(earned_amount) FILTER (WHERE status='paid'), 0) AS paid_total,
+              COALESCE(SUM(earned_amount) FILTER (WHERE status='pending'), 0) AS pending_total,
+              COALESCE(SUM(earned_amount) FILTER (WHERE status='reassigned'), 0) AS reassigned_total
+         FROM doctor_earnings
+        WHERE doctor_id = $1
+        GROUP BY 1
+        ORDER BY 1 DESC
+        LIMIT 24`,
+      [doctorId]
+    );
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.earnings_monthly_main',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
+    console.warn('[earnings page] monthlyMain query failed', e && e.message);
+  }
+
+  try {
+    // addon_earnings has no 'reassigned' status today (P1-FIN-2 was scoped
+    // to main-case doctor_earnings). Filter included for symmetry — returns
+    // 0 if no rows match, future-proofs against addon-side reassignment.
+    monthlyAddons = await queryAll(
+      `SELECT date_trunc('month', created_at)::date AS month,
+              COALESCE(SUM(earned_amount_egp), 0) AS total,
+              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='paid'), 0) AS paid_total,
+              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='pending'), 0) AS pending_total,
+              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='reassigned'), 0) AS reassigned_total
+         FROM addon_earnings
+        WHERE doctor_id = $1
+        GROUP BY 1
+        ORDER BY 1 DESC
+        LIMIT 24`,
+      [doctorId]
+    );
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.earnings_monthly_addons',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
+    console.warn('[earnings page] monthlyAddons query failed', e && e.message);
+  }
+
+  // Lifetime totals — main + addon. P1-DOC-2 follow-up: surface 'reassigned'
+  // status (P1-FIN-2 SLA-breach 10%-baseShare partial pay) so Lifetime ===
+  // Paid + Pending + Reassigned. Pre-fix, reassigned rows inflated Lifetime
+  // silently while paid/pending tiles ignored them.
+  try {
+    const mTotals = await queryOne(
+      `SELECT COALESCE(SUM(earned_amount), 0) AS total,
+              COALESCE(SUM(earned_amount) FILTER (WHERE status='paid'), 0) AS paid,
+              COALESCE(SUM(earned_amount) FILTER (WHERE status='pending'), 0) AS pending,
+              COALESCE(SUM(earned_amount) FILTER (WHERE status='reassigned'), 0) AS reassigned
+         FROM doctor_earnings WHERE doctor_id = $1`,
+      [doctorId]
+    );
+    const aTotals = await queryOne(
+      `SELECT COALESCE(SUM(earned_amount_egp), 0) AS total,
+              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='paid'), 0) AS paid,
+              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='pending'), 0) AS pending,
+              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='reassigned'), 0) AS reassigned
+         FROM addon_earnings WHERE doctor_id = $1`,
+      [doctorId]
+    );
+    lifetime.total = Number(mTotals && mTotals.total || 0) + Number(aTotals && aTotals.total || 0);
+    lifetime.paid = Number(mTotals && mTotals.paid || 0) + Number(aTotals && aTotals.paid || 0);
+    lifetime.pending = Number(mTotals && mTotals.pending || 0) + Number(aTotals && aTotals.pending || 0);
+    lifetime.reassigned = Number(mTotals && mTotals.reassigned || 0) + Number(aTotals && aTotals.reassigned || 0);
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.earnings_lifetime',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
+    console.warn('[earnings page] lifetime totals query failed', e && e.message);
+  }
+
+  // Merge monthly rollups by month key — view iterates one combined list.
+  const emptyMonth = () => ({
+    month: null, case_count: 0,
+    main_total: 0, main_paid: 0, main_pending: 0, main_reassigned: 0,
+    addon_total: 0, addon_paid: 0, addon_pending: 0, addon_reassigned: 0
+  });
+  const byMonth = {};
+  for (const r of monthlyMain) {
+    const k = String(r.month);
+    byMonth[k] = byMonth[k] || Object.assign(emptyMonth(), { month: r.month });
+    byMonth[k].case_count = Number(r.case_count || 0);
+    byMonth[k].main_total = Number(r.total || 0);
+    byMonth[k].main_paid = Number(r.paid_total || 0);
+    byMonth[k].main_pending = Number(r.pending_total || 0);
+    byMonth[k].main_reassigned = Number(r.reassigned_total || 0);
+  }
+  for (const r of monthlyAddons) {
+    const k = String(r.month);
+    byMonth[k] = byMonth[k] || Object.assign(emptyMonth(), { month: r.month });
+    byMonth[k].addon_total = Number(r.total || 0);
+    byMonth[k].addon_paid = Number(r.paid_total || 0);
+    byMonth[k].addon_pending = Number(r.pending_total || 0);
+    byMonth[k].addon_reassigned = Number(r.reassigned_total || 0);
+  }
+  const months = Object.values(byMonth)
+    .map((m) => Object.assign({}, m, { combined_total: m.main_total + m.addon_total }))
+    .sort((a, b) => new Date(b.month).getTime() - new Date(a.month).getTime());
+
+  return res.render('portal_doctor_earnings', {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'earnings',
+    brand: 'Tashkheesa',
+    title: isAr ? 'الأرباح' : 'Earnings',
+    user: req.user,
+    lang,
+    isAr,
+    nextPath: '/portal/doctor/earnings',
+    months,
+    lifetime
+  });
+});
+
+// Always provide defaults so views can safely render the alert badge.
+// `alertsUnseenCount` is the shared variable used by nav templates across roles.
+router.use(async (req, res, next) => {
+  res.locals.doctorAlertCount = 0;
+  res.locals.alertsUnseenCount = 0;
+  res.locals.unseenAlertsCount = 0;
+  res.locals.hasUnseenAlerts = false;
+  res.locals.portalFrame = true;
+  res.locals.portalRole = 'doctor';
+  // Streak count for sidebar (completed cases in last 7 days)
+  res.locals.streakCount = 0;
+  try {
+    if (req.user && req.user.id) {
+      var sRow = await queryOne(
+        "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND LOWER(COALESCE(status, '')) = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
+        [req.user.id]
+      );
+      res.locals.streakCount = (sRow && sRow.c) || 0;
+    }
+  } catch (_) { /* table/column may not exist */ }
+  return next();
+});
+
+// §4.7 soft-nudge banner flag — computed ONCE per doctor request (not per page,
+// no N+1). Fetches the DB users row (JWT req.user does NOT carry
+// onboarding_complete) and reuses the shared shouldLandOnServices predicate.
+// Best-effort: any failure leaves the banner off rather than breaking the page.
+async function _computeServicesBannerFlag(req, res) {
+  res.locals.doctorServicesBanner = false;
+  try {
+    // Self-referential guard: never show "go to services" banner on the services page itself.
+    if (req.originalUrl && req.originalUrl.startsWith('/portal/doctor/services')) { return; }
+    if (!req.user || String(req.user.role).toLowerCase() !== 'doctor' || !req.user.id) return;
+    const row = await queryOne(
+      'SELECT id, role, specialty_id, onboarding_complete FROM users WHERE id = $1',
+      [String(req.user.id)]
+    );
+    if (!row) return;
+    res.locals.doctorServicesBanner = await shouldLandOnServices(row);
+  } catch (_) {
+    res.locals.doctorServicesBanner = false;
+  }
+}
+
+// Doctor alert badge count middleware (only for doctor routes)
+router.use(['/portal/doctor', '/doctor'], requireDoctor, async (req, res, next) => {
+  try {
+    const uid = (req.user && req.user.id) ? String(req.user.id) : '';
+    const uemail = (req.user && req.user.email) ? String(req.user.email).trim() : '';
+    const cols = await getNotificationTableColumns();
+    const hasUserId = cols.includes('user_id');
+    const hasToUserId = cols.includes('to_user_id');
+    const hasIsRead = cols.includes('is_read');
+
+    // If we can, count unread across both schemas.
+    if (uid && hasIsRead && (hasUserId || hasToUserId)) {
+      const where = [];
+      const params = [];
+      let paramIdx = 1;
+      if (hasUserId) {
+        where.push(`user_id = $${paramIdx++}`);
+        params.push(uid);
+      }
+      if (hasToUserId) {
+        where.push(`to_user_id = $${paramIdx++}`);
+        params.push(uid);
+        // Legacy rows may target the doctor's email instead of id
+        if (uemail) {
+          where.push(`to_user_id = $${paramIdx++}`);
+          params.push(uemail);
+        }
+      }
+
+      const row = await queryOne(
+          `SELECT COUNT(*) as c FROM notifications WHERE (${where.join(' OR ')}) AND COALESCE(is_read, false) = false`,
+          params
+      );
+
+      const count = row ? Number(row.c) : 0;
+      res.locals.doctorAlertCount = count;
+      res.locals.alertsUnseenCount = count;
+      res.locals.unseenAlertsCount = count;
+      res.locals.hasUnseenAlerts = count > 0;
+      return next();
+    }
+
+    // Force legacy fallback when new-schema columns aren't available.
+    throw new Error('legacy_notifications_schema');
+  } catch (e) {
+    try {
+      // Legacy schema fallback
+      const uid = (req.user && req.user.id) ? String(req.user.id) : '';
+      const uemail = (req.user && req.user.email) ? String(req.user.email).trim() : '';
+      const row = await queryOne(
+          "SELECT COUNT(*) as c FROM notifications WHERE (to_user_id = $1 OR to_user_id = $2) AND COALESCE(LOWER(status), '') NOT IN ('seen','read')",
+          [uid, uemail]
+      );
+      const count = row ? Number(row.c) : 0;
+      res.locals.doctorAlertCount = count;
+      res.locals.alertsUnseenCount = count;
+      res.locals.unseenAlertsCount = count;
+      res.locals.hasUnseenAlerts = count > 0;
+    } catch (_) {
+      res.locals.doctorAlertCount = 0;
+      res.locals.alertsUnseenCount = 0;
+      res.locals.unseenAlertsCount = 0;
+      res.locals.hasUnseenAlerts = false;
+    }
+    return next();
+  }
+});
+
+// ---- Doctor alerts (in-app notifications) ----
+
+async function getNotificationTableColumns() {
+  try {
+    const cols = await queryAll(
+      "SELECT column_name AS name FROM information_schema.columns WHERE table_name = 'notifications'"
+    );
+    return Array.isArray(cols) ? cols.map((c) => c.name) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function pickNotificationUserColumn(cols) {
+  const c = cols || [];
+  if (c.includes('user_id')) return 'user_id';
+  if (c.includes('to_user_id')) return 'to_user_id';
+  return null;
+}
+
+function pickNotificationReadColumn(cols) {
+  const c = cols || [];
+  if (c.includes('is_read')) return 'is_read';
+  return null;
+}
+
+function pickNotificationTimestampColumn(cols) {
+  const c = cols || [];
+  if (c.includes('at')) return 'at';
+  if (c.includes('created_at')) return 'created_at';
+  if (c.includes('timestamp')) return 'timestamp';
+  return null;
+}
+
+async function fetchDoctorNotifications(userId, userEmail = '', limit = 50) {
+  const cols = await getNotificationTableColumns();
+  const tsCol = pickNotificationTimestampColumn(cols);
+  if (!tsCol) return [];
+
+  const hasUserId = cols.includes('user_id');
+  const hasToUserId = cols.includes('to_user_id');
+  if (!hasUserId && !hasToUserId) return [];
+
+  const where = [];
+  const params = [];
+  let paramIdx = 1;
+  if (hasUserId) {
+    where.push(`user_id = $${paramIdx++}`);
+    params.push(String(userId));
+  }
+  if (hasToUserId) {
+    where.push(`to_user_id = $${paramIdx++}`);
+    params.push(String(userId));
+    const email = String(userEmail || '').trim();
+    if (email) {
+      where.push(`to_user_id = $${paramIdx++}`);
+      params.push(email);
+    }
+  }
+
+  const selectCols = [
+    'id',
+    cols.includes('order_id') ? 'order_id' : null,
+    cols.includes('channel') ? 'channel' : null,
+    cols.includes('template') ? 'template' : null,
+    cols.includes('status') ? 'status' : null,
+    cols.includes('is_read') ? 'is_read' : null,
+    cols.includes('response') ? 'response' : null,
+    tsCol
+  ].filter(Boolean);
+
+  const sql = `SELECT ${selectCols.join(', ')} FROM notifications WHERE (${where.join(' OR ')}) ORDER BY ${tsCol} DESC, id DESC LIMIT $${paramIdx}`;
+  try {
+    return await queryAll(sql, [...params, Number(limit)]);
+  } catch (_) {
+    return [];
+  }
+}
+
+function normalizeDoctorNotification(row) {
+  const id = row && row.id != null ? String(row.id) : '';
+  const orderId = row && row.order_id != null ? String(row.order_id) : '';
+  const template = row && row.template != null ? String(row.template) : '';
+  const rawStatus = row && row.status != null ? String(row.status) : '';
+  const isReadVal = row && row.is_read != null ? Number(row.is_read) : null;
+
+  // Display status: prefer is_read when available; otherwise normalize legacy status.
+  const status = (isReadVal === 1)
+    ? 'seen'
+    : (String(rawStatus || '').toLowerCase() === 'read')
+      ? 'seen'
+      : (rawStatus && rawStatus.trim())
+        ? rawStatus
+        : 'queued';
+  const response = row && row.response != null ? String(row.response) : '';
+  const at = row && (row.at || row.created_at || row.timestamp) ? String(row.at || row.created_at || row.timestamp) : '';
+
+  // Best-effort message: prefer response, then template, otherwise a safe default.
+  const message = (response && response.trim())
+    ? response
+    : (template && template.trim())
+      ? template
+      : 'Notification';
+
+  const titles = getDoctorNotificationTitles(template);
+
+  return {
+    id,
+    orderId,
+    order_id: orderId,
+    status,
+    at,
+    message,
+    template,
+    title_en: titles.title_en,
+    title_ar: titles.title_ar,
+    href: orderId ? `/portal/doctor/case/${orderId}` : ''
+  };
+}
+
+function getDoctorNotificationTitles(template) {
+  return getNotificationTitles(template);
+}
+
+async function markDoctorNotificationRead(userId, userEmail, notificationId) {
+  const cols = await getNotificationTableColumns();
+  const hasUserId = cols.includes('user_id');
+  const hasToUserId = cols.includes('to_user_id');
+  if (!hasUserId && !hasToUserId) return { ok: false, reason: 'no_user_column' };
+
+  const where = [];
+  const params = [];
+  let paramIdx = 1;
+  // First param is always the notification id
+  params.push(String(notificationId));
+  const idParam = `$${paramIdx++}`;
+  if (hasUserId) {
+    where.push(`user_id = $${paramIdx++}`);
+    params.push(String(userId));
+  }
+  if (hasToUserId) {
+    where.push(`to_user_id = $${paramIdx++}`);
+    params.push(String(userId));
+    const email = String(userEmail || '').trim();
+    if (email) {
+      where.push(`to_user_id = $${paramIdx++}`);
+      params.push(email);
+    }
+  }
+  const ownerClause = `(${where.join(' OR ')})`;
+
+  // New schema
+  if (cols.includes('is_read')) {
+    try {
+      const r = await execute(
+        `UPDATE notifications SET is_read = true${cols.includes('status') ? ", status = 'seen'" : ''} WHERE id = ${idParam} AND ${ownerClause}`,
+        params
+      );
+      return { ok: !!(r && r.rowCount), mode: 'is_read' };
+    } catch (_) {
+      return { ok: false, reason: 'update_failed' };
+    }
+  }
+
+  // Legacy schema: flip status to 'read'
+  if (cols.includes('status')) {
+    try {
+      const r = await execute(
+        `UPDATE notifications SET status = 'seen' WHERE id = ${idParam} AND ${ownerClause}`,
+        params
+      );
+      return { ok: !!(r && r.rowCount), mode: 'status' };
+    } catch (_) {
+      return { ok: false, reason: 'update_failed' };
+    }
+  }
+
+  return { ok: false, reason: 'no_read_mechanism' };
+}
+
+async function markAllDoctorNotificationsRead(userId, userEmail = '') {
+  const cols = await getNotificationTableColumns();
+  const hasUserId = cols.includes('user_id');
+  const hasToUserId = cols.includes('to_user_id');
+  if (!hasUserId && !hasToUserId) return { ok: false, reason: 'no_user_column' };
+
+  const where = [];
+  const params = [];
+  let paramIdx = 1;
+  if (hasUserId) {
+    where.push(`user_id = $${paramIdx++}`);
+    params.push(String(userId));
+  }
+  if (hasToUserId) {
+    where.push(`to_user_id = $${paramIdx++}`);
+    params.push(String(userId));
+    const email = String(userEmail || '').trim();
+    if (email) {
+      where.push(`to_user_id = $${paramIdx++}`);
+      params.push(email);
+    }
+  }
+  const ownerClause = `(${where.join(' OR ')})`;
+
+  // New schema
+  if (cols.includes('is_read')) {
+    try {
+      const r = await execute(
+        `UPDATE notifications SET is_read = true${cols.includes('status') ? ", status = 'seen'" : ''} WHERE ${ownerClause} AND COALESCE(is_read, false) = false`,
+        params
+      );
+      return { ok: true, mode: 'is_read', changes: (r && r.rowCount) ? r.rowCount : 0 };
+    } catch (_) {
+      return { ok: false, reason: 'update_failed' };
+    }
+  }
+
+  // Legacy schema
+  if (cols.includes('status')) {
+    try {
+      const r = await execute(
+        `UPDATE notifications SET status = 'seen' WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`,
+        params
+      );
+      return { ok: true, mode: 'status', changes: (r && r.rowCount) ? r.rowCount : 0 };
+    } catch (_) {
+      return { ok: false, reason: 'update_failed' };
+    }
+  }
+
+  return { ok: false, reason: 'no_read_mechanism' };
+}
+
+// Count unseen notifications for a doctor. Mirrors the middleware at line ~673
+// but is callable from any route (the middleware only fires on /portal/doctor
+// and /doctor prefixes; the bell-dropdown JSON endpoint sits under /api/...).
+async function countDoctorUnseenNotifications(userId, userEmail = '') {
+  if (!userId) return 0;
+  try {
+    const cols = await getNotificationTableColumns();
+    const hasUserId = cols.includes('user_id');
+    const hasToUserId = cols.includes('to_user_id');
+    if (!hasUserId && !hasToUserId) return 0;
+
+    const where = [];
+    const params = [];
+    let paramIdx = 1;
+    if (hasUserId) {
+      where.push(`user_id = $${paramIdx++}`);
+      params.push(String(userId));
+    }
+    if (hasToUserId) {
+      where.push(`to_user_id = $${paramIdx++}`);
+      params.push(String(userId));
+      const email = String(userEmail || '').trim();
+      if (email) {
+        where.push(`to_user_id = $${paramIdx++}`);
+        params.push(email);
+      }
+    }
+
+    if (cols.includes('is_read')) {
+      const row = await queryOne(
+        `SELECT COUNT(*) as c FROM notifications WHERE (${where.join(' OR ')}) AND COALESCE(is_read, false) = false`,
+        params
+      );
+      return row ? Number(row.c) : 0;
+    }
+    if (cols.includes('status')) {
+      const row = await queryOne(
+        `SELECT COUNT(*) as c FROM notifications WHERE (${where.join(' OR ')}) AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`,
+        params
+      );
+      return row ? Number(row.c) : 0;
+    }
+    return 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+// Map a template name to the dropdown's three severity buckets:
+//   urgent  — SLA breaches, rejections, deletions, cancellations, delays
+//   success — case acceptance, payment confirmations, deliverables ready
+//   info    — assignments, reminders, file requests, messages (default)
+function deriveAlertSeverity(template) {
+  const t = String(template || '').toLowerCase();
+  if (/breached|rejected|cancelled|auto_deleted|delayed/.test(t)) return 'urgent';
+  if (/accepted|payment_success|payment_marked_paid|report_ready|prescription_uploaded|doctor_approved/.test(t)) return 'success';
+  return 'info';
+}
+
+// Alerts inbox
+router.get('/portal/doctor/alerts', requireDoctor, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const userId = req.user && req.user.id ? String(req.user.id) : '';
+  const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
+
+  const raw = await fetchDoctorNotifications(userId, userEmail, 50);
+  const alerts = (raw || []).map(normalizeDoctorNotification);
+
+  // Mark as seen AFTER fetching for display.
+  try {
+    if (userId) {
+      await markAllDoctorNotificationsRead(userId, userEmail);
+      res.locals.doctorAlertCount = 0;
+      res.locals.alertsUnseenCount = 0;
+      res.locals.unseenAlertsCount = 0;
+      res.locals.hasUnseenAlerts = false;
+      alerts.forEach((a) => {
+        if (a && a.status && String(a.status).toLowerCase() !== 'seen') a.status = 'seen';
+      });
+    }
+  } catch (_) {
+    // non-blocking
+  }
+
+  const payload = {
+    brand: 'Tashkheesa',
+    user: req.user,
+    lang,
+    isAr,
+    activeTab: 'alerts',
+    nextPath: '/portal/doctor/alerts',
+    alerts: Array.isArray(alerts) ? alerts : [],
+    notifications: Array.isArray(alerts) ? alerts : [],
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'alerts',
+    title: isAr ? 'التنبيهات' : 'Alerts'
+  };
+
+  // Try common template names; fall back to a simple HTML page if none exist.
+  const candidates = ['portal_doctor_alerts', 'portal_doctor_alert', 'doctor_alerts', 'doctor_alert'];
+  for (const viewName of candidates) {
+    try {
+      assertRenderableView(viewName);
+      payload.cspNonce = req.cspNonce || (res.locals && res.locals.cspNonce) || '';
+      return res.render(viewName, payload);
+    } catch (_) {
+      // keep trying
+    }
+  }
+
+  const title = isAr ? 'التنبيهات' : 'Alerts';
+  const empty = isAr ? 'لا توجد تنبيهات حالياً.' : 'No alerts yet.';
+  const rows = alerts.length
+    ? alerts
+        .map((a) => {
+          const when = a.at ? ` — ${formatDisplayDate(a.at)}` : '';
+          const link = a.href ? `<a href="${a.href}">${isAr ? 'فتح الحالة' : 'Open case'}</a>` : '';
+          return `<li style="margin:8px 0;">${escapeHtml(a.message)}${when} ${link}</li>`;
+        })
+        .join('')
+    : `<li>${empty}</li>`;
+
+  return res.status(200).send(`<!doctype html>
+  <html lang="${isAr ? 'ar' : 'en'}">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>${title} — Tashkheesa</title>
+      <link rel="stylesheet" href="/styles.css" />
+    </head>
+    <body>
+      <div class="container" style="max-width: 900px; margin: 32px auto;">
+        <h1 style="margin-bottom: 16px;">${title}</h1>
+        <div class="card" style="padding: 16px;">
+          <ul style="margin:0; padding-left: 18px;">${rows}</ul>
+          <div style="margin-top:16px;"><a href="/portal/doctor">${isAr ? 'العودة للوحة الطبيب' : 'Back to Doctor Dashboard'}</a></div>
+        </div>
+      </div>
+    </body>
+  </html>`);
+});
+
+// P1-DOC-5: Welcome-modal dismiss. Sets users.first_login_at = NOW() if
+// it's currently NULL. Idempotent — safe to call multiple times. The
+// dashboard handler also fire-and-forgets the same UPDATE on first
+// page-load, so a network failure here isn't catastrophic: the user just
+// won't see the overlay on their next page load either way.
+router.post('/portal/doctor/onboarding/dismiss', requireDoctor, async (req, res) => {
+  const userId = req.user && req.user.id ? String(req.user.id) : '';
+  if (!userId) return res.status(400).json({ ok: false, reason: 'missing_user' });
+  try {
+    await execute(
+      'UPDATE users SET first_login_at = NOW() WHERE id = $1 AND first_login_at IS NULL',
+      [userId]
+    );
+    return res.status(204).end();
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.onboarding_dismiss',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
+    console.warn('[doctor.onboarding.dismiss] update failed:', e && e.message);
+    // Best-effort; don't block the user. View will not re-show overlay
+    // because the handler's own UPDATE already fired.
+    return res.status(204).end();
+  }
+});
+
+// Mark a notification as read (optional endpoint; UI can call it later)
+router.post('/portal/doctor/alerts/:id/read', requireDoctor, async (req, res) => {
+  const userId = req.user && req.user.id ? String(req.user.id) : '';
+  const id = req.params && req.params.id ? String(req.params.id) : '';
+  if (!id) return res.status(400).json({ ok: false, reason: 'missing_id' });
+  const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
+  const r = await markDoctorNotificationRead(userId, userEmail, id);
+  return res.status(r.ok ? 200 : 400).json(r);
+});
+
+// JSON feed for the topbar bell dropdown. Returns the 8 most-recent alerts
+// + an authoritative unseen count. Read-only — does NOT mark anything read
+// (the standalone /portal/doctor/alerts page handles mark-on-view; the
+// dropdown opens without consuming unseen state).
+router.get('/api/doctor/alerts/recent', requireDoctor, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const userId = req.user && req.user.id ? String(req.user.id) : '';
+  const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
+
+  let alerts = [];
+  let unseenCount = 0;
+  try {
+    const raw = await fetchDoctorNotifications(userId, userEmail, 8);
+    const normalized = (raw || []).map(normalizeDoctorNotification);
+    alerts = normalized.map((n) => {
+      const title = isAr
+        ? (n.title_ar || n.title_en || 'إشعار')
+        : (n.title_en || n.title_ar || 'Notification');
+      const summary = String(n.message || '');
+      const status = String(n.status || '').toLowerCase() === 'seen' ? 'seen' : 'unseen';
+      return {
+        id: n.id || '',
+        // `kind` is the raw template name (e.g. "sla_reminder_6h"). Exposed so
+        // the dropdown JS can do client-side friendly-title mapping; the
+        // server-side `title` field above falls back to humanizeTemplate when
+        // the registry doesn't know the template, which produces strings like
+        // "Sla Reminder 6h" — the client overrides those with a richer map.
+        kind: String(n.template || ''),
+        title,
+        summary,
+        at: n.at || '',
+        status,
+        severity: deriveAlertSeverity(n.template),
+        href: n.href ? String(n.href) : null
+      };
+    });
+    unseenCount = await countDoctorUnseenNotifications(userId, userEmail);
+  } catch (_) {
+    alerts = [];
+    unseenCount = 0;
+  }
+
+  return res.status(200).json({ alerts, unseenCount });
+});
+
+// Bulk mark-as-read for the bell dropdown's "Mark all as read" button.
+// CSRF is enforced globally by setupCsrf() in src/middleware/csrf.js — non-
+// safe methods reject when the x-csrf-token header (or _csrf body field)
+// doesn't match the csrf_token cookie. No per-route CSRF code needed.
+router.post('/api/doctor/alerts/mark-all-read', requireDoctor, async (req, res) => {
+  const userId = req.user && req.user.id ? String(req.user.id) : '';
+  const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
+  if (!userId) {
+    return res.status(401).json({ ok: false, error: 'unauthenticated' });
+  }
+  try {
+    const r = await markAllDoctorNotificationsRead(userId, userEmail);
+    if (r && r.ok) {
+      return res.status(200).json({ ok: true, unseenCount: 0 });
+    }
+    return res.status(500).json({ ok: false, error: (r && r.reason) || 'mark_failed' });
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'doctor.alerts_mark_all_read',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
+    return res.status(500).json({ ok: false, error: 'mark_failed' });
+  }
+});
+
+function escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// ---- end doctor alerts ----
+
+// ---- Portal doctor case view ----
+router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const orderId = String(req.params.caseId || '');
+  const msg = (req.query && req.query.msg) ? String(req.query.msg) : '';
+  const capacityMessage = msg === 'capacity'
+    ? (isAr
+        ? 'لقد وصلت للحد الأقصى للحالات النشطة (4). أكمل حالاتك أولاً ثم حاول مرة أخرى.'
+        : 'Active case limit reached (4). Complete cases first, then try accepting again.')
+    : null;
+  // Guardrail: never render or redirect with an undefined case id.
+  if (!orderId) return res.redirect('/portal/doctor/dashboard');
+
+  // The case header renders specialty, patient name/age/sex and report
+  // language. `SELECT *` off orders_active carries NONE of those: specialty
+  // name lives in `specialties`, and name / date_of_birth / gender live on the
+  // patient's `users` row. Without these joins portal_doctor_case.ejs read six
+  // undefined locals and silently dropped every one of those header fields.
+  // Same join shape the dashboard queue already uses (see the dashboard handler
+  // and buildPortalCasesPaged) plus the patient join from the intelligence
+  // handler below.
+  const rawOrder = await queryOne(
+    `SELECT o.*,
+            s.name    AS specialty_name,
+            s.name_ar AS specialty_name_ar,
+            sv.name   AS service_name,
+            pu.name   AS patient_name,
+            pu.date_of_birth AS patient_date_of_birth,
+            pu.gender AS patient_gender,
+            o.language AS report_language
+     FROM orders_active o
+     LEFT JOIN specialties s ON o.specialty_id = s.id
+     LEFT JOIN services sv ON o.service_id = sv.id
+     LEFT JOIN users pu ON pu.id = o.patient_id
+     WHERE o.id = $1`,
+    [orderId]
+  );
+  // Fetch order files for doctor view
+  let files = [];
+  try {
+    const urlCol = await getOrderFilesUrlColumnName();
+    // AUDIT-2026-08-22 (L6): COALESCE over every label-bearing column instead
+    // of the first one that exists — see getOrderFilesLabelExpression.
+    const labelCol = await getOrderFilesLabelExpression();
+    const atCol = await getOrderFilesCreatedAtColumnName();
+
+    if (urlCol) {
+      const rows = await queryAll(
+        `SELECT id, ${urlCol} AS url, ${labelCol || urlCol} AS name
+         FROM order_files
+         WHERE order_id = $1
+         ORDER BY ${atCol || 'id'} ASC`,
+        [orderId]
+      );
+
+      // Phase 2.5: order_files.url (= ${urlCol}) is an R2 storage key after
+      // Phase 2; expose /files/:id so the server signs it on demand.
+      files = (rows || []).map(r => ({
+        id: r.id,
+        url: '/files/' + r.id,
+        name: r.name || 'Uploaded file'
+      }));
+    }
+  } catch (e) {
+    files = [];
+  }
+
+  // Files the patient uploads AFTER submitting (the doctor's "request more
+  // files" flow) land in order_additional_files, never order_files. Listing
+  // only order_files meant the doctor asked for extra imaging, the patient
+  // uploaded it, and the doctor could not see a single one of the new files.
+  // /files/:id already authorises this table for the assigned doctor
+  // (server.js unified file reader, source 3), so emitting the ids is enough.
+  try {
+    const addlUrlCol = await getAdditionalFilesUrlColumnName();
+    const addlLabelCol = await getAdditionalFilesLabelColumnName();
+    const addlAtCol = await getAdditionalFilesUploadedAtColumnName();
+
+    // A row may carry file_key (R2) instead of file_url, so do NOT filter on
+    // the url column being non-null — /files/:id resolves either one.
+    const addlRows = await queryAll(
+      `SELECT id, ${addlLabelCol || addlUrlCol || 'id'} AS name
+       FROM order_additional_files
+       WHERE order_id = $1
+       ORDER BY ${addlAtCol || 'id'} ASC`,
+      [orderId]
+    );
+
+    files = files.concat((addlRows || []).map(r => ({
+      id: r.id,
+      url: '/files/' + r.id,
+      name: r.name || 'Additional file',
+      source: 'additional'
+    })));
+  } catch (e) {
+    // Never let the extra listing take down a case the doctor can otherwise work.
+  }
+  // Access/visibility guard
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  const assignedDoctorId = rawOrder && rawOrder.doctor_id ? String(rawOrder.doctor_id) : '';
+  const normalizedStatus = String(rawOrder && rawOrder.status || '').toLowerCase();
+  const paymentStatus = String(rawOrder && rawOrder.payment_status || '').toLowerCase();
+  const isPaid = paymentStatus === 'paid' || paymentStatus === 'captured';
+  const isCompleted = normalizedStatus === 'completed';
+  const isUnaccepted = UNACCEPTED_STATUSES.includes(normalizedStatus);
+  const isAcceptedStatus = ACCEPTED_STATUSES.includes(normalizedStatus);
+  // Guardrail: only the accepting doctor can view full details.
+  const isAcceptedByThisDoctor = (isAcceptedStatus || isCompleted) && assignedDoctorId && assignedDoctorId === doctorId;
+  const isAssignedToOtherDoctor = assignedDoctorId && assignedDoctorId !== doctorId;
+
+  // Defensive: always strip pricing fields
+  const order = stripPricingFields(rawOrder);
+  if (!order) {
+    return res.status(404).render('404', {
+      message: 'Case not found'
+    });
+  }
+
+  // If assigned to another doctor, deny access
+  if (isAssignedToOtherDoctor) {
+    try {
+      assertRenderableView('portal_doctor_case');
+      const streakCount = await computeDoctorStreakCount(doctorId);
+      return res.status(403).render('portal_doctor_case', {
+        portalFrame: true,
+        portalRole: 'doctor',
+        portalActive: 'queue',
+        brand: 'Tashkheesa',
+        title: isAr ? 'تفاصيل الحالة' : 'Case Detail',
+        user: req.user,
+        lang,
+        isAr,
+        order: null,
+        blurred: false,
+        canViewDetails: false,
+        accessDenied: true,
+        reason: 'assigned_to_other_doctor',
+        activeTab: 'cases',
+        nextPath: `/portal/doctor/case/${orderId}`,
+        acceptActionUrl: `/portal/doctor/case/${orderId}/accept`,
+        streakCount
+      });
+    } catch (_) {
+      return res.status(403).send(`
+        <!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>Access Denied</title>
+            <link rel="stylesheet" href="/styles.css" />
+          </head>
+          <body>
+            <div class="container" style="max-width:900px;margin:32px auto;">
+              <h1>Access Denied</h1>
+              <p>This case is assigned to another doctor.</p>
+              <p><a href="/portal/doctor">Back to dashboard</a></p>
+            </div>
+          </body>
+        </html>
+      `);
+    }
+  }
+
+  // Accept eligibility logic
+const canAccept =
+  isPaid &&
+  isUnaccepted &&
+  (!assignedDoctorId || assignedDoctorId === doctorId);
+  const acceptBlockedReason = !isPaid
+    ? 'This case has not been paid for yet. Acceptance will be enabled once payment is completed.'
+    : null;
+
+  const queryReportUrl = (req.query && req.query.reportUrl) ? String(req.query.reportUrl) : '';
+  const reportUrl = queryReportUrl || (await readReportUrlFromOrder(order));
+  const reportAvailable = isReportUrlAvailable(reportUrl);
+  const reportMissingMessage =
+    isCompleted && !reportAvailable
+      ? (isAr ? 'التقرير غير متوفر بعد.' : 'Report not available yet.')
+      : null;
+
+  // AUDIT-2026-08-22 (L2/L4/L5/P2): the report-submit and save-notes handlers
+  // bounce back here with ?error=<code> instead of a bare 500 or a silent
+  // no-op, so the doctor is told what happened and whether their text is safe.
+  // Codes only — never a message from the query string.
+  const REPORT_SUBMIT_ERRORS = {
+    report_empty: {
+      // AUDIT-2026-08-22: the submit handler now saves the typed text as a
+      // draft BEFORE this check, so "kept as a draft" is a statement of fact —
+      // the boxes below are repopulated from what was just saved.
+      en: 'Findings and Impression are required before a report can be submitted. Your text has been kept as a draft and nothing was sent to the patient.',
+      ar: 'النتائج والانطباع مطلوبان قبل إرسال التقرير. تم حفظ نصّك كمسودة ولم يُرسل شيء للمريض.'
+    },
+    report_pdf_failed: {
+      en: 'Your report was saved, but the PDF could not be produced. Nothing was sent to the patient — please press Submit report again.',
+      ar: 'تم حفظ تقريرك، لكن تعذّر إنشاء ملف PDF. لم يُرسل شيء للمريض — يرجى الضغط على إرسال التقرير مرة أخرى.'
+    },
+    // AUDIT-2026-08-22: "Your text is still in the editor" was false on BOTH
+    // of this code's call sites, because both answered 302 and the editor is
+    // repopulated from the DB. On the persist-failure site nothing reached the
+    // DB at all, so the doctor was told their work was safe at the one moment
+    // it was not. Split into two codes that each say what actually happened.
+    report_save_failed: {
+      en: 'We could not save this report right now, so nothing was written and the case has been left open. Please re-enter your findings and try again in a moment.',
+      ar: 'تعذّر حفظ التقرير الآن، فلم يُكتب أي شيء وبقيت الحالة مفتوحة. يرجى إعادة إدخال النتائج والمحاولة بعد قليل.'
+    },
+    report_complete_failed: {
+      en: 'Your report is saved but the case could not be closed, so nothing was sent to the patient. Press Submit report again to finish.',
+      ar: 'تم حفظ تقريرك لكن تعذّر إغلاق الحالة، فلم يُرسل شيء للمريض. اضغط إرسال التقرير مرة أخرى لإتمام العملية.'
+    },
+    case_completed: {
+      en: 'This case has already been delivered to the patient, so its report can no longer be edited.',
+      ar: 'تم تسليم هذه الحالة للمريض بالفعل، لذا لم يعد بالإمكان تعديل تقريرها.'
+    }
+  };
+  const submitErrorEntry = REPORT_SUBMIT_ERRORS[String((req.query && req.query.error) || '')];
+  const submitErrorMessage = submitErrorEntry ? (isAr ? submitErrorEntry.ar : submitErrorEntry.en) : null;
+
+  const viewStatus = isUnaccepted ? normalizedStatus : 'in_review';
+  const viewReportUrl = reportAvailable ? reportUrl : null;
+
+  // The case LIST gets its countdown from enrichOrders(); this handler never
+  // called computeSla, so `_order.sla` was always undefined and the countdown
+  // block on the case page never rendered at all.
+  //
+  // Only surface a countdown when there is a real window to count down to.
+  // computeSla returns minutesRemaining: null for an order with no deadline_at,
+  // and the template's Number() coercion would render that as "0h 0m remaining"
+  // — a false "you are out of time" on a case that has not started its clock.
+  let caseSla = null;
+  try {
+    const slaPausedAt = order && order.sla_paused_at;
+    const slaRemainingSeconds = Number(order && order.sla_remaining_seconds);
+
+    if (slaPausedAt && Number.isFinite(slaRemainingSeconds)) {
+      // case_lifecycle.pauseSla stores the frozen remainder but deliberately
+      // leaves deadline_at untouched, so computeSla would keep counting down a
+      // clock that is not running — telling the doctor they are running out of
+      // time on a case that is sitting waiting for the patient to upload.
+      // Render the frozen remainder and say so.
+      caseSla = {
+        isBreached: false,
+        isAccepted: true,
+        isNew: false,
+        isPaused: true,
+        minutesRemaining: Math.max(0, Math.floor(slaRemainingSeconds / 60)),
+        minutesOverdue: NaN
+      };
+    } else {
+      const computedCaseSla = computeSla(order || {});
+      const rawSla = (computedCaseSla && computedCaseSla.sla) ? computedCaseSla.sla : null;
+      if (rawSla && (rawSla.isBreached || rawSla.minutesRemaining != null)) {
+        caseSla = normalizeSla(order, rawSla);
+      }
+    }
+
+    // computeSla does not carry the window size; without it the template falls
+    // back to (remaining + 30) and the progress bar is meaningless.
+    if (caseSla) {
+      const slaHours = Number(order && order.sla_hours);
+      if (Number.isFinite(slaHours) && slaHours > 0) caseSla.totalMinutes = slaHours * 60;
+    }
+  } catch (_) {
+    caseSla = null;
+  }
+
+  // Header fields the template reads but the row does not carry verbatim.
+  const createdAtHuman = formatDisplayDate(order && order.created_at) || '';
+  const acceptedAtHuman = formatDisplayDate(order && order.accepted_at) || '';
+  const patientAge = computeAgeFromDob(order && order.patient_date_of_birth);
+  const reportDraft = buildReportDraftFields(order);
+
+  // AUDIT-2026-08-23 (C1) — the pre-accept screen quoted an SLA that does not
+  // exist.
+  //
+  // The template hardcoded a "Fast-track · 24h" chip and a "24-hour
+  // turnaround" line in the "Accepting this case commits you to" list, because
+  // the minimal pre-accept `order` below carried neither urgency_tier nor
+  // sla_hours and there was nothing real to render. No order in the database
+  // has ever had a 24-hour SLA (they are 4 / 18 / 48 / 72), so the doctor was
+  // consenting to a deadline that was wrong on every single case and then
+  // shown a different one the moment they accepted. Tier and window are
+  // clinical scheduling facts, not patient identity, so they belong in the
+  // pre-accept payload.
+  const slaHoursRaw = Number(order && order.sla_hours);
+  const slaHoursForView = Number.isFinite(slaHoursRaw) && slaHoursRaw > 0 ? slaHoursRaw : null;
+
+  // IMPORTANT: When a case is unaccepted we still pass a minimal `order` object
+  // so the template can read `order.payment_status` without leaking case details.
+  //
+  // AUDIT-2026-08-23 (C2) — a doctor could not tell what the case WAS before
+  // committing to it. The minimal object below carried an id, a status and a
+  // payment status and nothing else, so the preview screen said "a patient is
+  // waiting for your specialist review" and left the doctor to accept a
+  // 48-hour clinical commitment blind. The fields added here are the ones a
+  // worklist has always shown at triage — service, specialty, tier, window,
+  // patient age and sex, report language, submission time and the clinical
+  // question. None of them identify the patient: name, contact details and the
+  // files themselves stay locked until accept.
+  const viewOrder = isUnaccepted
+    ? {
+        id: orderId,
+        status: viewStatus,
+        payment_status: paymentStatus || null,
+        specialty_name: (order && order.specialty_name) || null,
+        specialty_name_ar: (order && order.specialty_name_ar) || null,
+        service_name: (order && order.service_name) || null,
+        urgency_tier: (order && order.urgency_tier) || null,
+        sla_hours: slaHoursForView,
+        patient_age: patientAge,
+        patient_gender: (order && order.patient_gender) || null,
+        report_language: (order && (order.report_language || order.language)) || null,
+        created_at_human: createdAtHuman
+        // NOT doctor_fee. `order` here is the output of stripPricingFields(),
+        // which deletes doctor_fee outright, so passing it would be dead.
+        //
+        // AUDIT-2026-08-23 (C5, unresolved) — that strip means the fee has
+        // NEVER rendered on this page in either state: portal_doctor_case.ejs
+        // reads _order.doctor_fee for both the "Fee breakdown" card and the
+        // fee line in the accept commitments, and both have silently been
+        // false since the strip was introduced. A specialist is therefore
+        // asked to commit to a deadline without being told what the case
+        // pays. Deliberately NOT patched here: reconstructing the figure
+        // means going through computeDoctorEarnings with base fee, urgency
+        // uplift and uplift share, and a wrong number on a compensation
+        // screen is worse than no number. Raised for a decision instead.
+      }
+    : {
+        ...order,
+        status: viewStatus,
+        report_url: viewReportUrl || null,
+        reportUrl: viewReportUrl || null,
+        sla: caseSla,
+        sla_hours: slaHoursForView,
+        created_at_human: createdAtHuman,
+        accepted_at_human: acceptedAtHuman,
+        patient_age: patientAge,
+        // orders.language IS the report language; aliased in the SELECT above
+        // but keep the fallback so a schema without the alias still renders.
+        report_language: (order && (order.report_language || order.language)) || null,
+        report_findings: reportDraft.findings,
+        report_impression: reportDraft.impression,
+        report_recommendations: reportDraft.recommendations
+      };
+
+  let viewQuery = null;
+  if (isCompleted) {
+    viewQuery = { ...(req.query || {}) };
+    if (!viewQuery.report) viewQuery.report = 'locked';
+    if (!reportAvailable && viewQuery.reportUrl) delete viewQuery.reportUrl;
+  }
+
+  // Load annotations for this case's files
+  let annotatedFiles = [];
+  try {
+    annotatedFiles = await queryAll(`
+      SELECT ca.id, ca.image_id AS imageId, ca.doctor_id AS doctorId,
+             ca.annotations_count AS annotationsCount,
+             ca.created_at AS createdAt, ca.updated_at AS updatedAt,
+             u.name AS doctorName
+      FROM case_annotations ca
+      LEFT JOIN users u ON u.id = ca.doctor_id
+      WHERE ca.case_id = $1
+      ORDER BY ca.updated_at DESC
+    `, [orderId]);
+  } catch (_annErr) {
+    annotatedFiles = [];
+  }
+
+  // Lookup conversation for "Message Patient" button
+  var caseConversationId = null;
+  try {
+    var convo = await queryOne(
+      'SELECT id FROM conversations WHERE order_id = $1 AND doctor_id = $2 LIMIT 1',
+      [orderId, doctorId]
+    );
+    if (convo) caseConversationId = convo.id;
+  } catch (_) {}
+
+  // Load AI image quality checks for this case
+  var fileAiChecks = {};
+  try {
+    var checks = await queryAll(
+      'SELECT file_id, is_medical_image, image_quality, quality_issues, detected_scan_type, matches_expected, confidence, recommendation FROM file_ai_checks WHERE order_id = $1',
+      [orderId]
+    );
+    (checks || []).forEach(function(c) {
+      if (c.file_id) fileAiChecks[c.file_id] = c;
+    });
+  } catch (_) {}
+
+  // Load pending video appointment for this case (for doctor accept/propose UI)
+  // Also catches appointments where doctor_id is still null (pre-backfill)
+  var pendingVideoAppt = null;
+  try {
+    pendingVideoAppt = await queryOne(
+      `SELECT id, status, scheduled_at, doctor_proposed_time, slot_notes
+       FROM appointments
+       WHERE order_id = $1
+         AND (doctor_id = $2 OR doctor_id IS NULL OR doctor_id = '')
+         AND status IN ('pending_doctor','reschedule_proposed','confirmed')
+       ORDER BY created_at DESC LIMIT 1`,
+      [orderId, doctorId]
+    );
+  } catch (_) {}
+
+  // AUDIT-2026-08-23 (C3) — "Why you got this case" was fabricated.
+  //
+  // The card hardcoded the strings "Trusted reviewer" and "Your SLA compliance
+  // and patient ratings made you a top match." for EVERY doctor, with no query
+  // behind either one, and fell back to the literal "Your primary specialty"
+  // for the specialty line. A doctor onboarded the same day — zero completed
+  // cases, no SLA history, no rating — was told the platform had assessed a
+  // track record it does not have. Telling a clinician a fact about themselves
+  // that the database cannot support is not a design flourish, it is a lie in
+  // the consent step of a medical workflow.
+  //
+  // These are the facts that ARE knowable, and they are the ones that actually
+  // answer the question: the doctor is listed for this exact service, the case
+  // is in a specialty they cover, and here is when it reached them and by when
+  // they must answer.
+  let routingFacts = null;
+  try {
+    const assignment = await queryOne(
+      `SELECT assigned_at, accept_by_at, reassigned_from_doctor_id
+         FROM doctor_assignments
+        WHERE case_id = $1 AND doctor_id = $2
+        ORDER BY assigned_at DESC NULLS LAST
+        LIMIT 1`,
+      [orderId, doctorId]
+    );
+    let listedForService = false;
+    if (order && order.service_id) {
+      const listed = await queryOne(
+        `SELECT 1 AS ok FROM doctor_services WHERE doctor_id = $1 AND service_id = $2 LIMIT 1`,
+        [doctorId, order.service_id]
+      );
+      listedForService = !!listed;
+    }
+    routingFacts = {
+      serviceName: (order && order.service_name) || null,
+      specialtyName: (order && order.specialty_name) || null,
+      specialtyNameAr: (order && order.specialty_name_ar) || null,
+      listedForService,
+      assignedAtHuman: assignment && assignment.assigned_at ? formatDisplayDate(assignment.assigned_at) : null,
+      respondByHuman: assignment && assignment.accept_by_at ? formatDisplayDate(assignment.accept_by_at) : null,
+      isReassignment: !!(assignment && assignment.reassigned_from_doctor_id)
+    };
+  } catch (_) {
+    routingFacts = null;
+  }
+
+  // AUDIT-2026-08-23 (C4) — the prescription CTA ignored the add-on it sells.
+  //
+  // `prescription` is a paid add-on (addon_services: EGP 400, doctor
+  // commission 50%) with a full purchase → fulfil → earnings lifecycle in
+  // src/services/addons/prescription.js. The case page rendered an
+  // unconditional "Write prescription" card AND a second shortcut in the
+  // header on every accepted case, both pointing at /prescribe — a route
+  // that writes the `prescriptions` table and never touches `order_addons`.
+  // So a patient who never bought it received a EGP 400 service free, and a
+  // patient who DID buy it had it delivered while the add-on stayed unpaid,
+  // which routes to onRefund at completion: patient refunded, doctor paid
+  // nothing, prescription delivered anyway.
+  //
+  // The CTA is now driven by the add-on's real state, and a doctor who thinks
+  // one is clinically indicated raises a request instead of writing it.
+  let prescriptionAddon = null;
+  try {
+    const rx = await queryOne(
+      `SELECT status, metadata_json, price_at_purchase_egp, price_at_purchase_currency,
+              price_at_purchase_amount
+         FROM order_addons
+        WHERE order_id = $1 AND addon_service_id = 'prescription'
+        LIMIT 1`,
+      [orderId]
+    );
+    const existingRx = await queryOne(
+      `SELECT id FROM prescriptions WHERE order_id = $1 AND doctor_id = $2 LIMIT 1`,
+      [orderId, doctorId]
+    );
+    const st = String((rx && rx.status) || '').toLowerCase();
+    prescriptionAddon = {
+      exists: !!rx,
+      status: st || null,
+      // 'pending' is the doctor-requested / awaiting-payment state.
+      isRequested: st === 'pending',
+      isPaid: st === 'paid',
+      isFulfilled: st === 'fulfilled',
+      isTerminal: st === 'cancelled' || st === 'refunded',
+      canWrite: st === 'paid' || st === 'fulfilled',
+      hasPrescription: !!existingRx,
+      prescriptionId: existingRx ? existingRx.id : null,
+      priceEgp: rx && rx.price_at_purchase_egp != null ? Number(rx.price_at_purchase_egp) : null
+    };
+  } catch (_) {
+    // Never let the add-on probe take down a case the doctor can work.
+    prescriptionAddon = { exists: false, status: null, isRequested: false, isPaid: false,
+                          isFulfilled: false, isTerminal: false, canWrite: false,
+                          hasPrescription: false, prescriptionId: null, priceEgp: null };
+  }
+
   const payload = {
     portalFrame: true,
     portalRole: 'doctor',
@@ -2258,6 +4089,9 @@ const canAccept =
       medicalHistory: (order && (order.medical_history || order.history)) || '',
       medications: (order && (order.current_medications || order.medications)) || ''
     },
+    routingFacts,
+    prescriptionAddon,
+    prescriptionRequestUrl: `/portal/doctor/case/${orderId}/request-prescription`,
     showAcceptButton: canAccept,
     acceptBlockedReason,
     isPaid,
@@ -2434,6 +4268,145 @@ router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(r
 // ---- end portal doctor case intelligence view ----
 
 // ---- Portal doctor accept case ----
+// POST /portal/doctor/case/:caseId/request-prescription
+//
+// AUDIT-2026-08-23 (C4) — the doctor-initiated half of the prescription
+// add-on pipeline.
+//
+// `prescription` is a paid add-on. Before this route the case page simply
+// handed every doctor a "Write prescription" button, so the EGP 400 product
+// was given away on cases nobody had bought it for. But a doctor genuinely
+// does discover mid-review that a prescription is indicated — the add-on's own
+// patient-facing copy says "delivered with your report if clinically
+// indicated" — and refusing them any outlet would just push that conversation
+// into the chat thread where it earns nothing and is never recorded.
+//
+// So the doctor raises a REQUEST, not a prescription. The sequence is:
+//
+//   1. doctor flags it here      → order_addons row at status 'pending'
+//   2. superadmins are notified  → admin_prescription_requested
+//   3. admin collects payment    → POST /admin/orders/:id/prescription/release
+//   4. add-on flips to 'paid'    → doctor's Write-prescription CTA unlocks
+//   5. doctor writes it          → prescription.onFulfill, status 'fulfilled'
+//   6. case completes            → prescription.onComplete, addon_earnings
+//
+// Step 3 is deliberately a human step. Paymob is not currently accepting the
+// live credentials, so there is no reliable machine path from "patient owes
+// EGP 400" to "patient has paid" — and inventing one that silently marks
+// add-ons paid would be worse than an admin clicking a button.
+//
+// 'pending' is used rather than a new status value because it is already in
+// the order_addons_status_check CHECK constraint, so this needs no migration,
+// and because every downstream consumer already treats not-'paid' as
+// not-payable.
+router.post('/portal/doctor/case/:caseId/request-prescription', requireDoctor, async (req, res) => {
+  const caseId = String(req.params.caseId || '').trim();
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  const back = '/portal/doctor/case/' + encodeURIComponent(caseId);
+  if (!caseId || !doctorId) return res.redirect('/portal/doctor/dashboard');
+
+  try {
+    // Ownership: only the doctor who accepted this case may request an add-on
+    // on it, and only once they have actually accepted. Mirrors the guard on
+    // /api/orders/:orderId/addons/:addonServiceId/fulfill (AUDIT-P0-7).
+    const order = await queryOne(
+      // addons_json and locked_currency are what resolvePrescriptionAccess and
+      // resolvePrescriptionQuote read — omitting them would make the resolver
+      // silently answer "not purchased" for every case.
+      `SELECT id, doctor_id, patient_id, accepted_at, status, addons_json, locked_currency
+         FROM orders_active WHERE id = $1`,
+      [caseId]
+    );
+    if (!order) return res.status(404).redirect('/portal/doctor/cases');
+    if (String(order.doctor_id || '') !== doctorId) return res.status(403).redirect('/portal/doctor/cases');
+    if (!order.accepted_at) return res.redirect(back);
+
+    const reason = String((req.body && req.body.clinical_reason) || '').trim().slice(0, 1000);
+
+    // AUDIT-2026-08-23 (C4, review round 2) — never raise a request for an
+    // add-on the patient has ALREADY bought.
+    //
+    // The purchase lives in orders.addons_json (written unconditionally by the
+    // payment callback), not necessarily in order_addons (written only through
+    // safeDualWrite, which no-ops when ADDON_SYSTEM_V2 is off). Checking only
+    // the latter — the first draft of this route — would let a doctor "request"
+    // something already paid for and an operator collect the money twice.
+    const access = await resolvePrescriptionAccess(order);
+    if (access.canWrite || access.isRequested || access.isTerminal) return res.redirect(back);
+
+    // Price and commission come from the SAME catalogue the checkout reads
+    // (service_regional_prices.addon_prescription), not addon_services — those
+    // are two different numbers, and quoting the wrong one means telling the
+    // patient a price the payment page will not charge and computing the
+    // doctor's commission off a figure nobody paid. Same two-catalogue drift
+    // FIX 8/9 corrected for video_consult.
+    const quote = await resolvePrescriptionQuote(order.locked_currency || 'EGP');
+    if (!quote) return res.redirect(back);
+    const commissionPct = await prescriptionCommissionPct();
+
+    // ON CONFLICT DO NOTHING: a doctor double-clicking must not overwrite an
+    // add-on the patient has already PAID for and drop it back to pending.
+    await execute(
+      `INSERT INTO order_addons (
+         order_id, addon_service_id, status,
+         price_at_purchase_egp, price_at_purchase_currency, price_at_purchase_amount,
+         doctor_commission_pct_at_purchase, metadata_json
+       ) VALUES ($1, 'prescription', 'pending', $2, $5, $2, $3, $4::jsonb)
+       ON CONFLICT (order_id, addon_service_id) DO NOTHING`,
+      [
+        caseId,
+        quote.amount,
+        commissionPct,
+        JSON.stringify({
+          requested_by_doctor: doctorId,
+          requested_at: new Date().toISOString(),
+          clinical_reason: reason || null
+        }),
+        quote.currency
+      ]
+    );
+
+    try {
+      logOrderEvent({
+        orderId: caseId,
+        label: 'Prescription requested by doctor',
+        meta: JSON.stringify({ clinical_reason: reason || null }),
+        actorUserId: doctorId,
+        actorRole: 'doctor'
+      });
+    } catch (_) {}
+
+    try {
+      await notifyAdmins({
+        template: 'admin_prescription_requested',
+        orderId: caseId,
+        dedupeKey: 'rx-request:' + caseId,
+        payload: {
+          case_id: caseId,
+          caseReference: caseId.slice(0, 12).toUpperCase(),
+          doctorName: (req.user && req.user.name) || 'Doctor',
+          clinical_reason: reason || null,
+          priceEgp: quote.amount,
+          priceCurrency: quote.currency
+        }
+      });
+    } catch (e) {
+      // The request is already recorded in order_addons and order_events; a
+      // notification failure must not lose it. It stays visible on the admin
+      // order page regardless.
+      logErrorToDb(e, { context: 'doctor.prescription_request_notify', orderId: caseId });
+    }
+
+    return res.redirect(back);
+  } catch (err) {
+    logErrorToDb(err, {
+      requestId: req.requestId, url: req.originalUrl, method: req.method,
+      context: 'doctor.request_prescription', orderId: caseId, userId: doctorId
+    });
+    return res.redirect(back);
+  }
+});
+
 router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res) => {
   const orderId = String(req.params.caseId || '');
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
@@ -5303,6 +7276,85 @@ async function markOrderCompletedFallback({
     });
   } catch (e) {
     // ignore
+  }
+
+  // AUDIT-2026-08-23 (C4) — settle the prescription add-on when the case
+  // completes.
+  //
+  // prescription.onComplete (which writes addon_earnings) and
+  // prescription.onRefund had NO caller anywhere in the codebase: grep either
+  // name outside services/addons and its tests and you get nothing.
+  // video_consult settles itself from routes/video.js; prescription had no
+  // equivalent, so a fulfilled add-on would never have paid the doctor.
+  //
+  // Review round 2 killed the auto-refund this block originally did. The first
+  // draft routed a still-'paid' add-on to onRefund here, on the reasoning that
+  // "paid but not written" means the patient did not get what they bought.
+  // That is wrong, and dangerously so: writing a prescription AFTER the report
+  // is explicitly supported (the eligible-cases query in routes/prescriptions.js
+  // includes 'completed', and neither prescribe handler gates on status), and
+  // submitting the report is the normal FIRST action. So the common case —
+  // doctor submits the report, then writes the prescription — would have
+  // refunded the add-on a second earlier, flipped the case page to the silent
+  // terminal state, and left the paying patient with nothing.
+  //
+  // Nor is that refund even real: refund_pending has no reader anywhere in
+  // src/ — no worker, no admin screen, no refunds row, no notification — so
+  // the flag would have marked the money returned without returning it.
+  //
+  // Completion therefore only settles what is genuinely finished. An add-on
+  // still sitting at 'paid' stays 'paid': the doctor can still deliver it
+  // (routes/prescriptions.js settles it on the spot when the case is already
+  // completed), and if they never do, it is an operator's judgement call, not
+  // an automatic write-off. It is logged so that call can be made.
+  try {
+    const rx = await queryOne(
+      `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'prescription' LIMIT 1`,
+      [orderId]
+    );
+    if (rx) {
+      const rxStatus = String(rx.status || '').toLowerCase();
+      const svc = getAddon('prescription');
+      if (svc && rxStatus === 'fulfilled') {
+        // Not wrapped in safeDualWrite: that no-ops when ADDON_SYSTEM_V2 is
+        // off, which would silently skip paying a doctor for work already
+        // delivered. addon_earnings has a UNIQUE index on order_addon_id, so
+        // this cannot double-pay however many times completion runs.
+        try {
+          await svc.onComplete({ order: { id: orderId }, addon: rx, doctorId: doctorId || rx_doctorFallback(rx) });
+        } catch (payErr) {
+          logErrorToDb(payErr, { context: 'doctor.prescription_addon_oncomplete', category: 'doctor_case', orderId });
+        }
+      } else if (rxStatus === 'paid') {
+        try {
+          logOrderEvent({
+            orderId,
+            label: 'Case completed with an unwritten paid prescription',
+            meta: JSON.stringify({ addon: 'prescription', status: rxStatus }),
+            actorUserId: doctorId,
+            actorRole: 'doctor'
+          });
+        } catch (_) {}
+      }
+      // 'pending' (doctor requested, patient never paid), 'cancelled' and
+      // 'refunded' are terminal for settlement: nothing was collected, so
+      // there is nothing to pay out or give back.
+    }
+  } catch (e) {
+    logErrorToDb(e, { context: 'doctor.prescription_addon_settlement', category: 'doctor_case', orderId });
+  }
+}
+
+// onComplete needs a doctor to credit. The completion path always has one, but
+// if it were ever called without, fall back to whoever the add-on itself
+// recorded rather than inserting an addon_earnings row with a null doctor.
+function rx_doctorFallback(addon) {
+  try {
+    const meta = addon && addon.metadata_json ? addon.metadata_json : null;
+    const parsed = typeof meta === 'string' ? JSON.parse(meta) : meta;
+    return (parsed && (parsed.attached_by || parsed.requested_by_doctor)) || null;
+  } catch (_) {
+    return null;
   }
 }
 
