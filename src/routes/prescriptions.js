@@ -80,8 +80,39 @@ router.get('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), async
       });
     }
 
-    // Check if prescription already exists
-    var existing = await safeGet('SELECT id FROM prescriptions WHERE order_id = $1 AND doctor_id = $2', [caseId, doctorId], null);
+    // Check if a prescription already exists ON THE CASE — see round 4 note on
+    // the eligible-cases query. Doctor-scoped, this rendered a clean form to
+    // the second specialist on a reassigned case, whose submit the POST then
+    // refuses with a 409.
+    var existing = await safeGet(
+      'SELECT id, doctor_id FROM prescriptions WHERE order_id = $1 ORDER BY created_at ASC LIMIT 1',
+      [caseId], null
+    );
+
+    // Review round 4: a case that already has a prescription gets the blocked
+    // page, not the form. The POST refuses it with a 409 either way, so
+    // rendering a full medication editor the doctor cannot submit only invites
+    // them to type it out first — which is exactly what happened to the second
+    // specialist on a reassigned case.
+    if (existing) {
+      return res.status(409).render('doctor_prescription_locked', {
+        cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+        portalFrame: true,
+        portalRole: 'doctor',
+        portalActive: 'prescriptions',
+        brand: 'Tashkheesa',
+        title: isAr ? 'الوصفة غير متاحة' : 'Prescription not available',
+        user: req.user,
+        caseId: caseId,
+        addonStatus: rxAccess.status,
+        alreadyIssued: true,
+        alreadyIssuedByMe: String(existing.doctor_id || '') === String(doctorId),
+        existingPrescriptionId: (String(existing.doctor_id || '') === String(doctorId)) ? existing.id : null,
+        requestUrl: null,
+        lang: lang,
+        isAr: isAr
+      });
+    }
 
     res.render('doctor_prescribe', {
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
@@ -92,7 +123,10 @@ router.get('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), async
       title: isAr ? 'وصف العلاج' : 'Write Prescription',
       user: req.user,
       order: order,
-      existingPrescriptionId: existing ? existing.id : null,
+      // Only linkable when it is this doctor's — the detail route authorises
+      // on doctor_id. For anyone else it is still a hard block, just not a link.
+      existingPrescriptionId: (existing && String(existing.doctor_id || '') === String(doctorId)) ? existing.id : null,
+      prescriptionExistsOnCase: !!existing,
       lang: lang,
       isAr: isAr,
       pageTitle: isAr ? 'وصف العلاج' : 'Write Prescription'
@@ -284,11 +318,17 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), uplo
           }
         }
       }
-      else if (rxSvc && !rxRow) {
-        // Reachable only if the backfill INSERT itself failed. The
-        // prescription is already delivered, so this must not throw — but it
-        // means an unsettled add-on and an unpaid doctor, and it must be loud.
-        logErrorToDb(new Error('prescription delivered with no order_addons row — add-on unsettled, doctor unpaid'),
+      else if (rxSvc) {
+        // Round 4: this used to fire only when there was NO row, so a row in
+        // any OTHER state fell through both branches in total silence. Two
+        // ways that happens: canWrite is also true for an already-'fulfilled'
+        // add-on, and the backfill's ON CONFLICT DO NOTHING + re-SELECT can
+        // hand back a 'pending' row inserted concurrently. Either way the
+        // prescription is delivered and nothing settles it, which is exactly
+        // the state that has to be loud rather than silent.
+        logErrorToDb(
+          new Error('prescription delivered but add-on not settled (order_addons status: '
+                    + (rxRow ? String(rxRow.status) : 'no row') + ') — doctor unpaid'),
           { context: 'prescription_addon_unsettled', orderId: caseId });
       }
     } catch (fulfilErr) {
@@ -646,7 +686,13 @@ router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function
          FROM orders_active o
          LEFT JOIN users u ON u.id = o.patient_id
          LEFT JOIN services sv ON sv.id = o.service_id
-         LEFT JOIN prescriptions p ON p.order_id = o.id AND p.doctor_id = o.doctor_id
+         -- Review round 4: order-scoped, NOT doctor-scoped. Scoped to the
+         -- doctor, a case whose previous specialist had already prescribed
+         -- came back as "eligible" after reassignment; the new doctor filled
+         -- in the whole form and the POST answered 409, throwing the work
+         -- away. One prescription per case, and the list has to agree with
+         -- the write gate.
+         LEFT JOIN prescriptions p ON p.order_id = o.id
          LEFT JOIN order_addons oa
            ON oa.order_id = o.id
           AND oa.addon_service_id = 'prescription'

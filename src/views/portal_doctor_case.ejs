@@ -17,6 +17,7 @@
   var _routing = (typeof routingFacts !== 'undefined' && routingFacts) ? routingFacts : null;
   var _rx = (typeof prescriptionAddon !== 'undefined' && prescriptionAddon) ? prescriptionAddon : null;
   var _rxUrl = (typeof prescriptionRequestUrl !== 'undefined' && prescriptionRequestUrl) ? String(prescriptionRequestUrl) : '';
+  var _rxFlash = (typeof rxFlash !== 'undefined' && rxFlash) ? rxFlash : null;
 
   /* AUDIT-2026-08-23 (C1) — the real review window, in hours, off the case.
      The template used to print a hardcoded "24h" here; orders.sla_hours is
@@ -177,6 +178,16 @@
         <div style="font-weight:600;color:var(--v2-danger);"><%= tt('Heads up', 'Heads up', 'تنبيه') %></div>
         <div style="font-size:13px;color:var(--v2-ink-2);margin-block-start:4px;"><%= _errMsg %></div>
       </div>
+    </div>
+  </div>
+<% } %>
+
+<%# AUDIT-2026-08-23 (C4, round 4): outcome of a prescription request. %>
+<% if (_rxFlash) { %>
+  <div class="v2-card" style="margin-block-end:18px;border-color:<%= _rxFlash.ok ? 'var(--v2-brand-tint)' : '#F2C9C9' %>;">
+    <div class="v2-card__body" style="display:flex;gap:12px;align-items:flex-start;">
+      <div style="width:32px;height:32px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:700;background:<%= _rxFlash.ok ? 'var(--v2-brand-lt)' : 'var(--v2-danger-bg)' %>;color:<%= _rxFlash.ok ? 'var(--v2-brand-dk)' : 'var(--v2-danger)' %>;"><%= _rxFlash.ok ? '✓' : '!' %></div>
+      <div style="flex:1;font-size:13px;line-height:1.55;color:var(--v2-ink-2);"><%= _rxFlash.text %></div>
     </div>
   </div>
 <% } %>

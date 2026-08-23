@@ -49,7 +49,14 @@ const PRESCRIPTION_ADDON_ID = 'prescription';
 async function resolvePrescriptionAccess(order) {
   const orderId = order && order.id ? order.id : null;
   const sel = parseSelectedAddons(order || {});
-  const currency = (order && order.locked_currency) || 'EGP';
+  // NOTE (round 4): orders.locked_currency has no live writer — migration 080
+  // records its only one as a retired 410 route, and payments.js reads
+  // orders.currency instead. Checkout is EGP-only today so this always
+  // resolves to EGP; kept reading locked_currency because that is the column
+  // order_addons.price_at_purchase_currency is meant to mirror, and the
+  // EGP/foreign split below is what will matter the day non-EGP charging is
+  // switched on. Falls back to orders.currency so it is not simply dead.
+  const currency = String((order && (order.locked_currency || order.currency)) || 'EGP').toUpperCase();
 
   let addon = null;
   if (orderId) {
@@ -70,23 +77,50 @@ async function resolvePrescriptionAccess(order) {
   const isFulfilled = status === 'fulfilled';
   const isRequested = status === 'pending';
 
-  // Review round 3 — addons_json is NOT proof of payment on its own.
+  // Review round 4 — addons_json is a basket, not a receipt, and
+  // payment_status is not enough to turn it into one.
   //
   // routes/payments.js writes the add-on selection into addons_json at
   // create-intention time, BEFORE the patient pays. A patient who ticks
   // "Digital Prescription", reaches the gateway and abandons leaves
-  // {"prescription":true} on the order forever. If ops then marks the case
-  // paid by hand — which does not run the webhook's add-on block — the flag is
-  // there and no money for the add-on ever arrived. Trusting it alone would
-  // tell the doctor "this patient has paid for a prescription" and give away
-  // the product.
+  // {"prescription":true} on the order forever.
   //
-  // So the V1 flag only counts on an order whose payment actually settled. An
-  // order_addons row at 'paid' needs no such check: onPurchase only ever runs
-  // from inside the payment callback.
+  // Round 3 tried to fix that by also requiring payment_status='paid'. That
+  // does not work, and fails in the direction that costs money: with Paymob
+  // not accepting the live credentials, POST /admin/orders/:id/mark-paid is
+  // the ONLY payment path in use, and it flips payment_status with no
+  // reference to addons_json or to how much was actually collected. So an
+  // operator taking the base fee by bank transfer would silently unlock a
+  // prescription nobody paid for — and completion would then mint an
+  // addon_earnings row, creating a real payout liability against zero revenue.
+  //
+  // The only durable, gateway-independent evidence that the ADD-ON itself was
+  // paid for is the 'Prescription add-on selected' order_event. That line is
+  // written exclusively inside the payment callback's add-on block
+  // (routes/payments.js), i.e. after the charged amount has been verified
+  // against owedCentsForOrder, and unlike the order_addons row it is written
+  // unconditionally rather than through the ADDON_SYSTEM_V2-gated
+  // safeDualWrite. Requiring it is the same posture routes/video.js takes on
+  // its own add-on ledger: fail safe means do not pay.
   const paymentStatus = String((order && order.payment_status) || '').toLowerCase();
   const orderIsPaid = paymentStatus === 'paid' || paymentStatus === 'captured';
-  const purchasedV1 = !!sel.prescription && orderIsPaid;
+
+  let settledV1 = false;
+  if (orderId && sel.prescription && orderIsPaid) {
+    try {
+      const ev = await queryOne(
+        `SELECT 1 AS ok FROM order_events
+          WHERE order_id = $1 AND label = 'Prescription add-on selected'
+          LIMIT 1`,
+        [orderId]
+      );
+      settledV1 = !!ev;
+    } catch (_) {
+      // Fail closed. An unreadable audit log must not be read as a receipt.
+      settledV1 = false;
+    }
+  }
+  const purchasedV1 = settledV1;
 
   // Payable when either record says the money is in, unless V2 has explicitly
   // taken it back.
@@ -130,12 +164,17 @@ async function resolvePrescriptionAccess(order) {
  */
 async function ensurePrescriptionAddonRow(order, access) {
   if (!order || !order.id) return null;
-  if (access && access.addon) return access.addon;
-  if (access && !access.needsBackfill) return null;
+  // Review round 4: these guards used to be `access &&`-conditional, so
+  // calling with a null access skipped both and inserted a PAID add-on on an
+  // order that had bought nothing. The function is exported; it must be safe
+  // for any caller, not only the one that happens to pass a real access.
+  if (!access) return null;
+  if (access.addon) return access.addon;
+  if (!access.needsBackfill) return null;
 
   const sel = parseSelectedAddons(order);
   let amount = Number(sel.prescription_price) || 0;
-  let currency = String(order.locked_currency || 'EGP').toUpperCase();
+  let currency = String(order.locked_currency || order.currency || 'EGP').toUpperCase();
   if (amount <= 0) {
     const quote = await resolvePrescriptionQuote(currency);
     if (!quote) return null;

@@ -2097,6 +2097,47 @@ const canAccept =
   const submitErrorEntry = REPORT_SUBMIT_ERRORS[String((req.query && req.query.error) || '')];
   const submitErrorMessage = submitErrorEntry ? (isAr ? submitErrorEntry.ar : submitErrorEntry.en) : null;
 
+  // AUDIT-2026-08-23 (C4, round 4) — outcomes of POST .../request-prescription.
+  // Without these every refusal was a silent bounce back to a card that still
+  // said "not purchased", so the doctor had no way to tell a sent request from
+  // a swallowed one.
+  const RX_FLASH = {
+    requested: {
+      ok: true,
+      en: 'Request sent. Clinical operations will arrange the prescription with the patient and it will unlock here once settled.',
+      ar: 'تم إرسال الطلب. سيرتب فريق العمليات السريرية الروشتة مع المريض وستُفتح هنا فور إتمام الأمر.'
+    },
+    already_requested: {
+      ok: true,
+      en: 'A request for this case is already with clinical operations.',
+      ar: 'يوجد طلب لهذه الحالة لدى فريق العمليات السريرية بالفعل.'
+    },
+    already_available: {
+      ok: true,
+      en: 'A prescription is already available on this case — no request needed.',
+      ar: 'الروشتة متاحة بالفعل لهذه الحالة — لا حاجة لطلب.'
+    },
+    declined: {
+      ok: false,
+      en: 'The prescription add-on for this case was cancelled, so a new request cannot be raised. Contact clinical operations.',
+      ar: 'تم إلغاء خدمة الروشتة لهذه الحالة، فلا يمكن إرسال طلب جديد. تواصل مع فريق العمليات السريرية.'
+    },
+    no_price: {
+      ok: false,
+      en: 'The prescription add-on has no price configured, so the request could not be raised. This is a platform issue — please tell support.',
+      ar: 'لا يوجد سعر مُهيّأ لخدمة الروشتة، لذا تعذّر إرسال الطلب. هذه مشكلة في المنصة — يرجى إبلاغ الدعم.'
+    },
+    failed: {
+      ok: false,
+      en: 'The prescription request could not be sent. Nothing was changed — please try again.',
+      ar: 'تعذّر إرسال طلب الروشتة. لم يتغير شيء — يرجى المحاولة مرة أخرى.'
+    }
+  };
+  const rxFlashEntry = RX_FLASH[String((req.query && req.query.rx) || '')];
+  const rxFlash = rxFlashEntry
+    ? { ok: rxFlashEntry.ok, text: isAr ? rxFlashEntry.ar : rxFlashEntry.en }
+    : null;
+
   const viewStatus = isUnaccepted ? normalizedStatus : 'in_review';
   const viewReportUrl = reportAvailable ? reportUrl : null;
 
@@ -2209,6 +2250,19 @@ const canAccept =
     : {
         ...order,
         status: viewStatus,
+        // AUDIT-2026-08-23 (C6) — the template's real status, alongside the
+        // display one.
+        //
+        // portal_doctor_case.ejs computes _statusKey as
+        // (db_status || status), and viewStatus is hardcoded to 'in_review'
+        // for everything accepted — so _statusKey could never be 'completed'
+        // and every `_statusKey !== 'completed'` branch in that view was
+        // permanently true. A delivered case therefore rendered the editable
+        // report form instead of the "Submitted report" card written for it,
+        // and pressing Submit came back with the case_completed refusal this
+        // same handler defines. db_status was never passed by anything; the
+        // view has been reading a local that did not exist.
+        db_status: normalizedStatus,
         report_url: viewReportUrl || null,
         reportUrl: viewReportUrl || null,
         sla: caseSla,
@@ -2413,6 +2467,7 @@ const canAccept =
     },
     routingFacts,
     prescriptionAddon,
+    rxFlash,
     prescriptionRequestUrl: `/portal/doctor/case/${orderId}/request-prescription`,
     showAcceptButton: canAccept,
     acceptBlockedReason,
@@ -2624,7 +2679,8 @@ router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(r
 router.post('/portal/doctor/case/:caseId/request-prescription', requireDoctor, async (req, res) => {
   const caseId = String(req.params.caseId || '').trim();
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
-  const back = '/portal/doctor/case/' + encodeURIComponent(caseId);
+  const backTo = (code) => '/portal/doctor/case/' + encodeURIComponent(caseId) + (code ? ('?rx=' + code) : '');
+  const back = backTo('');
   if (!caseId || !doctorId) return res.redirect('/portal/doctor/dashboard');
 
   try {
@@ -2635,7 +2691,7 @@ router.post('/portal/doctor/case/:caseId/request-prescription', requireDoctor, a
       // addons_json and locked_currency are what resolvePrescriptionAccess and
       // resolvePrescriptionQuote read — omitting them would make the resolver
       // silently answer "not purchased" for every case.
-      `SELECT id, doctor_id, patient_id, accepted_at, status, addons_json, locked_currency, payment_status
+      `SELECT id, doctor_id, patient_id, accepted_at, status, addons_json, locked_currency, currency, payment_status
          FROM orders_active WHERE id = $1`,
       [caseId]
     );
@@ -2654,7 +2710,12 @@ router.post('/portal/doctor/case/:caseId/request-prescription', requireDoctor, a
     // the latter — the first draft of this route — would let a doctor "request"
     // something already paid for and an operator collect the money twice.
     const access = await resolvePrescriptionAccess(order);
-    if (access.canWrite || access.isRequested || access.isTerminal) return res.redirect(back);
+    // Round 4: every refusal below now carries a reason. They all used to be a
+    // bare redirect back to a card still reading "not purchased", so the
+    // doctor pressed Send request, saw nothing change, and pressed it again.
+    if (access.canWrite) return res.redirect(backTo('already_available'));
+    if (access.isRequested) return res.redirect(backTo('already_requested'));
+    if (access.isTerminal) return res.redirect(backTo('declined'));
 
     // Price and commission come from the SAME catalogue the checkout reads
     // (service_regional_prices.addon_prescription), not addon_services — those
@@ -2662,8 +2723,8 @@ router.post('/portal/doctor/case/:caseId/request-prescription', requireDoctor, a
     // patient a price the payment page will not charge and computing the
     // doctor's commission off a figure nobody paid. Same two-catalogue drift
     // FIX 8/9 corrected for video_consult.
-    const quote = await resolvePrescriptionQuote(order.locked_currency || 'EGP');
-    if (!quote) return res.redirect(back);
+    const quote = await resolvePrescriptionQuote(order.locked_currency || order.currency || 'EGP');
+    if (!quote) return res.redirect(backTo('no_price'));
     const commissionPct = await prescriptionCommissionPct();
     // price_at_purchase_egp is what prescription.onComplete computes the
     // doctor's commission from, so it has to hold an EGP figure. On a non-EGP
@@ -2727,13 +2788,13 @@ router.post('/portal/doctor/case/:caseId/request-prescription', requireDoctor, a
       logErrorToDb(e, { context: 'doctor.prescription_request_notify', orderId: caseId });
     }
 
-    return res.redirect(back);
+    return res.redirect(backTo('requested'));
   } catch (err) {
     logErrorToDb(err, {
       requestId: req.requestId, url: req.originalUrl, method: req.method,
       context: 'doctor.request_prescription', orderId: caseId, userId: doctorId
     });
-    return res.redirect(back);
+    return res.redirect(backTo('failed'));
   }
 });
 

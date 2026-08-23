@@ -14,8 +14,25 @@
   var _caseUrl = _caseId ? ('/portal/doctor/case/' + encodeURIComponent(_caseId)) : '/portal/doctor/cases';
   function _t(en, ar) { return _isAr ? ar : en; }
 
+  var _alreadyIssued = (typeof alreadyIssued !== 'undefined') ? !!alreadyIssued : false;
+  var _mine = (typeof alreadyIssuedByMe !== 'undefined') ? !!alreadyIssuedByMe : false;
+  var _existingId = (typeof existingPrescriptionId !== 'undefined' && existingPrescriptionId) ? String(existingPrescriptionId) : '';
+
   var _headline, _body, _showRequest;
-  if (_st === 'pending') {
+  if (_alreadyIssued) {
+    /* Review round 4: one prescription per case. Reached when this doctor has
+       already written one, or when the specialist who held the case before a
+       reassignment did. */
+    _headline = _mine
+      ? _t('You have already issued a prescription on this case', 'أصدرت بالفعل روشتة لهذه الحالة')
+      : _t('A prescription has already been issued on this case', 'صدرت بالفعل روشتة لهذه الحالة');
+    _body = _mine
+      ? _t('The patient has it in their portal and in their medical records. A case carries one prescription — if it needs changing, contact clinical operations rather than issuing a second.',
+           'المريض يملكها في حسابه وضمن سجلاته الطبية. لكل حالة روشتة واحدة — إذا لزم تعديلها، تواصل مع فريق العمليات السريرية بدلاً من إصدار روشتة ثانية.')
+      : _t('It was issued by the specialist who held this case before you and has already been delivered to the patient. A second prescription cannot be issued on the same case.',
+           'أصدرها الاستشاري الذي كان يتولى هذه الحالة قبلك، وقد سُلِّمت للمريض بالفعل. لا يمكن إصدار روشتة ثانية لنفس الحالة.');
+    _showRequest = false;
+  } else if (_st === 'pending') {
     _headline = _t('Prescription requested — waiting on payment',
                    'تم طلب الروشتة — بانتظار الدفع');
     _body = _t('Your request has been sent to the clinical operations team. They will contact the patient to arrange payment for the prescription add-on. This page will unlock as soon as it is settled.',
@@ -57,7 +74,12 @@
         </div>
       </form>
     <% } else { %>
-      <a class="v2-btn v2-btn--primary" href="<%= _caseUrl %>"><%= _t('Back to case', 'العودة للحالة') %></a>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <a class="v2-btn v2-btn--primary" href="<%= _caseUrl %>"><%= _t('Back to case', 'العودة للحالة') %></a>
+        <% if (_existingId) { %>
+          <a class="v2-btn v2-btn--ghost" href="/portal/doctor/prescription/<%= encodeURIComponent(_existingId) %>"><%= _t('View the prescription', 'عرض الروشتة') %></a>
+        <% } %>
+      </div>
     <% } %>
   </div>
 </div>
