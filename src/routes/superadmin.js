@@ -3017,6 +3017,20 @@ function pickDoctorField(body, keys) {
 // ticked, qs gives ["0","1"] and the last value wins. A field that is truly
 // absent returns `fallback`, which is how the edit route preserves the stored
 // value instead of stamping false over it.
+// AUDIT-2026-08-23 (AUDIT-DOCTOR-LANG-1) — the doctor's email language.
+// Create used to hardcode `lang: 'en'` and Edit never wrote the column at all,
+// so for 27 of 30 doctors `users.lang` was an untouched default rather than a
+// stated preference. The welcome email picks its template directory from this
+// value, so the default decided which language a consultant saw first and
+// nobody was ever asked. Only 'ar' and 'en' are accepted; anything else falls
+// back rather than writing a value the template loader cannot resolve.
+function readDoctorLang(body, fallback) {
+  const raw = String((body && (body.lang != null ? body.lang : body.language)) || '')
+    .trim().toLowerCase();
+  if (raw === 'ar' || raw === 'en') return raw;
+  return (fallback === 'ar') ? 'ar' : 'en';
+}
+
 function readDoctorFlag(body, keys, fallback) {
   const b = body || {};
   for (const k of keys) {
@@ -3165,6 +3179,7 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
   // intended default) rather than being created switched off.
   const notify_whatsapp = readDoctorFlag(body, ['notify_whatsapp', 'send_whatsapp_alerts'], false);
   const is_active = readDoctorFlag(body, ['is_active', 'active'], true);
+  const lang = readDoctorLang(body, 'en');
   const submittedServiceIds = readDoctorServiceIds(body);
 
   // Re-render helper for the two 400 paths below — same locals, one message.
@@ -3186,6 +3201,7 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
         email: email || '',
         specialty_id: specialty_id || '',
         phone: phone || '',
+        lang,
         notify_whatsapp,
         is_active
       },
@@ -3209,13 +3225,14 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
   const newDoctorId = randomUUID();
   await execute(
     `INSERT INTO users (id, email, password_hash, name, role, specialty_id, phone, lang, notify_whatsapp, is_active)
-     VALUES ($1, $2, NULL, $3, 'doctor', $4, $5, 'en', $6, $7)`,
+     VALUES ($1, $2, NULL, $3, 'doctor', $4, $5, $6, $7, $8)`,
     [
       newDoctorId,
       email,
       name,
       specialty_id || null,
       phone || null,
+      lang,
       notify_whatsapp ? true : false,
       is_active ? true : false
     ]
@@ -3376,6 +3393,7 @@ router.post('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) 
   const specialty_id = pickDoctorField(body, ['specialty_id']);
   const notify_whatsapp = readDoctorFlag(body, ['notify_whatsapp', 'send_whatsapp_alerts'], doctor.notify_whatsapp === true);
   const is_active = readDoctorFlag(body, ['is_active', 'active'], doctor.is_active === true);
+  const lang = readDoctorLang(body, doctor.lang);
   const submittedServiceIds = readDoctorServiceIds(body);
   // Same rule for the specialty: only clear it when the form actually sent an
   // empty specialty_id, never because the field was missing from the request.
@@ -3383,12 +3401,13 @@ router.post('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) 
 
   await execute(
     `UPDATE users
-     SET name = $1, specialty_id = $2, phone = $3, notify_whatsapp = $4, is_active = $5
-     WHERE id = $6 AND role = 'doctor'`,
+     SET name = $1, specialty_id = $2, phone = $3, lang = $4, notify_whatsapp = $5, is_active = $6
+     WHERE id = $7 AND role = 'doctor'`,
     [
       name || doctor.name,
       nextSpecialtyId,
       phone || null,
+      lang,
       notify_whatsapp ? true : false,
       is_active ? true : false,
       req.params.id

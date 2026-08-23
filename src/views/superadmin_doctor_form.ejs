@@ -104,6 +104,15 @@
   var _fullName = (_doctor && (_doctor.full_name || _doctor.fullName || _doctor.name)) ? String(_doctor.full_name || _doctor.fullName || _doctor.name) : '';
   var _email = (_doctor && _doctor.email) ? String(_doctor.email) : '';
   var _phone = (_doctor && (_doctor.phone || _doctor.phone_number)) ? String(_doctor.phone || _doctor.phone_number) : '';
+  // AUDIT-2026-08-23 (AUDIT-DOCTOR-LANG-1) — the doctor's email language.
+  // Drives which doctor-welcome template directory the loader reads, i.e.
+  // which language leads in the welcome email. Was never on this form, so
+  // create hardcoded 'en' and edit never wrote it; default stays 'en'.
+  var _lang = (_doctor && String(_doctor.lang || '').trim().toLowerCase() === 'ar') ? 'ar' : 'en';
+  var langOpts = [
+    { value: 'en', label: 'English' },
+    { value: 'ar', label: 'العربية' }
+  ];
   // AUDIT-2026-08-23 (P0-DOC-FORM): read the canonical users columns first.
   // These only looked at `active` / `send_whatsapp_alerts`, which no users row
   // carries, so Active always rendered ticked (even for a deactivated doctor)
@@ -178,6 +187,10 @@
       <div class="c-form-row">
         <%- include('partials/superadmin/c_form_field', { name: 'specialty_id', id: 'specialtySelect', label: 'Specialty', type: 'select', required: true, value: String(_selectedSpecialtyId || ''), options: specOpts }) %>
         <%- include('partials/superadmin/c_form_field', { name: 'phone', label: 'Phone', type: 'tel', value: _phone, autocomplete: 'tel' }) %>
+      </div>
+
+      <div class="c-form-row">
+        <%- include('partials/superadmin/c_form_field', { name: 'lang', label: 'Email language', type: 'select', value: _lang, options: langOpts, help: 'Which language leads in the welcome email and notifications.' }) %>
       </div>
 
       <div class="c-field">
