@@ -16,6 +16,7 @@ const { buildFilters, additionalFilesDecisionPredicate } = require('./superadmin
 const { broadcastOrderToSpecialty } = require('../notify/broadcast');
 const { TEMPLATES } = require('../notify/templates');
 const { logErrorToDb } = require('../logger');
+const { resolvePrescriptionAccess } = require('../services/addons/prescription_access');
 const { getDecryptedNationalId } = require('../services/national-id');
 // Shared assignment safety gate (spec §4.6) — the single source of truth for
 // "which doctors may legally receive a case". See services/doctor_eligibility.js.
@@ -1438,17 +1439,26 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
   // order_addons row at status 'pending'. It surfaces here so an operator can
   // tell the patient, take the money and release it — steps 3 and 4 of the
   // sequence documented on that route.
+  //
+  // Review round 3: driven by resolvePrescriptionAccess rather than a raw
+  // order_addons read. The raw read (a) missed every prescription bought at
+  // checkout, because that purchase lives in orders.addons_json and the
+  // order_addons row is written only through safeDualWrite, and (b) INNER
+  // JOINed addon_services, so a renamed catalogue row would have hidden the
+  // card entirely. Those are exactly the cases an operator most needs to see.
   let prescriptionAddon = null;
   try {
-    prescriptionAddon = await queryOne(
-      `SELECT oa.*, asv.name_en AS addon_name_en, asv.name_ar AS addon_name_ar,
-              asv.base_price_egp
-         FROM order_addons oa
-         JOIN addon_services asv ON asv.id = oa.addon_service_id
-        WHERE oa.order_id = $1 AND oa.addon_service_id = 'prescription'
-        LIMIT 1`,
-      [orderId]
-    );
+    const access = await resolvePrescriptionAccess(order);
+    if (access.addon || access.purchasedV1) {
+      prescriptionAddon = Object.assign({}, access.addon || {}, {
+        status: access.status || (access.purchasedV1 ? 'paid' : null),
+        purchasedAtCheckout: access.purchasedV1 && !access.addon,
+        price_at_purchase_amount: (access.addon && access.addon.price_at_purchase_amount) != null
+          ? access.addon.price_at_purchase_amount
+          : access.priceEgp,
+        price_at_purchase_currency: (access.addon && access.addon.price_at_purchase_currency) || access.currency
+      });
+    }
   } catch (_) {
     prescriptionAddon = null;
   }

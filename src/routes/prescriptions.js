@@ -18,7 +18,7 @@ const { uploadFile, getSignedDownloadUrl } = require('../storage');
 const { computeDoctorStreakCount } = require('./messaging');
 const { queryOne } = require('../pg');
 const { getAddon } = require('../services/addons/registry');
-const { resolvePrescriptionAccess } = require('../services/addons/prescription_access');
+const { resolvePrescriptionAccess, ensurePrescriptionAddonRow } = require('../services/addons/prescription_access');
 
 // AUDIT-2026-08-23 (C4) — the paywall this route never had.
 //
@@ -138,6 +138,23 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), uplo
         : 'A prescription is a paid add-on and has not been purchased for this case.');
     }
 
+    // Review round 3 — one prescription per case, whoever holds it.
+    //
+    // The GET form surfaced existingPrescriptionId but the POST checked
+    // nothing, and the existence probe was scoped to the current doctor. On a
+    // reassigned case the second specialist saw a clean form and could deliver
+    // a second signed prescription against a single purchase — two clinicians
+    // prescribing to one patient on one order, both auto-imported into their
+    // medical records.
+    var already = await safeGet(
+      'SELECT id FROM prescriptions WHERE order_id = $1 LIMIT 1', [caseId], null
+    );
+    if (already) {
+      return res.status(409).send(isAr
+        ? 'صدرت بالفعل روشتة لهذه الحالة.'
+        : 'A prescription has already been issued on this case.');
+    }
+
     var notes = sanitizeHtml(sanitizeString(req.body.notes || '', 5000));
     var diagnosis = sanitizeHtml(sanitizeString(req.body.diagnosis || '', 5000));
 
@@ -218,7 +235,20 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), uplo
     // doctor just wrote, which is already committed above.
     try {
       var rxSvc = getAddon('prescription');
+      // Review round 3 — materialise the order_addons row when the purchase
+      // exists only in orders.addons_json.
+      //
+      // The paywall above accepts a checkout purchase, but every downstream
+      // money step needs a row: onFulfill takes one, onComplete refuses
+      // anything not 'fulfilled', and addon_earnings is the only record of
+      // add-on revenue. That row is written solely by onPurchase via
+      // safeDualWrite, which no-ops when ADDON_SYSTEM_V2 is off. Without this
+      // the doctor writes the prescription, the `if` below falls through in
+      // silence, and the commission is never inserted.
       var rxRow = rxAccess.addon;
+      if (!rxRow && rxAccess.needsBackfill) {
+        rxRow = await ensurePrescriptionAddonRow(order, rxAccess);
+      }
       if (rxSvc && rxRow && String(rxRow.status || '').toLowerCase() === 'paid') {
         var fulfilled = await rxSvc.onFulfill({
           order: order,
@@ -253,6 +283,13 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), uplo
             logErrorToDb(settleErr, { context: 'prescription_addon_late_settle', orderId: caseId });
           }
         }
+      }
+      else if (rxSvc && !rxRow) {
+        // Reachable only if the backfill INSERT itself failed. The
+        // prescription is already delivered, so this must not throw — but it
+        // means an unsettled add-on and an unpaid doctor, and it must be loud.
+        logErrorToDb(new Error('prescription delivered with no order_addons row — add-on unsettled, doctor unpaid'),
+          { context: 'prescription_addon_unsettled', orderId: caseId });
       }
     } catch (fulfilErr) {
       logErrorToDb(fulfilErr, { context: 'prescription_addon_fulfil', orderId: caseId });
@@ -633,8 +670,16 @@ router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function
           -- doctor prescriptions page down with it. The pattern matches what
           -- JSON.stringify actually writes ("prescription":true) and tolerates
           -- whitespace; it can never raise.
+          --
+          -- The addons_json branch additionally requires the ORDER to be paid:
+          -- routes/payments.js writes the selection at create-intention time,
+          -- before the patient pays, so the flag alone is a shopping basket,
+          -- not a receipt. Mirrors resolvePrescriptionAccess exactly.
           AND (
-                o.addons_json ~ '"prescription"[[:space:]]*:[[:space:]]*true'
+                (
+                  o.addons_json ~ '"prescription"[[:space:]]*:[[:space:]]*true'
+                  AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured')
+                )
                 OR LOWER(COALESCE(oa.status, '')) IN ('paid', 'fulfilled')
               )
           -- An explicit cancellation/refund is newer information than the

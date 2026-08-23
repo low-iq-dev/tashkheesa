@@ -660,9 +660,18 @@
             <span class="v2-chip v2-chip--green"><%= tt('Sent to patient', 'Sent to patient', 'أُرسلت للمريض') %></span>
           </div>
           <div class="v2-card__body">
-            <div class="v2-rx__line"><%= tt('You have issued a prescription on this case. The patient has it in their portal and in their medical records.', 'You have issued a prescription on this case. The patient has it in their portal and in their medical records.', 'لقد أصدرت روشتة لهذه الحالة. المريض يملكها في حسابه وضمن سجلاته الطبية.') %></div>
+            <% if (_rx.prescriptionId) { %>
+              <div class="v2-rx__line"><%= tt('You have issued a prescription on this case. The patient has it in their portal and in their medical records.', 'You have issued a prescription on this case. The patient has it in their portal and in their medical records.', 'لقد أصدرت روشتة لهذه الحالة. المريض يملكها في حسابه وضمن سجلاته الطبية.') %></div>
+            <% } else { %>
+              <div class="v2-rx__line"><%= tt('A prescription has already been issued on this case and delivered to the patient. Do not issue a second one.', 'A prescription has already been issued on this case and delivered to the patient. Do not issue a second one.', 'صدرت بالفعل روشتة لهذه الحالة وسُلِّمت للمريض. لا تُصدر روشتة ثانية.') %></div>
+            <% } %>
             <% if (_rx.prescriptionId) { %>
               <a class="v2-btn v2-btn--ghost v2-btn--sm" href="/portal/doctor/prescription/<%= encodeURIComponent(_rx.prescriptionId) %>"><%= tt('View prescription', 'View prescription', 'عرض الروشتة') %></a>
+            <% } else { %>
+              <%# Written by the specialist who held the case before it was
+                  reassigned. The detail route authorises on doctor_id, so it
+                  is named but not linked. %>
+              <div class="v2-rx__line" style="margin-block-start:8px;color:var(--v2-muted);"><%= tt('Issued by the specialist who previously held this case.', 'Issued by the specialist who previously held this case.', 'أصدرها الاستشاري الذي كان يتولى هذه الحالة سابقاً.') %></div>
             <% } %>
           </div>
         </div>

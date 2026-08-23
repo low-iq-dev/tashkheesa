@@ -372,8 +372,24 @@
               </p>
             <% } else if (rxStatus === 'paid') { %>
               <p class="muted" style="font-size:12px;margin:0;">
-                The doctor can write the prescription now. If the case completes without one being written,
-                the add-on is flagged for refund automatically.
+                The doctor can write the prescription now.
+                <% if (rx.purchasedAtCheckout) { %>
+                  Bought at checkout — the order_addons row is created the first time the doctor saves one.
+                <% } %>
+              </p>
+              <%# Review round 3: this used to promise "the add-on is flagged for
+                  refund automatically" if the case completed unwritten. That
+                  behaviour was removed in round 2 — auto-refunding at report
+                  submit stripped the add-on a second before a doctor delivered
+                  it, and refund_pending has no reader in src/ anyway, so it
+                  marked the money returned without returning it. Completion now
+                  writes an order_events line ("Case completed with an unwritten
+                  paid prescription") and stops. Telling an operator a machine
+                  is watching, when nothing is, is worse than telling them
+                  nothing. %>
+              <p class="muted" style="font-size:12px;margin:6px 0 0;">
+                Nothing refunds this automatically. If the case completes and no prescription was written,
+                the activity log below records it — refunding is a manual decision.
               </p>
             <% } %>
           </div>

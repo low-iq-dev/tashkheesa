@@ -69,7 +69,24 @@ async function resolvePrescriptionAccess(order) {
   const isTerminal = status === 'cancelled' || status === 'refunded';
   const isFulfilled = status === 'fulfilled';
   const isRequested = status === 'pending';
-  const purchasedV1 = !!sel.prescription;
+
+  // Review round 3 — addons_json is NOT proof of payment on its own.
+  //
+  // routes/payments.js writes the add-on selection into addons_json at
+  // create-intention time, BEFORE the patient pays. A patient who ticks
+  // "Digital Prescription", reaches the gateway and abandons leaves
+  // {"prescription":true} on the order forever. If ops then marks the case
+  // paid by hand — which does not run the webhook's add-on block — the flag is
+  // there and no money for the add-on ever arrived. Trusting it alone would
+  // tell the doctor "this patient has paid for a prescription" and give away
+  // the product.
+  //
+  // So the V1 flag only counts on an order whose payment actually settled. An
+  // order_addons row at 'paid' needs no such check: onPurchase only ever runs
+  // from inside the payment callback.
+  const paymentStatus = String((order && order.payment_status) || '').toLowerCase();
+  const orderIsPaid = paymentStatus === 'paid' || paymentStatus === 'captured';
+  const purchasedV1 = !!sel.prescription && orderIsPaid;
 
   // Payable when either record says the money is in, unless V2 has explicitly
   // taken it back.
@@ -81,8 +98,86 @@ async function resolvePrescriptionAccess(order) {
 
   return {
     addon, status, purchasedV1, canWrite, isRequested, isFulfilled, isTerminal,
-    priceEgp, currency
+    priceEgp, currency,
+    // True when the patient paid at checkout but no order_addons row exists —
+    // the state the whole V1/V2 split produces. ensurePrescriptionAddonRow()
+    // below is what closes it.
+    needsBackfill: purchasedV1 && !addon
   };
+}
+
+/**
+ * Materialise the order_addons row for a prescription bought at checkout.
+ *
+ * Review round 3 — without this the doctor delivers the prescription for free.
+ *
+ * The paywall accepts a V1 purchase (orders.addons_json), but fulfilment and
+ * earnings both key off an order_addons row: prescription.onFulfill takes one
+ * as an argument, onComplete refuses anything not 'fulfilled', and
+ * addon_earnings is the ONLY place add-on revenue is recorded —
+ * services/earnings_writer.js explicitly excludes add-ons from doctor_earnings.
+ * That row is written solely by prescription.onPurchase through safeDualWrite,
+ * which is a no-op when ADDON_SYSTEM_V2 is off. So on the V1-only path the
+ * doctor would write the prescription, onFulfill would be skipped for want of
+ * a row, and no commission would ever be inserted.
+ *
+ * Creating it here is bookkeeping, not billing: the money is already
+ * collected and the price is the one locked on the order at checkout. Idempotent
+ * via the unique index on (order_id, addon_service_id) — DO NOTHING, so it can
+ * never downgrade a row a real onPurchase has already written.
+ *
+ * @returns {Promise<Object|null>} the order_addons row, or null
+ */
+async function ensurePrescriptionAddonRow(order, access) {
+  if (!order || !order.id) return null;
+  if (access && access.addon) return access.addon;
+  if (access && !access.needsBackfill) return null;
+
+  const sel = parseSelectedAddons(order);
+  let amount = Number(sel.prescription_price) || 0;
+  let currency = String(order.locked_currency || 'EGP').toUpperCase();
+  if (amount <= 0) {
+    const quote = await resolvePrescriptionQuote(currency);
+    if (!quote) return null;
+    amount = quote.amount;
+    currency = quote.currency;
+  }
+  const pct = await prescriptionCommissionPct();
+  // price_at_purchase_egp is the commission base in onComplete, so it must be
+  // an EGP figure. A non-EGP order keeps its charged amount in
+  // price_at_purchase_amount and takes the catalogue's EGP price here.
+  let egpAmount = amount;
+  if (currency !== 'EGP') {
+    const egpQuote = await resolvePrescriptionQuote('EGP');
+    egpAmount = egpQuote ? egpQuote.amount : 0;
+  }
+
+  try {
+    await queryOne(
+      `INSERT INTO order_addons (
+         order_id, addon_service_id, status,
+         price_at_purchase_egp, price_at_purchase_currency, price_at_purchase_amount,
+         doctor_commission_pct_at_purchase, metadata_json
+       ) VALUES ($1, $2, 'paid', $3, $4, $5, $6, $7::jsonb)
+       ON CONFLICT (order_id, addon_service_id) DO NOTHING`,
+      [
+        order.id, PRESCRIPTION_ADDON_ID,
+        egpAmount, currency, amount, pct,
+        JSON.stringify({ backfilled_from: 'orders.addons_json', backfilled_at: new Date().toISOString() })
+      ]
+    );
+  } catch (_) {
+    return null;
+  }
+
+  try {
+    return await queryOne(
+      `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = $2 LIMIT 1`,
+      [order.id, PRESCRIPTION_ADDON_ID]
+    );
+  } catch (_) {
+    return null;
+  }
 }
 
 /**
@@ -137,6 +232,7 @@ async function prescriptionCommissionPct() {
 module.exports = {
   PRESCRIPTION_ADDON_ID,
   resolvePrescriptionAccess,
+  ensurePrescriptionAddonRow,
   resolvePrescriptionQuote,
   prescriptionCommissionPct
 };
