@@ -25,6 +25,7 @@ const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, 
 const emailService = require('../services/emailService');
 const { logAdminAudit } = require('../services/admin_audit');
 const { bulkWelcomePasswordlessDoctors } = require('../services/admin_doctor_bulk_invite');
+const { inviteDoctor } = require('../services/admin_doctor_invite');
 const { WELCOME_EXPIRY_HOURS } = require('../services/doctor_welcome_payload');
 const rateLimit = require('express-rate-limit');
 const adminSettings = require('../services/admin_settings');
@@ -72,9 +73,10 @@ const welcomeSendIpLimiter = rateLimit({
 
 const IS_PROD = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 
-// Mirrors src/routes/auth.js portal flow — keep in sync. Used by the
-// superadmin "Create Doctor" handler when it issues a one-time setup
-// link to the new doctor instead of generating a temporary password.
+// Mirrors src/routes/auth.js portal flow — keep in sync. AUDIT-2026-08-23: the
+// only consumer left in this file is the manual /superadmin debug reset-link
+// tool; "Create Doctor" no longer mints its own token at all (it delegates to
+// services/admin_doctor_invite, which uses the 7-day WELCOME_EXPIRY_HOURS).
 const RESET_EXPIRY_HOURS = 2;     // forgot-password / manual reset — user is actively requesting, short window
 // P1-NOTIF-5: doctor approval + admin-created doctor first-time setup —
 // recipient is passive (didn't request the email), may not check inbox
@@ -3234,27 +3236,19 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
     }
   }
 
-  // Issue a one-time password-setup token and email it to the doctor.
-  // Mirrors the token-issuance shape used by POST /forgot-password
-  // (src/routes/auth.js:280-329) so a token issued here is redeemable
-  // on the same /reset-password/:token page.
-  // P1-NOTIF-5: uses WELCOME_EXPIRY_HOURS (7d) not RESET_EXPIRY_HOURS (2h) —
-  // an admin-created doctor wasn't actively requesting this email and may
-  // not check inbox for days. Same threat model as the doctor-approval
-  // welcome email below.
-  const resetToken = randomUUID();
-  const tokenNow = new Date();
-  const tokenExpiresAt = new Date(tokenNow.getTime() + WELCOME_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
-  // Remint invalidation (Package 2): burn prior unused tokens before minting.
-  await execute(
-    `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
-    [newDoctorId]
-  );
-  await execute(
-    `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
-     VALUES ($1, $2, $3, $4, NULL, $5)`,
-    [randomUUID(), newDoctorId, resetToken, tokenExpiresAt, tokenNow.toISOString()]
-  );
+  // AUDIT-2026-08-23 (P0-DOC-WELCOME): this route used to hand-roll its own
+  // token and then send the GENERIC 'password-reset' template — English-only,
+  // blue-branded, "We received a request to reset the password for your
+  // Tashkheesa account", addressed to `patientName`. A doctor created here
+  // requested nothing, and EVERY other onboarding path (/approve,
+  // /resend-welcome, /bulk-welcome-passwordless, the Command app) sends the
+  // bilingual v5 doctor-welcome instead. The create path now goes through the
+  // SAME service as the Command app and the bulk invite —
+  // services/admin_doctor_invite.inviteDoctor (remint-DELETE + 7-day token +
+  // welcome stamp + audit in one txn) -> buildDoctorWelcomePayload -> template
+  // 'doctor_approved' -> doctor-welcome.hbs. One welcome email, one place that
+  // mints its token. It also means a normal create now produces exactly ONE
+  // email, so there is no second send to silently invalidate the first link.
 
   // Resolve the public base URL from CONFIGURATION ONLY.
   //
@@ -3270,32 +3264,55 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
   //
   // No link is better than a wrong link: with neither env var set the caller
   // below reports `base_url_unresolved` and the operator fixes the config.
+  //
+  // AUDIT-2026-08-23: this property SURVIVES the switch to the shared service
+  // only because inviteDoctor takes `baseUrl` as a parameter and never sees
+  // `req` — unlike _issueDoctorWelcomePayload (below), which still falls back to
+  // request headers for /approve and /resend-welcome.
   const baseUrl = String(process.env.BASE_URL || process.env.APP_URL || '')
     .trim().replace(/\/+$/, '');
-  const resetLink = baseUrl ? `${baseUrl}/reset-password/${resetToken}?lang=en` : null;
 
   let emailOk = false;
   let emailErrorMsg = null;
-  if (!resetLink) {
+  if (!baseUrl) {
     emailErrorMsg = 'base_url_unresolved';
+  } else if (!is_active) {
+    // AUDIT-2026-08-23: inviteDoctor refuses a non-active doctor by design
+    // (approve/activate first, then invite). Creating a doctor switched OFF is a
+    // deliberate "not yet", so mint nothing and send nothing rather than mailing
+    // "your account is ready" to an account the operator just disabled. The
+    // record is still saved and the message below points at Resend welcome.
+    emailErrorMsg = 'doctor_not_active';
   } else {
+    const inviteClient = await pool.connect();
     try {
-      const result = await emailService.sendEmail({
-        to: email,
-        subject: 'Set up your Tashkheesa doctor account',
-        template: 'password-reset',
-        lang: 'en',
-        data: {
-          patientName: name || 'Doctor',
-          resetLink: resetLink,
-          expiryHours: WELCOME_EXPIRY_HOURS
-        }
+      const { welcomePayload } = await inviteDoctor(inviteClient, {
+        doctorId: newDoctorId,
+        baseUrl,
+        actorId: req.user && req.user.id
       });
-      emailOk = !!(result && result.ok);
-      if (!emailOk) emailErrorMsg = (result && (result.error || result.reason)) || 'send_failed';
+      // POST-COMMIT, and identical to /approve + /resend-welcome in channels,
+      // template and payload. Awaited (those two fire-and-forget) purely so a
+      // queue-insert failure can still be surfaced to the operator below.
+      const queued = await queueMultiChannelNotification({
+        orderId: null,
+        toUserId: newDoctorId,
+        channels: ['internal', 'email', 'whatsapp'],
+        template: 'doctor_approved',
+        response: welcomePayload,
+        // Stable key: a given doctor id is created exactly once, so this can
+        // never suppress a legitimate later resend (those carry their own
+        // timestamped keys).
+        dedupe_key: 'doctor_welcome_create:' + newDoctorId
+      });
+      const emailQueued = queued && queued.results && queued.results.email;
+      emailOk = !!(emailQueued && emailQueued.ok && !emailQueued.skipped);
+      if (!emailOk) {
+        emailErrorMsg = (emailQueued && (emailQueued.reason || emailQueued.error || emailQueued.skipped)) || 'queue_failed';
+      }
     } catch (err) {
       logErrorToDb(err, {
-        context: 'superadmin.doctor_approve_email',
+        context: 'superadmin.doctor_create_welcome',
         requestId: req.requestId,
         userId: req.user?.id,
         url: req.originalUrl,
@@ -3303,25 +3320,27 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
         category: 'superadmin_auth'
       });
       emailErrorMsg = (err && err.message) || 'send_failed';
+    } finally {
+      inviteClient.release();
     }
   }
 
   if (!emailOk) {
     // Doctor record is already saved — do NOT roll back. Surface a clear
-    // failure to the superadmin so they can retry via the manual
-    // reset-link tool. Never include the token in the response or logs.
+    // failure to the superadmin so they can retry from the doctor's page.
+    // Never include the token in the response or logs.
     // THEME8-LINT-EXEMPT-HELPER: downstream diagnostic — the originating
-    // error is already captured by the wrapped catch at the email-send call
-    // site above (context='superadmin.doctor_approve_email'). This line is
-    // a human-readable summary including the masked email for stdout triage;
+    // error is already captured by the wrapped catch at the send call site
+    // above (context='superadmin.doctor_create_welcome'). This line is a
+    // human-readable summary including the masked email for stdout triage;
     // duplicating to /ops/errors would create two rows for one event.
-    console.warn('[doctor-create] reset-email send failed for ' + email + ': ' + emailErrorMsg);
+    console.warn('[doctor-create] welcome-email send failed for ' + email + ': ' + emailErrorMsg);
     return res
       .status(200)
       .type('text/plain')
       .send(
-        'Doctor created for ' + email + ', but the password-setup email failed to send (' + emailErrorMsg + '). ' +
-        'Use the superadmin reset-link tool to retry, then return to /superadmin/doctors.'
+        'Doctor created for ' + email + ', but the welcome email was not sent (' + emailErrorMsg + '). ' +
+        'The record is saved — open /superadmin/doctors/' + newDoctorId + ' and use "Resend welcome" to retry.'
       );
   }
 

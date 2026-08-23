@@ -34,7 +34,7 @@ try {
   const EXPECTED_INSERTS = {
     'src/routes/auth.js': 2,                       // createMagicLoginToken + forgot-password
     'src/services/admin_doctor_invite.js': 1,      // inviteDoctor
-    'src/routes/superadmin.js': 3,                 // create-doctor + _issueDoctorWelcomePayload + debug/reset-link
+    'src/routes/superadmin.js': 2,                 // _issueDoctorWelcomePayload + debug/reset-link (create-doctor now delegates to inviteDoctor)
     'src/routes/api/auth.js': 1,                   // mobile POST /forgot-password
   };
   for (const rel of Object.keys(EXPECTED_INSERTS)) {

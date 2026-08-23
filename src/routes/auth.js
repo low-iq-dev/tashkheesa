@@ -12,6 +12,7 @@ const rateLimit = require('express-rate-limit');
 const { sendOtpViaTwilio, verifyOtpCode } = require('../services/twilio_verify');
 const { validatePhoneE164 } = require('../validators/phone');
 const { resolveDoctorLanding } = require('../services/doctor_landing');
+const { buildDoctorWelcomePayload, WELCOME_EXPIRY_HOURS } = require('../services/doctor_welcome_payload');
 require('dotenv').config();
 
 const NODE_ENV = String(process.env.NODE_ENV || '').toLowerCase();
@@ -521,9 +522,22 @@ router.post('/forgot-password', welcomeTokenIpLimiter, async (req, res) => {
     : null;
 
   if (user) {
+    // AUDIT-2026-08-23 (P0-DOC-WELCOME): a doctor who has never set a password
+    // is not "resetting" anything — they are still onboarding, and the welcome
+    // email they were originally sent promised a 7-day link. Handing them the
+    // 2-hour generic reset email instead (the old behaviour, and the only
+    // recovery the expired-link page offered) both contradicted that promise and
+    // read as a different, wrong flow. Send them the SAME welcome email on the
+    // SAME WELCOME_EXPIRY_HOURS window, so the replacement matches what it
+    // replaces. Scoped to doctors on purpose: OTP-only PATIENTS also have no
+    // password_hash and must keep getting the ordinary reset email.
+    const isOnboardingDoctor = user.role === 'doctor'
+      && !String(user.password_hash || '').trim();
+    const expiryHours = isOnboardingDoctor ? WELCOME_EXPIRY_HOURS : RESET_EXPIRY_HOURS;
+
     const token = randomUUID();
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + RESET_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(now.getTime() + expiryHours * 60 * 60 * 1000).toISOString();
     // Remint invalidation (Package 2): a new reset link invalidates the prior
     // unused one, so an intercepted earlier link can't still be redeemed.
     await execute(
@@ -548,9 +562,57 @@ router.post('/forgot-password', welcomeTokenIpLimiter, async (req, res) => {
       console.log('[RESET LINK]', resetLink);
     }
 
-    // Fire-and-forget — failures are logged but never surface to the user
-    // (don't leak whether the email exists). The transporter is recipientGuard-wrapped.
-    if (resetLink) {
+    // AUDIT-2026-08-23 (P0-DOC-WELCOME): onboarding doctors get the shared v5
+    // welcome (template 'doctor_approved' -> doctor-welcome.hbs) built by the
+    // same pure builder every other welcome path uses, rather than the generic
+    // password-reset template. Its CTA is the magic-login link; the token minted
+    // above also still redeems on /reset-password/:token, so both spellings of
+    // the link in that email work.
+    //
+    // Gated on baseUrl for the same reason the reset branch is: with no
+    // configured origin the payload's links are null and the welcome would go
+    // out with its CTA silently missing. Send nothing instead.
+    if (isOnboardingDoctor && baseUrl) {
+      // The v5 template names the specialty in both languages and `users` only
+      // stores specialty_id. Best-effort: no specialty (or a failed lookup) just
+      // drops the {{#if specialtyAr}} clause, exactly as the LEFT JOIN in
+      // admin_doctor_invite.js does.
+      let spec = null;
+      if (user.specialty_id) {
+        try {
+          spec = await queryOne('SELECT name, name_ar FROM specialties WHERE id = $1', [user.specialty_id]);
+        } catch (e) {
+          spec = null;
+        }
+      }
+      const welcomePayload = buildDoctorWelcomePayload({
+        doctor: Object.assign({}, user, {
+          specialty_name: spec ? spec.name : null,
+          specialty_name_ar: spec ? spec.name_ar : null
+        }),
+        token,
+        baseUrl: baseUrl || null
+      });
+      // EMAIL ONLY — deliberately NOT the ['internal','email','whatsapp'] fan-out
+      // the operator-initiated welcome paths use. This endpoint is anonymous, so
+      // queueing WhatsApp here would let anyone who knows a doctor's address
+      // push WhatsApp messages at them.
+      try {
+        queueNotification({
+          toUserId: user.id,
+          channel: 'email',
+          template: 'doctor_approved',
+          status: 'queued',
+          response: welcomePayload,
+          dedupe_key: 'doctor_welcome_selfserve:' + user.id + ':' + Date.now(),
+          recipientLang: user.lang || null
+        });
+      } catch (e) {
+        console.error('[forgot-password] doctor welcome queue failed:', e && e.message);
+      }
+    } else if (resetLink) {
+      // Fire-and-forget — failures are logged but never surface to the user
+      // (don't leak whether the email exists). The transporter is recipientGuard-wrapped.
       sendEmail({
         to: user.email,
         subject: emailLang === 'ar' ? 'إعادة تعيين كلمة مرور تشخيصة' : 'Reset your Tashkheesa password',
