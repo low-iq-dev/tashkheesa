@@ -123,17 +123,59 @@ const RX_EVENT    = 'Prescription add-on selected';
  */
 async function alreadySettled(orderId, addonServiceId) {
   try {
+    // Review round 2 — status matters. Matching on mere row existence counted a
+    // doctor-requested 'pending' row (routes/doctor.js request-prescription) as
+    // a settled purchase, so a patient who HAD bought a prescription at
+    // checkout, then had the doctor separately request one, would see the
+    // outstanding card vanish and the settle action answer "already recorded".
+    // Their purchase would never be converted to 'paid', they would get no
+    // receipt event and no confirmation email, and the only recovery would be
+    // the rx-release action at the request's price rather than the one they
+    // actually paid.
+    //
+    // 'pending' is therefore explicitly NOT settled: settlement upgrades it.
     const row = await queryOne(
-      `SELECT 1 AS ok FROM order_addons
+      `SELECT status FROM order_addons
         WHERE order_id = $1 AND addon_service_id = $2 LIMIT 1`,
       [orderId, addonServiceId]
     );
-    return !!row;
+    if (!row) return false;
+    return String(row.status || '').toLowerCase() !== 'pending';
   } catch (_) {
     // Unreadable: assume NOT settled. A duplicate row is impossible (unique
     // index) and a duplicate confirmation email is a far better failure than a
     // doctor never being paid.
     return false;
+  }
+}
+
+/**
+ * Promote a doctor-requested 'pending' row to 'paid' at the price the patient
+ * was actually charged at checkout.
+ *
+ * onPurchase's upsert deliberately does NOT overwrite status (its DO UPDATE is
+ * a no-op so a real purchase can never be downgraded), which means it cannot
+ * lift a pending row on its own. Doing it here keeps the one-row-per-add-on
+ * invariant while making the checkout purchase win over the request, and
+ * re-stamps the price so the doctor's commission is computed off what the
+ * patient paid rather than off the quote the request was raised at.
+ */
+async function promotePendingToPaid(orderId, addonServiceId, priceEgp, priceAmount, currency) {
+  try {
+    return await queryOne(
+      `UPDATE order_addons
+          SET status = 'paid',
+              price_at_purchase_egp = $3,
+              price_at_purchase_amount = $4,
+              price_at_purchase_currency = $5,
+              metadata_json = COALESCE(metadata_json, '{}'::jsonb) || $6::jsonb
+        WHERE order_id = $1 AND addon_service_id = $2 AND status = 'pending'
+      RETURNING *`,
+      [orderId, addonServiceId, priceEgp, priceAmount, currency,
+       JSON.stringify({ promoted_from_request_at: new Date().toISOString() })]
+    );
+  } catch (_) {
+    return null;
   }
 }
 
@@ -272,28 +314,37 @@ async function settleAddonsForPaidOrder({
         // Ungated on purpose — see the note at the top of this file.
         const svc = getAddon('video_consult');
         const addonService = await queryOne(`SELECT * FROM addon_services WHERE id = 'video_consult'`);
-        if (svc && addonService) {
-          await svc.onPurchase({ order: ord, addonService, currency, chargedPriceEgp: videoEgp });
-        } else {
-          throw new Error('video_consult addon not registered/seeded');
-        }
+        if (!svc || !addonService) throw new Error('video_consult addon not registered/seeded');
+        await promotePendingToPaid(orderId, 'video_consult', videoEgp, videoPrice, currency);
+        const vRow = await svc.onPurchase({
+          order: ord, addonService, currency,
+          chargedPriceEgp: videoEgp,   // commission base, always EGP
+          chargedAmount: videoPrice    // what the patient paid, in `currency`
+        });
+        // Only the caller that actually inserted announces the purchase. Two
+        // concurrent settle presses both clear the pre-check and both land
+        // here; without this the patient gets two confirmation emails and the
+        // activity log two receipts for one sale.
+        const vIsNew = !vRow || vRow.inserted !== false;
 
         // The event is written AFTER the row exists, never before. It is the
         // human-readable receipt and prescription_access reads its sibling as
         // proof of purchase; writing it ahead of the money write meant a
         // failure left a receipt for a purchase that had not happened.
-        logOrderEvent({
-          orderId,
-          label: VIDEO_EVENT,
-          meta: JSON.stringify({
-            price: videoPrice, price_egp: videoEgp, currency,
-            price_source: priceSource, via, verified_by: verifiedBy
-          }),
-          actorUserId,
-          actorRole
-        });
+        if (vIsNew) {
+          logOrderEvent({
+            orderId,
+            label: VIDEO_EVENT,
+            meta: JSON.stringify({
+              price: videoPrice, price_egp: videoEgp, currency,
+              price_source: priceSource, via, verified_by: verifiedBy
+            }),
+            actorUserId,
+            actorRole
+          });
+        }
 
-        if (typeof notify === 'function') {
+        if (vIsNew && typeof notify === 'function') {
           Promise.resolve(notify({
             orderId,
             toUserId: ord.patient_id,
@@ -357,25 +408,30 @@ async function settleAddonsForPaidOrder({
 
         const svc = getAddon('prescription');
         const addonService = await queryOne(`SELECT * FROM addon_services WHERE id = 'prescription'`);
-        if (svc && addonService) {
-          await svc.onPurchase({ order: ord, addonService, currency, chargedPriceEgp: rxEgp });
-        } else {
-          throw new Error('prescription addon not registered/seeded');
-        }
+        if (!svc || !addonService) throw new Error('prescription addon not registered/seeded');
+        await promotePendingToPaid(orderId, 'prescription', rxEgp, rxPrice, currency);
+        const rRow = await svc.onPurchase({
+          order: ord, addonService, currency,
+          chargedPriceEgp: rxEgp,
+          chargedAmount: rxPrice
+        });
+        const rIsNew = !rRow || rRow.inserted !== false;
 
         // After the row, never before — see the video branch.
-        logOrderEvent({
-          orderId,
-          label: RX_EVENT,
-          meta: JSON.stringify({
-            price: rxPrice, price_egp: rxEgp, currency,
-            price_source: priceSource, via, verified_by: verifiedBy
-          }),
-          actorUserId,
-          actorRole
-        });
+        if (rIsNew) {
+          logOrderEvent({
+            orderId,
+            label: RX_EVENT,
+            meta: JSON.stringify({
+              price: rxPrice, price_egp: rxEgp, currency,
+              price_source: priceSource, via, verified_by: verifiedBy
+            }),
+            actorUserId,
+            actorRole
+          });
+        }
 
-        if (typeof notify === 'function') {
+        if (rIsNew && typeof notify === 'function') {
           Promise.resolve(notify({
             orderId,
             toUserId: ord.patient_id,

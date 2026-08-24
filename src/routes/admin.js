@@ -1420,6 +1420,7 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
     'rx:failed': { type: 'error', text: 'The prescription add-on action failed — nothing was changed.' },
     'addons:settled': { type: 'success', text: 'Add-ons settled. The patient has been confirmed and the doctor\u2019s commission will be credited when the case completes.' },
     'addons:none': { type: 'error', text: 'Nothing to settle \u2014 those add-ons are already recorded, or none were selected on this order.' },
+    'addons:terminal': { type: 'error', text: 'This case is cancelled, refunded or has a refund open, so its add-ons cannot be settled. Nothing was changed.' },
     'addons:failed': { type: 'error', text: 'Settling the add-ons failed. Check the activity log below \u2014 some may have gone through.' },
     'rx:coming_soon': { type: 'error', text: 'Digital prescriptions are not live yet — no add-on action was taken. Set PRESCRIPTIONS_ENABLED=true once the pricing row and mark-paid activation are fixed.' },
     'payment:failed': { type: 'error', text: 'Marking the payment failed — the order is unchanged.' },
@@ -1462,8 +1463,23 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
     const { parseSelectedAddons } = require('../services/order_pricing');
     const sel = parseSelectedAddons(order || {});
     const wanted = [];
-    if (sel.video_consultation) wanted.push({ id: 'video_consult', label: 'Video consultation', price: Number(sel.video_consultation_price) || null });
-    if (sel.prescription) wanted.push({ id: 'prescription', label: 'Digital prescription', price: Number(sel.prescription_price) || null });
+    // D2/D7 (review round 2): only offer to settle what can actually be
+    // delivered. Settlement itself refuses a disabled video add-on and would
+    // report `failed` every time, so offering the button would be a
+    // permanently failing action; and settling a frozen prescription would book
+    // 400 EGP and a 50% commission for a product the doctor is blocked from
+    // writing — exactly what services/prescriptions_flag.js exists to prevent.
+    let _videoOn = false;
+    try { _videoOn = require('../video_helpers').isVideoEnabled(); } catch (_) {}
+    let _rxFrozen = true;
+    try { _rxFrozen = require('../services/prescriptions_flag').prescriptionsComingSoon(); } catch (_) {}
+    const _ccy = String(order.locked_currency || order.currency || 'EGP').toUpperCase();
+    if (sel.video_consultation && _videoOn) {
+      wanted.push({ id: 'video_consult', label: 'Video consultation', price: Number(sel.video_consultation_price) || null, currency: _ccy });
+    }
+    if (sel.prescription && !_rxFrozen) {
+      wanted.push({ id: 'prescription', label: 'Digital prescription', price: Number(sel.prescription_price) || null, currency: _ccy });
+    }
     if (wanted.length) {
       const rows = await queryAll('SELECT addon_service_id FROM order_addons WHERE order_id = $1', [orderId]);
       const have = new Set((rows || []).map(function (r) { return String(r.addon_service_id); }));
@@ -1705,6 +1721,33 @@ router.post('/admin/orders/:id/settle-addons', requireAdmin, async (req, res) =>
     // the case itself is still owed.
     const ps = String(order.payment_status || '').toLowerCase();
     if (ps !== 'paid' && ps !== 'captured') return res.redirect(back + '?addons=none');
+
+    // D1 (review round 2) — and NOT on a case that is on its way back out.
+    //
+    // Cancelling a paid case leaves payment_status='paid' and opens a refund,
+    // so a payment_status check alone let an operator settle an add-on on a
+    // case being refunded: patient emailed a purchase confirmation for a
+    // cancelled case, doctor commission accrued on completion.
+    // services/refund_eligibility.js already treats these as terminal; this now
+    // agrees with it.
+    const cs = String(order.status || '').toLowerCase();
+    if (['cancelled', 'canceled', 'refunded', 'expired_unpaid'].indexOf(cs) !== -1) {
+      return res.redirect(back + '?addons=terminal');
+    }
+    let refundOpen = false;
+    try {
+      const r = await queryOne(
+        `SELECT 1 AS ok FROM refunds
+          WHERE order_id = $1 AND LOWER(COALESCE(status, '')) NOT IN ('denied','rejected','cancelled','closed')
+          LIMIT 1`,
+        [orderId]
+      );
+      refundOpen = !!r;
+    } catch (_) {
+      // No refunds table / unreadable: do not block on an unknown.
+      refundOpen = false;
+    }
+    if (refundOpen) return res.redirect(back + '?addons=terminal');
 
     const { settleAddonsForPaidOrder } = require('../services/addon_settlement');
     const outcome = await settleAddonsForPaidOrder({

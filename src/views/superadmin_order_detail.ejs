@@ -174,6 +174,17 @@
           <button type="submit" class="btn">Mark as unpaid</button>
         </form>
       <% } %>
+      <%# Add-ons the patient selected at checkout are NOT settled by mark-paid —
+          it has no amount field, and addons_json is written when the box is
+          ticked rather than when money moves, so it survives an abandoned
+          gateway. Settling them is a separate assertion by a human, and that
+          action lives on the admin order page. Without this link a superadmin
+          who marked the case paid here would see the "Add-ons awaiting
+          settlement" event in the log with nothing on this page to act on it.
+          See src/services/addon_settlement.js. %>
+      <div style="margin-top:14px;font-size:12.5px;">
+        <a href="/admin/orders/<%= _order.id %>">Add-ons, refunds and reassignment &rarr;</a>
+      </div>
     <%- include('partials/superadmin/c_card_close') %>
   </div>
 

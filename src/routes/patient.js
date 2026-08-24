@@ -3109,6 +3109,11 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
   const displayCcy = order.display_currency ? String(order.display_currency).toUpperCase() : 'EGP';
   const isIntlOrderRow = order.display_price != null && displayCcy !== 'EGP';
   let videoPriceLocal = videoPriceEgp, slaPriceLocal = slaPriceEgp, prescriptionPriceLocal = prescriptionPriceEgp;
+  // The currency each add-on figure is actually denominated in. For a domestic
+  // order these are simply the display currency; for an international order
+  // they are 'EGP' whenever addon_services has no override for that currency,
+  // which is 5 of the 9 the platform supports.
+  let videoPriceCurrency = displayCcy, prescriptionPriceCurrency = displayCcy;
   if (isIntlOrderRow) {
     // resolveAddonPrice falls back to base_price_egp for a currency that has
     // no override, and reports that by setting resolved.currency = 'EGP'.
@@ -3125,10 +3130,19 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
       return Number(resolved.amount) || 0;
     };
     const _videoLocal = _videoEnabledForPay ? await _resolveAddon('video_consult', displayCcy) : null;
-    videoPriceLocal = _localAmount(_videoLocal) != null ? _localAmount(_videoLocal) : videoPriceEgp;
+    const _videoLocalAmt = _localAmount(_videoLocal);
+    videoPriceLocal = _videoLocalAmt != null ? _videoLocalAmt : videoPriceEgp;
+    // Round 2 correction: falling back to the EGP figure is only half the fix.
+    // The view prints `+<price> <currencyCode>` with currencyCode = displayCcy,
+    // so an EGP amount under a KWD label still reads "+200 KWD" for a 200 EGP
+    // add-on. Carry the currency each price is actually IN, and let the view
+    // label it with that.
+    videoPriceCurrency = _videoLocalAmt != null ? displayCcy : 'EGP';
     slaPriceLocal = resolvePriceFromJson(service?.sla_24hr_prices_json, displayCcy, slaPriceEgp);
     const _rxLocal = _rxSoon() ? null : await _resolveAddon('prescription', displayCcy);
-    prescriptionPriceLocal = _localAmount(_rxLocal) != null ? _localAmount(_rxLocal) : prescriptionPriceEgp;
+    const _rxLocalAmt = _localAmount(_rxLocal);
+    prescriptionPriceLocal = _rxLocalAmt != null ? _rxLocalAmt : prescriptionPriceEgp;
+    prescriptionPriceCurrency = _rxLocalAmt != null ? displayCcy : 'EGP';
   }
 
   // What the view DISPLAYS (prominent): local for intl, EGP for domestic.
@@ -3172,6 +3186,8 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
     videoConsultationPriceEgp: videoPriceEgp,
     sla24hrPriceEgp: slaPriceEgp,
     prescriptionPriceEgp: prescriptionPriceEgp,
+    videoPriceCurrency,
+    prescriptionPriceCurrency,
     videoConsultationPrice,
     sla24hrPrice,
     prescriptionPrice,

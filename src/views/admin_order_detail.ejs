@@ -344,7 +344,18 @@
 
             <ul style="margin:0 0 12px;padding-inline-start:18px;font-size:13px;">
               <% outstanding.forEach(function (a) { %>
-                <li><%= a.label %><% if (a.price) { %> — selected at <%= a.price %><% } %></li>
+                <li>
+                  <%= a.label %>
+                  <% if (a.price) { %>
+                    — selected at <%= a.currency || 'EGP' %> <%= a.price %>
+                  <% } else { %>
+                    <%# No price on the order: the selection predates the price being
+                        persisted. Settlement will fall back to the addon_services
+                        catalogue, so say so rather than letting the operator assert
+                        payment for an unstated amount. %>
+                    — <span class="muted">no price recorded on the order; will settle at the catalogue price</span>
+                  <% } %>
+                </li>
               <% }); %>
             </ul>
 

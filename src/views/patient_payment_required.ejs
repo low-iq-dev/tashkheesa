@@ -220,7 +220,7 @@
                 </div>
               </div>
               <div style="font-weight:700;color:<%= __videoEnabled ? 'var(--primary)' : 'var(--ink-3)' %>;white-space:nowrap;font-size:14px;">
-                +<%= videoConsultationPrice %> <%= currencyCode %>
+                +<%= videoConsultationPrice %> <%= (typeof videoPriceCurrency !== 'undefined' && videoPriceCurrency) ? videoPriceCurrency : currencyCode %>
               </div>
             </label>
           <% } %>
@@ -238,7 +238,7 @@
                 </div>
               </div>
               <div style="font-weight:700;color:var(--primary);white-space:nowrap;font-size:14px;">
-                +<%= prescriptionPrice %> <%= currencyCode %>
+                +<%= prescriptionPrice %> <%= (typeof prescriptionPriceCurrency !== 'undefined' && prescriptionPriceCurrency) ? prescriptionPriceCurrency : currencyCode %>
               </div>
             </label>
           <% } %>
@@ -303,7 +303,7 @@
           <% if (hasVideoAddon) { %>
             <div id="addon-video-row" style="display:none;justify-content:space-between;align-items:baseline;font-size:13.5px;color:var(--ink);padding:6px 0;">
               <span><%= tt('Video consultation', 'Video consultation', 'استشارة فيديو') %></span>
-              <span id="addon-video-price">+<%= videoConsultationPrice %> <%= currencyCode %></span>
+              <span id="addon-video-price">+<%= videoConsultationPrice %> <%= (typeof videoPriceCurrency !== 'undefined' && videoPriceCurrency) ? videoPriceCurrency : currencyCode %></span>
             </div>
           <% } %>
           <% if (hasSlaAddon) { %>
@@ -315,7 +315,7 @@
           <% if (hasPrescriptionAddon) { %>
             <div id="addon-prescription-row" style="display:none;justify-content:space-between;align-items:baseline;font-size:13.5px;color:var(--ink);padding:6px 0;">
               <span><%= tt('Prescription', 'Prescription', 'الوصفة الطبية') %></span>
-              <span id="addon-prescription-price">+<%= prescriptionPrice %> <%= currencyCode %></span>
+              <span id="addon-prescription-price">+<%= prescriptionPrice %> <%= (typeof prescriptionPriceCurrency !== 'undefined' && prescriptionPriceCurrency) ? prescriptionPriceCurrency : currencyCode %></span>
             </div>
           <% } %>
 
