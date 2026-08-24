@@ -11,8 +11,7 @@ const { logErrorToDb } = require('../logger');
 const { requireRole } = require('../middleware');
 const paymobService = require('../services/paymob');
 const { sendCriticalAlert } = require('../critical-alert');
-const { getAddon, safeDualWrite } = require('../services/addons/registry');
-const { owedCentsForOrder, parseSelectedAddons } = require('../services/order_pricing');
+const { owedCentsForOrder } = require('../services/order_pricing');
 
 const router = express.Router();
 
@@ -28,19 +27,12 @@ function normalizeStatus(input) {
   return null;
 }
 
-// Resolve a per-currency add-on price from a JSON price map, mirroring the pay
-// page's resolvePriceFromJson (src/routes/patient.js) so the DISPLAYED price and
-// the CHARGED price come from the same source.
-function resolveAddonJsonPrice(jsonStr, currency, fallback) {
-  if (!jsonStr || jsonStr === '{}') return fallback || 0;
-  try {
-    const p = (typeof jsonStr === 'string') ? JSON.parse(jsonStr) : jsonStr;
-    const c = (currency || 'EGP').toUpperCase();
-    if (p[c] !== undefined && p[c] !== null) return Number(p[c]);
-    if (p.EGP !== undefined) return Number(p.EGP);
-    return fallback || 0;
-  } catch (_) { return fallback || 0; }
-}
+// Resolve a per-currency add-on price from a JSON price map.
+//
+// 2026-08-24: moved to services/addon_settlement.js and re-exported here, so
+// the webhook below and the two mark-paid handlers — which now settle add-ons
+// through the same module — cannot drift apart on how a price is read.
+const { settleAddonsForPaidOrder, resolveAddonJsonPrice } = require('../services/addon_settlement');
 
 // ── FIX 11: per-attempt-unique Paymob special_reference ────────────────────
 //
@@ -162,22 +154,45 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
     const wantRx = !!reqAddons.prescription;
     let videoPrice = 0;
     let rxPrice = 0;
+    // 2026-08-24 — ONE catalogue: addon_services, via resolveAddonPrice.
+    //
+    // There were three, and they disagreed. Video was priced from
+    // services.video_consultation_prices_json (populated on 0 of 168 rows).
+    // Prescription was priced from service_regional_prices('addon_prescription')
+    // — a row that does not exist in ANY of the nine currencies, so the lookup
+    // returned 0, `selRx = wantRx && rxPrice > 0` was false, and the add-on was
+    // silently dropped from every order. Meanwhile the doctor's commission was
+    // computed from a third catalogue, addon_services, at 200 / 400 EGP.
+    //
+    // So both add-ons were unsellable for the same reason, and had either been
+    // sellable, the patient would have been charged from one table while the
+    // doctor was paid a percentage of another. That is structurally negative
+    // margin the moment the two drift.
+    //
+    // addon_services IS the V2 registry: it holds the price, the per-currency
+    // overrides and the commission percentage in one row, and it is already
+    // what onPurchase snapshots. Reading it here makes the charged price and
+    // the commission basis the same number by construction rather than by
+    // coincidence. resolveAddonPrice falls back to base_price_egp for a
+    // currency with no override, and returns null for an inactive add-on.
     if (wantVideo || wantRx) {
-      const svc = order.service_id
-        ? await queryOne('SELECT video_consultation_prices_json, video_consultation_price FROM services WHERE id = $1', [order.service_id])
-        : null;
-      if (wantVideo && svc) {
+      const { resolveAddonPrice } = require('../services/addons/pricing');
+      if (wantVideo) {
         const { isVideoEnabled } = require('../video_helpers');
         if (isVideoEnabled()) {
-          videoPrice = resolveAddonJsonPrice(svc.video_consultation_prices_json, currency, Number(svc.video_consultation_price) || 0);
+          const resolved = await resolveAddonPrice('video_consult', currency);
+          videoPrice = resolved ? Number(resolved.amount) || 0 : 0;
         }
       }
       if (wantRx) {
-        const rxRow = await queryOne(
-          "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = $1 LIMIT 1",
-          [currency]
-        );
-        rxPrice = rxRow ? Number(rxRow.tashkheesa_price) || 0 : 0;
+        // The coming-soon hold is enforced here too, not only in the UI: a
+        // crafted POST must not be able to add a line the product cannot
+        // deliver. See src/services/prescriptions_flag.js.
+        const { prescriptionsComingSoon } = require('../services/prescriptions_flag');
+        if (!prescriptionsComingSoon()) {
+          const resolved = await resolveAddonPrice('prescription', currency);
+          rxPrice = resolved ? Number(resolved.amount) || 0 : 0;
+        }
       }
     }
     const selVideo = wantVideo && videoPrice > 0;
@@ -1415,193 +1430,25 @@ router.post('/callback', async (req, res, next) => {
     );
   } catch (_) {}
 
-  // === FULFILL SELECTED ADD-ONS FROM PERSISTED ORDER STATE ===
-  // B6 (launch audit): fulfillment is driven by the add-on selection persisted
-  // on the order at intention time (order_pricing.parseSelectedAddons reads
-  // orders.addons_json / video_consultation_selected), NOT by addon_* query
-  // params — those never reach this server-to-server webhook, so the old
-  // req.query branches were dead and add-ons went un-fulfilled (and, before
-  // create-intention priced them in, uncharged).
-  const selectedAddons = parseSelectedAddons(order);
-
-  if (selectedAddons.video_consultation) {
-    // Theme 9 Sub-issue C: kill-switch gate. If the video flag is off,
-    // skip the addon work entirely — the case payment itself still
-    // proceeds. The wizard EJS should also hide the checkbox so the
-    // patient never sees the option (separate edit).
-    const { isVideoEnabled } = require('../video_helpers');
-    if (!isVideoEnabled()) {
-      console.error('[payments] video_consultation addon requested but VIDEO_CONSULTATION_ENABLED=false');
-      logOrderEvent({
-        orderId,
-        label: 'video_consultation_addon_skipped_feature_disabled',
-        meta: '{}',
-        actorRole: 'system'
-      });
-    } else {
-    try {
-      // ── AUDIT 2026-08-17 (FIX 8): fulfilment must not destroy the price the
-      // patient was CHARGED.
-      //
-      // This block used to (a) re-read the FLAT services.video_consultation_price
-      // column, which is the legacy fallback — the patient was charged from
-      // services.video_consultation_prices_json via resolveAddonJsonPrice (see
-      // create-intention above) — and (b) REPLACE addons_json wholesale with
-      // {video_consultation:true}, wiping video_consultation_price AND any
-      // prescription lines that were charged in the same transaction. An 800 EGP
-      // add-on was persisted as 200, and the refund ceiling, the doctor's
-      // commission basis and the receipt all inherited the wrong number.
-      //
-      // Correct source of truth, in order: the price locked on the order at
-      // intention time (parseSelectedAddons reads addons_json, which
-      // create-intention wrote and which owedCentsForOrder then verified against
-      // what Paymob actually charged), then the prices_json catalogue, then the
-      // flat column. And MERGE with `||` instead of replacing — exactly what the
-      // prescription branch below already does correctly.
-      // `selectedAddons` above IS parseSelectedAddons(order) — reuse it rather
-      // than re-parsing, so fulfilment and the selection gate can never
-      // disagree about the same JSON.
-      let videoPrice = Number(selectedAddons.video_consultation_price) || 0;
-      let videoPriceSource = 'order.addons_json (charged)';
-      if (videoPrice <= 0) {
-        const service = await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id]);
-        const addonCurrency = String(order.currency || order.locked_currency || 'EGP').toUpperCase();
-        videoPrice = resolveAddonJsonPrice(
-          service && service.video_consultation_prices_json,
-          addonCurrency,
-          Number(service && service.video_consultation_price) || 0
-        );
-        videoPriceSource = 'services.video_consultation_prices_json (fallback)';
-      }
-
-      await execute(`
-        UPDATE orders
-        SET video_consultation_selected = true,
-            video_consultation_price = $1,
-            addons_json = COALESCE(addons_json, '{}')::jsonb || $2::jsonb
-        WHERE id = $3
-      `, [videoPrice, JSON.stringify({ video_consultation: true, video_consultation_price: videoPrice }), orderId]);
-
-      logOrderEvent({
-        orderId,
-        label: 'Video consultation add-on selected',
-        meta: JSON.stringify({ price: videoPrice, price_source: videoPriceSource }),
-        actorRole: 'system'
-      });
-
-      // ---- V2 dual-write (gated by ADDON_SYSTEM_V2) ----
-      // FIX 9: pass the CHARGED price through so the doctor's
-      // price_at_purchase_egp snapshot is taken from the same catalogue the
-      // patient paid from. Previously onPurchase snapshotted
-      // addon_services.base_price_egp while the patient paid from
-      // services.video_consultation_prices_json — two independent catalogues on
-      // the two halves of one transaction, i.e. structurally negative margin the
-      // moment they drift. commissionPct still comes from the registry.
-      await safeDualWrite('video_consult', 'onPurchase', orderId, async () => {
-        const svc = getAddon('video_consult');
-        const addonService = await queryOne(`SELECT * FROM addon_services WHERE id = 'video_consult'`);
-        if (!svc || !addonService) throw new Error('video_consult addon not registered/seeded');
-        const currency = order.locked_currency || 'EGP';
-        return svc.onPurchase({ order, addonService, currency, chargedPriceEgp: videoPrice });
-      });
-
-      // WhatsApp-via-OpenClaw rollout: confirmation notification for
-      // the video consultation add-on. Fires after V2 dual-write so
-      // appointment data (if any) is already persisted. Fire-and-forget —
-      // a failed notification must not block the payment callback.
-      queueMultiChannelNotification({
-        orderId,
-        toUserId: order.patient_id,
-        channels: ['email', 'whatsapp', 'internal'],
-        template: 'addon_purchased_video',
-        response: {
-          order_id: orderId,
-          caseReference: String(orderId).slice(0, 12).toUpperCase()
-        }
-      }).catch(function(err) {
-        console.error('[notify] addon_purchased_video queue failed:', err && err.message);
-      });
-    } catch (e) {
-      console.error('Error processing video consultation add-on:', e);
-      logOrderEvent({
-        orderId,
-        label: 'Video consultation add-on processing failed',
-        meta: JSON.stringify({ error: String(e && e.message ? e.message : e) }),
-        actorRole: 'system'
-      });
-    }
-    }  // end !isVideoEnabled() else branch (Theme 9 Sub-issue C)
-  }
-
-  // The sla_24hr addon branch that used to live here was DEAD CODE after
-  // migration 019b removed the addon — urgency / faster-turnaround is now
-  // expressed via urgency tiers on main-service pricing, not via an addon.
-  // See docs/architecture/addon_service_abstraction.md §0 and §1.2.
-  // Removed as part of Phase 3 dual-write wiring.
-
-  // === PRESCRIPTION SERVICE ADD-ON (from persisted selection, see above) ===
-  if (selectedAddons.prescription) {
-    try {
-      const rxCurrency = order.locked_currency || 'EGP';
-      // FIX 8 (same class): prefer the price LOCKED ON THE ORDER at intention
-      // time — that is the figure owedCentsForOrder verified against what
-      // Paymob actually charged. Re-reading the catalogue here would silently
-      // adopt any price change made between checkout and settlement. The
-      // catalogue read stays as the fallback for legacy rows whose addons_json
-      // carries no price.
-      let rxPrice = Number(selectedAddons.prescription_price) || 0;
-      if (rxPrice <= 0) {
-        const rxRow = await queryOne(
-          "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = $1 LIMIT 1",
-          [rxCurrency]
-        );
-        rxPrice = rxRow ? Number(rxRow.tashkheesa_price) || 350 : 350;
-      }
-
-      await execute(`
-        UPDATE orders
-        SET addons_json = COALESCE(addons_json, '{}')::jsonb || $1::jsonb
-        WHERE id = $2
-      `, [JSON.stringify({ prescription: true, prescription_price: rxPrice }), orderId]);
-
-      logOrderEvent({
-        orderId,
-        label: 'Prescription add-on selected',
-        meta: JSON.stringify({ price: rxPrice, currency: rxCurrency }),
-        actorRole: 'system'
-      });
-
-      // ---- V2 dual-write (gated by ADDON_SYSTEM_V2) ----
-      await safeDualWrite('prescription', 'onPurchase', orderId, async () => {
-        const svc = getAddon('prescription');
-        const addonService = await queryOne(`SELECT * FROM addon_services WHERE id = 'prescription'`);
-        if (!svc || !addonService) throw new Error('prescription addon not registered/seeded');
-        return svc.onPurchase({ order, addonService, currency: rxCurrency });
-      });
-
-      // Confirmation notification for the prescription add-on.
-      queueMultiChannelNotification({
-        orderId,
-        toUserId: order.patient_id,
-        channels: ['email', 'whatsapp', 'internal'],
-        template: 'addon_purchased_prescription',
-        response: {
-          order_id: orderId,
-          caseReference: String(orderId).slice(0, 12).toUpperCase()
-        }
-      }).catch(function(err) {
-        console.error('[notify] addon_purchased_prescription queue failed:', err && err.message);
-      });
-    } catch (e) {
-      console.error('Error processing prescription add-on:', e);
-      logOrderEvent({
-        orderId,
-        label: 'Prescription add-on processing failed',
-        meta: JSON.stringify({ error: String(e && e.message ? e.message : e) }),
-        actorRole: 'system'
-      });
-    }
-  }
+  // === SETTLE SELECTED ADD-ONS ===
+  //
+  // 2026-08-24: this used to be ~190 lines of inline video + prescription
+  // fulfilment, living only here. That was the bug: the Paymob webhook has
+  // never fired in production (the integration is rejecting the live
+  // credentials), so every paid order on the platform reached 'paid' through
+  // an operator pressing Mark paid — a path that ran none of this. Money
+  // collected, add-on never recorded, doctor never paid, patient never told.
+  //
+  // The logic now lives in services/addon_settlement.js and is called from all
+  // three payment entry points. It is idempotent, it never throws, and it logs
+  // every failure to the order's activity log.
+  await settleAddonsForPaidOrder({
+    orderId,
+    order,
+    via: 'paymob_webhook',
+    actorRole: 'system',
+    notify: queueMultiChannelNotification
+  });
 
   return res.json({ ok: true });
   } catch (err) {

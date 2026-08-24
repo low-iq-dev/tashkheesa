@@ -4025,6 +4025,41 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
     }
   }
 
+
+  // === SETTLE SELECTED ADD-ONS (2026-08-24) ===
+  //
+  // This handler used to take the money and stop. Everything the Paymob webhook
+  // does for add-ons — merging the settled price onto the order, writing the
+  // 'Prescription add-on selected' / 'Video consultation add-on selected'
+  // order_event, creating the order_addons row that onFulfill and onComplete
+  // key off, and confirming to the patient — happened only in that webhook.
+  // And the webhook has never fired in production: Paymob is rejecting the live
+  // credentials, so THIS is the path every paid order actually takes.
+  //
+  // Net effect before this call existed: a patient could buy a prescription,
+  // pay by transfer, have an operator mark the case paid, and the add-on would
+  // not exist anywhere the product could see it — the doctor's case page said
+  // "not purchased", nothing was deliverable, and no commission was ever owed.
+  // Money in, product silently absent.
+  //
+  // Never throws, and idempotent, so a retried mark-paid cannot double-settle
+  // or double-notify. Runs after markCasePaid so a settlement failure can never
+  // stop the case entering the assignment queue.
+  try {
+    const { settleAddonsForPaidOrder } = require('../services/addon_settlement');
+    await settleAddonsForPaidOrder({
+      orderId,
+      via: 'superadmin_mark_paid',
+      actorUserId: req.user && req.user.id,
+      actorRole: 'superadmin',
+      notify: queueMultiChannelNotification
+    });
+  } catch (e) {
+    // settleAddonsForPaidOrder logs its own failures to the order and swallows
+    // them; this catch only guards a require() or programmer error.
+    try { logErrorToDb(e, { context: 'superadmin.mark_paid.settle_addons', orderId }); } catch (_) {}
+  }
+
   // Audit log.
   try {
     logOrderEvent(

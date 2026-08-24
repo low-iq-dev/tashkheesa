@@ -25,9 +25,43 @@ class PrescriptionAddon extends AddonService {
   static type = 'prescription';
   static hasLifecycle = true;
 
-  async onPurchase({ order, addonService, currency = 'EGP' }) {
+  /**
+   * @param {object}  args.order
+   * @param {object}  args.addonService
+   * @param {string} [args.currency='EGP']
+   * @param {number} [args.chargedPriceEgp]  What the patient was ACTUALLY
+   *   charged for this add-on, in EGP.
+   */
+  async onPurchase({ order, addonService, currency = 'EGP', chargedPriceEgp = null }) {
     const resolved = await resolveAddonPrice(PrescriptionAddon.id, currency);
     if (!resolved) throw new Error('prescription addon is not active');
+
+    // 2026-08-24 — the same fix video_consult got in FIX 9, which this class
+    // never received. price_at_purchase_egp is the base onComplete computes
+    // the doctor's commission from, so it has to be what the PATIENT PAID.
+    //
+    // Prescription is charged from one catalogue and snapshotted from another:
+    // the checkout priced it from service_regional_prices('addon_prescription')
+    // with a hardcoded 350 fallback, while this row took
+    // addon_services.base_price_egp = 400. A 50% commission on a 350 sale paid
+    // the doctor 200. Worse, prescription_access.ensurePrescriptionAddonRow
+    // already got this right, so the purchase path and the backfill path
+    // computed different numbers for the same sale.
+    //
+    // The charged amount wins when the caller supplies one; the registry still
+    // owns commissionPct, which is a contract percentage rather than a
+    // per-order fact.
+    const charged = Number(chargedPriceEgp);
+    const usingCharged = Number.isFinite(charged) && charged > 0;
+    const priceEgp = usingCharged ? Math.round(charged) : resolved.baseEgp;
+    const priceAmount = usingCharged ? Math.round(charged) : resolved.amount;
+    if (!usingCharged) {
+      console.warn(
+        '[prescription.onPurchase] no chargedPriceEgp for order ' + order.id +
+        ' — falling back to addon_services.base_price_egp=' + resolved.baseEgp +
+        '; doctor commission may not match what the patient paid'
+      );
+    }
 
     const row = await queryOne(
       `INSERT INTO order_addons (
@@ -40,7 +74,7 @@ class PrescriptionAddon extends AddonService {
          SET status = order_addons.status
        RETURNING *`,
       [order.id, PrescriptionAddon.id,
-       resolved.baseEgp, resolved.currency, resolved.amount, resolved.commissionPct]
+       priceEgp, resolved.currency, priceAmount, resolved.commissionPct]
     );
     return row;
   }

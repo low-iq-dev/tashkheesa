@@ -1482,12 +1482,26 @@ router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), a
       });
     }
 
-    // ---- V2 dual-write (gated by ADDON_SYSTEM_V2) ----
-    // Fires onFulfill → onComplete on the matching order_addons row. If
-    // no row exists (e.g. flag was off at case-payment time so onPurchase
-    // never wrote the V2 row), this is a no-op. Errors are swallowed
-    // by safeDualWrite — V1 has already committed above.
-    await safeDualWrite('video_consult', 'onFulfill', appointment.order_id, async () => {
+    // ---- V2 fulfilment ----
+    //
+    // 2026-08-24: UNGATED. The comment thirty lines below already states the
+    // contract — "onFulfill above is a pure state transition (the call did
+    // happen) and stays ungated" — but it was wrapped in safeDualWrite anyway,
+    // which returns undefined without calling anything when ADDON_SYSTEM_V2 is
+    // not exactly 'true'. So the stated contract and the code disagreed, and
+    // routes/prescriptions.js makes the opposite (correct) call for the
+    // identical situation.
+    //
+    // It matters: onComplete hard-refuses anything not 'fulfilled', so a flag
+    // flip would leave a delivered video consult permanently unfulfilled and
+    // the doctor permanently unpaid for it — silently, since safeDualWrite
+    // swallows its own errors. The money guard that SHOULD gate the payout is
+    // allowAddonEarningsWrite below, and it still does.
+    //
+    // No row (add-on was never purchased) is still a no-op. The try/catch keeps
+    // a bookkeeping failure from breaking a call that has already ended.
+    try {
+      await (async () => {
       const existing = await queryOne(
         `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'video_consult'`,
         [appointment.order_id]
@@ -1502,7 +1516,11 @@ router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), a
         doctor,
         payload: { appointment_id: appointment.id, call_duration_seconds: result.durationSeconds }
       });
-    });
+      })();
+    } catch (e) {
+      console.error('[video] video_consult onFulfill failed for order',
+        appointment.order_id, e && e.message ? e.message : e);
+    }
     // FIX 1 — onComplete writes addon_earnings, i.e. a second doctor payout on
     // the SAME request. It carries the same guards as the doctor_earnings
     // insert above: owning doctor + paid appointment. onFulfill above is a
@@ -1782,8 +1800,14 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
       `, [`earn-${randomUUID()}`, appointment.doctor_id, appointment.id, grossAmount, commissionPct, earnedAmount, now]);
     }
 
-    // ---- V2 dual-write (gated by ADDON_SYSTEM_V2, patient-no-show variant) ----
-    await safeDualWrite('video_consult', 'onFulfill', appointment.order_id, async () => {
+    // ---- V2 fulfilment (patient-no-show variant) ----
+    // Ungated, for the same reason as the /api/video/end site above: this is a
+    // state transition about something that already happened, and gating it
+    // behind ADDON_SYSTEM_V2 would silently strand the add-on at 'paid' and
+    // block the doctor's commission forever. The payout gate is
+    // allowAddonEarningsWrite below, not this.
+    try {
+      await (async () => {
       const existing = await queryOne(
         `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'video_consult'`,
         [appointment.order_id]
@@ -1798,7 +1822,11 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
         doctor,
         payload: { appointment_id: appointment.id, call_duration_seconds: 0, no_show: 'patient' }
       });
-    });
+      })();
+    } catch (e) {
+      console.error('[video] video_consult onFulfill (no-show) failed for order',
+        appointment.order_id, e && e.message ? e.message : e);
+    }
     // Same money guard as the V1 insert above: onComplete writes addon_earnings.
     // AUDIT-2026-08-22 (M1 follow-up, P0): plus the add-on-funding gate — an
     // appointment paid for out of the case add-on has one revenue line, so the

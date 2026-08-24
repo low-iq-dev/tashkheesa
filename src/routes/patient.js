@@ -3073,13 +3073,27 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
 
   // EGP add-on prices — what the server CHARGES (create-intention resolves add-ons
   // at order.currency='EGP'). These drive the flow decision + the EGP disclosure.
-  const videoPriceEgp = resolvePriceFromJson(service?.video_consultation_prices_json, 'EGP', service?.video_consultation_price || 0);
+  // 2026-08-24 — priced from addon_services, the same catalogue
+  // create-intention now charges from and onPurchase snapshots. The pay page
+  // previously read services.video_consultation_prices_json for video and
+  // service_regional_prices('addon_prescription') for prescription: the first
+  // is populated on 0 of 168 services, the second has no row in any of the
+  // nine currencies. Both add-ons therefore priced at 0 and the checkbox never
+  // rendered — the add-ons were not "broken", they were invisible.
+  //
+  // resolveAddonPrice also returns null for an inactive add-on, so
+  // deactivating one in addon_services now removes it from the pay page too,
+  // which was never true of the old lookups.
+  const { resolveAddonPrice: _resolveAddon } = require('../services/addons/pricing');
+  const { prescriptionsComingSoon: _rxSoon } = require('../services/prescriptions_flag');
+  const _videoEgpResolved = await _resolveAddon('video_consult', 'EGP');
+  const videoPriceEgp = _videoEgpResolved ? Number(_videoEgpResolved.amount) || 0 : 0;
+  // sla_24hr is NOT an add-on — migration 019b removed it and turnaround is an
+  // urgency tier on main-service pricing. This value is kept only because the
+  // view still receives it; the checkbox it drove is hardcoded off.
   const slaPriceEgp = resolvePriceFromJson(service?.sla_24hr_prices_json, 'EGP', service?.sla_24hr_price || 100);
-  const prescriptionRowEgp = await queryOne(
-    "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = $1 LIMIT 1",
-    ['EGP']
-  );
-  const prescriptionPriceEgp = prescriptionRowEgp ? prescriptionRowEgp.tashkheesa_price : 0;
+  const _rxEgpResolved = _rxSoon() ? null : await _resolveAddon('prescription', 'EGP');
+  const prescriptionPriceEgp = _rxEgpResolved ? Number(_rxEgpResolved.amount) || 0 : 0;
 
   // LOCAL add-on prices — DISPLAY ONLY, for an international order (display_currency).
   // Domestic orders reuse the EGP figures (local === EGP), so the page is unchanged.
@@ -3087,13 +3101,11 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
   const isIntlOrderRow = order.display_price != null && displayCcy !== 'EGP';
   let videoPriceLocal = videoPriceEgp, slaPriceLocal = slaPriceEgp, prescriptionPriceLocal = prescriptionPriceEgp;
   if (isIntlOrderRow) {
-    videoPriceLocal = resolvePriceFromJson(service?.video_consultation_prices_json, displayCcy, videoPriceEgp);
+    const _videoLocal = await _resolveAddon('video_consult', displayCcy);
+    videoPriceLocal = _videoLocal ? Number(_videoLocal.amount) || 0 : videoPriceEgp;
     slaPriceLocal = resolvePriceFromJson(service?.sla_24hr_prices_json, displayCcy, slaPriceEgp);
-    const prescriptionRowLocal = await queryOne(
-      "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = $1 LIMIT 1",
-      [displayCcy]
-    );
-    prescriptionPriceLocal = prescriptionRowLocal ? prescriptionRowLocal.tashkheesa_price : prescriptionPriceEgp;
+    const _rxLocal = _rxSoon() ? null : await _resolveAddon('prescription', displayCcy);
+    prescriptionPriceLocal = _rxLocal ? Number(_rxLocal.amount) || 0 : prescriptionPriceEgp;
   }
 
   // What the view DISPLAYS (prominent): local for intl, EGP for domestic.
