@@ -62,6 +62,58 @@
 
   <form method="post" action="/portal/doctor/services">
     <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+
+    <%# ── Turnaround speeds (2026-08-24) ────────────────────────────────────
+        The control doctors never had. These three checkboxes existed only on
+        the signup form, with Standard pre-ticked, and nothing in the portal
+        could change them afterwards — so 25 of 31 doctors were listed for
+        Standard alone by default rather than by choice, and VIP and Urgent had
+        one doctor between them platform-wide.
+
+        It lives on the services page rather than the profile because it is the
+        same question the rest of this page asks: what work will you take. And
+        the tier chosen decides the deadline, so it belongs beside the services
+        whose SLA hours are listed right below.
+
+        Saving stamps users.sla_tiers_confirmed_at, which dismisses the banner
+        — whatever they choose. Confirming is the point, not the answer. %>
+    <div class="v2-card" id="turnaround" style="margin-block-end:12px;<% if (typeof tiersUnconfirmed !== 'undefined' && tiersUnconfirmed) { %>border-inline-start:3px solid var(--v2-brand);<% } %>">
+      <div class="v2-card__header">
+        <div class="v2-card__title"><%= tt('Turnaround speeds you accept', 'Turnaround speeds you accept', 'سرعات التسليم التي تقبلها') %></div>
+        <% if (typeof tiersUnconfirmed !== 'undefined' && tiersUnconfirmed) { %>
+          <span class="v2-pill v2-pill--teal"><%= tt('Needs your confirmation', 'Needs your confirmation', 'بحاجة لتأكيدك') %></span>
+        <% } %>
+      </div>
+      <div class="v2-card__body v2-card__body--flush">
+        <% var _tiers = (typeof slaTiers !== 'undefined' && Array.isArray(slaTiers)) ? slaTiers : ['standard'];
+           function _hasTier(t) { return _tiers.indexOf(t) !== -1; }
+           var _tierRows = [
+             { id: 'standard', label: tt('Standard', 'Standard', 'قياسي'),  hours: 48, pill: 'neutral',
+               note: tt('48 hours from the moment you accept.', '48 hours from the moment you accept.', '٤٨ ساعة من لحظة قبولك للحالة.') },
+             { id: 'vip',      label: tt('VIP', 'VIP', 'VIP'),             hours: 18, pill: 'brass',
+               note: tt('18 hours. The patient pays a surcharge, which is refunded if the deadline is missed.', '18 hours. The patient pays a surcharge, which is refunded if the deadline is missed.', '١٨ ساعة. يدفع المريض رسوماً إضافية تُرد إذا تأخر التسليم.') },
+             { id: 'urgent',   label: tt('Urgent', 'Urgent', 'عاجل'),       hours: 4,  pill: 'red',
+               note: tt('4 hours, 7am–7pm Cairo time. Only tick this if you can genuinely turn a case round same-day.', '4 hours, 7am–7pm Cairo time. Only tick this if you can genuinely turn a case round same-day.', '٤ ساعات، من ٧ صباحاً حتى ٧ مساءً بتوقيت القاهرة. اختر هذا فقط إذا كان بإمكانك فعلاً إنجاز الحالة في نفس اليوم.') }
+           ];
+        %>
+        <% _tierRows.forEach(function(t){ %>
+          <label class="v2-check-row">
+            <input type="checkbox" class="v2-check-row__box" name="sla_tiers" value="<%= t.id %>" <%= _hasTier(t.id) ? 'checked' : '' %> />
+            <span class="v2-check-row__main">
+              <span class="v2-check-row__name">
+                <span class="v2-pill v2-pill--<%= t.pill %>"><span class="v2-pill__dot"></span><%= t.label %></span>
+                <strong style="margin-inline-start:8px;" data-numeric><%= t.hours %><%= _isAr ? ' ساعة' : 'h' %></strong>
+              </span>
+              <span class="v2-check-row__meta"><%= t.note %></span>
+            </span>
+          </label>
+        <% }); %>
+      </div>
+      <div class="v2-card__body" style="border-block-start:1px solid var(--v2-rule);font-size:12px;color:var(--v2-muted);line-height:1.55;">
+        <%= tt('Unticking a speed only stops new cases at that speed reaching you — it never affects a case you have already accepted. You can change this whenever you like.', 'Unticking a speed only stops new cases at that speed reaching you — it never affects a case you have already accepted. You can change this whenever you like.', 'إلغاء اختيار سرعة يمنع فقط وصول حالات جديدة بتلك السرعة إليك، ولا يؤثر إطلاقاً على حالة قبلتها بالفعل. يمكنك تغيير هذا في أي وقت.') %>
+      </div>
+    </div>
+
     <% _groups.forEach(function(g){ %>
       <div class="v2-card" style="margin-block-end:12px;">
         <div class="v2-card__header">
@@ -97,7 +149,7 @@
     </div>
 
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-block-end:24px;">
-      <button type="submit" class="v2-btn v2-btn--primary"><%= tt('Save services', 'Save services', 'حفظ الخدمات') %></button>
+      <button type="submit" class="v2-btn v2-btn--primary"><%= tt('Save services and speeds', 'Save services and speeds', 'حفظ الخدمات والسرعات') %></button>
     </div>
   </form>
 <% } %>

@@ -130,6 +130,7 @@ const requireDoctor = requireRole('doctor');
 // Best-effort: errors are swallowed, banner stays off rather than breaking any page.
 router.use(async (req, res, next) => {
   try { await _computeServicesBannerFlag(req, res); } catch (_) { /* banner is best-effort; never break the page */ }
+  try { await _computeTierConfirmBannerFlag(req, res); } catch (_) { /* same */ }
   next();
 });
 
@@ -967,6 +968,22 @@ router.get('/portal/doctor/services', requireDoctor, async (req, res) => {
     loadDoctorServiceCatalog(client, { doctorId, specialtyId })
   );
 
+  // Turnaround tiers. Read here rather than in the catalog loader because they
+  // live on users, not on the service join, and because the confirmation state
+  // drives both the banner and the highlight on the card.
+  let slaTiers = ['standard'];
+  let tiersUnconfirmed = false;
+  try {
+    const t = await queryOne(
+      'SELECT sla_tiers_supported, sla_tiers_confirmed_at FROM users WHERE id = $1',
+      [doctorId]
+    );
+    if (t) {
+      slaTiers = readDoctorTiers(t.sla_tiers_supported);
+      tiersUnconfirmed = !t.sla_tiers_confirmed_at;
+    }
+  } catch (_) { /* best-effort: the page still renders with Standard ticked */ }
+
   assertRenderableView('portal_doctor_services');
   return res.render('portal_doctor_services', {
     portalFrame: true,
@@ -987,6 +1004,8 @@ router.get('/portal/doctor/services', requireDoctor, async (req, res) => {
     error: null,
     warning: null,
     confirmEmpty: false,
+    slaTiers,
+    tiersUnconfirmed,
     success: req.query.success || null
   });
 });
@@ -1007,6 +1026,25 @@ router.post('/portal/doctor/services', requireDoctor, async (req, res) => {
   else if (!Array.isArray(ticked)) ticked = [ticked];
   ticked = ticked.map((x) => String(x)).filter(Boolean);
   const confirmEmpty = String(req.body && req.body.confirm_empty || '') === '1';
+
+  // Turnaround tiers (2026-08-24). Same shape as service_ids: array, single
+  // string, or absent.
+  //
+  // Absent means every box was unticked, which is a real choice — but it cannot
+  // mean "no tiers", because a doctor with an empty tier list is invisible to
+  // assignment at every speed and would simply stop receiving work with no
+  // explanation. Standard is the floor: unticking everything drops you to
+  // Standard-only, which is what the pre-089 default was anyway.
+  //
+  // Whitelisted against DOCTOR_SLA_TIERS, so a crafted POST cannot write a
+  // value the assignment gate has never heard of and silently strand the
+  // doctor — the exact failure 'priority' caused for every VIP order.
+  let tiersPosted = req.body ? req.body.sla_tiers : undefined;
+  if (tiersPosted == null) tiersPosted = [];
+  else if (!Array.isArray(tiersPosted)) tiersPosted = [tiersPosted];
+  const tierSet = new Set(tiersPosted.map((x) => String(x).trim().toLowerCase()));
+  let slaTiers = DOCTOR_SLA_TIERS.filter((t) => tierSet.has(t));
+  if (!slaTiers.length) slaTiers = ['standard'];
 
   async function rerender(opts) {
     let specialtyName = '', specialtyNameAr = null, subSpecialties = [];
@@ -1036,7 +1074,10 @@ router.post('/portal/doctor/services', requireDoctor, async (req, res) => {
       title: isAr ? 'خدماتي' : 'My Services', user: req.user, lang, isAr,
       nextPath: '/portal/doctor/services', canonicalUrl: '/portal/doctor/services',
       groups: cat.groups, isEmpty: !!cat.isEmpty, subSpecialties, specialtyName, specialtyNameAr,
-      error: opts.error || null, warning: opts.warning || null, confirmEmpty
+      error: opts.error || null, warning: opts.warning || null, confirmEmpty,
+      // Reflect what they just ticked, not what is in the DB — a rejected save
+      // must not silently revert the tier choice they were making.
+      slaTiers, tiersUnconfirmed: true
     });
   }
 
@@ -1072,7 +1113,20 @@ router.post('/portal/doctor/services', requireDoctor, async (req, res) => {
         );
       }
       // Any explicit save (incl. confirmed-empty) marks onboarding complete.
-      await client.query('UPDATE users SET onboarding_complete = true WHERE id = $1', [doctorId]);
+      //
+      // The same save records the turnaround tiers and stamps
+      // sla_tiers_confirmed_at, which is what dismisses the reconfirmation
+      // banner — whether the doctor kept all three or dropped back to Standard.
+      // Written in THIS transaction so a doctor can never end up with their
+      // services saved and their tiers not, or vice versa.
+      await client.query(
+        `UPDATE users
+            SET onboarding_complete    = true,
+                sla_tiers_supported    = $2::jsonb,
+                sla_tiers_confirmed_at = NOW()
+          WHERE id = $1`,
+        [doctorId, JSON.stringify(slaTiers)]
+      );
       // Re-sync coming_soon in the SAME txn (contract: resyncComingSoon(client)).
       await resyncComingSoon(client);
       return true;
@@ -1305,6 +1359,64 @@ async function _computeServicesBannerFlag(req, res) {
     res.locals.doctorServicesBanner = await shouldLandOnServices(row);
   } catch (_) {
     res.locals.doctorServicesBanner = false;
+  }
+}
+
+// Turnaround tiers a doctor may hold, in display order. Mirrors
+// ALLOWED_SLA_TIERS in src/validators/doctor_signup.js and tierSpellings() in
+// src/auto_assign.js — if a tier is ever added, all three change together.
+const DOCTOR_SLA_TIERS = ['standard', 'vip', 'urgent'];
+
+// Read users.sla_tiers_supported defensively: it is jsonb, but older rows and
+// some clients have stored it as a JSON string, and NULL means "standard only"
+// everywhere else in the codebase.
+function readDoctorTiers(raw) {
+  let arr = raw;
+  if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch (_) { arr = null; } }
+  if (!Array.isArray(arr)) return ['standard'];
+  const seen = arr.map((x) => String(x).toLowerCase());
+  const out = DOCTOR_SLA_TIERS.filter((t) => seen.includes(t));
+  // A legacy row carrying only the retired 'priority' spelling still means VIP.
+  if (!out.includes('vip') && (seen.includes('priority') || seen.includes('fast_track'))) out.push('vip');
+  return out.length ? out : ['standard'];
+}
+
+// 2026-08-24 — the turnaround-tier reconfirmation nudge.
+//
+// Migration 089 opened Standard, VIP and Urgent to every assignable doctor,
+// because 25 of 31 sat at Standard alone and that was never a considered
+// choice: the tier checkboxes appeared once, on the signup form, with Standard
+// pre-ticked — and there was nowhere in the portal to change them afterwards.
+// The default became the answer, permanently, and the platform ended up selling
+// an 18-hour tier one doctor could serve.
+//
+// Opening them without asking would be worse than the problem, so 089 also
+// clears users.sla_tiers_confirmed_at and this banner runs until the doctor
+// gives an affirmative answer on the services page. Saving there stamps the
+// column and the banner stops — whether they keep all three or drop back to
+// Standard. Confirming is the point, not the answer they give.
+//
+// Same shape as the services nudge above: one query per request, best-effort,
+// suppressed on the page it points at, and never a hard gate.
+async function _computeTierConfirmBannerFlag(req, res) {
+  res.locals.doctorTierBanner = false;
+  try {
+    if (req.originalUrl && req.originalUrl.startsWith('/portal/doctor/services')) return;
+    if (!req.user || String(req.user.role).toLowerCase() !== 'doctor' || !req.user.id) return;
+    const row = await queryOne(
+      `SELECT sla_tiers_confirmed_at, is_active, is_paused, pending_approval
+         FROM users WHERE id = $1`,
+      [String(req.user.id)]
+    );
+    if (!row) return;
+    // Don't nag someone who cannot be assigned anything anyway — a paused or
+    // pending doctor has nothing to confirm and no cases to receive.
+    if (row.is_active === false || row.is_paused === true || row.pending_approval === true) return;
+    res.locals.doctorTierBanner = !row.sla_tiers_confirmed_at;
+  } catch (_) {
+    // Fail to OFF. A banner that cannot resolve its own condition should stay
+    // quiet rather than follow a doctor around every page of the portal.
+    res.locals.doctorTierBanner = false;
   }
 }
 
