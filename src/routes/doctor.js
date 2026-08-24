@@ -2127,6 +2127,11 @@ const canAccept =
       en: 'The prescription add-on has no price configured, so the request could not be raised. This is a platform issue — please tell support.',
       ar: 'لا يوجد سعر مُهيّأ لخدمة الروشتة، لذا تعذّر إرسال الطلب. هذه مشكلة في المنصة — يرجى إبلاغ الدعم.'
     },
+    coming_soon: {
+      ok: false,
+      en: 'Digital prescriptions are not live yet, so a request cannot be raised. The feature is coming — nothing is expected of you on this case.',
+      ar: 'خدمة الروشتة الرقمية غير مفعّلة بعد، لذا لا يمكن إرسال طلب. الخدمة قادمة قريباً — ولا يُطلب منك شيء بخصوص هذه الحالة.'
+    },
     failed: {
       ok: false,
       en: 'The prescription request could not be sent. Nothing was changed — please try again.',
@@ -2684,6 +2689,13 @@ router.post('/portal/doctor/case/:caseId/request-prescription', requireDoctor, a
   if (!caseId || !doctorId) return res.redirect('/portal/doctor/dashboard');
 
   try {
+    // Coming soon (2026-08-24): no requests either. Raising one would put an
+    // operator on to collecting money for a product that cannot yet be
+    // delivered, which is the one outcome the pill exists to prevent.
+    if (require('../services/prescriptions_flag').prescriptionsComingSoon()) {
+      return res.redirect(backTo('coming_soon'));
+    }
+
     // Ownership: only the doctor who accepted this case may request an add-on
     // on it, and only once they have actually accepted. Mirrors the guard on
     // /api/orders/:orderId/addons/:addonServiceId/fulfill (AUDIT-P0-7).

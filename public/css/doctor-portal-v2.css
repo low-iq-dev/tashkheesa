@@ -2036,3 +2036,100 @@ body.doctor-theme.portal-v2 .v2-rx__form {
   align-items: flex-start;
 }
 body.doctor-theme.portal-v2 .v2-rx__form .v2-field__textarea { inline-size: 100%; }
+
+/* ═══════════════════════════════════════
+   Pills  (2026-08-24)
+
+   Ziad: "for the button redesign you think we can add coloured pills too
+   cause i felt like that was missing".
+
+   .v2-chip already existed but only in five muted variants, all used for
+   status, and the brief read flat because everything on it was ink-on-white.
+   Pills are the smaller, denser sibling: same token palette, but sized for
+   sitting inside a spec grid, a file row or a card header rather than next to
+   a page title.
+
+   Every variant is a background/foreground PAIR drawn from the same token
+   family, so contrast holds without hand-picking hex values — and adding a
+   colour later means adding one line, not inventing a new scale.
+   ═══════════════════════════════════════ */
+body.doctor-theme.portal-v2 .v2-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--v2-r-pill);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+body.doctor-theme.portal-v2 .v2-pill--teal    { background: var(--v2-brand-lt);   color: var(--v2-brand-dk); }
+body.doctor-theme.portal-v2 .v2-pill--brass   { background: var(--v2-accent-lt);  color: var(--v2-accent-dk); }
+body.doctor-theme.portal-v2 .v2-pill--green   { background: var(--v2-success-bg); color: var(--v2-success); }
+body.doctor-theme.portal-v2 .v2-pill--red     { background: var(--v2-danger-bg);  color: var(--v2-danger); }
+body.doctor-theme.portal-v2 .v2-pill--amber   { background: var(--v2-warn-bg);    color: var(--v2-warn); }
+body.doctor-theme.portal-v2 .v2-pill--info    { background: var(--v2-info-bg);    color: var(--v2-info); }
+body.doctor-theme.portal-v2 .v2-pill--neutral { background: var(--v2-surface-sunk); color: var(--v2-ink-soft); }
+body.doctor-theme.portal-v2 .v2-pill--soon    { background: var(--v2-accent-tint); color: var(--v2-accent-dk); }
+/* Outline variant for the file inventory — a row of eight solid pills reads as
+   noise, so these carry their colour on the border and the count only. */
+body.doctor-theme.portal-v2 .v2-pill--ghost {
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-rule-strong);
+  color: var(--v2-ink-2);
+  font-family: var(--v2-font-mono);
+  font-weight: 600;
+}
+body.doctor-theme.portal-v2 .v2-pill--ghost b { color: var(--v2-accent-dk); font-weight: 700; }
+/* A 6px dot that takes the pill's own colour — used to key the "Why you got
+   this case" rows so the eye can group them without extra text. */
+body.doctor-theme.portal-v2 .v2-pill__dot {
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* A card that is present but deliberately inert. Muted ground, dashed edge —
+   reads as "there, not yet" rather than "broken" or "you missed a step". */
+body.doctor-theme.portal-v2 .v2-card--soon {
+  background: var(--v2-surface-tint);
+  border-style: dashed;
+  border-color: var(--v2-rule-strong);
+  box-shadow: none;
+}
+body.doctor-theme.portal-v2 .v2-rx__glyph--soon {
+  background: var(--v2-surface-sunk);
+  color: var(--v2-muted);
+}
+body.doctor-theme.portal-v2 .v2-card--soon .v2-rx__title { color: var(--v2-ink-soft); }
+
+/* Spec grid cells key their label with a colour bar so the brief scans as a
+   set of facts rather than a wall of small caps. */
+body.doctor-theme.portal-v2 .v2-brief__spec--keyed {
+  border-inline-start: 3px solid var(--v2-rule-strong);
+}
+body.doctor-theme.portal-v2 .v2-brief__spec--key-teal  { border-inline-start-color: var(--v2-brand); }
+body.doctor-theme.portal-v2 .v2-brief__spec--key-brass { border-inline-start-color: var(--v2-accent); }
+body.doctor-theme.portal-v2 .v2-brief__spec--key-red   { border-inline-start-color: var(--v2-danger); }
+body.doctor-theme.portal-v2 .v2-brief__spec--key-amber { border-inline-start-color: var(--v2-warn); }
+body.doctor-theme.portal-v2 .v2-brief__spec--key-info  { border-inline-start-color: var(--v2-info); }
+
+/* Coming-soon marker on a doctor nav entry (2026-08-24). Sits where the alert
+   count would, in brass so it never reads as an unread badge. */
+body.doctor-theme.portal-v2 .v2-nav-soon {
+  margin-inline-start: auto;
+  background: rgba(242, 228, 199, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(242, 228, 199, 0.28);
+  color: #F2E4C7;
+  padding: 1px 8px;
+  border-radius: var(--v2-r-pill);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}

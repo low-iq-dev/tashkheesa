@@ -18,6 +18,11 @@
   var _rx = (typeof prescriptionAddon !== 'undefined' && prescriptionAddon) ? prescriptionAddon : null;
   var _rxUrl = (typeof prescriptionRequestUrl !== 'undefined' && prescriptionRequestUrl) ? String(prescriptionRequestUrl) : '';
   var _rxFlash = (typeof rxFlash !== 'undefined' && rxFlash) ? rxFlash : null;
+  /* Prescriptions are held back — see src/services/prescriptions_flag.js.
+     The card stays VISIBLE so a doctor expecting the feature sees it coming
+     rather than a hole, but every action on it is inert. Set from res.locals
+     in server.js so all thirteen prescription surfaces flip together. */
+  var _rxSoon = (typeof prescriptionsComingSoon !== 'undefined') ? !!prescriptionsComingSoon : true;
 
   /* AUDIT-2026-08-23 (C1) — the real review window, in hours, off the case.
      The template used to print a hardcoded "24h" here; orders.sla_hours is
@@ -107,6 +112,10 @@
      files and of what kind — without a single filename, which is where
      patient identity tends to leak (scans are routinely named after the
      patient). Counting by extension gives "2 × JPG" and nothing more. */
+  /* Colour key for the urgency tier — the same red / brass / neutral the
+     header chip uses, so the brief and the chip agree at a glance. */
+  var _tierColour = (_tierKey === 'urgent') ? 'red' : (_tierKey === 'vip' ? 'brass' : 'teal');
+
   var _fileKinds = (function(){
     var m = {}, order = [];
     _files.forEach(function(f) {
@@ -294,7 +303,7 @@
           when the add-on is actually payable, i.e. exactly when the doctor
           can legitimately act on it. Every other state is handled by the
           Prescription card below, which explains itself. %>
-      <% if (_canView && _order && _order.id && _rx && _rx.canWrite && !_rx.hasPrescription) { %>
+      <% if (!_rxSoon && _canView && _order && _order.id && _rx && _rx.canWrite && !_rx.hasPrescription) { %>
         <div style="margin-block-start:14px;display:flex;gap:8px;flex-wrap:wrap;">
           <a href="/portal/doctor/case/<%= _orderIdEnc %>/prescribe" class="v2-btn v2-btn--secondary v2-btn--sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -385,21 +394,23 @@
 
           <dl class="v2-brief__specs">
             <% if (_order && _order.service_name) { %>
-              <div class="v2-brief__spec"><dt><%= tt('Service', 'Service', 'الخدمة') %></dt><dd><%= _order.service_name %></dd></div>
+              <div class="v2-brief__spec v2-brief__spec--keyed v2-brief__spec--key-brass"><dt><%= tt('Service', 'Service', 'الخدمة') %></dt><dd><%= _order.service_name %></dd></div>
             <% } %>
             <% if (_order && (_order.specialty_name || _order.specialty_name_ar)) { %>
-              <div class="v2-brief__spec"><dt><%= tt('Specialty', 'Specialty', 'التخصص') %></dt><dd><%= _isAr && _order.specialty_name_ar ? _order.specialty_name_ar : _order.specialty_name %></dd></div>
+              <div class="v2-brief__spec v2-brief__spec--keyed v2-brief__spec--key-teal"><dt><%= tt('Specialty', 'Specialty', 'التخصص') %></dt><dd><%= _isAr && _order.specialty_name_ar ? _order.specialty_name_ar : _order.specialty_name %></dd></div>
             <% } %>
             <% if (_tierChip) { %>
-              <div class="v2-brief__spec"><dt><%= tt('Turnaround', 'Turnaround', 'مدة الإنجاز') %></dt><dd><%= _tierChip.label %></dd></div>
+              <%# The one spec that changes what a doctor should do, so it
+                  carries the tier's own colour rather than the shared grey. %>
+              <div class="v2-brief__spec v2-brief__spec--keyed v2-brief__spec--key-<%= _tierColour %>"><dt><%= tt('Turnaround', 'Turnaround', 'مدة الإنجاز') %></dt><dd><span class="v2-pill v2-pill--<%= _tierColour %>"><span class="v2-pill__dot"></span><%= _tierChip.label %></span></dd></div>
             <% } %>
             <% if (_order && _order.patient_age != null && _order.patient_age !== '') { %>
-              <div class="v2-brief__spec"><dt><%= tt('Patient', 'Patient', 'المريض') %></dt><dd data-numeric><%= _order.patient_age %><% if (_sexLabel) { %> · <%= _sexLabel %><% } %></dd></div>
+              <div class="v2-brief__spec v2-brief__spec--keyed v2-brief__spec--key-info"><dt><%= tt('Patient', 'Patient', 'المريض') %></dt><dd data-numeric><%= _order.patient_age %><% if (_sexLabel) { %> · <%= _sexLabel %><% } %></dd></div>
             <% } else if (_sexLabel) { %>
               <div class="v2-brief__spec"><dt><%= tt('Patient', 'Patient', 'المريض') %></dt><dd><%= _sexLabel %></dd></div>
             <% } %>
             <% if (_order && _order.report_language) { %>
-              <div class="v2-brief__spec"><dt><%= tt('Report language', 'Report language', 'لغة التقرير') %></dt><dd><%= String(_order.report_language).toLowerCase() === 'ar' ? tt('Arabic', 'Arabic', 'العربية') : (String(_order.report_language).toLowerCase() === 'en' ? tt('English', 'English', 'الإنجليزية') : _order.report_language) %></dd></div>
+              <div class="v2-brief__spec v2-brief__spec--keyed v2-brief__spec--key-info"><dt><%= tt('Report language', 'Report language', 'لغة التقرير') %></dt><dd><span class="v2-pill v2-pill--info"><%= String(_order.report_language).toLowerCase() === 'ar' ? tt('Arabic', 'Arabic', 'العربية') : (String(_order.report_language).toLowerCase() === 'en' ? tt('English', 'English', 'الإنجليزية') : _order.report_language) %></span></dd></div>
             <% } %>
             <% if (_order && _order.created_at_human) { %>
               <div class="v2-brief__spec"><dt><%= tt('Submitted', 'Submitted', 'تم التقديم') %></dt><dd><%= _order.created_at_human %></dd></div>
@@ -420,7 +431,7 @@
             <% if (_fileKinds.length) { %>
               <div class="v2-brief__filerow">
                 <% _fileKinds.forEach(function(k) { %>
-                  <span class="v2-brief__filepill"><b data-numeric><%= k.n %></b> × <%= k.ext %></span>
+                  <span class="v2-pill v2-pill--ghost"><b data-numeric><%= k.n %></b> × <%= k.ext %></span>
                 <% }); %>
               </div>
             <% } else { %>
@@ -492,33 +503,33 @@
         <div class="v2-card__body">
           <% if (_routing && _routing.listedForService && _routing.serviceName) { %>
             <div class="v2-intel-group">
-              <div class="v2-intel-group__label"><%= tt('Service match', 'Service match', 'تطابق الخدمة') %></div>
+              <div class="v2-intel-group__label"><span class="v2-pill v2-pill--green"><span class="v2-pill__dot"></span><%= tt('Service match', 'Service match', 'تطابق الخدمة') %></span></div>
               <div class="v2-intel-group__title"><%= _routing.serviceName %></div>
               <div class="v2-intel-group__sub"><%= tt('You are registered to review this service.', 'You are registered to review this service.', 'أنت مسجَّل لمراجعة هذه الخدمة.') %></div>
             </div>
           <% } %>
           <% if (_routing && (_routing.specialtyName || _routing.specialtyNameAr)) { %>
             <div class="v2-intel-group">
-              <div class="v2-intel-group__label"><%= tt('Specialty', 'Specialty', 'التخصص') %></div>
+              <div class="v2-intel-group__label"><span class="v2-pill v2-pill--teal"><span class="v2-pill__dot"></span><%= tt('Specialty', 'Specialty', 'التخصص') %></span></div>
               <div class="v2-intel-group__title"><%= _isAr && _routing.specialtyNameAr ? _routing.specialtyNameAr : _routing.specialtyName %></div>
             </div>
           <% } %>
           <% if (_routing && _routing.isReassignment) { %>
             <div class="v2-intel-group">
-              <div class="v2-intel-group__label"><%= tt('Routing', 'Routing', 'التوجيه') %></div>
+              <div class="v2-intel-group__label"><span class="v2-pill v2-pill--amber"><span class="v2-pill__dot"></span><%= tt('Routing', 'Routing', 'التوجيه') %></span></div>
               <div class="v2-intel-group__title"><%= tt('Reassigned to you', 'Reassigned to you', 'أُعيد إسنادها إليك') %></div>
               <div class="v2-intel-group__sub"><%= tt('This case was previously with another specialist.', 'This case was previously with another specialist.', 'كانت هذه الحالة مع استشاري آخر.') %></div>
             </div>
           <% } %>
           <% if (_routing && _routing.respondByHuman) { %>
             <div class="v2-intel-group">
-              <div class="v2-intel-group__label"><%= tt('Respond by', 'Respond by', 'الرد قبل') %></div>
+              <div class="v2-intel-group__label"><span class="v2-pill v2-pill--red"><span class="v2-pill__dot"></span><%= tt('Respond by', 'Respond by', 'الرد قبل') %></span></div>
               <div class="v2-intel-group__title"><%= _routing.respondByHuman %></div>
               <div class="v2-intel-group__sub"><%= tt('After this the case is offered to another specialist.', 'After this the case is offered to another specialist.', 'بعد هذا الموعد تُعرض الحالة على استشاري آخر.') %></div>
             </div>
           <% } else if (_routing && _routing.assignedAtHuman) { %>
             <div class="v2-intel-group">
-              <div class="v2-intel-group__label"><%= tt('Reached you', 'Reached you', 'وصلتك') %></div>
+              <div class="v2-intel-group__label"><span class="v2-pill v2-pill--neutral"><span class="v2-pill__dot"></span><%= tt('Reached you', 'Reached you', 'وصلتك') %></span></div>
               <div class="v2-intel-group__title"><%= _routing.assignedAtHuman %></div>
             </div>
           <% } %>
@@ -664,7 +675,33 @@
            The card now renders the add-on's actual state, and a doctor who
            believes one is indicated raises a request rather than writing it.
       -->
-      <% if (_rx && _rx.hasPrescription) { %>
+      <% if (_rxSoon) { %>
+        <%# ---- Prescriptions: coming soon (2026-08-24) ----
+            Visible but inert. Three things are unresolved and none of them
+            should be found by a real patient in launch week: there is no
+            addon_prescription row in service_regional_prices so the option
+            cannot be bought at all; /admin/orders/:id/mark-paid — the only
+            live payment path while Paymob is down — never activates add-ons;
+            and nothing has ever been sold, so no part of the lifecycle has
+            run against real money. Flip PRESCRIPTIONS_ENABLED=true when the
+            audit is done. %>
+        <div class="v2-card v2-card--soon">
+          <div class="v2-card__header">
+            <div class="v2-card__title"><%= tt('Prescription', 'Prescription', 'الوصفة الطبية') %></div>
+            <span class="v2-pill v2-pill--soon"><%= tt('Coming soon', 'Coming soon', 'قريباً') %></span>
+          </div>
+          <div class="v2-card__body v2-rx__body">
+            <div class="v2-rx__glyph v2-rx__glyph--soon" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            </div>
+            <div class="v2-rx__text">
+              <div class="v2-rx__title"><%= tt('Digital prescriptions are not live yet', 'Digital prescriptions are not live yet', 'الروشتة الرقمية غير مفعّلة بعد') %></div>
+              <div class="v2-rx__sub"><%= tt('When they launch, a prescription will be a paid add-on the patient buys — and you will be able to issue it from here. Nothing is expected of you on this case.', 'When they launch, a prescription will be a paid add-on the patient buys — and you will be able to issue it from here. Nothing is expected of you on this case.', 'عند إطلاقها ستكون الروشتة خدمة إضافية مدفوعة يشتريها المريض، وستتمكن من إصدارها من هنا. لا يُطلب منك شيء بخصوص هذه الحالة.') %></div>
+            </div>
+          </div>
+        </div>
+
+      <% } else if (_rx && _rx.hasPrescription) { %>
         <div class="v2-card v2-card--railed">
           <div class="v2-card__header">
             <div class="v2-card__title"><%= tt('Prescription', 'Prescription', 'الوصفة الطبية') %></div>

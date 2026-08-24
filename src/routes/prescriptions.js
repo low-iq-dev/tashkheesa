@@ -19,6 +19,7 @@ const { computeDoctorStreakCount } = require('./messaging');
 const { queryOne } = require('../pg');
 const { getAddon } = require('../services/addons/registry');
 const { resolvePrescriptionAccess, ensurePrescriptionAddonRow } = require('../services/addons/prescription_access');
+const { prescriptionsComingSoon } = require('../services/prescriptions_flag');
 
 // AUDIT-2026-08-23 (C4) — the paywall this route never had.
 //
@@ -60,6 +61,22 @@ router.get('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), async
       [caseId, doctorId], null
     );
     if (!order) return res.status(404).send(isAr ? 'الحالة غير موجودة' : 'Case not found');
+
+    // Coming soon (2026-08-24) — checked BEFORE the add-on gate, so a doctor
+    // who reaches this URL while the feature is held back gets "not live yet",
+    // not "the patient has not purchased one". Two different statements, and
+    // only one of them is true right now.
+    if (prescriptionsComingSoon()) {
+      return res.status(403).render('doctor_prescription_locked', {
+        cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+        portalFrame: true, portalRole: 'doctor', portalActive: 'prescriptions',
+        brand: 'Tashkheesa',
+        title: isAr ? 'الروشتة قريباً' : 'Prescriptions coming soon',
+        user: req.user, caseId: caseId,
+        addonStatus: null, comingSoon: true, requestUrl: null,
+        lang: lang, isAr: isAr
+      });
+    }
 
     // AUDIT-2026-08-23 (C4): no purchased add-on, no prescription form.
     var rxAccess = await resolvePrescriptionAccess(order);
@@ -162,6 +179,14 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), uplo
       [caseId, doctorId], null
     );
     if (!order) return res.status(404).send(isAr ? 'الحالة غير موجودة' : 'Case not found');
+
+    // Coming soon (2026-08-24), enforced on the write as well as the form —
+    // gating only the GET would leave the POST openly craftable.
+    if (prescriptionsComingSoon()) {
+      return res.status(403).send(isAr
+        ? 'خدمة الروشتة الرقمية غير مفعّلة بعد.'
+        : 'Digital prescriptions are not live yet.');
+    }
 
     // AUDIT-2026-08-23 (C4): enforced on the WRITE too, not only on the form.
     // Gating the GET alone would leave the POST openly craftable.

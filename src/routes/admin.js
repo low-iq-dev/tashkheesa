@@ -17,6 +17,7 @@ const { broadcastOrderToSpecialty } = require('../notify/broadcast');
 const { TEMPLATES } = require('../notify/templates');
 const { logErrorToDb } = require('../logger');
 const { resolvePrescriptionAccess } = require('../services/addons/prescription_access');
+const { prescriptionsComingSoon } = require('../services/prescriptions_flag');
 const { getDecryptedNationalId } = require('../services/national-id');
 // Shared assignment safety gate (spec §4.6) — the single source of truth for
 // "which doctors may legally receive a case". See services/doctor_eligibility.js.
@@ -1417,6 +1418,7 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
     'rx:declined': { type: 'success', text: 'Prescription request declined. The doctor cannot write one on this case.' },
     'rx:not_pending': { type: 'error', text: 'That prescription add-on is not awaiting payment — nothing was changed.' },
     'rx:failed': { type: 'error', text: 'The prescription add-on action failed — nothing was changed.' },
+    'rx:coming_soon': { type: 'error', text: 'Digital prescriptions are not live yet — no add-on action was taken. Set PRESCRIPTIONS_ENABLED=true once the pricing row and mark-paid activation are fixed.' },
     'payment:failed': { type: 'error', text: 'Marking the payment failed — the order is unchanged.' },
     'lifecycle:failed': {
       type: 'error',
@@ -1653,6 +1655,11 @@ router.post('/admin/orders/:id/prescription/notify-patient', requireAdmin, async
   const orderId = req.params.id;
   const back = '/admin/orders/' + encodeURIComponent(orderId);
   try {
+    // Held back for launch (2026-08-24) — see src/services/prescriptions_flag.js.
+    // Refused on the server, not only hidden in the view: releasing an add-on
+    // the doctor is currently blocked from writing would take a patient's money
+    // for something that cannot be delivered.
+    if (prescriptionsComingSoon()) return res.redirect(back + '?rx=coming_soon');
     const order = await queryOne('SELECT id, patient_id FROM orders_active WHERE id = $1', [orderId]);
     if (!order) return res.redirect('/admin');
     const addon = await loadPendingPrescription(orderId);
@@ -1698,6 +1705,11 @@ router.post('/admin/orders/:id/prescription/release', requireAdmin, async (req, 
   const orderId = req.params.id;
   const back = '/admin/orders/' + encodeURIComponent(orderId);
   try {
+    // Held back for launch (2026-08-24) — see src/services/prescriptions_flag.js.
+    // Refused on the server, not only hidden in the view: releasing an add-on
+    // the doctor is currently blocked from writing would take a patient's money
+    // for something that cannot be delivered.
+    if (prescriptionsComingSoon()) return res.redirect(back + '?rx=coming_soon');
     // d.name feeds the "Dr. {{doctorName}}" salutation and the subject line;
     // without it notification_worker's stripDrPrefix(undefined) renders "Dr. ,".
     const order = await queryOne(
@@ -1766,6 +1778,11 @@ router.post('/admin/orders/:id/prescription/decline', requireAdmin, async (req, 
   const orderId = req.params.id;
   const back = '/admin/orders/' + encodeURIComponent(orderId);
   try {
+    // Held back for launch (2026-08-24) — see src/services/prescriptions_flag.js.
+    // Refused on the server, not only hidden in the view: releasing an add-on
+    // the doctor is currently blocked from writing would take a patient's money
+    // for something that cannot be delivered.
+    if (prescriptionsComingSoon()) return res.redirect(back + '?rx=coming_soon');
     const updated = await queryOne(
       `UPDATE order_addons
           SET status = 'cancelled',

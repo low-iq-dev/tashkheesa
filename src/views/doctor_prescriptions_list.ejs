@@ -32,7 +32,34 @@
   topbarShowSearch: false
 }) %>
 
+<%
+  var _rxSoon = (typeof prescriptionsComingSoon !== 'undefined') ? !!prescriptionsComingSoon : true;
+%>
 <div class="v2-stack">
+
+  <% if (_rxSoon) { %>
+    <%# Coming soon (2026-08-24). The page stays reachable and keeps its real
+        shape — a doctor should be able to see what this will look like — but
+        the banner sits above it so nobody waits for an eligible case that
+        cannot arrive while the feature is off.
+        See src/services/prescriptions_flag.js. %>
+    <div class="v2-card v2-card--soon">
+      <div class="v2-card__body" style="display:flex;gap:14px;align-items:flex-start;">
+        <div class="v2-rx__glyph v2-rx__glyph--soon" aria-hidden="true" style="width:44px;height:44px;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>
+        </div>
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-block-end:5px;">
+            <span style="font-size:15px;font-weight:650;color:var(--v2-ink);"><%= tt('Digital prescriptions are not live yet', 'Digital prescriptions are not live yet', 'الروشتة الرقمية غير مفعّلة بعد') %></span>
+            <span class="v2-pill v2-pill--soon"><%= tt('Coming soon', 'Coming soon', 'قريباً') %></span>
+          </div>
+          <div style="font-size:13px;line-height:1.6;color:var(--v2-ink-2);">
+            <%= tt('When it launches, a prescription will be a paid add-on the patient buys, and cases that have one will appear below. Until then this list stays empty and nothing is expected of you.', 'When it launches, a prescription will be a paid add-on the patient buys, and cases that have one will appear below. Until then this list stays empty and nothing is expected of you.', 'عند إطلاقها ستكون الروشتة خدمة إضافية مدفوعة يشتريها المريض، وستظهر الحالات التي تشملها في الأسفل. حتى ذلك الحين تبقى هذه القائمة فارغة ولا يُطلب منك شيء.') %>
+          </div>
+        </div>
+      </div>
+    </div>
+  <% } %>
 
   <!-- ============== ELIGIBLE CASES (write a prescription) ============== -->
   <div class="v2-card">

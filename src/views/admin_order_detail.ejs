@@ -318,10 +318,15 @@
             const rxPrice = rx ? Number(rx.price_at_purchase_amount != null ? rx.price_at_purchase_amount : rx.price_at_purchase_egp) : null;
             const rxCurrency = rx ? String(rx.price_at_purchase_currency || 'EGP').toUpperCase() : 'EGP';
           %>
-          <% if (rx) { %>
+          <% const rxSoon = (typeof prescriptionsComingSoon === 'undefined') ? true : !!prescriptionsComingSoon; %>
+          <% if (rx || rxSoon) { %>
           <div class="admin-card" style="margin-top:20px;">
             <div class="card-header">
               <div class="card-title">Prescription add-on</div>
+              <% if (rxSoon) { %>
+                <span style="background:#F7EEDC;color:#8E6C2C;padding:2px 9px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;">Coming soon</span>
+              <% } %>
+              <% if (rx) { %>
               <span class="muted" style="font-size:12px;">
                 <%= rxStatus === 'pending' ? 'Awaiting payment' :
                     rxStatus === 'paid' ? 'Paid — doctor can write it' :
@@ -329,8 +334,10 @@
                     rxStatus === 'cancelled' ? 'Cancelled' :
                     rxStatus === 'refunded' ? 'Refunded' : String(rxStatus || '') %>
               </span>
+              <% } %>
             </div>
 
+            <% if (rx) { %>
             <dl style="margin:0 0 12px;display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px;">
               <% if (rxPrice) { %>
                 <dt class="muted">Price</dt><dd style="margin:0;"><%= rxCurrency %> <%= rxPrice %></dd>
@@ -345,8 +352,26 @@
                 <dt class="muted">Payment note</dt><dd style="margin:0;"><%= rxMeta.payment_note %></dd>
               <% } %>
             </dl>
+            <% } %>
 
-            <% if (rxStatus === 'pending') { %>
+            <% if (rxSoon) { %>
+              <%# Held back for launch (2026-08-24) — see
+                  src/services/prescriptions_flag.js. The card stays so ops can
+                  see the feature exists and see any row that predates the
+                  freeze, but the three actions are withdrawn: releasing an
+                  add-on the doctor cannot then write would strand a patient
+                  who had just paid. %>
+              <p class="muted" style="font-size:12px;margin:0;">
+                Digital prescriptions are not live yet, so there is nothing to release here.
+                Doctors cannot request or write one, and patients cannot buy one.
+                <% if (rx) { %>This row predates the freeze — leave it alone until the feature is switched on.<% } %>
+              </p>
+              <p class="muted" style="font-size:12px;margin:8px 0 0;">
+                Blocking: no <code>addon_prescription</code> row in <code>service_regional_prices</code> (so it cannot be
+                bought), and <code>mark-paid</code> does not activate add-ons (so a checkout purchase would stay locked
+                to the doctor). Set <code>PRESCRIPTIONS_ENABLED=true</code> once both are fixed.
+              </p>
+            <% } else if (rxStatus === 'pending') { %>
               <form method="POST" action="/admin/orders/<%= encodeURIComponent(order.id) %>/prescription/notify-patient" style="margin-bottom:12px;">
                 <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                 <button class="admin-btn admin-btn-outline" type="submit">Tell the patient it is recommended</button>

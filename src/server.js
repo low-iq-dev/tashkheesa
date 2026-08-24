@@ -597,6 +597,26 @@ app.use(function(req, res, next) {
   next();
 });
 
+// Prescriptions coming-soon flag, global to every render.
+//
+// Thirteen views mention prescriptions across the doctor portal, the patient
+// portal, both sidebars, the mobile tab bar and the more-sheet. Threading a
+// local through thirteen handlers is how you end up with one surface that
+// still says "Write prescription" after the rest have been labelled, so it is
+// set once here and every template reads the same value.
+// See src/services/prescriptions_flag.js for why the feature is held back.
+app.use(function(req, res, next) {
+  try {
+    var rxFlag = require('./services/prescriptions_flag');
+    res.locals.prescriptionsComingSoon = rxFlag.prescriptionsComingSoon();
+  } catch (_) {
+    // Fail to the SAFE side: if the flag module cannot be loaded, treat the
+    // feature as not ready rather than exposing an unaudited money path.
+    res.locals.prescriptionsComingSoon = true;
+  }
+  next();
+});
+
 // Attach user from JWT
 app.use(attachUser);
 app.use(function(req, res, next) {
