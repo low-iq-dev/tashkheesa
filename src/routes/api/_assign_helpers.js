@@ -54,17 +54,39 @@ function normalizeTier(raw) {
 }
 
 // ── /assign helpers (pure) ─────────────────────────────────────
-// Doctor sla_tiers_supported uses standard/priority/urgent; an order's tier is
-// standard/urgent/vip(/fast_track). Map for the ADVISORY tier flag (not a gate).
+// 2026-08-24 — accepts BOTH spellings of the middle tier.
+//
+// This used to translate the order's tier one way only: vip → 'priority',
+// because that is what users.sla_tiers_supported held. Migration 086
+// normalises the column to 'vip', which would have inverted the bug — a
+// freshly normalised doctor would stop matching here even though the
+// assignment gate matched them fine. And it was already broken in the other
+// direction before that: the doctor signup form has always POSTed 'vip'
+// (views/doctor_signup.ejs:326) and validators/doctor_signup.js rejects
+// 'priority' outright, so every doctor who signed up through the live form was
+// shown as NOT supporting a VIP case they were perfectly eligible for.
+//
+// Matching the synonym set rather than translating means the badge stays
+// correct whichever spelling a row happens to carry, before or after the
+// migration. Mirrors tierSpellings() in src/auto_assign.js — keep the two in
+// sync if a tier is ever added.
+const TIER_SPELLINGS = {
+  vip:        ['vip', 'priority', 'fast_track'],
+  fast_track: ['vip', 'priority', 'fast_track'],
+  priority:   ['vip', 'priority', 'fast_track'],
+  standard:   ['standard'],
+  urgent:     ['urgent']
+};
 function doctorSupportsTier(slaTiers, orderTier) {
-  const x = String(orderTier || 'standard').toLowerCase();
-  const want = x === 'vip' || x === 'fast_track' ? 'priority' : x;
+  const x = String(orderTier || 'standard').trim().toLowerCase() || 'standard';
+  const accepted = TIER_SPELLINGS[x] || [x];
   let arr = slaTiers;
   if (typeof arr === 'string') {
     try { arr = JSON.parse(arr); } catch (_) { arr = null; }
   }
   if (!Array.isArray(arr)) arr = ['standard'];
-  return arr.map((s) => String(s).toLowerCase()).includes(want);
+  const have = arr.map((s) => String(s).toLowerCase());
+  return accepted.some((want) => have.includes(want));
 }
 // Capacity is by tier: urgent cases count against max_active_cases_urgent.
 function capFor(doctor, orderTier) {

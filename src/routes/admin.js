@@ -1155,8 +1155,17 @@ router.get('/admin', requireAdmin, async (req, res) => {
   const monthRevenue = canSeeFinancials
     ? await safeGet("SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as total FROM orders_active WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at > date_trunc('month', NOW())", [], { total: 0 })
     : { total: 0 };
+  // 2026-08-24 — both payout ledgers. doctor_earnings holds the case fee and
+  // urgency uplift; addon_earnings holds video/prescription commissions, which
+  // services/earnings_writer.js deliberately keeps out of the first. Summing
+  // only doctor_earnings understated what the platform owes by every add-on
+  // ever sold, while the doctors' own earnings page counted both.
   const pendingPayouts = canSeeFinancials
-    ? await safeGet("SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'pending'", [], { total: 0 })
+    ? await safeGet(
+        `SELECT COALESCE((SELECT SUM(earned_amount) FROM doctor_earnings WHERE status = 'pending'), 0)
+              + COALESCE((SELECT SUM(earned_amount_egp) FROM addon_earnings WHERE status = 'pending'), 0)
+              AS total`,
+        [], { total: 0 })
     : { total: 0 };
   const refundsThisMonth = canSeeFinancials
     ? await safeGet("SELECT COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE refund_status = 'refunded' AND created_at > date_trunc('month', NOW())", [], { total: 0 })

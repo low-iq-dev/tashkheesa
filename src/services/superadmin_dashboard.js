@@ -542,10 +542,34 @@ async function getFinanceTabData({ range = '7d' } = {}) {
       // Payouts ledger (top 6 by owed)
       tableExists('doctor_earnings').then(exists => exists
         ? safeAll(
+            // 2026-08-24 — owed is now case earnings PLUS add-on earnings,
+            // broken out so an operator can see which is which.
+            //
+            // Add-on revenue is settled in a separate ledger: doctor_earnings
+            // holds the case fee and urgency uplift, addon_earnings holds the
+            // commission on video consults and prescriptions
+            // (services/earnings_writer.js excludes add-ons from the first by
+            // design). The doctor's own /portal/doctor/earnings page has always
+            // summed BOTH, while this figure summed only the first — so the
+            // number a doctor was shown and the number the platform believed it
+            // owed were different, and the gap grew with every add-on sold.
+            //
+            // The subquery form is deliberate: joining a second ledger onto the
+            // same GROUP BY would multiply the doctor_earnings rows by the
+            // addon_earnings rows and inflate both figures.
             `SELECT
                 u.id AS doctor_id,
                 COALESCE(u.name, '—') AS doctor_name,
-                COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) AS owed,
+                COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) AS owed_cases,
+                COALESCE((
+                  SELECT SUM(ae.earned_amount_egp) FROM addon_earnings ae
+                   WHERE ae.doctor_id = u.id AND ae.status = 'pending'
+                ), 0) AS owed_addons,
+                COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0)
+                  + COALESCE((
+                      SELECT SUM(ae.earned_amount_egp) FROM addon_earnings ae
+                       WHERE ae.doctor_id = u.id AND ae.status = 'pending'
+                    ), 0) AS owed,
                 COUNT(*) FILTER (WHERE de.created_at >= NOW() - INTERVAL '14 days') AS cycle_cases,
                 MAX(de.created_at) FILTER (WHERE de.status = 'paid') AS last_paid
              FROM users u
@@ -635,6 +659,11 @@ async function getFinanceTabData({ range = '7d' } = {}) {
         doctor: p.doctor_name,
         cases: Number(p.cycle_cases) || 0,
         owed: Number(p.owed) || 0,
+        // Split so the total can be read as a breakdown rather than one opaque
+        // figure — case fees settle in doctor_earnings, add-on commissions in
+        // addon_earnings, and only the sum matches what the doctor is shown.
+        owedCases: Number(p.owed_cases) || 0,
+        owedAddons: Number(p.owed_addons) || 0,
         lastPaid: p.last_paid ? new Date(p.last_paid).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }) : '—',
         next: 'next cycle'
       })),
@@ -687,6 +716,19 @@ async function getDoctorsTabData({ range = '7d' } = {}) {
             COALESCE(SUM(o.price), 0) AS rev,
             COALESCE(
               (SELECT SUM(earned_amount) FROM doctor_earnings de WHERE de.doctor_id = u.id AND de.status = 'pending'),
+              0
+            ) AS owed_cases,
+            COALESCE(
+              (SELECT SUM(ae.earned_amount_egp) FROM addon_earnings ae WHERE ae.doctor_id = u.id AND ae.status = 'pending'),
+              0
+            ) AS owed_addons,
+            -- Both ledgers, matching the total the doctor is shown on their own
+            -- earnings page. See the payouts query above.
+            COALESCE(
+              (SELECT SUM(earned_amount) FROM doctor_earnings de WHERE de.doctor_id = u.id AND de.status = 'pending'),
+              0
+            ) + COALESCE(
+              (SELECT SUM(ae.earned_amount_egp) FROM addon_earnings ae WHERE ae.doctor_id = u.id AND ae.status = 'pending'),
               0
             ) AS owed,
             (SELECT AVG(rating)::numeric(3,1) FROM reviews r WHERE r.doctor_id = u.id) AS rating
@@ -767,7 +809,9 @@ async function getDoctorsTabData({ range = '7d' } = {}) {
         sla: r.sla_hit == null ? null : Math.round(Number(r.sla_hit) * 100),
         rating: r.rating == null ? null : Number(r.rating),
         rev: Number(r.rev) || 0,
-        owed: Number(r.owed) || 0
+        owed: Number(r.owed) || 0,
+        owedCases: Number(r.owed_cases) || 0,
+        owedAddons: Number(r.owed_addons) || 0
       })),
       pipeline: [
         { stage: 'Pending approval', count: stageGroups.pending.length, items: stageGroups.pending.slice(0, 3).map(d => d.name + (d.specialty ? ` (${d.specialty})` : '')) },

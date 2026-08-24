@@ -14,6 +14,37 @@ var TERMINAL_STATUSES = ['completed', 'cancelled', 'canceled', 'rejected', 'refu
 var DEFAULT_TIER = 'standard';
 
 // ---------------------------------------------------------------------------
+// Tier vocabulary (2026-08-24).
+//
+// An order's urgency_tier is standard / vip / urgent. users.sla_tiers_supported
+// carried standard / **priority** / urgent, and this gate compared the two RAW
+// — so `["priority"] @> ["vip"]` was false for every doctor on the platform and
+// EVERY VIP order stranded in the manual queue, paid, with nobody notified.
+// Migration 086 normalises the column to 'vip'.
+//
+// This function still accepts both, for two reasons: the migration and the
+// deploy are not atomic, so there is a window where the old value is live
+// against new code; and a legacy row that escapes the rewrite should route
+// rather than silently fail. 'fast_track' is the pre-migration-031 spelling of
+// the same tier and is handled here for the same reason.
+//
+// Matching is `?|` (any of), not `@>` (contains all), so a doctor needs only
+// one of the accepted spellings.
+// ---------------------------------------------------------------------------
+var TIER_SYNONYMS = {
+  vip: ['vip', 'priority', 'fast_track'],
+  fast_track: ['vip', 'priority', 'fast_track'],
+  priority: ['vip', 'priority', 'fast_track'],
+  standard: ['standard'],
+  urgent: ['urgent']
+};
+
+function tierSpellings(tier) {
+  var t = String(tier || DEFAULT_TIER).trim().toLowerCase() || DEFAULT_TIER;
+  return TIER_SYNONYMS[t] || [t];
+}
+
+// ---------------------------------------------------------------------------
 // eligibleDoctorsFor({ specialtyId, tier, serviceId })
 // Returns active doctors who match the specialty AND opt into the given SLA
 // tier via users.sla_tiers_supported (JSONB array). NULL is treated as
@@ -26,7 +57,8 @@ async function eligibleDoctorsFor(opts) {
   var specialtyId = opts && opts.specialtyId;
   var serviceId   = opts && opts.serviceId;
   var tier = (opts && opts.tier) || DEFAULT_TIER;
-  var tierJson = JSON.stringify([tier]);
+  // Every accepted spelling of this tier — see TIER_SYNONYMS above.
+  var tierAny = tierSpellings(tier);
   // §4.6: onboarding gate + service-level matching. A NULL serviceId means the
   // caller couldn't resolve the order's service — fall back to specialty-only
   // (legacy) rather than matching zero doctors.
@@ -34,7 +66,7 @@ async function eligibleDoctorsFor(opts) {
     ? "  AND COALESCE(onboarding_complete, false) = true " +
       "  AND EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = users.id AND ds.service_id = $3) "
     : "";
-  var params = serviceId ? [specialtyId, tierJson, serviceId] : [specialtyId, tierJson];
+  var params = serviceId ? [specialtyId, tierAny, serviceId] : [specialtyId, tierAny];
   return await queryAll(
     "SELECT id, name FROM users " +
     "WHERE role = 'doctor' " +
@@ -42,7 +74,9 @@ async function eligibleDoctorsFor(opts) {
     "  AND COALESCE(is_paused, false) = false " +
     "  AND COALESCE(pending_approval, false) = false " +
     "  AND specialty_id = $1 " +
-    "  AND COALESCE(sla_tiers_supported, '[\"standard\"]'::jsonb) @> $2::jsonb " +
+    // `?|` = "contains any of these keys". $2 is a text[] of accepted
+    // spellings; @> with a single-element array could only ever match one.
+    "  AND COALESCE(sla_tiers_supported, '[\"standard\"]'::jsonb) ?| $2 " +
     serviceClause +
     "ORDER BY name ASC",
     params
@@ -335,6 +369,7 @@ async function autoAssignDoctor(orderId) {
 }
 
 module.exports = {
+  tierSpellings,
   autoAssignDoctor: autoAssignDoctor,
   isAutoAssignEnabled: isAutoAssignEnabled,
   eligibleDoctorsFor: eligibleDoctorsFor
