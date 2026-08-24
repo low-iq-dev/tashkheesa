@@ -1010,6 +1010,86 @@ router.get('/portal/doctor/services', requireDoctor, async (req, res) => {
   });
 });
 
+// POST /portal/doctor/turnaround — the doctor's own tier control.
+//
+// 2026-08-24. Its own route rather than a field on the services form, for two
+// reasons that only became clear on review:
+//
+//   * An empty-catalog doctor never sees the services form. Three Pediatrics
+//     doctors in production have no visible services in their specialty, so
+//     portal_doctor_services.ejs renders the "your services are being finalised"
+//     card and nothing else. With the checkboxes living inside that form they
+//     had no way to answer the reconfirmation prompt, and the banner — which
+//     migration 089 turns on for every assignable doctor — would have followed
+//     them around the portal forever with no dismiss. src/services/doctor_landing.js
+//     already excludes exactly these doctors from the services nudge for the
+//     same reason; this route is the equivalent escape hatch.
+//
+//   * Coupling the write to the services save made a read failure destructive.
+//     The GET's tier lookup falls back to ['standard'] on error, and the
+//     rendered checkboxes were the only input to the write — so one timed-out
+//     query rendered VIP and Urgent unticked and the doctor's next save
+//     silently dropped tiers they had never touched. A dedicated form can't be
+//     submitted by someone who was shown the wrong state for a different reason.
+//
+// Saving stamps sla_tiers_confirmed_at whatever the answer — keeping all three
+// or dropping to Standard both count as confirming. That is the point of the
+// prompt.
+router.post('/portal/doctor/turnaround', requireDoctor, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  const back = '/portal/doctor/services#turnaround';
+  if (!doctorId) return res.redirect('/portal/doctor/dashboard');
+
+  try {
+    // Same shape as service_ids: array, single string, or absent.
+    //
+    // Absent means every box was unticked, which is a real answer — but it
+    // cannot mean "no tiers": a doctor with an empty list is invisible to
+    // assignment at EVERY speed and would simply stop receiving work with no
+    // explanation. Standard is the floor, which is what the pre-089 default was.
+    let posted = req.body ? req.body.sla_tiers : undefined;
+    if (posted == null) posted = [];
+    else if (!Array.isArray(posted)) posted = [posted];
+    const wanted = new Set(posted.map((x) => String(x).trim().toLowerCase()));
+
+    // Whitelisted against DOCTOR_SLA_TIERS so a crafted POST cannot write a
+    // value the assignment gate has never heard of and silently strand the
+    // doctor — precisely how 'priority' stranded every VIP order.
+    let tiers = DOCTOR_SLA_TIERS.filter((t) => wanted.has(t));
+    if (!tiers.length) tiers = ['standard'];
+
+    await execute(
+      `UPDATE users
+          SET sla_tiers_supported    = $2::jsonb,
+              sla_tiers_confirmed_at = NOW()
+        WHERE id = $1 AND role = 'doctor'`,
+      [doctorId, JSON.stringify(tiers)]
+    );
+
+    const label = tiers
+      .map((t) => (t === 'vip' ? 'VIP' : t === 'urgent'
+        ? (isAr ? 'عاجل' : 'Urgent')
+        : (isAr ? 'قياسي' : 'Standard')))
+      .join(isAr ? ' و' : ', ');
+
+    return res.redirect(back.split('#')[0] + '?success=' + encodeURIComponent(
+      isAr ? ('تم الحفظ. أنت الآن مُدرج لـ: ' + label)
+           : ('Saved. You are now listed for: ' + label)
+    ) + '#turnaround');
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'doctor.turnaround_save', requestId: req.requestId,
+      userId: doctorId, url: req.originalUrl, method: req.method
+    });
+    return res.redirect(back.split('#')[0] + '?success=' + encodeURIComponent(
+      isAr ? 'تعذَّر حفظ سرعات التسليم. يرجى المحاولة مرة أخرى.'
+           : 'Could not save your turnaround speeds. Please try again.'
+    ) + '#turnaround');
+  }
+});
+
 // POST My Services — diff-save the doctor's confirmed services.
 // Server recomputes the allowed union from the DB (never trusts the client).
 // Zero ticked requires an explicit confirm_empty. On any explicit save we set
@@ -1027,26 +1107,25 @@ router.post('/portal/doctor/services', requireDoctor, async (req, res) => {
   ticked = ticked.map((x) => String(x)).filter(Boolean);
   const confirmEmpty = String(req.body && req.body.confirm_empty || '') === '1';
 
-  // Turnaround tiers (2026-08-24). Same shape as service_ids: array, single
-  // string, or absent.
-  //
-  // Absent means every box was unticked, which is a real choice — but it cannot
-  // mean "no tiers", because a doctor with an empty tier list is invisible to
-  // assignment at every speed and would simply stop receiving work with no
-  // explanation. Standard is the floor: unticking everything drops you to
-  // Standard-only, which is what the pre-089 default was anyway.
-  //
-  // Whitelisted against DOCTOR_SLA_TIERS, so a crafted POST cannot write a
-  // value the assignment gate has never heard of and silently strand the
-  // doctor — the exact failure 'priority' caused for every VIP order.
-  let tiersPosted = req.body ? req.body.sla_tiers : undefined;
-  if (tiersPosted == null) tiersPosted = [];
-  else if (!Array.isArray(tiersPosted)) tiersPosted = [tiersPosted];
-  const tierSet = new Set(tiersPosted.map((x) => String(x).trim().toLowerCase()));
-  let slaTiers = DOCTOR_SLA_TIERS.filter((t) => tierSet.has(t));
-  if (!slaTiers.length) slaTiers = ['standard'];
-
   async function rerender(opts) {
+    // The turnaround card is its own form and its own route, so a failed
+    // SERVICES save must redisplay the tiers AS STORED — not as this request
+    // saw them, and not with "Needs your confirmation" put back on a doctor who
+    // confirmed weeks ago. Read here rather than asking each of the three call
+    // sites to remember to pass it.
+    let _rrTiers = ['standard'];
+    let _rrUnconfirmed = false;
+    try {
+      const t = await queryOne(
+        'SELECT sla_tiers_supported, sla_tiers_confirmed_at FROM users WHERE id = $1',
+        [doctorId]
+      );
+      if (t) {
+        _rrTiers = readDoctorTiers(t.sla_tiers_supported);
+        _rrUnconfirmed = !t.sla_tiers_confirmed_at;
+      }
+    } catch (_) { /* best-effort; the services error is what matters here */ }
+
     let specialtyName = '', specialtyNameAr = null, subSpecialties = [];
     try {
       const ctx = await queryOne(
@@ -1075,9 +1154,8 @@ router.post('/portal/doctor/services', requireDoctor, async (req, res) => {
       nextPath: '/portal/doctor/services', canonicalUrl: '/portal/doctor/services',
       groups: cat.groups, isEmpty: !!cat.isEmpty, subSpecialties, specialtyName, specialtyNameAr,
       error: opts.error || null, warning: opts.warning || null, confirmEmpty,
-      // Reflect what they just ticked, not what is in the DB — a rejected save
-      // must not silently revert the tier choice they were making.
-      slaTiers, tiersUnconfirmed: true
+      slaTiers: _rrTiers,
+      tiersUnconfirmed: _rrUnconfirmed
     });
   }
 
@@ -1114,19 +1192,16 @@ router.post('/portal/doctor/services', requireDoctor, async (req, res) => {
       }
       // Any explicit save (incl. confirmed-empty) marks onboarding complete.
       //
-      // The same save records the turnaround tiers and stamps
-      // sla_tiers_confirmed_at, which is what dismisses the reconfirmation
-      // banner — whether the doctor kept all three or dropped back to Standard.
-      // Written in THIS transaction so a doctor can never end up with their
-      // services saved and their tiers not, or vice versa.
-      await client.query(
-        `UPDATE users
-            SET onboarding_complete    = true,
-                sla_tiers_supported    = $2::jsonb,
-                sla_tiers_confirmed_at = NOW()
-          WHERE id = $1`,
-        [doctorId, JSON.stringify(slaTiers)]
-      );
+      // Review round 2: this handler deliberately does NOT write
+      // sla_tiers_supported. The first version did, from checkboxes rendered
+      // higher up the same form, and that was two bugs at once. The tier read
+      // on GET is wrapped in a catch that falls back to ['standard'], so any
+      // transient failure of that one query rendered the boxes unticked and the
+      // doctor's next save silently, permanently dropped tiers they had never
+      // touched. And an empty-catalog doctor never sees this form at all, so
+      // the tiers had no reachable control for them. Turnaround now has its own
+      // form and its own route — see POST /portal/doctor/turnaround.
+      await client.query('UPDATE users SET onboarding_complete = true WHERE id = $1', [doctorId]);
       // Re-sync coming_soon in the SAME txn (contract: resyncComingSoon(client)).
       await resyncComingSoon(client);
       return true;

@@ -1257,7 +1257,15 @@ router.post('/doctor/signup', async (req, res) => {
            $14, $15, $16,
            $17, $18,
            $19::jsonb, $20::jsonb, $21::jsonb, $22::jsonb,
-           $23::jsonb,
+           -- 2026-08-24: sla_tiers_confirmed_at = the signup timestamp. The
+           -- signup form IS the doctor's affirmative answer about turnaround
+           -- speeds, so a new account must not inherit the reconfirmation
+           -- banner migration 089 raised for the existing cohort. Without this
+           -- every doctor approved after launch would be told "you are
+           -- currently listed for all three" when they hold only what they
+           -- ticked — typically Standard alone, which is the very default 089
+           -- exists to correct.
+           $23::jsonb, $26,
            pgp_sym_encrypt($24, $25),
            true, false, true,
            $26

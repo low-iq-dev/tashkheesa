@@ -2144,3 +2144,30 @@ body.doctor-theme.portal-v2 .v2-pill--strong {
   letter-spacing: 0.03em;
   box-shadow: inset 0 0 0 1px currentColor;
 }
+
+/* Nudge banners inside the topbar (2026-08-24).
+ *
+ * .v2-topbar is an unwrapped flex row, and both nudges are direct children of
+ * it — so without this they compete for horizontal space with the 28px page
+ * title and the search form. The services nudge got away with it because it is
+ * one short line; the tier nudge is a heading plus a full sentence plus a
+ * button, and after migration 089 every assignable doctor sees it, ~19 of them
+ * alongside the services nudge as well. Three blocks in one nowrap row crushes
+ * the title toward zero width.
+ *
+ * Forcing each nudge onto its own full-width line (and allowing the row to
+ * wrap) makes them behave as the banners they are drawn as, rather than as
+ * columns. `order: 1` keeps them BELOW the title/actions line regardless of
+ * where the include sits in the markup.
+ */
+body.doctor-theme.portal-v2 .v2-topbar { flex-wrap: wrap; }
+body.doctor-theme.portal-v2 .v2-topbar > .v2-services-nudge,
+body.doctor-theme.portal-v2 .v2-topbar > .v2-tier-nudge {
+  flex: 0 0 100%;
+  order: 1;
+}
+/* Scoped to `> .v2-topbar` on purpose: the dashboard includes both partials
+   outside the topbar, where they are ordinary block children and need no flex
+   sizing at all. inline-size:100% is the block default there. */
+body.doctor-theme.portal-v2 .v2-services-nudge,
+body.doctor-theme.portal-v2 .v2-tier-nudge { inline-size: 100%; }
