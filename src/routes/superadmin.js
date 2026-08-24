@@ -4026,38 +4026,48 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
   }
 
 
-  // === SETTLE SELECTED ADD-ONS (2026-08-24) ===
+  // === ADD-ONS: RECORD AS OUTSTANDING, DO NOT SETTLE (2026-08-24) ===
   //
-  // This handler used to take the money and stop. Everything the Paymob webhook
-  // does for add-ons — merging the settled price onto the order, writing the
-  // 'Prescription add-on selected' / 'Video consultation add-on selected'
-  // order_event, creating the order_addons row that onFulfill and onComplete
-  // key off, and confirming to the patient — happened only in that webhook.
-  // And the webhook has never fired in production: Paymob is rejecting the live
-  // credentials, so THIS is the path every paid order actually takes.
+  // Marking the base fee paid is NOT evidence that an add-on was paid for.
   //
-  // Net effect before this call existed: a patient could buy a prescription,
-  // pay by transfer, have an operator mark the case paid, and the add-on would
-  // not exist anywhere the product could see it — the doctor's case page said
-  // "not purchased", nothing was deliverable, and no commission was ever owed.
-  // Money in, product silently absent.
+  // This handler has no amount field anywhere in it — it records
+  // payment_method and payment_reference and nothing about how much arrived.
+  // orders.addons_json, meanwhile, is written when the patient TICKS the box at
+  // create-intention time, before any money moves, and survives an abandoned
+  // gateway. So "addons_json says video_consultation" plus "an operator pressed
+  // Mark paid" does not add up to "the patient paid for a video consultation" —
+  // and settling on that basis would email them a confirmation for something
+  // they never bought and accrue the doctor 85% of 200 EGP against nothing.
   //
-  // Never throws, and idempotent, so a retried mark-paid cannot double-settle
-  // or double-notify. Runs after markCasePaid so a settlement failure can never
-  // stop the case entering the assignment queue.
+  // An earlier draft of this change did exactly that. It is called out here
+  // because it reads like an obvious convenience and is not.
+  //
+  // Instead: flag it. The admin order page surfaces any selected-but-unsettled
+  // add-on with a separate Settle button — a human explicitly asserting that
+  // the money for THOSE LINES arrived, recorded against their user id.
   try {
-    const { settleAddonsForPaidOrder } = require('../services/addon_settlement');
-    await settleAddonsForPaidOrder({
-      orderId,
-      via: 'superadmin_mark_paid',
-      actorUserId: req.user && req.user.id,
-      actorRole: 'superadmin',
-      notify: queueMultiChannelNotification
-    });
+    const { parseSelectedAddons } = require('../services/order_pricing');
+    const _o = await queryOne('SELECT addons_json, video_consultation_selected FROM orders WHERE id = $1', [orderId]);
+    const _sel = parseSelectedAddons(_o || {});
+    const _pending = [];
+    if (_sel.video_consultation) _pending.push('video_consult');
+    if (_sel.prescription) _pending.push('prescription');
+    if (_pending.length) {
+      const _existing = await queryAll('SELECT addon_service_id FROM order_addons WHERE order_id = $1', [orderId]);
+      const _have = new Set((_existing || []).map(function (r) { return String(r.addon_service_id); }));
+      const _outstanding = _pending.filter(function (id) { return !_have.has(id); });
+      if (_outstanding.length) {
+        logOrderEvent({
+          orderId,
+          label: 'Add-ons awaiting settlement',
+          meta: JSON.stringify({ addons: _outstanding, reason: 'marked paid without amount verification', via: 'superadmin_mark_paid' }),
+          actorUserId: req.user && req.user.id,
+          actorRole: 'superadmin'
+        });
+      }
+    }
   } catch (e) {
-    // settleAddonsForPaidOrder logs its own failures to the order and swallows
-    // them; this catch only guards a require() or programmer error.
-    try { logErrorToDb(e, { context: 'superadmin.mark_paid.settle_addons', orderId }); } catch (_) {}
+    try { logErrorToDb(e, { context: 'superadmin.mark_paid.flag_addons', orderId }); } catch (_) {}
   }
 
   // Audit log.

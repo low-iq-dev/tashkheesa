@@ -1418,6 +1418,9 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
     'rx:declined': { type: 'success', text: 'Prescription request declined. The doctor cannot write one on this case.' },
     'rx:not_pending': { type: 'error', text: 'That prescription add-on is not awaiting payment — nothing was changed.' },
     'rx:failed': { type: 'error', text: 'The prescription add-on action failed — nothing was changed.' },
+    'addons:settled': { type: 'success', text: 'Add-ons settled. The patient has been confirmed and the doctor\u2019s commission will be credited when the case completes.' },
+    'addons:none': { type: 'error', text: 'Nothing to settle \u2014 those add-ons are already recorded, or none were selected on this order.' },
+    'addons:failed': { type: 'error', text: 'Settling the add-ons failed. Check the activity log below \u2014 some may have gone through.' },
     'rx:coming_soon': { type: 'error', text: 'Digital prescriptions are not live yet — no add-on action was taken. Set PRESCRIPTIONS_ENABLED=true once the pricing row and mark-paid activation are fixed.' },
     'payment:failed': { type: 'error', text: 'Marking the payment failed — the order is unchanged.' },
     'lifecycle:failed': {
@@ -1426,7 +1429,7 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
     }
   };
   const flashes = [];
-  for (const key of ['reassign', 'payment', 'lifecycle', 'rx']) {
+  for (const key of ['reassign', 'payment', 'lifecycle', 'rx', 'addons']) {
     const raw = req.query && req.query[key];
     if (!raw) continue;
     const hit = FLASH_CODES[key + ':' + String(raw)];
@@ -1448,6 +1451,28 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
   // order_addons row is written only through safeDualWrite, and (b) INNER
   // JOINed addon_services, so a renamed catalogue row would have hidden the
   // card entirely. Those are exactly the cases an operator most needs to see.
+  // Add-ons the patient SELECTED at checkout that have no order_addons row yet.
+  //
+  // These are the ones mark-paid deliberately refuses to settle, because
+  // marking the base fee paid says nothing about whether the add-on money
+  // arrived. Surfacing them here turns a silent gap into an explicit operator
+  // decision. See src/services/addon_settlement.js for the full contract.
+  let outstandingAddons = [];
+  try {
+    const { parseSelectedAddons } = require('../services/order_pricing');
+    const sel = parseSelectedAddons(order || {});
+    const wanted = [];
+    if (sel.video_consultation) wanted.push({ id: 'video_consult', label: 'Video consultation', price: Number(sel.video_consultation_price) || null });
+    if (sel.prescription) wanted.push({ id: 'prescription', label: 'Digital prescription', price: Number(sel.prescription_price) || null });
+    if (wanted.length) {
+      const rows = await queryAll('SELECT addon_service_id FROM order_addons WHERE order_id = $1', [orderId]);
+      const have = new Set((rows || []).map(function (r) { return String(r.addon_service_id); }));
+      outstandingAddons = wanted.filter(function (w) { return !have.has(w.id); });
+    }
+  } catch (_) {
+    outstandingAddons = [];
+  }
+
   let prescriptionAddon = null;
   try {
     const access = await resolvePrescriptionAccess(order);
@@ -1476,6 +1501,7 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
     flashes,
     additionalFilesRequest,
     prescriptionAddon,
+    outstandingAddons,
     portalFrame: true,
     portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'orders'
@@ -1650,6 +1676,55 @@ async function loadPendingPrescription(orderId) {
     [orderId]
   );
 }
+
+// POST /admin/orders/:id/settle-addons
+//
+// The operator half of the verification contract in
+// src/services/addon_settlement.js.
+//
+// mark-paid records that the base fee arrived. It cannot record that an add-on
+// arrived, because it has no amount field and orders.addons_json is written
+// when the patient ticks the box — before any money moves, and it survives an
+// abandoned gateway. Settling from mark-paid would confirm purchases to
+// patients who never made them and accrue doctor commissions against nothing
+// collected, which is precisely what an earlier draft did.
+//
+// So this is a separate, deliberate click. Pressing it is an operator saying
+// "I received the money for these specific lines", and their user id goes on
+// the record. That is the same standard the prescription release action already
+// holds itself to.
+router.post('/admin/orders/:id/settle-addons', requireAdmin, async (req, res) => {
+  const orderId = req.params.id;
+  const back = '/admin/orders/' + encodeURIComponent(orderId);
+  try {
+    const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
+    if (!order) return res.redirect('/admin');
+
+    // Only for an order whose payment is actually recorded. Settling an add-on
+    // on an unpaid case would be asserting money arrived for a line item while
+    // the case itself is still owed.
+    const ps = String(order.payment_status || '').toLowerCase();
+    if (ps !== 'paid' && ps !== 'captured') return res.redirect(back + '?addons=none');
+
+    const { settleAddonsForPaidOrder } = require('../services/addon_settlement');
+    const outcome = await settleAddonsForPaidOrder({
+      orderId,
+      order,
+      verifiedBy: 'operator_assertion',
+      via: 'admin_settle_addons',
+      actorUserId: req.user && req.user.id,
+      actorRole: (req.user && req.user.role) || 'admin',
+      notify: queueMultiChannelNotification
+    });
+
+    if (outcome.failed && outcome.failed.length) return res.redirect(back + '?addons=failed');
+    if (!outcome.settled || !outcome.settled.length) return res.redirect(back + '?addons=none');
+    return res.redirect(back + '?addons=settled');
+  } catch (err) {
+    logErrorToDb(err, { context: 'admin.settle_addons', orderId });
+    return res.redirect(back + '?addons=failed');
+  }
+});
 
 router.post('/admin/orders/:id/prescription/notify-patient', requireAdmin, async (req, res) => {
   const orderId = req.params.id;
@@ -1898,55 +1973,52 @@ router.post('/admin/orders/:id/mark-paid', requireAdmin, async (req, res) => {
           'markcasepaid_failed_admin'
         );
       } catch (_) {}
-      // Settle add-ons on this exit too. The money is taken, so the add-on is
-      // owed whether or not the case reached the assignment queue. See the
-      // fuller note on the success path below.
-      try {
-        const { settleAddonsForPaidOrder } = require('../services/addon_settlement');
-        await settleAddonsForPaidOrder({
-          orderId, via: 'admin_mark_paid',
-          actorUserId: req.user && req.user.id, actorRole: 'admin',
-          notify: queueMultiChannelNotification
-        });
-      } catch (e) {
-        try { logErrorToDb(e, { context: 'admin.mark_paid.settle_addons', orderId }); } catch (_) {}
-      }
       return res.redirect(`/admin/orders/${orderId}?payment=marked_paid&lifecycle=failed`);
     }
   }
 
-  // === SETTLE SELECTED ADD-ONS (2026-08-24) ===
+  // === ADD-ONS: RECORD AS OUTSTANDING, DO NOT SETTLE (2026-08-24) ===
   //
-  // This handler used to take the money and stop. Everything the Paymob webhook
-  // does for add-ons — merging the settled price onto the order, writing the
-  // 'Prescription add-on selected' / 'Video consultation add-on selected'
-  // order_event, creating the order_addons row that onFulfill and onComplete
-  // key off, and confirming to the patient — happened only in that webhook.
-  // And the webhook has never fired in production: Paymob is rejecting the live
-  // credentials, so THIS is the path every paid order actually takes.
+  // Marking the base fee paid is NOT evidence that an add-on was paid for.
   //
-  // Net effect before this call existed: a patient could buy a prescription,
-  // pay by transfer, have an operator mark the case paid, and the add-on would
-  // not exist anywhere the product could see it — the doctor's case page said
-  // "not purchased", nothing was deliverable, and no commission was ever owed.
-  // Money in, product silently absent.
+  // This handler has no amount field anywhere in it — it records
+  // payment_method and payment_reference and nothing about how much arrived.
+  // orders.addons_json, meanwhile, is written when the patient TICKS the box at
+  // create-intention time, before any money moves, and survives an abandoned
+  // gateway. So "addons_json says video_consultation" plus "an operator pressed
+  // Mark paid" does not add up to "the patient paid for a video consultation" —
+  // and settling on that basis would email them a confirmation for something
+  // they never bought and accrue the doctor 85% of 200 EGP against nothing.
   //
-  // Never throws, and idempotent, so a retried mark-paid cannot double-settle
-  // or double-notify. Runs after markCasePaid so a settlement failure can never
-  // stop the case entering the assignment queue.
+  // An earlier draft of this change did exactly that. It is called out here
+  // because it reads like an obvious convenience and is not.
+  //
+  // Instead: flag it. The admin order page surfaces any selected-but-unsettled
+  // add-on with a separate Settle button — a human explicitly asserting that
+  // the money for THOSE LINES arrived, recorded against their user id.
   try {
-    const { settleAddonsForPaidOrder } = require('../services/addon_settlement');
-    await settleAddonsForPaidOrder({
-      orderId,
-      via: 'admin_mark_paid',
-      actorUserId: req.user && req.user.id,
-      actorRole: 'admin',
-      notify: queueMultiChannelNotification
-    });
+    const { parseSelectedAddons } = require('../services/order_pricing');
+    const _o = await queryOne('SELECT addons_json, video_consultation_selected FROM orders WHERE id = $1', [orderId]);
+    const _sel = parseSelectedAddons(_o || {});
+    const _pending = [];
+    if (_sel.video_consultation) _pending.push('video_consult');
+    if (_sel.prescription) _pending.push('prescription');
+    if (_pending.length) {
+      const _existing = await queryAll('SELECT addon_service_id FROM order_addons WHERE order_id = $1', [orderId]);
+      const _have = new Set((_existing || []).map(function (r) { return String(r.addon_service_id); }));
+      const _outstanding = _pending.filter(function (id) { return !_have.has(id); });
+      if (_outstanding.length) {
+        logOrderEvent({
+          orderId,
+          label: 'Add-ons awaiting settlement',
+          meta: JSON.stringify({ addons: _outstanding, reason: 'marked paid without amount verification', via: 'admin_mark_paid' }),
+          actorUserId: req.user && req.user.id,
+          actorRole: 'admin'
+        });
+      }
+    }
   } catch (e) {
-    // settleAddonsForPaidOrder logs its own failures to the order and swallows
-    // them; this catch only guards a require() or programmer error.
-    try { logErrorToDb(e, { context: 'admin.mark_paid.settle_addons', orderId }); } catch (_) {}
+    try { logErrorToDb(e, { context: 'admin.mark_paid.flag_addons', orderId }); } catch (_) {}
   }
 
   return res.redirect(`/admin/orders/${orderId}?payment=marked_paid`);

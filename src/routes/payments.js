@@ -27,12 +27,15 @@ function normalizeStatus(input) {
   return null;
 }
 
-// Resolve a per-currency add-on price from a JSON price map.
+// Add-on settlement, shared with the operator-initiated path in routes/admin.js
+// and routes/superadmin.js so the three cannot drift apart.
 //
-// 2026-08-24: moved to services/addon_settlement.js and re-exported here, so
-// the webhook below and the two mark-paid handlers — which now settle add-ons
-// through the same module — cannot drift apart on how a price is read.
-const { settleAddonsForPaidOrder, resolveAddonJsonPrice } = require('../services/addon_settlement');
+// The per-currency JSON price reader that used to live here is gone: every
+// add-on price now resolves through services/addons/pricing.resolveAddonPrice
+// against the addon_services registry, which is also what onPurchase snapshots.
+// One catalogue, so the charged price and the commission basis are the same
+// number by construction.
+const { settleAddonsForPaidOrder } = require('../services/addon_settlement');
 
 // ── FIX 11: per-attempt-unique Paymob special_reference ────────────────────
 //
@@ -1442,9 +1445,16 @@ router.post('/callback', async (req, res, next) => {
   // The logic now lives in services/addon_settlement.js and is called from all
   // three payment entry points. It is idempotent, it never throws, and it logs
   // every failure to the order's activity log.
+  //
+  // 'gateway_amount_check' is claimable HERE and only here: this handler runs
+  // behind the HMAC check and the owedCentsForOrder comparison, so the amount
+  // the gateway captured has already been verified to cover base + add-ons.
+  // No operator path may claim it — see the verification contract in
+  // services/addon_settlement.js.
   await settleAddonsForPaidOrder({
     orderId,
     order,
+    verifiedBy: 'gateway_amount_check',
     via: 'paymob_webhook',
     actorRole: 'system',
     notify: queueMultiChannelNotification

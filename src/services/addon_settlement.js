@@ -41,30 +41,65 @@
 //
 //   2. It is idempotent by construction, because operators retry. Every write
 //      is either an ON CONFLICT DO NOTHING / DO UPDATE, a jsonb merge, or is
-//      guarded by an existence check on the order_event.
+//      guarded by an existence check on the order_addons ROW.
+//
+// ── The verification contract (added after review, 2026-08-24) ──────────────
+//
+// The first version of this module was called straight from mark-paid, and
+// that was wrong in a way worth spelling out, because it is easy to
+// reintroduce.
+//
+// services/addons/prescription_access.js treats the 'Prescription add-on
+// selected' order_event as its RECEIPT, and it is safe to do so for exactly
+// one reason: that line was only ever written inside the payment callback,
+// after the charged amount had been checked against owedCentsForOrder. Writing
+// the same line from mark-paid — a handler with no amount field anywhere in it
+// — keeps the marker and throws away the property that made it meaningful.
+//
+// The concrete cost: a patient ticks Video consultation, abandons the gateway,
+// bank-transfers the BASE FEE only, and an operator marks the case paid. The
+// add-on is recorded as bought, the patient is emailed a confirmation for it,
+// and onComplete later pays the doctor 85% of 200 EGP against nothing
+// collected. Prescription is worse at 50% of 400.
+//
+// So settlement now requires the caller to say HOW payment was established:
+//
+//   'gateway_amount_check'  the gateway confirmed an amount and
+//                           owedCentsForOrder verified it covers base + add-ons.
+//                           Only the Paymob callback may claim this.
+//   'operator_assertion'    a human is asserting they received the money for
+//                           these specific add-ons, and their user id is on the
+//                           record. This is a second, deliberate click — never
+//                           a side effect of marking the base fee paid.
+//
+// Anything else refuses and records the add-ons as awaiting settlement, which
+// the admin order page surfaces as an outstanding action.
 
 const { queryOne, execute } = require('../pg');
 const { logOrderEvent } = require('../audit');
 const { getAddon } = require('./addons/registry');
 const { parseSelectedAddons } = require('./order_pricing');
+const { resolveAddonPrice } = require('./addons/pricing');
 
 /**
- * Resolve a per-currency add-on price from a JSON price map.
+ * The EGP figure to stamp on order_addons.price_at_purchase_egp.
  *
- * Moved here from routes/payments.js so the webhook and the two mark-paid
- * paths cannot drift apart on how a price is read. Mirrors the pay page's
- * resolvePriceFromJson (routes/patient.js) so the DISPLAYED price and the
- * CHARGED price come from the same source.
+ * That column is what prescription.onComplete / video_consult.onComplete
+ * multiply by the commission percentage, so it has to be EGP. Passing a
+ * charged amount straight through — which the first version did — means a
+ * non-EGP order pays the doctor a percentage of a number in the wrong unit.
+ * services/addons/prescription_access.js already handled this correctly, so
+ * the purchase path and the backfill path disagreed: exactly the
+ * two-answers-to-one-question defect this whole change set out to remove.
+ *
+ * The charged amount IS the EGP amount when the order is in EGP. Otherwise the
+ * charged amount stays on price_at_purchase_amount with its own currency, and
+ * the EGP column takes the catalogue's EGP price.
  */
-function resolveAddonJsonPrice(jsonStr, currency, fallback) {
-  if (!jsonStr || jsonStr === '{}') return fallback || 0;
-  try {
-    const p = (typeof jsonStr === 'string') ? JSON.parse(jsonStr) : jsonStr;
-    const c = (currency || 'EGP').toUpperCase();
-    if (p[c] !== undefined && p[c] !== null) return Number(p[c]);
-    if (p.EGP !== undefined) return Number(p.EGP);
-    return fallback || 0;
-  } catch (_) { return fallback || 0; }
+async function toEgpAmount(addonServiceId, chargedAmount, currency) {
+  if (String(currency || 'EGP').toUpperCase() === 'EGP') return chargedAmount;
+  const egp = await resolveAddonPrice(addonServiceId, 'EGP');
+  return egp ? Number(egp.amount) || 0 : 0;
 }
 
 const VIDEO_EVENT = 'Video consultation add-on selected';
@@ -73,22 +108,31 @@ const RX_EVENT    = 'Prescription add-on selected';
 /**
  * Has this add-on already been settled on this order?
  *
- * The order_event is the marker rather than the order_addons row, because the
- * event is what prescription_access treats as the receipt and what a human
- * reads in the activity log. Checking it keeps a re-run from writing a second
- * line and re-sending the patient a second confirmation email.
+ * Keyed on the order_addons ROW, not on the order_event — a correction from
+ * review. The first version logged the event BEFORE calling onPurchase, so any
+ * failure in between (a transient DB error, or addon_services.is_active toggled
+ * off, which makes resolveAddonPrice return null and onPurchase throw) left the
+ * marker behind with no row. Every retry then short-circuited on the marker,
+ * the row was never created, onFulfill had nothing to fulfil, onComplete never
+ * ran, and the doctor was never paid — permanently, with no operator action
+ * that could recover it.
+ *
+ * The row is the thing that actually has to exist, so the row is what we check.
+ * It is also protected by a unique index on (order_id, addon_service_id), so
+ * the check and the write agree even under a double-click.
  */
-async function alreadySettled(orderId, label) {
+async function alreadySettled(orderId, addonServiceId) {
   try {
     const row = await queryOne(
-      `SELECT 1 AS ok FROM order_events WHERE order_id = $1 AND label = $2 LIMIT 1`,
-      [orderId, label]
+      `SELECT 1 AS ok FROM order_addons
+        WHERE order_id = $1 AND addon_service_id = $2 LIMIT 1`,
+      [orderId, addonServiceId]
     );
     return !!row;
   } catch (_) {
-    // Unreadable audit log: assume NOT settled. A duplicate order_addons row is
-    // impossible (unique index) and a duplicate confirmation email is a far
-    // better failure than a doctor never being paid.
+    // Unreadable: assume NOT settled. A duplicate row is impossible (unique
+    // index) and a duplicate confirmation email is a far better failure than a
+    // doctor never being paid.
     return false;
   }
 }
@@ -104,18 +148,26 @@ async function alreadySettled(orderId, label) {
  * @param {Object}   args
  * @param {string}   args.orderId
  * @param {Object}   [args.order]        the orders row, if the caller has it
+ * @param {string}   args.verifiedBy     'gateway_amount_check' | 'operator_assertion'.
+ *                                       REQUIRED. See the verification contract
+ *                                       at the top of this file — settling an
+ *                                       add-on is asserting its money arrived,
+ *                                       and the caller has to say how it knows.
  * @param {string}   [args.via]          how payment was taken: 'paymob_webhook'
- *                                       | 'admin_mark_paid' | 'superadmin_mark_paid'
+ *                                       | 'admin_settle_addons' | 'superadmin_settle_addons'
  * @param {string}   [args.actorUserId]
  * @param {string}   [args.actorRole='system']
  * @param {Function} [args.notify]       queueMultiChannelNotification, injected
  *                                       so this module does not pull the notify
  *                                       stack into every caller
- * @returns {Promise<{settled: string[], skipped: string[], failed: string[]}>}
+ * @returns {Promise<{settled: string[], skipped: string[], failed: string[], refused?: string}>}
  */
+const VALID_VERIFICATION = ['gateway_amount_check', 'operator_assertion'];
+
 async function settleAddonsForPaidOrder({
   orderId,
   order = null,
+  verifiedBy = null,
   via = 'unknown',
   actorUserId = null,
   actorRole = 'system',
@@ -123,6 +175,16 @@ async function settleAddonsForPaidOrder({
 } = {}) {
   const result = { settled: [], skipped: [], failed: [] };
   if (!orderId) return result;
+
+  // Refuse rather than default. A default here would be a default answer to
+  // "did the money arrive?", and the only safe answer to that is "you tell me".
+  if (!VALID_VERIFICATION.includes(String(verifiedBy || ''))) {
+    result.refused = 'no_verification_basis';
+    console.error('[addon-settlement] refused for order ' + orderId +
+      ' — verifiedBy must be one of ' + VALID_VERIFICATION.join(' | ') +
+      ', got ' + JSON.stringify(verifiedBy));
+    return result;
+  }
 
   let ord = order;
   if (!ord) {
@@ -145,37 +207,56 @@ async function settleAddonsForPaidOrder({
     } catch (_) { videoEnabled = false; }
 
     if (!videoEnabled) {
-      // Kill-switch. The case payment still stands; the add-on does not.
-      result.skipped.push('video_consult');
+      // Kill-switch flipped between charge and settlement. The case payment
+      // stands; the add-on cannot be delivered.
+      //
+      // This is NOT a benign skip, and the original inline version treated it
+      // as one — a silent order_event and nothing else. If the patient was
+      // charged for the add-on at intention time and the flag went off before
+      // settlement, they have paid for something that will never exist, and no
+      // human is told. It is reported as failed so the caller and the admin
+      // page both see an outstanding line, and it stays retryable: nothing has
+      // been written, so re-running after the flag comes back settles it
+      // normally.
+      result.failed.push('video_consult');
       try {
         logOrderEvent({
           orderId,
-          label: 'video_consultation_addon_skipped_feature_disabled',
-          meta: JSON.stringify({ via }),
+          label: 'Video consultation add-on NOT settled — feature disabled',
+          meta: JSON.stringify({
+            via,
+            charged: Number(selected.video_consultation_price) || null,
+            note: 'patient may have paid for an add-on that cannot be delivered — refund or re-enable'
+          }),
+          actorUserId,
           actorRole
         });
       } catch (_) {}
-    } else if (await alreadySettled(orderId, VIDEO_EVENT)) {
+    } else if (await alreadySettled(orderId, 'video_consult')) {
       result.skipped.push('video_consult');
     } else {
       try {
         // Price precedence: what was LOCKED on the order at intention time —
         // that is the figure owedCentsForOrder verified against what the
-        // gateway actually charged. The catalogue read is only a fallback for
-        // legacy rows whose addons_json carries no price. Re-reading the
-        // catalogue first would silently adopt any price change made between
-        // checkout and settlement.
+        // gateway actually charged. Re-reading a catalogue first would silently
+        // adopt any price change made between checkout and settlement.
         let videoPrice = Number(selected.video_consultation_price) || 0;
         let priceSource = 'order.addons_json (charged)';
         if (videoPrice <= 0) {
-          const service = await queryOne('SELECT * FROM services WHERE id = $1', [ord.service_id]);
-          videoPrice = resolveAddonJsonPrice(
-            service && service.video_consultation_prices_json,
-            currency,
-            Number(service && service.video_consultation_price) || 0
-          );
-          priceSource = 'services.video_consultation_prices_json (fallback)';
+          // Review correction: this fallback used to read
+          // services.video_consultation_prices_json, which is populated on 0 of
+          // 168 rows, so it always produced 0 — and unlike the prescription
+          // branch it had no `> 0` guard. A legacy row would have recorded the
+          // add-on at 0 on the order while onPurchase, seeing a falsy
+          // chargedPriceEgp, fell back to the registry's 200 and paid the
+          // doctor 170. Same catalogue as everything else now.
+          const resolved = await resolveAddonPrice('video_consult', currency);
+          videoPrice = resolved ? Number(resolved.amount) || 0 : 0;
+          priceSource = 'addon_services (fallback)';
         }
+        if (!(videoPrice > 0)) throw new Error('video_consult addon has no resolvable price');
+
+        const videoEgp = await toEgpAmount('video_consult', videoPrice, currency);
 
         // MERGE, never replace: a wholesale replace here once wiped the
         // prescription lines charged in the same transaction.
@@ -188,22 +269,29 @@ async function settleAddonsForPaidOrder({
           [videoPrice, JSON.stringify({ video_consultation: true, video_consultation_price: videoPrice }), orderId]
         );
 
-        logOrderEvent({
-          orderId,
-          label: VIDEO_EVENT,
-          meta: JSON.stringify({ price: videoPrice, price_source: priceSource, via }),
-          actorUserId,
-          actorRole
-        });
-
         // Ungated on purpose — see the note at the top of this file.
         const svc = getAddon('video_consult');
         const addonService = await queryOne(`SELECT * FROM addon_services WHERE id = 'video_consult'`);
         if (svc && addonService) {
-          await svc.onPurchase({ order: ord, addonService, currency, chargedPriceEgp: videoPrice });
+          await svc.onPurchase({ order: ord, addonService, currency, chargedPriceEgp: videoEgp });
         } else {
           throw new Error('video_consult addon not registered/seeded');
         }
+
+        // The event is written AFTER the row exists, never before. It is the
+        // human-readable receipt and prescription_access reads its sibling as
+        // proof of purchase; writing it ahead of the money write meant a
+        // failure left a receipt for a purchase that had not happened.
+        logOrderEvent({
+          orderId,
+          label: VIDEO_EVENT,
+          meta: JSON.stringify({
+            price: videoPrice, price_egp: videoEgp, currency,
+            price_source: priceSource, via, verified_by: verifiedBy
+          }),
+          actorUserId,
+          actorRole
+        });
 
         if (typeof notify === 'function') {
           Promise.resolve(notify({
@@ -240,7 +328,7 @@ async function settleAddonsForPaidOrder({
   // pricing, not an add-on — see docs/architecture/addon_service_abstraction.md
   // §0 and §1.2. Do not reintroduce it here.
   if (selected.prescription) {
-    if (await alreadySettled(orderId, RX_EVENT)) {
+    if (await alreadySettled(orderId, 'prescription')) {
       result.skipped.push('prescription');
     } else {
       try {
@@ -252,18 +340,13 @@ async function settleAddonsForPaidOrder({
           // the same missing price row producing two different answers, and
           // owedCentsForOrder verified against neither. addon_services is the
           // registry and therefore the authority.
-          const resolved = await queryOne(
-            `SELECT base_price_egp, prices_json FROM addon_services
-              WHERE id = 'prescription' AND COALESCE(is_active, true) = true`
-          );
-          const per = (resolved && resolved.prices_json) || {};
-          const fromJson = Number(per[currency]);
-          rxPrice = Number.isFinite(fromJson) && fromJson > 0
-            ? Math.round(fromJson)
-            : Math.round(Number(resolved && resolved.base_price_egp) || 0);
+          const resolved = await resolveAddonPrice('prescription', currency);
+          rxPrice = resolved ? Number(resolved.amount) || 0 : 0;
           priceSource = 'addon_services (fallback)';
         }
         if (!(rxPrice > 0)) throw new Error('prescription addon has no resolvable price');
+
+        const rxEgp = await toEgpAmount('prescription', rxPrice, currency);
 
         await execute(
           `UPDATE orders
@@ -272,21 +355,25 @@ async function settleAddonsForPaidOrder({
           [JSON.stringify({ prescription: true, prescription_price: rxPrice }), orderId]
         );
 
-        logOrderEvent({
-          orderId,
-          label: RX_EVENT,
-          meta: JSON.stringify({ price: rxPrice, currency, price_source: priceSource, via }),
-          actorUserId,
-          actorRole
-        });
-
         const svc = getAddon('prescription');
         const addonService = await queryOne(`SELECT * FROM addon_services WHERE id = 'prescription'`);
         if (svc && addonService) {
-          await svc.onPurchase({ order: ord, addonService, currency, chargedPriceEgp: rxPrice });
+          await svc.onPurchase({ order: ord, addonService, currency, chargedPriceEgp: rxEgp });
         } else {
           throw new Error('prescription addon not registered/seeded');
         }
+
+        // After the row, never before — see the video branch.
+        logOrderEvent({
+          orderId,
+          label: RX_EVENT,
+          meta: JSON.stringify({
+            price: rxPrice, price_egp: rxEgp, currency,
+            price_source: priceSource, via, verified_by: verifiedBy
+          }),
+          actorUserId,
+          actorRole
+        });
 
         if (typeof notify === 'function') {
           Promise.resolve(notify({
@@ -319,4 +406,4 @@ async function settleAddonsForPaidOrder({
   return result;
 }
 
-module.exports = { settleAddonsForPaidOrder, resolveAddonJsonPrice, VIDEO_EVENT, RX_EVENT };
+module.exports = { settleAddonsForPaidOrder, VIDEO_EVENT, RX_EVENT };

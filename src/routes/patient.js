@@ -3086,7 +3086,16 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
   // which was never true of the old lookups.
   const { resolveAddonPrice: _resolveAddon } = require('../services/addons/pricing');
   const { prescriptionsComingSoon: _rxSoon } = require('../services/prescriptions_flag');
-  const _videoEgpResolved = await _resolveAddon('video_consult', 'EGP');
+  // Gated on the SAME kill-switch create-intention checks. Without this the pay
+  // page offered a video add-on the charge path refuses to price, and — because
+  // videoPriceEgp now comes from the global addon_services catalogue rather
+  // than a per-service column that is empty on all 168 services —
+  // serviceHasAddons below became unconditionally true, which permanently
+  // hid the external payment_link branch and rendered an add-on card on every
+  // service with nothing purchasable in it.
+  let _videoEnabledForPay = false;
+  try { _videoEnabledForPay = require('../video_helpers').isVideoEnabled(); } catch (_) {}
+  const _videoEgpResolved = _videoEnabledForPay ? await _resolveAddon('video_consult', 'EGP') : null;
   const videoPriceEgp = _videoEgpResolved ? Number(_videoEgpResolved.amount) || 0 : 0;
   // sla_24hr is NOT an add-on — migration 019b removed it and turnaround is an
   // urgency tier on main-service pricing. This value is kept only because the
@@ -3101,11 +3110,25 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
   const isIntlOrderRow = order.display_price != null && displayCcy !== 'EGP';
   let videoPriceLocal = videoPriceEgp, slaPriceLocal = slaPriceEgp, prescriptionPriceLocal = prescriptionPriceEgp;
   if (isIntlOrderRow) {
-    const _videoLocal = await _resolveAddon('video_consult', displayCcy);
-    videoPriceLocal = _videoLocal ? Number(_videoLocal.amount) || 0 : videoPriceEgp;
+    // resolveAddonPrice falls back to base_price_egp for a currency that has
+    // no override, and reports that by setting resolved.currency = 'EGP'.
+    // Reading only .amount and labelling it displayCcy would show a Kuwaiti
+    // patient "+200 KWD" (about $650) for a 200 EGP add-on. addon_services
+    // carries 4 currencies; the platform supports 9 — so this is live for BHD,
+    // GBP, KWD, OMR and QAR the moment the first international order arrives.
+    //
+    // No genuine local price means no local figure: fall back to the EGP
+    // number, which the page discloses separately as the EGP charge.
+    const _localAmount = function (resolved) {
+      if (!resolved) return null;
+      if (String(resolved.currency).toUpperCase() !== displayCcy) return null;
+      return Number(resolved.amount) || 0;
+    };
+    const _videoLocal = _videoEnabledForPay ? await _resolveAddon('video_consult', displayCcy) : null;
+    videoPriceLocal = _localAmount(_videoLocal) != null ? _localAmount(_videoLocal) : videoPriceEgp;
     slaPriceLocal = resolvePriceFromJson(service?.sla_24hr_prices_json, displayCcy, slaPriceEgp);
     const _rxLocal = _rxSoon() ? null : await _resolveAddon('prescription', displayCcy);
-    prescriptionPriceLocal = _rxLocal ? Number(_rxLocal.amount) || 0 : prescriptionPriceEgp;
+    prescriptionPriceLocal = _localAmount(_rxLocal) != null ? _localAmount(_rxLocal) : prescriptionPriceEgp;
   }
 
   // What the view DISPLAYS (prominent): local for intl, EGP for domestic.
