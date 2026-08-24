@@ -540,6 +540,10 @@ async function getFinanceTabData({ range = '7d' } = {}) {
         [], []
       ),
       // Payouts ledger (top 6 by owed)
+      // The guard names doctor_earnings only, but the query below now also reads
+      // addon_earnings. safeAll's own fallback ([]) covers a missing second
+      // table, so this degrades to an empty payouts list rather than throwing —
+      // acceptable, and noted so the guard is not mistaken for complete.
       tableExists('doctor_earnings').then(exists => exists
         ? safeAll(
             // 2026-08-24 — owed is now case earnings PLUS add-on earnings,

@@ -1160,13 +1160,22 @@ router.get('/admin', requireAdmin, async (req, res) => {
   // services/earnings_writer.js deliberately keeps out of the first. Summing
   // only doctor_earnings understated what the platform owes by every add-on
   // ever sold, while the doctors' own earnings page counted both.
-  const pendingPayouts = canSeeFinancials
-    ? await safeGet(
-        `SELECT COALESCE((SELECT SUM(earned_amount) FROM doctor_earnings WHERE status = 'pending'), 0)
-              + COALESCE((SELECT SUM(earned_amount_egp) FROM addon_earnings WHERE status = 'pending'), 0)
-              AS total`,
-        [], { total: 0 })
+  //
+  // Queried SEPARATELY on purpose. One safeGet wrapping both subqueries falls
+  // back to {total: 0} if EITHER fails, so an error reading the newer add-on
+  // ledger would render the platform's whole liability as zero — strictly worse
+  // than the understatement this change set out to fix. Two reads, two
+  // fallbacks: a failure on the add-on side degrades to the case figure, which
+  // is exactly what this tile showed before.
+  const pendingCasePayouts = canSeeFinancials
+    ? await safeGet("SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'pending'", [], { total: 0 })
     : { total: 0 };
+  const pendingAddonPayouts = canSeeFinancials
+    ? await safeGet("SELECT COALESCE(SUM(earned_amount_egp), 0) as total FROM addon_earnings WHERE status = 'pending'", [], { total: 0 })
+    : { total: 0 };
+  const pendingPayouts = {
+    total: (Number(pendingCasePayouts.total) || 0) + (Number(pendingAddonPayouts.total) || 0)
+  };
   const refundsThisMonth = canSeeFinancials
     ? await safeGet("SELECT COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE refund_status = 'refunded' AND created_at > date_trunc('month', NOW())", [], { total: 0 })
     : { total: 0 };

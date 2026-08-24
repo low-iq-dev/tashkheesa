@@ -3582,18 +3582,46 @@ module.exports = function (db, helpers, deploy, deps) {
         // HAVING — a doctor fully settled and inactive this month is not a
         // payout, and dropping them is what keeps this screen readable.
         safeAll(
+          // 2026-08-24 — owed spans BOTH payout ledgers.
+          //
+          // This screen is the one an operator actually pays InstaPay from, and
+          // it was the only surface left summing doctor_earnings alone after
+          // the web console, the doctors tab, the /admin tile and the doctor's
+          // own earnings page were all moved to the total. Its own doc block
+          // promises the definition is "identical to the web console" — that
+          // promise is what makes leaving it behind a defect rather than an
+          // omission: an operator would have transferred a number the platform
+          // itself no longer believed, short by every add-on commission owed.
+          //
+          // addon_earnings is LEFT JOINed as a pre-aggregated subquery rather
+          // than a second JOIN onto the same GROUP BY, which would multiply the
+          // doctor_earnings rows by the addon_earnings rows and inflate both.
+          //
+          // An INNER JOIN on doctor_earnings is kept deliberately: a doctor
+          // with add-on commission but no case earnings is not a real state
+          // (add-ons only settle at case completion, which writes the case
+          // earning first), and switching to a FULL JOIN to chase it would
+          // change what the HAVING trims off the phone screen.
           `SELECT u.id AS doctor_id,
                   COALESCE(u.name, '—') AS doctor_name,
-                  COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) AS owed,
+                  COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0)
+                    + COALESCE(ae.owed_addons, 0) AS owed,
+                  COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) AS owed_cases,
+                  COALESCE(ae.owed_addons, 0) AS owed_addons,
                   COUNT(*) FILTER (WHERE de.status = 'pending')::int AS unpaid_cases,
                   MIN(de.created_at) FILTER (WHERE de.status = 'pending') AS oldest_unpaid_at,
                   MAX(COALESCE(de.paid_at, de.created_at)) FILTER (WHERE de.status = 'paid') AS last_paid_at,
                   COALESCE(SUM(de.earned_amount) FILTER (WHERE ${PAID_THIS_MONTH}), 0) AS paid_this_month
              FROM users u
              JOIN doctor_earnings de ON de.doctor_id = u.id
+             LEFT JOIN (
+               SELECT doctor_id, SUM(earned_amount_egp) AS owed_addons
+                 FROM addon_earnings WHERE status = 'pending' GROUP BY doctor_id
+             ) ae ON ae.doctor_id = u.id
             WHERE u.role = 'doctor'
-            GROUP BY u.id, u.name
-           HAVING COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) > 0
+            GROUP BY u.id, u.name, ae.owed_addons
+           HAVING COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0)
+                    + COALESCE(ae.owed_addons, 0) > 0
                OR COALESCE(SUM(de.earned_amount) FILTER (WHERE ${PAID_THIS_MONTH}), 0) > 0
             ORDER BY owed DESC, paid_this_month DESC, doctor_name ASC
             LIMIT 200`
@@ -3602,7 +3630,11 @@ module.exports = function (db, helpers, deploy, deps) {
         // the headline liability stays true even if the list is capped or a
         // doctor row was filtered out by the HAVING.
         safeGet(
-          `SELECT COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) AS owed_total,
+          `SELECT COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0)
+                    + COALESCE((SELECT SUM(earned_amount_egp) FROM addon_earnings WHERE status = 'pending'), 0)
+                    AS owed_total,
+                  COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) AS owed_cases_total,
+                  COALESCE((SELECT SUM(earned_amount_egp) FROM addon_earnings WHERE status = 'pending'), 0) AS owed_addons_total,
                   COUNT(*) FILTER (WHERE de.status = 'pending')::int AS unpaid_cases_total,
                   COUNT(DISTINCT de.doctor_id) FILTER (WHERE de.status = 'pending')::int AS doctors_owed,
                   MIN(de.created_at) FILTER (WHERE de.status = 'pending') AS oldest_unpaid_at,
@@ -3619,6 +3651,10 @@ module.exports = function (db, helpers, deploy, deps) {
         id: r.doctor_id,
         name: r.doctor_name,
         owedEgp: money(r.owed),
+        // The split, so an operator paying from the phone can see why a total
+        // differs from the case count times a fee.
+        owedCasesEgp: money(r.owed_cases),
+        owedAddonsEgp: money(r.owed_addons),
         unpaidCases: Number(r.unpaid_cases) || 0,
         oldestUnpaidAt: toIso(r.oldest_unpaid_at),
         lastPaidAt: toIso(r.last_paid_at),
@@ -3628,6 +3664,8 @@ module.exports = function (db, helpers, deploy, deps) {
       return res.ok({
         totals: {
           owedEgp: money(totalsRow && totalsRow.owed_total),
+          owedCasesEgp: money(totalsRow && totalsRow.owed_cases_total),
+          owedAddonsEgp: money(totalsRow && totalsRow.owed_addons_total),
           unpaidCases: (totalsRow && Number(totalsRow.unpaid_cases_total)) || 0,
           doctorsOwed: (totalsRow && Number(totalsRow.doctors_owed)) || 0,
           // The single most useful number on the screen: how long the oldest
@@ -3642,9 +3680,9 @@ module.exports = function (db, helpers, deploy, deps) {
         },
         doctors,
         basis: {
-          owed: "doctor_earnings status='pending', SUM(earned_amount) — identical to the web console finance tab",
+          owed: "doctor_earnings status='pending' SUM(earned_amount) PLUS addon_earnings status='pending' SUM(earned_amount_egp) — identical to the web console finance tab. Case fees and add-on commissions settle in two separate ledgers (earnings_writer keeps add-ons out of doctor_earnings by design); only the sum is what the doctor is shown on their own earnings page.",
           paid: "doctor_earnings status='paid' — set at CASE COMPLETION by earnings_writer.markCaseEarningsPaid, not by a bank transfer. There is no InstaPay settlement ledger.",
-          scope: 'all earnings rows for the doctor: main-case, video-consult and no-show alike',
+          scope: 'all earnings rows for the doctor: main-case, video-consult and no-show alike, plus add-on commissions (video consult, prescription) from addon_earnings',
           bucketing: 'Cairo business month (Africa/Cairo)',
           listing: 'doctors with EGP owed or paid this month; capped at 200. Totals are over the whole table.',
         },

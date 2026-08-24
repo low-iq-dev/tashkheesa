@@ -43,10 +43,16 @@
 -- still contain 'priority'.
 -- ============================================================================
 
--- Replace 'priority' with 'vip' wherever it appears, preserving order and any
--- other elements. Rebuilding the array elementwise (rather than a text
--- replace on the whole JSON) keeps a doctor who somehow has BOTH values from
--- ending up with a duplicate.
+-- Replace 'priority' with 'vip' wherever it appears, keeping every other
+-- element. Rebuilding the array elementwise (rather than a text replace on the
+-- whole JSON) keeps a doctor who somehow has BOTH values from ending up with a
+-- duplicate.
+--
+-- Note jsonb_agg(DISTINCT ...) SORTS, so ["standard","priority","urgent"]
+-- comes back as ["standard","urgent","vip"]. Nothing reads the order — every
+-- consumer is a membership test (?| in auto_assign, .includes in
+-- doctorSupportsTier) — so the reordering is harmless, but it is real and
+-- should not surprise anyone diffing the column.
 UPDATE users
    SET sla_tiers_supported = (
          SELECT jsonb_agg(DISTINCT CASE WHEN elem = '"priority"'::jsonb

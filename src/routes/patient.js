@@ -1902,9 +1902,26 @@ router.post('/patient/new-case/step3', requireRole('patient'), async (req, res) 
   // Coming Soon guard (§4.5): a service with no active doctor (coming_soon=true)
   // or hidden (is_visible=false) is NOT bookable — a stale page must not create
   // an unfulfillable order.
+  //
+  // 2026-08-24 — the SPECIALTY has to be visible too, which this never checked.
+  // Hiding a specialty is how the platform withdraws a whole area it cannot
+  // staff (migration 087 does exactly that for Nephrology: zero doctor rows,
+  // eight bookable services). But is_visible lives on `specialties`, and this
+  // guard only ever looked at `services`, so a stale page or a replayed POST
+  // carrying a nephrology specialty + service still created a payable order
+  // that auto_assign cannot fill — parked at manual_pending with nobody told,
+  // which is the precise outcome hiding the specialty exists to prevent.
+  //
+  // Seven other hidden specialties still carry visible services for the same
+  // reason, so this closes the same hole for all of them, not just Nephrology.
   const bookableClause = servicesBookableClause('sv');
   const service = await safeGet(
-    () => `SELECT sv.id, sv.specialty_id FROM services sv WHERE sv.id = $1 AND ${bookableClause}`,
+    () => `SELECT sv.id, sv.specialty_id
+             FROM services sv
+             JOIN specialties sp ON sp.id = sv.specialty_id
+            WHERE sv.id = $1
+              AND ${bookableClause}
+              AND COALESCE(sp.is_visible, true) = true`,
     [serviceId]
   );
   if (!service || String(service.specialty_id) !== specialtyId) {
