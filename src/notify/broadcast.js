@@ -168,8 +168,23 @@ async function broadcastOrderToSpecialty(orderId) {
     eligibleDoctors = await queryAll(`
       SELECT u.id, u.name, u.phone
       FROM users u
-      JOIN doctor_specialties ds ON ds.doctor_id = u.id
-      WHERE ds.specialty_id = $1
+      -- 2026-08-25: match on doctor_specialties OR users.specialty_id.
+      --
+      -- doctor_specialties is written in exactly two places — self-signup
+      -- (routes/auth.js) and create_test_doctor.js. Superadmin doctor create,
+      -- superadmin doctor edit and the doctor's own services form all write
+      -- doctor_services and never mirror into it. 18 of 31 doctors therefore
+      -- had a specialty_id with no matching row, and an INNER JOIN on that
+      -- table alone meant a paid case in their specialty broadcast to nobody.
+      --
+      -- Migration 091 backfills the missing rows. This clause is the durable
+      -- half: the next writer that forgets the mirror degrades to "we still
+      -- find the doctor" instead of "the case reaches no one".
+      WHERE (
+              u.specialty_id = $1
+              OR EXISTS (SELECT 1 FROM doctor_specialties ds
+                          WHERE ds.doctor_id = u.id AND ds.specialty_id = $1)
+            )
         AND u.role = 'doctor'
         AND COALESCE(u.is_active, true) = true
         AND COALESCE(u.is_available, true) = true
@@ -189,8 +204,23 @@ async function broadcastOrderToSpecialty(orderId) {
     eligibleDoctors = await queryAll(`
       SELECT u.id, u.name, u.phone
       FROM users u
-      JOIN doctor_specialties ds ON ds.doctor_id = u.id
-      WHERE ds.specialty_id = $1
+      -- 2026-08-25: match on doctor_specialties OR users.specialty_id.
+      --
+      -- doctor_specialties is written in exactly two places — self-signup
+      -- (routes/auth.js) and create_test_doctor.js. Superadmin doctor create,
+      -- superadmin doctor edit and the doctor's own services form all write
+      -- doctor_services and never mirror into it. 18 of 31 doctors therefore
+      -- had a specialty_id with no matching row, and an INNER JOIN on that
+      -- table alone meant a paid case in their specialty broadcast to nobody.
+      --
+      -- Migration 091 backfills the missing rows. This clause is the durable
+      -- half: the next writer that forgets the mirror degrades to "we still
+      -- find the doctor" instead of "the case reaches no one".
+      WHERE (
+              u.specialty_id = $1
+              OR EXISTS (SELECT 1 FROM doctor_specialties ds
+                          WHERE ds.doctor_id = u.id AND ds.specialty_id = $1)
+            )
         AND u.role = 'doctor'
         AND COALESCE(u.is_active, true) = true
         AND COALESCE(u.is_available, true) = true

@@ -1129,12 +1129,44 @@ async function generateMedicalReportPdf(payload) {
       recommendations: recommendations || p.recommendations || p.notes_recommendations,
     };
 
+    // Callers pass the order under several different names depending on which
+    // route built the payload; take whichever is present so the failure log
+    // below actually identifies the case.
+    function _reportOrderId(n) {
+      if (!n) return '';
+      return String(n.orderId || n.order_id || n.caseId || n.case_id || n.id || n.reference_id || '');
+    }
+
     // Prefer Unicode (Arabic-capable) generator when PDFKit is available.
     if (PDFDocument) {
       try {
         return await generateStyledReportPdfUnicode(normalized);
-      } catch (_) {
-        // fall back to legacy
+      } catch (unicodeErr) {
+        // 2026-08-25 — this catch used to be bare, and that silence was the
+        // whole problem.
+        //
+        // The legacy fallback below cannot render Arabic: arBlock() draws
+        // every Arabic label as a solid black rectangle. So a Unicode failure
+        // does not degrade the PDF's styling, it delivers a patient a medical
+        // report with black bars where their language should be — and, before
+        // this, without a single line anywhere recording that it had happened.
+        // The failure was invisible in logs, in error_logs and in ops.
+        //
+        // Still falls through: a report with black bars is worse than a clean
+        // one but better than none, and the doctor's text is already written.
+        // But it is now loud, so the next one is caught in minutes rather than
+        // by a confused patient.
+        const msg = unicodeErr && unicodeErr.message ? unicodeErr.message : String(unicodeErr);
+        console.error('[report] Unicode PDF generation FAILED — falling back to the legacy renderer, ' +
+          'which renders Arabic as black rectangles. Order: ' + _reportOrderId(normalized) +
+          ' — ' + msg);
+        try {
+          require('./logger').logErrorToDb(unicodeErr, {
+            context: 'report.unicode_pdf_fallback',
+            category: 'report',
+            orderId: _reportOrderId(normalized) || null
+          });
+        } catch (_) { /* logging must never block report delivery */ }
       }
     }
 

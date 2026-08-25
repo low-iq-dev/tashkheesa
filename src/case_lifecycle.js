@@ -3,6 +3,13 @@
 // Returns true if transition is allowed, false if blocked (never throws).
 // ---------------------------------------------------------------------------
 function assertPaidGate(existingCase, nextStatus) {
+  // DEAD BRANCH — orders.payment_due_at does not exist, so this is never
+  // entered (see submitCase). Left in place rather than deleted because it is
+  // the correct shape if a payment window is ever recorded, but READ THIS
+  // FIRST if you add that column: the branch returns false, and a false here
+  // SILENTLY SKIPS the transition. Adding the column without also deciding
+  // what happens to a case whose window has lapsed would start stranding paid
+  // work with nothing but a console.warn to show for it.
   if (existingCase.payment_due_at && !existingCase.paid_at) {
     const dueMs = new Date(existingCase.payment_due_at).getTime();
     if (Number.isFinite(dueMs) && Date.now() > dueMs) {
@@ -1944,12 +1951,19 @@ async function createDraftCase({ language = 'en', urgency_flag = false, reason_f
 
 async function submitCase(caseId) {
   const result = await transitionCase(caseId, CASE_STATUS.SUBMITTED);
-  try {
-    const dueAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    if (!result.payment_due_at) {
-      await updateCase(caseId, { payment_due_at: dueAt });
-    }
-  } catch (e) {}
+  // 2026-08-25 — removed a write to orders.payment_due_at.
+  //
+  // That column does not exist on ANY table in this database
+  // (information_schema returns nothing for it), so the UPDATE raised 42703
+  // every single time a case was submitted and the bare `catch (e) {}` around
+  // it threw the error away. Nobody ever saw it and the 24-hour payment window
+  // it was meant to open was never actually recorded.
+  //
+  // Not fixed by adding the column: unpaid cases are ALREADY expired at 24h by
+  // case_lifecycle.dispatchUnpaidCaseReminders / the expired_unpaid hard-stop,
+  // and standing up a second, independent expiry mechanism a week before
+  // launch is how you get two clocks disagreeing about the same order. The
+  // reader is flagged where it sits — see assertPaidGate.
   await logCaseEvent(caseId, 'CASE_SUBMITTED');
   return result;
 }

@@ -2302,7 +2302,14 @@ router.get('/superadmin/manual-queue/:id', requireSuperadmin, async (req, res) =
             o.specialty_id, o.service_id, o.assignment_status,
             p.id   AS patient_id,
             p.name AS patient_name, p.email AS patient_email, p.phone AS patient_phone,
-            p.gender AS patient_gender, p.dob AS patient_dob
+            -- 2026-08-25: was p.dob. There is no such column — users has
+            -- date_of_birth — so this query raised 42703 every single time the
+            -- page was opened. The rejection escaped as an unhandledRejection
+            -- and src/server.js:379 turned it into process.exit(1), so opening
+            -- a manual-queue case restarted the server for every user on it.
+            -- error_logs records the crash twice on 2026-08-23 alone, and two
+            -- orders are sitting in manual_queue right now.
+            p.gender AS patient_gender, p.date_of_birth AS patient_dob
        FROM orders_active o
        LEFT JOIN users p ON p.id = o.patient_id
       WHERE o.id = $1`,

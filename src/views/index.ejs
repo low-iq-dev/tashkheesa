@@ -355,9 +355,19 @@
                 <p class="testimonial-author"><%= tt('home.trust2.author',
                   'Named, Licensed Consultants',
                   'استشاريين معتمدين بالاسم') %></p>
+                <%# 2026-08-25: Nephrology removed. This list is hardcoded and
+                    never followed specialties.is_visible, so it kept
+                    advertising Nephrology after migration 087 hid it for
+                    having no doctor at all — the homepage promised a
+                    consultant in a specialty the wizard would not even offer.
+                    Kept hardcoded rather than made dynamic: it is marketing
+                    copy in a testimonial card, not a catalogue, and a live
+                    query here would make the homepage's headline claim shift
+                    silently every time a doctor is paused. Whoever edits the
+                    visible-specialty set edits this line too. %>
                 <p class="testimonial-role"><%= tt('home.trust2.role',
-                  'Orthopaedics · Radiology · OBGYN · Cardiology · Urology · Nephrology · Internal Medicine',
-                  'عظام · أشعة · نسا وتوليد · قلب · مسالك بولية · كلى · باطنة') %></p>
+                  'Orthopaedics · Radiology · OBGYN · Cardiology · Urology · Internal Medicine',
+                  'عظام · أشعة · نسا وتوليد · قلب · مسالك بولية · باطنة') %></p>
               </div>
             </div>
             <div class="testimonial-card">
