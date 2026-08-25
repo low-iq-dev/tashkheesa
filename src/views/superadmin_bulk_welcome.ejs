@@ -33,7 +33,7 @@
 
 <%- include('partials/superadmin/page_header', {
       title: isAr ? 'إرسال إيميل الترحيب' : 'Send welcome emails',
-      subtitle: isAr ? 'راجع القائمة قبل الإرسال. لا يمكن التراجع.' : 'Review the list before sending. This cannot be undone.',
+      subtitle: isAr ? 'لم يُرسل أي شيء بعد — راجع القائمة ثم اضغط إرسال. لا يمكن التراجع.' : 'Nothing has been sent yet — review the list, then press Send. This cannot be undone.',
       breadcrumb: [
         { label: 'Dashboard', href: '/superadmin' },
         { label: isAr ? 'الأطباء' : 'Doctors', href: '/superadmin/doctors' },
@@ -50,6 +50,29 @@
       ? 'كل إرسال يُنشئ رابطاً جديداً صالحاً 7 أيام ويُلغي رابط الطبيب السابق فوراً. لا ترسل مرة أخرى إلا إذا كنت تقصد إبطال الروابط الحالية.'
       : 'Each send mints a fresh 7-day link and immediately invalidates that doctor\'s previous one. Do not send again unless you mean to kill the links already in their inbox.' %>
   </div>
+
+  <%# The send control appears TWICE — once here, once below the list.
+      2026-08-25: the first version put it only at the bottom, under a
+      23-row table. The page then reads as a receipt for something already
+      sent rather than an action still pending, and the button is under the
+      fold. Ziad hit exactly that. Duplicating it is cheap; a missed send on
+      launch week is not. %>
+  <% if (_ready.length) { %>
+    <form method="post" action="/superadmin/doctors/bulk-welcome-passwordless"
+          style="margin:0 0 18px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+                 padding:16px;border:1px solid var(--line);border-radius:8px;
+                 border-inline-start:3px solid var(--green, #0B6B5F);background:var(--bg-2,#fff);">
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+      <input type="hidden" name="redirect" value="1" />
+      <button type="submit" class="btn primary">
+        <%= isAr ? ('أرسل الآن إلى ' + _ready.length + ' طبيب') : ('Send now to ' + _ready.length + ' doctor' + (_ready.length === 1 ? '' : 's')) %>
+      </button>
+      <a class="btn" href="/superadmin/doctors"><%= isAr ? 'إلغاء' : 'Cancel' %></a>
+      <span style="font-size:12.5px;color:var(--fg-3);">
+        <%= isAr ? 'لم يُرسل أي شيء بعد. القائمة بالأسفل للمراجعة.' : 'Nothing has been sent yet — the list below is for review.' %>
+      </span>
+    </form>
+  <% } %>
 
   <% if (!_ready.length) { %>
     <%- include('partials/superadmin/c_card_open', { tight: true }) %>
@@ -104,7 +127,7 @@
       </button>
       <a class="btn" href="/superadmin/doctors"><%= isAr ? 'إلغاء' : 'Cancel' %></a>
       <span style="font-size:12.5px;color:var(--fg-3);">
-        <%= isAr ? 'قد يستغرق بضع ثوانٍ. لا تضغط مرتين.' : 'Takes a few seconds. A second send while one is running is refused, not queued.' %>
+        <%= isAr ? 'نفس الزر بالأعلى. قد يستغرق بضع ثوانٍ — والضغط مرتين مرفوض وليس مُجدولاً.' : 'Same button as above. Takes a few seconds — a second send while one is running is refused, not queued.' %>
       </span>
     </form>
   <% } %>
