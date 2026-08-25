@@ -4,6 +4,13 @@
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
   var _order = (typeof order !== 'undefined' && order) ? order : {};
   var _existingId = (typeof existingPrescriptionId !== 'undefined') ? existingPrescriptionId : null;
+  /* Review round 4: one prescription per CASE. `_existingId` is only set when
+     the existing prescription belongs to THIS doctor (the detail route
+     authorises on doctor_id), so on a reassigned case it is null while a
+     prescription very much exists. Gate the form on the case-scoped flag, or
+     the second specialist fills the whole thing in and the POST answers 409
+     after the fact. */
+  var _existsOnCase = (typeof prescriptionExistsOnCase !== 'undefined') ? !!prescriptionExistsOnCase : !!_existingId;
   var _error = (typeof error !== 'undefined') ? error : null;
   var _user = (typeof user !== 'undefined' && user) ? user : {};
   var _caseId = String(_order.id || '');
@@ -145,10 +152,17 @@
     </div>
 
     <!-- Existing prescription notice -->
-    <% if (_existingId) { %>
-      <div class="dpx-alert dpx-alert-success">
-        <%= _isAr ? 'توجد وصفة طبية لهذه الحالة بالفعل.' : 'A prescription already exists for this case.' %>
-        <a href="/portal/patient/prescription/<%= _existingId %>"><%= _isAr ? 'عرض' : 'View' %></a>
+    <% if (_existsOnCase) { %>
+      <div class="dpx-alert dpx-alert-error">
+        <%= _isAr
+              ? 'صدرت بالفعل روشتة لهذه الحالة وسُلِّمت للمريض. لا يمكن إصدار روشتة ثانية.'
+              : 'A prescription has already been issued on this case and delivered to the patient. A second one cannot be issued.' %>
+        <% if (_existingId) { %>
+          <%# Linked only when it is this doctor's — /portal/doctor/prescription/:id
+              authorises on doctor_id, and the old link here pointed at the
+              PATIENT route, which no doctor can open. %>
+          <a href="/portal/doctor/prescription/<%= _existingId %>"><%= _isAr ? 'عرض' : 'View' %></a>
+        <% } %>
       </div>
     <% } %>
 

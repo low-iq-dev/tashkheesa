@@ -12,6 +12,7 @@ const rateLimit = require('express-rate-limit');
 const { sendOtpViaTwilio, verifyOtpCode } = require('../services/twilio_verify');
 const { validatePhoneE164 } = require('../validators/phone');
 const { resolveDoctorLanding } = require('../services/doctor_landing');
+const { buildDoctorWelcomePayload, WELCOME_EXPIRY_HOURS, SERVICES_READY_SQL } = require('../services/doctor_welcome_payload');
 require('dotenv').config();
 
 const NODE_ENV = String(process.env.NODE_ENV || '').toLowerCase();
@@ -93,6 +94,16 @@ function renderLogin(req, res, { error = null } = {}) {
   const lang = isAr ? 'ar' : 'en';
   setLangCookie(res, lang);
   const next = safeNextPath((req.body && req.body.next) || (req.query && req.query.next));
+  // /doctor/login posts here too. Without this a doctor who mistypes a password
+  // is answered on the patient-branded page, which reads as having been logged
+  // out of the wrong product. The hidden field is the only signal — Referer is
+  // not reliable enough to route a render on.
+  if (req.body && String(req.body.portal || '') === 'doctor') {
+    return res.render('doctor_login_v2', {
+      error, next, lang, _lang: lang, isAr, copy,
+      brand: process.env.BRAND_NAME || 'Tashkheesa'
+    });
+  }
   return res.render('login', { error, next, lang, isAr, copy, _lang: lang });
 }
 
@@ -140,6 +151,10 @@ function establishWebSession(res, user) {
   });
 }
 
+// Request-derived origin. AUDIT-2026-08-22: NOT safe for anything that leaves
+// the process — see getEmailBaseUrl() below. Retained only for same-request,
+// in-band use (redirects/absolute URLs served back to the caller who set the
+// header); it currently has no callers in this file.
 function getBaseUrl(req) {
   const envUrl = String(process.env.BASE_URL || '').trim();
   if (envUrl) return envUrl;
@@ -156,6 +171,30 @@ function getBaseUrl(req) {
 
   // Never leak localhost in production. In dev, localhost is fine.
   return IS_PROD ? '' : 'http://localhost:3000';
+}
+
+// AUDIT-2026-08-22: origin for links that get EMAILED. Must never consult the
+// request.
+//
+// getBaseUrl() above falls back to `x-forwarded-host || host` when BASE_URL is
+// unset, and `app.set('trust proxy', 1)` (src/server.js) makes Express accept
+// those headers. Both are attacker-supplied on any inbound request, so an
+// unauthenticated attacker could POST /forgot-password for a victim's address
+// with `Host: attacker.example` and the victim would receive a genuine,
+// correctly-signed Tashkheesa reset email whose link points at the attacker —
+// handing over a live single-use reset token (and the account) the moment the
+// victim clicks. sendMagicLoginLink() had the identical exposure.
+//
+// So: configured origin only. If neither BASE_URL nor APP_URL is set we return
+// '' and the callers skip sending rather than mailing an origin an attacker
+// picked — a reset email that never arrives is a support ticket, one that
+// arrives pointing at attacker.example is an account takeover.
+function getEmailBaseUrl() {
+  const configured = String(process.env.BASE_URL || process.env.APP_URL || '').trim();
+  if (configured) return configured.replace(/\/+$/, '');
+  if (!IS_PROD) return 'http://localhost:3000';
+  console.error('[auth] BASE_URL/APP_URL is not configured — refusing to build an emailed link from request headers. No link will be sent.');
+  return '';
 }
 
 async function createMagicLoginToken(userId) {
@@ -179,7 +218,8 @@ async function createMagicLoginToken(userId) {
 async function sendMagicLoginLink({ user, req }) {
   if (!user || !user.id) return null;
   const token = await createMagicLoginToken(user.id);
-  const baseUrl = getBaseUrl(req);
+  // AUDIT-2026-08-22: emailed link — configured origin only, never req headers.
+  const baseUrl = getEmailBaseUrl();
   const link = baseUrl ? `${baseUrl}/magic-login/${token}` : null;
 
   if (!IS_PROD && link) {
@@ -265,6 +305,38 @@ router.post('/login', async (req, res) => {
 
     if (user.role === 'patient' && !user.password_hash) {
       await sendMagicLoginLink({ user, req });
+      const c = authCopy(req);
+      return renderLogin(req, res, { error: c.login_invalid });
+    }
+
+    // No password at all, and not the patient case above. Return the SAME
+    // generic error as a wrong password so the page never confirms an address
+    // exists, and — deliberately — send NOTHING.
+    //
+    // 2026-08-25. Two reasons this branch has to exist and has to be silent.
+    //
+    // It has to exist because 23 of the 30 active doctors are passwordless
+    // (operator-created accounts never get a hash) and they fell straight
+    // through to check(password, null). bcrypt.compare with a non-string hash
+    // does not return false — it throws, into the outer catch, which renders
+    // "Unexpected error during login. Please try again." Every doctor we are
+    // about to invite who guessed at a password would have been told the
+    // platform was broken, with no way forward.
+    //
+    // It has to be silent because reminting here would do real damage.
+    // createMagicLoginToken DELETEs the user's unused tokens before inserting,
+    // and mints at MAGIC_LINK_EXPIRY_MINUTES (60) against the welcome link's
+    // WELCOME_EXPIRY_HOURS (168). So one unauthenticated POST — anyone with the
+    // doctor's email address and any junk password — would swap their live
+    // 7-day invite for a 60-minute link they never asked for. authLimiter is
+    // per-IP, not per-account, so nothing bounds that. A doctor who simply
+    // tries the form before finding the email would destroy their own invite.
+    //
+    // Recovery already exists and is better: POST /forgot-password detects a
+    // doctor with no password_hash and re-sends the WELCOME email on the SAME
+    // 7-day window (see that handler). The doctor login form now points at it
+    // by name.
+    if (!user.password_hash) {
       const c = authCopy(req);
       return renderLogin(req, res, { error: c.login_invalid });
     }
@@ -492,9 +564,22 @@ router.post('/forgot-password', welcomeTokenIpLimiter, async (req, res) => {
     : null;
 
   if (user) {
+    // AUDIT-2026-08-23 (P0-DOC-WELCOME): a doctor who has never set a password
+    // is not "resetting" anything — they are still onboarding, and the welcome
+    // email they were originally sent promised a 7-day link. Handing them the
+    // 2-hour generic reset email instead (the old behaviour, and the only
+    // recovery the expired-link page offered) both contradicted that promise and
+    // read as a different, wrong flow. Send them the SAME welcome email on the
+    // SAME WELCOME_EXPIRY_HOURS window, so the replacement matches what it
+    // replaces. Scoped to doctors on purpose: OTP-only PATIENTS also have no
+    // password_hash and must keep getting the ordinary reset email.
+    const isOnboardingDoctor = user.role === 'doctor'
+      && !String(user.password_hash || '').trim();
+    const expiryHours = isOnboardingDoctor ? WELCOME_EXPIRY_HOURS : RESET_EXPIRY_HOURS;
+
     const token = randomUUID();
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + RESET_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(now.getTime() + expiryHours * 60 * 60 * 1000).toISOString();
     // Remint invalidation (Package 2): a new reset link invalidates the prior
     // unused one, so an intercepted earlier link can't still be redeemed.
     await execute(
@@ -507,7 +592,8 @@ router.post('/forgot-password', welcomeTokenIpLimiter, async (req, res) => {
       [randomUUID(), user.id, token, expiresAt, now.toISOString()]
     );
 
-    const baseUrl = getBaseUrl(req);
+    // AUDIT-2026-08-22: emailed link — configured origin only, never req headers.
+    const baseUrl = getEmailBaseUrl();
     const emailLang = (user.lang === 'ar' || getReqLang(req) === 'ar') ? 'ar' : 'en';
     const resetLink = baseUrl ? `${baseUrl}/reset-password/${token}?lang=${emailLang}` : null;
 
@@ -518,9 +604,75 @@ router.post('/forgot-password', welcomeTokenIpLimiter, async (req, res) => {
       console.log('[RESET LINK]', resetLink);
     }
 
-    // Fire-and-forget — failures are logged but never surface to the user
-    // (don't leak whether the email exists). The transporter is recipientGuard-wrapped.
-    if (resetLink) {
+    // AUDIT-2026-08-23 (P0-DOC-WELCOME): onboarding doctors get the shared v5
+    // welcome (template 'doctor_approved' -> doctor-welcome.hbs) built by the
+    // same pure builder every other welcome path uses, rather than the generic
+    // password-reset template. Its CTA is the magic-login link; the token minted
+    // above also still redeems on /reset-password/:token, so both spellings of
+    // the link in that email work.
+    //
+    // Gated on baseUrl for the same reason the reset branch is: with no
+    // configured origin the payload's links are null and the welcome would go
+    // out with its CTA silently missing. Send nothing instead.
+    if (isOnboardingDoctor && baseUrl) {
+      // The v5 template names the specialty in both languages and `users` only
+      // stores specialty_id. Best-effort: no specialty (or a failed lookup) just
+      // drops the {{#if specialtyAr}} clause, exactly as the LEFT JOIN in
+      // admin_doctor_invite.js does.
+      let spec = null;
+      if (user.specialty_id) {
+        try {
+          spec = await queryOne('SELECT name, name_ar FROM specialties WHERE id = $1', [user.specialty_id]);
+        } catch (e) {
+          spec = null;
+        }
+      }
+      // Same best-effort treatment for the services flag: `user` here is a
+      // SELECT * off users, which has no services_ready column, so without this
+      // the template's {{#if servicesReady}} would take the else branch and
+      // tell a doctor with a full list that their specialty is still being set
+      // up. Failure leaves it undefined → false → the conservative branch,
+      // which is the right way round: understating is recoverable, promising a
+      // list that is not there is not.
+      let servicesReady;
+      try {
+        const sr = await queryOne(
+          `SELECT ${SERVICES_READY_SQL} FROM users u WHERE u.id = $1`,
+          [user.id]
+        );
+        servicesReady = sr ? sr.services_ready === true : undefined;
+      } catch (e) {
+        servicesReady = undefined;
+      }
+      const welcomePayload = buildDoctorWelcomePayload({
+        doctor: Object.assign({}, user, {
+          specialty_name: spec ? spec.name : null,
+          specialty_name_ar: spec ? spec.name_ar : null,
+          services_ready: servicesReady
+        }),
+        token,
+        baseUrl: baseUrl || null
+      });
+      // EMAIL ONLY — deliberately NOT the ['internal','email','whatsapp'] fan-out
+      // the operator-initiated welcome paths use. This endpoint is anonymous, so
+      // queueing WhatsApp here would let anyone who knows a doctor's address
+      // push WhatsApp messages at them.
+      try {
+        queueNotification({
+          toUserId: user.id,
+          channel: 'email',
+          template: 'doctor_approved',
+          status: 'queued',
+          response: welcomePayload,
+          dedupe_key: 'doctor_welcome_selfserve:' + user.id + ':' + Date.now(),
+          recipientLang: user.lang || null
+        });
+      } catch (e) {
+        console.error('[forgot-password] doctor welcome queue failed:', e && e.message);
+      }
+    } else if (resetLink) {
+      // Fire-and-forget — failures are logged but never surface to the user
+      // (don't leak whether the email exists). The transporter is recipientGuard-wrapped.
       sendEmail({
         to: user.email,
         subject: emailLang === 'ar' ? 'إعادة تعيين كلمة مرور تشخيصة' : 'Reset your Tashkheesa password',
@@ -634,7 +786,9 @@ router.get('/set-password', welcomeTokenIpLimiter, async (req, res) => {
   if (!user) return res.redirect('/login');
   if (user.password_hash) return res.redirect(getHomeByRole(user.role));
 
-  return res.render('set_password', { error: null, success: null, lang, _lang: lang, isAr: c.isAr, copy: c });
+  // Send a doctor back to the doctor form, not the patient one, if they bail out.
+  const backTo = user.role === 'doctor' ? '/doctor/login' : '/login';
+  return res.render('set_password', { error: null, success: null, lang, _lang: lang, isAr: c.isAr, copy: c, backTo });
 });
 
 // ============================================
@@ -660,7 +814,8 @@ router.post('/set-password', welcomeTokenIpLimiter, async (req, res) => {
       lang,
       _lang: lang,
       isAr: c.isAr,
-      copy: c
+      copy: c,
+      backTo: user.role === 'doctor' ? '/doctor/login' : '/login'
     });
   }
 
@@ -1165,7 +1320,15 @@ router.post('/doctor/signup', async (req, res) => {
            $14, $15, $16,
            $17, $18,
            $19::jsonb, $20::jsonb, $21::jsonb, $22::jsonb,
-           $23::jsonb,
+           -- 2026-08-24: sla_tiers_confirmed_at = the signup timestamp. The
+           -- signup form IS the doctor's affirmative answer about turnaround
+           -- speeds, so a new account must not inherit the reconfirmation
+           -- banner migration 089 raised for the existing cohort. Without this
+           -- every doctor approved after launch would be told "you are
+           -- currently listed for all three" when they hold only what they
+           -- ticked — typically Standard alone, which is the very default 089
+           -- exists to correct.
+           $23::jsonb, $26,
            pgp_sym_encrypt($24, $25),
            true, false, true,
            $26

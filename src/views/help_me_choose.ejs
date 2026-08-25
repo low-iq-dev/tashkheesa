@@ -60,7 +60,13 @@
     </div>
 
     <p style="text-align:center; margin-top:24px; font-size:13px; color:#9ca3af;">
-      <%= lang === 'ar'
+      <%# 2026-08-25: switched from the escaping output tag to the raw one.
+          This string contains an anchor, and escaping printed it as visible
+          source — the live page literally read "Or a href=/services ...
+          browse all services /a yourself" with the markup showing. Both
+          branches are literals defined on the two lines below; no user input
+          reaches them, so raw output is safe here. %>
+      <%- lang === 'ar'
         ? 'أو <a href="/services" style="color:#2563eb;">تصفح كل الخدمات</a> بنفسك'
         : 'Or <a href="/services" style="color:#2563eb;">browse all services</a> yourself' %>
     </p>

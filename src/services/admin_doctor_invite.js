@@ -23,7 +23,7 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { buildDoctorWelcomePayload, WELCOME_EXPIRY_HOURS } = require('./doctor_welcome_payload');
+const { buildDoctorWelcomePayload, WELCOME_EXPIRY_HOURS, SERVICES_READY_SQL } = require('./doctor_welcome_payload');
 
 // Throw-to-reject: carries an HTTP status + machine code out of the txn to the
 // route, which maps err.http/err.code → res.fail (same as admin_doctor_pause.js).
@@ -59,7 +59,10 @@ async function inviteDoctor(client, opts) {
       `SELECT u.id, u.role, u.is_active, u.name, u.name_ar, u.lang,
               u.welcome_email_last_sent_at,
               sp.name    AS specialty_name,
-              sp.name_ar AS specialty_name_ar
+              sp.name_ar AS specialty_name_ar,
+              -- Gates the email's "your services are already selected" clause.
+              -- Shared fragment — see SERVICES_READY_SQL.
+              ${SERVICES_READY_SQL}
          FROM users u
          LEFT JOIN specialties sp ON sp.id = u.specialty_id
         WHERE u.id = $1

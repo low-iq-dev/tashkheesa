@@ -57,6 +57,29 @@
     return String(n);
   }
 
+  /* Turnaround tier, bold, on every row (2026-08-24).
+
+     The list showed status and an SLA countdown but never the TIER, so a
+     doctor scanning their queue could not tell a 4-hour urgent case from a
+     48-hour standard one until they opened it. The countdown alone does not
+     answer it either — "6h left" means something very different on a 4-hour
+     case than on a 48-hour one.
+
+     Read straight off the row: buildPortalCasesPaged selects o.*, so
+     urgency_tier and sla_hours are already here. 'fast_track' is the
+     pre-migration-031 spelling of vip. Nothing is rendered when the row
+     carries no tier — an invented one is worse than none. */
+  function _tierPill(c) {
+    var key = String((c && c.urgency_tier) || '').trim().toLowerCase();
+    if (key === 'fast_track') key = 'vip';
+    var hrs = Number(c && c.sla_hours);
+    var win = (Number.isFinite(hrs) && hrs > 0) ? (' · ' + hrs + (_isAr ? 'س' : 'h')) : '';
+    if (key === 'urgent')   return { kind: 'red',     label: tt('Urgent', 'Urgent', 'عاجل') + win };
+    if (key === 'vip')      return { kind: 'brass',   label: tt('VIP', 'VIP', 'VIP') + win };
+    if (key === 'standard') return { kind: 'neutral', label: tt('Standard', 'Standard', 'قياسي') + win };
+    return null;
+  }
+
   function _statusChip(c) {
     var status = String((c && (c.db_status || c.status)) || '').toLowerCase();
     if (status === 'completed') return { kind: 'green', label: tt('Completed', 'Completed', 'مكتملة') };
@@ -140,6 +163,7 @@
            var tone = _slaTone(c);
            var slaTxt = _slaText(c);
            var statusChip = _statusChip(c);
+           var tierPill = _tierPill(c);
            var name = _patientLabel(c);
            var initials = _initials(name);
            var isCompleted = String((c.db_status || c.status) || '').toLowerCase() === 'completed';
@@ -178,6 +202,12 @@
                 render — they carry status, not urgency. %>
             <% if (!isUrgent) { %>
               <span class="v2-chip v2-chip--<%= statusChip.kind %>"><%= statusChip.label %></span>
+            <% } %>
+            <%# Tier sits after status and is deliberately the boldest thing in
+                the line after the patient name — it is what decides how much
+                time the doctor has, and it was shown nowhere on this page. %>
+            <% if (tierPill) { %>
+              <span class="v2-pill v2-pill--<%= tierPill.kind %> v2-pill--strong"><span class="v2-pill__dot"></span><%= tierPill.label %></span>
             <% } %>
             <% if (c.reference) { %>
               <span style="font-size:11px;color:var(--v2-muted);font-variant-numeric:tabular-nums;">#<%= c.reference %></span>

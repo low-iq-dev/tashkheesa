@@ -10,7 +10,20 @@ function mkStub() {
   const f = function () { return mkStub(); };
   return new Proxy(f, {
     get(t, p) {
-      if (p === 'then') return undefined;
+      // AUDIT-2026-08-22: returning undefined here made the stub a
+      // non-thenable (so `await stub` does not hang) but ALSO broke every
+      // module that does `client.send(...).then(...)` at load time —
+      // src/storage.js does exactly that for its R2 HeadBucket check. That
+      // produced 9 permanent LOAD-CRASH false positives, which meant this
+      // guard could no longer surface a REAL load-time crash. Resolve
+      // immediately instead: `await stub` still settles, and `.then(fn)`
+      // is callable.
+      if (p === 'then') {
+        return function (onFulfilled) {
+          try { if (typeof onFulfilled === 'function') onFulfilled(mkStub()); } catch (_) { /* stub */ }
+          return mkStub();
+        };
+      }
       if (p === Symbol.toPrimitive) return () => 'stub';
       if (p === 'toString') return () => 'stub';
       if (p === Symbol.iterator) return function* () {};

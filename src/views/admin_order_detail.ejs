@@ -294,6 +294,192 @@
             </div>
           </div>
 
+          <%
+            /* AUDIT-2026-08-23 (C4) — prescription add-on queue.
+
+               `prescription` is a paid add-on (EGP 400, 50% doctor
+               commission). A doctor who judges one is clinically indicated on
+               a case that did not buy one raises a request from their case
+               page; it lands as an order_addons row at status 'pending' and
+               shows up here. This card is steps 3 and 4 of that sequence:
+               tell the patient, then release it once they have paid.
+
+               Release is the only path to 'paid' outside the payment webhook,
+               and the handler refuses anything not currently 'pending', so it
+               cannot overwrite a genuine purchase or revive a cancelled one. */
+            const rx = (typeof prescriptionAddon !== 'undefined' && prescriptionAddon) ? prescriptionAddon : null;
+            const rxStatus = rx ? String(rx.status || '').toLowerCase() : null;
+            let rxMeta = {};
+            try {
+              rxMeta = rx && rx.metadata_json
+                ? (typeof rx.metadata_json === 'string' ? JSON.parse(rx.metadata_json) : rx.metadata_json)
+                : {};
+            } catch (e) { rxMeta = {}; }
+            const rxPrice = rx ? Number(rx.price_at_purchase_amount != null ? rx.price_at_purchase_amount : rx.price_at_purchase_egp) : null;
+            const rxCurrency = rx ? String(rx.price_at_purchase_currency || 'EGP').toUpperCase() : 'EGP';
+          %>
+          <%
+            /* Add-ons selected at checkout with no order_addons row yet.
+               mark-paid deliberately refuses to settle these: it has no amount
+               field, and addons_json is written when the patient ticks the box
+               rather than when they pay, so it survives an abandoned gateway.
+               Settling on that basis would confirm a purchase that never
+               happened and accrue a doctor commission against zero revenue.
+               This card is the explicit human assertion instead.
+               See src/services/addon_settlement.js. */
+            const outstanding = (typeof outstandingAddons !== 'undefined' && Array.isArray(outstandingAddons)) ? outstandingAddons : [];
+            const orderPaid = ['paid','captured'].indexOf(String(order.payment_status || '').toLowerCase()) !== -1;
+          %>
+          <% if (outstanding.length) { %>
+          <div class="admin-card" style="margin-top:20px;border-left:3px solid #C2410C;">
+            <div class="card-header">
+              <div class="card-title">Add-ons awaiting settlement</div>
+              <span style="background:#FBECDF;color:#C2410C;padding:2px 9px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;">Action needed</span>
+            </div>
+
+            <p class="muted" style="font-size:13px;margin:0 0 10px;">
+              The patient selected these at checkout. They are <strong>not</strong> recorded as bought, because marking
+              the base fee paid says nothing about whether the add-on money arrived.
+            </p>
+
+            <ul style="margin:0 0 12px;padding-inline-start:18px;font-size:13px;">
+              <% outstanding.forEach(function (a) { %>
+                <li>
+                  <%= a.label %>
+                  <% if (a.price) { %>
+                    — selected at <%= a.currency || 'EGP' %> <%= a.price %>
+                  <% } else { %>
+                    <%# No price on the order: the selection predates the price being
+                        persisted. Settlement will fall back to the addon_services
+                        catalogue, so say so rather than letting the operator assert
+                        payment for an unstated amount. %>
+                    — <span class="muted">no price recorded on the order; will settle at the catalogue price</span>
+                  <% } %>
+                </li>
+              <% }); %>
+            </ul>
+
+            <% if (!orderPaid) { %>
+              <p class="muted" style="font-size:12px;margin:0;">
+                The case itself is not marked paid yet. Settle the case first.
+              </p>
+            <% } else { %>
+              <form method="POST" action="/admin/orders/<%= encodeURIComponent(order.id) %>/settle-addons">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <button class="admin-btn" type="submit">I received payment for these — settle them</button>
+              </form>
+              <p class="muted" style="font-size:12px;margin-top:10px;">
+                Only press this if the money for these specific lines is actually in. It confirms the purchase to the
+                patient by email and puts the case on the hook for the doctor&rsquo;s commission when it completes.
+                Your user id is recorded against the decision. If the patient paid the base fee only, leave this alone —
+                the lines stay unsettled and nothing is owed.
+              </p>
+            <% } %>
+          </div>
+          <% } %>
+
+          <% const rxSoon = (typeof prescriptionsComingSoon === 'undefined') ? true : !!prescriptionsComingSoon; %>
+          <% if (rx || rxSoon) { %>
+          <div class="admin-card" style="margin-top:20px;">
+            <div class="card-header">
+              <div class="card-title">Prescription add-on</div>
+              <% if (rxSoon) { %>
+                <span style="background:#F7EEDC;color:#8E6C2C;padding:2px 9px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;">Coming soon</span>
+              <% } %>
+              <% if (rx) { %>
+              <span class="muted" style="font-size:12px;">
+                <%= rxStatus === 'pending' ? 'Awaiting payment' :
+                    rxStatus === 'paid' ? 'Paid — doctor can write it' :
+                    rxStatus === 'fulfilled' ? 'Written and delivered' :
+                    rxStatus === 'cancelled' ? 'Cancelled' :
+                    rxStatus === 'refunded' ? 'Refunded' : String(rxStatus || '') %>
+              </span>
+              <% } %>
+            </div>
+
+            <% if (rx) { %>
+            <dl style="margin:0 0 12px;display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px;">
+              <% if (rxPrice) { %>
+                <dt class="muted">Price</dt><dd style="margin:0;"><%= rxCurrency %> <%= rxPrice %></dd>
+              <% } %>
+              <% if (rxMeta && rxMeta.requested_at) { %>
+                <dt class="muted">Requested</dt><dd style="margin:0;"><%= rxMeta.requested_at %></dd>
+              <% } %>
+              <% if (rxMeta && rxMeta.clinical_reason) { %>
+                <dt class="muted">Doctor's reason</dt><dd style="margin:0;"><%= rxMeta.clinical_reason %></dd>
+              <% } %>
+              <% if (rxMeta && rxMeta.payment_note) { %>
+                <dt class="muted">Payment note</dt><dd style="margin:0;"><%= rxMeta.payment_note %></dd>
+              <% } %>
+            </dl>
+            <% } %>
+
+            <% if (rxSoon) { %>
+              <%# Held back for launch (2026-08-24) — see
+                  src/services/prescriptions_flag.js. The card stays so ops can
+                  see the feature exists and see any row that predates the
+                  freeze, but the three actions are withdrawn: releasing an
+                  add-on the doctor cannot then write would strand a patient
+                  who had just paid. %>
+              <p class="muted" style="font-size:12px;margin:0;">
+                Digital prescriptions are not live yet, so there is nothing to release here.
+                Doctors cannot request or write one, and patients cannot buy one.
+                <% if (rx) { %>This row predates the freeze — leave it alone until the feature is switched on.<% } %>
+              </p>
+              <p class="muted" style="font-size:12px;margin:8px 0 0;">
+                Blocking: no <code>addon_prescription</code> row in <code>service_regional_prices</code> (so it cannot be
+                bought), and <code>mark-paid</code> does not activate add-ons (so a checkout purchase would stay locked
+                to the doctor). Set <code>PRESCRIPTIONS_ENABLED=true</code> once both are fixed.
+              </p>
+            <% } else if (rxStatus === 'pending') { %>
+              <form method="POST" action="/admin/orders/<%= encodeURIComponent(order.id) %>/prescription/notify-patient" style="margin-bottom:12px;">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <button class="admin-btn admin-btn-outline" type="submit">Tell the patient it is recommended</button>
+                <span class="muted" style="font-size:12px;margin-left:8px;">Emails them the recommendation and the price. Safe to send more than once.</span>
+              </form>
+
+              <form method="POST" action="/admin/orders/<%= encodeURIComponent(order.id) %>/prescription/release" style="margin-bottom:12px;">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <input type="text" name="payment_note" placeholder="How was it paid? e.g. Instapay ref 88213" value="" />
+                <div style="margin-top:8px;">
+                  <button class="admin-btn" type="submit">Payment received — release to doctor</button>
+                </div>
+              </form>
+
+              <form method="POST" action="/admin/orders/<%= encodeURIComponent(order.id) %>/prescription/decline">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <button class="admin-btn admin-btn-outline" type="submit">Decline request</button>
+              </form>
+
+              <p class="muted" style="font-size:12px;margin-top:10px;">
+                Only release once the money is actually in. Releasing unlocks the prescription editor for the
+                doctor and puts the case on the hook for a 50% commission when it completes.
+              </p>
+            <% } else if (rxStatus === 'paid') { %>
+              <p class="muted" style="font-size:12px;margin:0;">
+                The doctor can write the prescription now.
+                <% if (rx.purchasedAtCheckout) { %>
+                  Bought at checkout — the order_addons row is created the first time the doctor saves one.
+                <% } %>
+              </p>
+              <%# Review round 3: this used to promise "the add-on is flagged for
+                  refund automatically" if the case completed unwritten. That
+                  behaviour was removed in round 2 — auto-refunding at report
+                  submit stripped the add-on a second before a doctor delivered
+                  it, and refund_pending has no reader in src/ anyway, so it
+                  marked the money returned without returning it. Completion now
+                  writes an order_events line ("Case completed with an unwritten
+                  paid prescription") and stops. Telling an operator a machine
+                  is watching, when nothing is, is worse than telling them
+                  nothing. %>
+              <p class="muted" style="font-size:12px;margin:6px 0 0;">
+                Nothing refunds this automatically. If the case completes and no prescription was written,
+                the activity log below records it — refunding is a manual decision.
+              </p>
+            <% } %>
+          </div>
+          <% } %>
+
           <div class="admin-card" style="margin-top:20px;">
             <div class="card-header">
               <div class="card-title">Reassign doctor</div>

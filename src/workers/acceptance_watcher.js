@@ -36,12 +36,26 @@ async function runAcceptanceWatcherSweep() {
     const expiredOrders = await queryAll(`
       SELECT o.id, o.specialty_id, o.service_id, o.reference_id, o.patient_id,
              o.tier, o.urgency_tier, o.sla_hours, o.status,
+             -- AUDIT-2026-08-22 — reassigned_count drives the no-doctor backoff
+             -- below (see autoAssignOrder).
+             o.reassigned_count,
              o.urgency_flag, o.sla_24hr_selected
       FROM orders_active o
       WHERE o.doctor_id IS NULL
         AND o.acceptance_deadline_at IS NOT NULL
         AND o.acceptance_deadline_at < NOW()
-        AND LOWER(COALESCE(o.status, '')) IN ('pending', 'available', 'submitted', 'new', 'paid')
+        -- AUDIT-2026-08-22 (P0) — 'reassigned' added. case_lifecycle.reassignCase
+        -- with no alternate doctor transitions a PAID case to REASSIGNED and
+        -- nulls doctor_id; before this, that row matched NO sweep in the system
+        -- (wrong status here, wrong status for fetchDoctorTimeouts, breached_at
+        -- set for fetchSlaCandidates) and was not re-enqueued for auto-assign.
+        -- A paid patient whose case breached during a doctor shortage was
+        -- dropped permanently. reassignCase now also stamps
+        -- acceptance_deadline_at = now, so the predicate above matches on the
+        -- next tick and this sweep retries auto-assign against a fresh pool.
+        -- doctor_id IS NULL above keeps a normally-reassigned case (which goes
+        -- straight on to ASSIGNED with a new doctor) out of this set.
+        AND LOWER(COALESCE(o.status, '')) IN ('pending', 'available', 'submitted', 'new', 'paid', 'reassigned')
         AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured')
     `);
 
@@ -112,7 +126,22 @@ function pingOps(agentName, task) {
 async function notifyUrgentUnaccepted(order) {
   try {
     if (!order) return;
-    const isUrgent = Boolean(order.urgency_flag) || normalizeTier(order.tier) === 'urgent';
+    // AUDIT-2026-08-22 — the urgency_flag leg is gone. urgency_flag does NOT
+    // mean "urgent tier": every writer sets it to `tier !== 'standard'`
+    // (services/wizard_pricing.js:118, routes/api/cases.js), so it is true for
+    // VIP too. Ops was pushed "Urgent case unaccepted — the 4h SLA clock is
+    // running" for 18-hour VIP cases, which is both false and exactly the kind
+    // of wrong alarm that trains someone to swipe the channel away.
+    //
+    // The tier columns are the only honest signal, and it is read the same way
+    // acceptanceMinutesForOrder reads it — `tier || urgency_tier` — so the
+    // window quoted in the body and the tier claimed in the title come from one
+    // source. (Same reasoning as the DO-NOT-RE-ADD note in acceptance_window.js.)
+    const declaredTier = order.tier || order.urgency_tier;
+    const slaHours = Number(order.sla_hours);
+    const isUrgent = declaredTier
+      ? normalizeTier(declaredTier) === 'urgent'
+      : (Number.isFinite(slaHours) && slaHours > 0 && slaHours <= 4);
     if (!isUrgent) return;
 
     const caseRef = order.reference_id || String(order.id).slice(0, 12).toUpperCase();
@@ -144,12 +173,80 @@ async function notifyUrgentUnaccepted(order) {
   }
 }
 
+// AUDIT-2026-08-22 — no-doctor backoff. Base 4 minutes, doubling with the
+// number of times this case has already been passed around, capped at 30 so the
+// case never becomes invisible for long. See the `if (!doctor)` branch.
+const NO_DOCTOR_BACKOFF_BASE_MIN = 4;
+const NO_DOCTOR_BACKOFF_MAX_MIN = 30;
+// How long a doctor who has just been handed this case (and let the window
+// lapse) stays out of the candidate pool for it. Deliberately a constant and
+// not an env var: tests/core/env-vars-validated-or-documented.test.js requires
+// every process.env read in src/ to be validated or documented in
+// .env.example, and this is a tuning number, not a deployment knob.
+const REOFFER_COOLDOWN_MIN = 60;
+
+function noDoctorBackoffMinutes(reassignedCount) {
+  const attempts = Math.max(0, Math.min(5, Number(reassignedCount) || 0));
+  return Math.min(NO_DOCTOR_BACKOFF_MAX_MIN, NO_DOCTOR_BACKOFF_BASE_MIN * Math.pow(2, attempts));
+}
+
 async function autoAssignOrder(order) {
   // Resolve specialty
   let specialtyId = order.specialty_id;
   if (!specialtyId && order.service_id) {
     const svc = await queryOne('SELECT specialty_id FROM services WHERE id = $1', [order.service_id]);
     specialtyId = svc ? svc.specialty_id : null;
+  }
+
+  // AUDIT-2026-08-22 (P0) — EXCLUDE THE DOCTOR WHO JUST LOST THIS CASE.
+  //
+  // Unlike case_sla_worker.findAlternateDoctor, this selector had no
+  // excludeDoctorId at all. It did not matter while the only way in was "the
+  // case was never assigned to anyone"; it became an unbounded loop the moment
+  // case_lifecycle.reassignCase(id, null) started stamping
+  // acceptance_deadline_at and this sweep started admitting 'reassigned'.
+  // reassignCase(null) is called ONLY when findAlternateDoctor found nobody —
+  // which, in a single-doctor specialty (the realistic launch state), means the
+  // only candidate left is the doctor who just timed out. So:
+  //   assign -> window expires -> no alternate -> reassignCase(null) -> 2 min
+  //   -> this sweep re-assigns the SAME doctor -> forever,
+  // roughly every 17 minutes, each cycle bumping reassigned_count and writing
+  // three case_events until /ops/silent-failures is one case repeated.
+  //
+  // The most recent doctor_assignments row is the right source: reassignCase
+  // and handleDoctorTimeout both close that row but leave it in place, and this
+  // sweep writes one of its own on every successful claim — so a case that
+  // keeps coming back keeps excluding whoever last held it. Nothing else writes
+  // that table (a broadcast does not), so the row always means "this doctor
+  // actually held this case".
+  //
+  // The exclusion is a COOLDOWN, not a ban. In a single-doctor specialty a
+  // permanent exclusion would park the case until a human noticed, which is a
+  // different failure with the same outcome for the patient. After
+  // REOFFER_COOLDOWN_MIN the same doctor becomes a candidate again — one
+  // re-offer an hour, each with a full acceptance window, is "keep trying the
+  // only reader we have"; a re-offer every two minutes is the loop.
+  let excludeDoctorId = null;
+  try {
+    const last = await queryOne(
+      `SELECT doctor_id, assigned_at FROM doctor_assignments
+        WHERE case_id = $1 AND doctor_id IS NOT NULL
+        ORDER BY assigned_at DESC
+        LIMIT 1`,
+      [order.id]
+    );
+    if (last && last.doctor_id) {
+      const assignedMs = new Date(last.assigned_at).getTime();
+      const withinCooldown =
+        !Number.isFinite(assignedMs) ||
+        (Date.now() - assignedMs) < REOFFER_COOLDOWN_MIN * 60 * 1000;
+      if (withinCooldown) excludeDoctorId = last.doctor_id;
+    }
+  } catch (e) {
+    // doctor_assignments may not exist on a legacy DB. Falling back to no
+    // exclusion restores the previous behaviour rather than blocking the
+    // assignment — a churn loop is better than a case nobody can be given.
+    excludeDoctorId = null;
   }
 
   // AUDIT-ACCEPT-2 — this hand-rolled query bypassed the assignment safety
@@ -177,16 +274,49 @@ async function autoAssignOrder(order) {
     WHERE ${eligibleDoctorClause({ alias: 'u', serviceIdParam: '$2' })}
       AND LOWER(TRIM(COALESCE(u.specialty_id, ''))) = LOWER(TRIM($1))
       AND COALESCE(a.active_count, 0) < $3
+      AND ($4::text IS NULL OR u.id <> $4)
     ORDER BY COALESCE(a.active_count, 0) ASC, u.created_at ASC
     LIMIT 1
-  `, [specialtyId, order.service_id, MAX_ACTIVE_CASES_PER_DOCTOR]);
+  `, [specialtyId, order.service_id, MAX_ACTIVE_CASES_PER_DOCTOR, excludeDoctorId]);
 
   if (!doctor) {
+    // AUDIT-2026-08-22 (P0) — push the retry out instead of spinning.
+    //
+    // With no write here the row keeps its past acceptance_deadline_at, so this
+    // sweep re-selects it every 2 minutes and re-runs the whole selection (plus
+    // notifyUrgentUnaccepted) forever on a case that is simply unassignable
+    // right now. Moving the deadline forward keeps the case in EXACTLY the same
+    // shape — doctor_id NULL, acceptance_deadline_at NOT NULL, status unchanged
+    // — so it is still counted by the Command "Pending assign" tile and is
+    // still picked up by this sweep, just later. It is never nulled: an
+    // unassignable case must not become invisible.
+    //
+    // Guarded on doctor_id IS NULL so this can never disturb a case another
+    // process claimed between the SELECT and here.
+    try {
+      const backoffMinutes = noDoctorBackoffMinutes(order.reassigned_count);
+      const retryAt = new Date(Date.now() + backoffMinutes * 60 * 1000).toISOString();
+      await execute(
+        `UPDATE orders
+            SET acceptance_deadline_at = $1,
+                updated_at = $1
+          WHERE id = $2
+            AND doctor_id IS NULL`,
+        [retryAt, order.id]
+      );
+    } catch (e) {
+      logErrorToDb(e, {
+        context: 'acceptance_watcher.no_doctor_backoff',
+        category: 'acceptance_watcher',
+        orderId: order.id
+      });
+    }
+
     // THEME8-LINT-EXEMPT-HELPER: benign "no available doctor" diagnostic,
-    // not an error. The order stays unassigned and gets retried on the
-    // next sweep tick; if it keeps failing past the SLA, case_sla_worker
-    // emits CASE_REASSIGNMENT_FAILED on the silent-failures view. This
-    // warn line is for stdout triage during local dev.
+    // not an error. The order stays unassigned and gets retried on the first
+    // sweep tick after the backoff above; if it keeps failing past the SLA,
+    // case_sla_worker emits CASE_REASSIGNMENT_FAILED on the silent-failures
+    // view. This warn line is for stdout triage during local dev.
     console.warn('[acceptance_watcher] no available doctor for order ' + order.id + ' specialty=' + specialtyId);
     return;
   }

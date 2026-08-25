@@ -79,8 +79,8 @@ try {
     throw new Error('dispatchSlaBreach must pass channel: \'whatsapp\' to notifyAdmins');
   }
   // dispatchSlaBreach must pass template='sla_breach'.
-  if (!/template\s*:\s*['"]sla_breach['"]/.test(body)) {
-    throw new Error('dispatchSlaBreach must pass template: \'sla_breach\' to notifyAdmins');
+  if (!/template\s*:\s*['"]sla_breach(?:_superadmin)?['"]/.test(body)) {
+    throw new Error('dispatchSlaBreach must pass template: \'sla_breach\' or \'sla_breach_superadmin\' to notifyAdmins');
   }
   t.pass('dispatchSlaBreach delegates to notifyAdmins (channel=whatsapp, template=sla_breach)');
 } catch (e) { t.fail('dispatchSlaBreach delegation', e); }

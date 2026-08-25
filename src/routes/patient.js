@@ -1431,7 +1431,17 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     var classifierPending = (specialtyRec === null);
     // Services for the currently-selected specialty (or all services if not yet picked).
     try {
-      const visibleClause = await servicesVisibleClause('sv');
+      // 2026-08-25 — BOOKABLE, not merely visible.
+      //
+      // This grid rendered every visible service as a clickable card, but the
+      // step-3 POST validates against servicesBookableClause (visible AND NOT
+      // coming_soon) plus a visible specialty. So a coming_soon service — one
+      // with no active doctor mapped to it — was offered to the patient, and
+      // clicking it bounced straight back here with err=invalid_service. Every
+      // attempt, no explanation, no way to tell which cards work.
+      //
+      // The two must agree: offer exactly what the next step will accept.
+      const visibleClause = servicesBookableClause('sv');
       services = await safeAll(
         (slaExpr) => `SELECT sv.id, sv.specialty_id, sv.name,
                              COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
@@ -1902,9 +1912,26 @@ router.post('/patient/new-case/step3', requireRole('patient'), async (req, res) 
   // Coming Soon guard (§4.5): a service with no active doctor (coming_soon=true)
   // or hidden (is_visible=false) is NOT bookable — a stale page must not create
   // an unfulfillable order.
+  //
+  // 2026-08-24 — the SPECIALTY has to be visible too, which this never checked.
+  // Hiding a specialty is how the platform withdraws a whole area it cannot
+  // staff (migration 087 does exactly that for Nephrology: zero doctor rows,
+  // eight bookable services). But is_visible lives on `specialties`, and this
+  // guard only ever looked at `services`, so a stale page or a replayed POST
+  // carrying a nephrology specialty + service still created a payable order
+  // that auto_assign cannot fill — parked at manual_pending with nobody told,
+  // which is the precise outcome hiding the specialty exists to prevent.
+  //
+  // Seven other hidden specialties still carry visible services for the same
+  // reason, so this closes the same hole for all of them, not just Nephrology.
   const bookableClause = servicesBookableClause('sv');
   const service = await safeGet(
-    () => `SELECT sv.id, sv.specialty_id FROM services sv WHERE sv.id = $1 AND ${bookableClause}`,
+    () => `SELECT sv.id, sv.specialty_id
+             FROM services sv
+             JOIN specialties sp ON sp.id = sv.specialty_id
+            WHERE sv.id = $1
+              AND ${bookableClause}
+              AND COALESCE(sp.is_visible, true) = true`,
     [serviceId]
   );
   if (!service || String(service.specialty_id) !== specialtyId) {
@@ -3073,27 +3100,76 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
 
   // EGP add-on prices — what the server CHARGES (create-intention resolves add-ons
   // at order.currency='EGP'). These drive the flow decision + the EGP disclosure.
-  const videoPriceEgp = resolvePriceFromJson(service?.video_consultation_prices_json, 'EGP', service?.video_consultation_price || 0);
+  // 2026-08-24 — priced from addon_services, the same catalogue
+  // create-intention now charges from and onPurchase snapshots. The pay page
+  // previously read services.video_consultation_prices_json for video and
+  // service_regional_prices('addon_prescription') for prescription: the first
+  // is populated on 0 of 168 services, the second has no row in any of the
+  // nine currencies. Both add-ons therefore priced at 0 and the checkbox never
+  // rendered — the add-ons were not "broken", they were invisible.
+  //
+  // resolveAddonPrice also returns null for an inactive add-on, so
+  // deactivating one in addon_services now removes it from the pay page too,
+  // which was never true of the old lookups.
+  const { resolveAddonPrice: _resolveAddon } = require('../services/addons/pricing');
+  const { prescriptionsComingSoon: _rxSoon } = require('../services/prescriptions_flag');
+  // Gated on the SAME kill-switch create-intention checks. Without this the pay
+  // page offered a video add-on the charge path refuses to price, and — because
+  // videoPriceEgp now comes from the global addon_services catalogue rather
+  // than a per-service column that is empty on all 168 services —
+  // serviceHasAddons below became unconditionally true, which permanently
+  // hid the external payment_link branch and rendered an add-on card on every
+  // service with nothing purchasable in it.
+  let _videoEnabledForPay = false;
+  try { _videoEnabledForPay = require('../video_helpers').isVideoEnabled(); } catch (_) {}
+  const _videoEgpResolved = _videoEnabledForPay ? await _resolveAddon('video_consult', 'EGP') : null;
+  const videoPriceEgp = _videoEgpResolved ? Number(_videoEgpResolved.amount) || 0 : 0;
+  // sla_24hr is NOT an add-on — migration 019b removed it and turnaround is an
+  // urgency tier on main-service pricing. This value is kept only because the
+  // view still receives it; the checkbox it drove is hardcoded off.
   const slaPriceEgp = resolvePriceFromJson(service?.sla_24hr_prices_json, 'EGP', service?.sla_24hr_price || 100);
-  const prescriptionRowEgp = await queryOne(
-    "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = $1 LIMIT 1",
-    ['EGP']
-  );
-  const prescriptionPriceEgp = prescriptionRowEgp ? prescriptionRowEgp.tashkheesa_price : 0;
+  const _rxEgpResolved = _rxSoon() ? null : await _resolveAddon('prescription', 'EGP');
+  const prescriptionPriceEgp = _rxEgpResolved ? Number(_rxEgpResolved.amount) || 0 : 0;
 
   // LOCAL add-on prices — DISPLAY ONLY, for an international order (display_currency).
   // Domestic orders reuse the EGP figures (local === EGP), so the page is unchanged.
   const displayCcy = order.display_currency ? String(order.display_currency).toUpperCase() : 'EGP';
   const isIntlOrderRow = order.display_price != null && displayCcy !== 'EGP';
   let videoPriceLocal = videoPriceEgp, slaPriceLocal = slaPriceEgp, prescriptionPriceLocal = prescriptionPriceEgp;
+  // The currency each add-on figure is actually denominated in. For a domestic
+  // order these are simply the display currency; for an international order
+  // they are 'EGP' whenever addon_services has no override for that currency,
+  // which is 5 of the 9 the platform supports.
+  let videoPriceCurrency = displayCcy, prescriptionPriceCurrency = displayCcy;
   if (isIntlOrderRow) {
-    videoPriceLocal = resolvePriceFromJson(service?.video_consultation_prices_json, displayCcy, videoPriceEgp);
+    // resolveAddonPrice falls back to base_price_egp for a currency that has
+    // no override, and reports that by setting resolved.currency = 'EGP'.
+    // Reading only .amount and labelling it displayCcy would show a Kuwaiti
+    // patient "+200 KWD" (about $650) for a 200 EGP add-on. addon_services
+    // carries 4 currencies; the platform supports 9 — so this is live for BHD,
+    // GBP, KWD, OMR and QAR the moment the first international order arrives.
+    //
+    // No genuine local price means no local figure: fall back to the EGP
+    // number, which the page discloses separately as the EGP charge.
+    const _localAmount = function (resolved) {
+      if (!resolved) return null;
+      if (String(resolved.currency).toUpperCase() !== displayCcy) return null;
+      return Number(resolved.amount) || 0;
+    };
+    const _videoLocal = _videoEnabledForPay ? await _resolveAddon('video_consult', displayCcy) : null;
+    const _videoLocalAmt = _localAmount(_videoLocal);
+    videoPriceLocal = _videoLocalAmt != null ? _videoLocalAmt : videoPriceEgp;
+    // Round 2 correction: falling back to the EGP figure is only half the fix.
+    // The view prints `+<price> <currencyCode>` with currencyCode = displayCcy,
+    // so an EGP amount under a KWD label still reads "+200 KWD" for a 200 EGP
+    // add-on. Carry the currency each price is actually IN, and let the view
+    // label it with that.
+    videoPriceCurrency = _videoLocalAmt != null ? displayCcy : 'EGP';
     slaPriceLocal = resolvePriceFromJson(service?.sla_24hr_prices_json, displayCcy, slaPriceEgp);
-    const prescriptionRowLocal = await queryOne(
-      "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = $1 LIMIT 1",
-      [displayCcy]
-    );
-    prescriptionPriceLocal = prescriptionRowLocal ? prescriptionRowLocal.tashkheesa_price : prescriptionPriceEgp;
+    const _rxLocal = _rxSoon() ? null : await _resolveAddon('prescription', displayCcy);
+    const _rxLocalAmt = _localAmount(_rxLocal);
+    prescriptionPriceLocal = _rxLocalAmt != null ? _rxLocalAmt : prescriptionPriceEgp;
+    prescriptionPriceCurrency = _rxLocalAmt != null ? displayCcy : 'EGP';
   }
 
   // What the view DISPLAYS (prominent): local for intl, EGP for domestic.
@@ -3137,6 +3213,8 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
     videoConsultationPriceEgp: videoPriceEgp,
     sla24hrPriceEgp: slaPriceEgp,
     prescriptionPriceEgp: prescriptionPriceEgp,
+    videoPriceCurrency,
+    prescriptionPriceCurrency,
     videoConsultationPrice,
     sla24hrPrice,
     prescriptionPrice,
@@ -3445,16 +3523,22 @@ router.get('/portal/patient/orders/:id/request-refund', requireRole('patient'), 
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
 
+  // AUDIT-2026-08-22 (M5): projection widened to everything maxRefundableEgp
+  // reads (price, addons_json, video_consultation_*). It fetched neither
+  // `price` nor `addons_json`, so the amount below could only ever be the
+  // legacy base_price + urgency_uplift_amount — see the note at requestedAmount.
   const order = await queryOne(
-    `SELECT id, reference_id, status, payment_status, base_price, urgency_uplift_amount,
-            patient_id, no_sla_refund_eligibility
+    `SELECT id, reference_id, status, payment_status, patient_id,
+            no_sla_refund_eligibility,
+            price, base_price, urgency_uplift_amount, addons_json,
+            video_consultation_selected, video_consultation_price
        FROM orders_active
       WHERE id = $1 AND patient_id = $2`,
     [orderId, patientId]
   );
   if (!order) return res.redirect('/dashboard');
 
-  const { isEligibleForRefund } = require('../services/refund_eligibility');
+  const { isEligibleForRefund, maxRefundableEgp } = require('../services/refund_eligibility');
   const eligibility = await isEligibleForRefund(order, patientId);
   if (!eligibility || !eligibility.eligible) {
     return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId));
@@ -3473,8 +3557,15 @@ router.get('/portal/patient/orders/:id/request-refund', requireRole('patient'), 
     return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId));
   }
 
-  const requestedAmount =
-    Number(order.base_price || 0) + Number(order.urgency_uplift_amount || 0);
+  // AUDIT-2026-08-22 (M5): was base_price + urgency_uplift_amount — the legacy
+  // formula every other refund site migrated off on 2026-08-17
+  // (routes/superadmin.js:2688, services/admin_refund.js). It is wrong twice:
+  // it omits the add-ons the patient actually paid for (video consultation,
+  // prescription — priced into the Paymob charge by
+  // order_pricing.owedCentsForOrder), and it evaluates to 0 for every order
+  // whose creation path never wrote base_price. maxRefundableEgp is the single
+  // source of truth: price + the add-ons locked at intention time.
+  const requestedAmount = maxRefundableEgp(order);
 
   res.render('patient_refund_request', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
@@ -3499,9 +3590,13 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
   const reasonRaw = String((req.body && req.body.reason) || '').trim();
   const instapayRaw = String((req.body && req.body.instapay_handle) || '').trim();
 
+  // AUDIT-2026-08-22 (M5): projection widened for maxRefundableEgp — see the
+  // GET handler above.
   const order = await queryOne(
-    `SELECT id, reference_id, status, payment_status, base_price, urgency_uplift_amount,
-            patient_id, no_sla_refund_eligibility
+    `SELECT id, reference_id, status, payment_status, patient_id,
+            no_sla_refund_eligibility,
+            price, base_price, urgency_uplift_amount, addons_json,
+            video_consultation_selected, video_consultation_price
        FROM orders_active
       WHERE id = $1 AND patient_id = $2`,
     [orderId, patientId]
@@ -3509,10 +3604,17 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
   if (!order) return res.redirect('/dashboard');
 
   // Re-check eligibility at submit time (defence against stale form data).
-  const { isEligibleForRefund } = require('../services/refund_eligibility');
+  const { isEligibleForRefund, maxRefundableEgp } = require('../services/refund_eligibility');
   const eligibility = await isEligibleForRefund(order, patientId);
-  const requestedAmount =
-    Number(order.base_price || 0) + Number(order.urgency_uplift_amount || 0);
+  // AUDIT-2026-08-22 (M5): was base_price + urgency_uplift_amount. This is the
+  // value INSERTed as requested_amount below, so the legacy formula
+  // under-refunded by the whole add-on value — and, on the order paths that
+  // never write base_price, wrote a 0 EGP refund row. That row is not merely
+  // useless: it occupies migration 083's uniq_refunds_open_per_order slot in
+  // status 'pending', so every later create path (this one, the operator form,
+  // the Command app) is refused with "a refund already exists" and the case
+  // becomes permanently unrefundable.
+  const requestedAmount = maxRefundableEgp(order);
 
   function rerender(errKey) {
     return res.render('patient_refund_request', {
@@ -3566,6 +3668,31 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
   if (reasonRaw.length > 1000) return rerender('reason_required');
   if (!instapayRaw || instapayRaw.length < 3) return rerender('instapay_required');
   if (instapayRaw.length > 100) return rerender('instapay_required');
+
+  // AUDIT-2026-08-22 (M5): never open a refund for nothing. maxRefundableEgp
+  // returns 0 only when the order genuinely has no money attached to it (no
+  // price, no base_price, no add-ons) — which on a payment_status='paid' order
+  // is a data fault, not a refund. Inserting the row anyway would burn the
+  // one-open-refund-per-order slot (migration 083) on a 0 EGP obligation and
+  // lock the case out of every future refund path. Fail the submit and log it
+  // for reconciliation instead. 'amount_unavailable' is not one of the view's
+  // known keys, so it renders the generic "something went wrong" message —
+  // which is the honest one: this is a data problem, not a policy decision.
+  if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+    logErrorToDb(
+      new Error('refund request blocked: no refundable amount could be established'),
+      {
+        context: 'patient.refund_request_zero_amount',
+        requestId: req.requestId,
+        userId: patientId,
+        orderId,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'refund'
+      }
+    );
+    return rerender('amount_unavailable');
+  }
 
   // Per OQ-4: full case price by default; superadmin can edit down on approve.
   const refundId = randomUUID();

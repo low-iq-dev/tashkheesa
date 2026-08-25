@@ -1,6 +1,8 @@
 const express = require('express');
 const crypto = require('crypto');
-const { queryOne, queryAll, execute } = require('../pg');
+// AUDIT-2026-08-22 (R3): `pool` is needed for the per-transaction advisory
+// lock that serialises this webhook — see the lock block in POST /callback.
+const { pool, queryOne, queryAll, execute } = require('../pg');
 const { logOrderEvent } = require('../audit');
 const { queueNotification, queueMultiChannelNotification, notifyAdmins } = require('../notify');
 const { verifyPaymobHmac } = require('../paymob-hmac');
@@ -9,8 +11,7 @@ const { logErrorToDb } = require('../logger');
 const { requireRole } = require('../middleware');
 const paymobService = require('../services/paymob');
 const { sendCriticalAlert } = require('../critical-alert');
-const { getAddon, safeDualWrite } = require('../services/addons/registry');
-const { owedCentsForOrder, parseSelectedAddons } = require('../services/order_pricing');
+const { owedCentsForOrder } = require('../services/order_pricing');
 
 const router = express.Router();
 
@@ -26,19 +27,15 @@ function normalizeStatus(input) {
   return null;
 }
 
-// Resolve a per-currency add-on price from a JSON price map, mirroring the pay
-// page's resolvePriceFromJson (src/routes/patient.js) so the DISPLAYED price and
-// the CHARGED price come from the same source.
-function resolveAddonJsonPrice(jsonStr, currency, fallback) {
-  if (!jsonStr || jsonStr === '{}') return fallback || 0;
-  try {
-    const p = (typeof jsonStr === 'string') ? JSON.parse(jsonStr) : jsonStr;
-    const c = (currency || 'EGP').toUpperCase();
-    if (p[c] !== undefined && p[c] !== null) return Number(p[c]);
-    if (p.EGP !== undefined) return Number(p.EGP);
-    return fallback || 0;
-  } catch (_) { return fallback || 0; }
-}
+// Add-on settlement, shared with the operator-initiated path in routes/admin.js
+// and routes/superadmin.js so the three cannot drift apart.
+//
+// The per-currency JSON price reader that used to live here is gone: every
+// add-on price now resolves through services/addons/pricing.resolveAddonPrice
+// against the addon_services registry, which is also what onPurchase snapshots.
+// One catalogue, so the charged price and the commission basis are the same
+// number by construction.
+const { settleAddonsForPaidOrder } = require('../services/addon_settlement');
 
 // ── FIX 11: per-attempt-unique Paymob special_reference ────────────────────
 //
@@ -160,22 +157,45 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
     const wantRx = !!reqAddons.prescription;
     let videoPrice = 0;
     let rxPrice = 0;
+    // 2026-08-24 — ONE catalogue: addon_services, via resolveAddonPrice.
+    //
+    // There were three, and they disagreed. Video was priced from
+    // services.video_consultation_prices_json (populated on 0 of 168 rows).
+    // Prescription was priced from service_regional_prices('addon_prescription')
+    // — a row that does not exist in ANY of the nine currencies, so the lookup
+    // returned 0, `selRx = wantRx && rxPrice > 0` was false, and the add-on was
+    // silently dropped from every order. Meanwhile the doctor's commission was
+    // computed from a third catalogue, addon_services, at 200 / 400 EGP.
+    //
+    // So both add-ons were unsellable for the same reason, and had either been
+    // sellable, the patient would have been charged from one table while the
+    // doctor was paid a percentage of another. That is structurally negative
+    // margin the moment the two drift.
+    //
+    // addon_services IS the V2 registry: it holds the price, the per-currency
+    // overrides and the commission percentage in one row, and it is already
+    // what onPurchase snapshots. Reading it here makes the charged price and
+    // the commission basis the same number by construction rather than by
+    // coincidence. resolveAddonPrice falls back to base_price_egp for a
+    // currency with no override, and returns null for an inactive add-on.
     if (wantVideo || wantRx) {
-      const svc = order.service_id
-        ? await queryOne('SELECT video_consultation_prices_json, video_consultation_price FROM services WHERE id = $1', [order.service_id])
-        : null;
-      if (wantVideo && svc) {
+      const { resolveAddonPrice } = require('../services/addons/pricing');
+      if (wantVideo) {
         const { isVideoEnabled } = require('../video_helpers');
         if (isVideoEnabled()) {
-          videoPrice = resolveAddonJsonPrice(svc.video_consultation_prices_json, currency, Number(svc.video_consultation_price) || 0);
+          const resolved = await resolveAddonPrice('video_consult', currency);
+          videoPrice = resolved ? Number(resolved.amount) || 0 : 0;
         }
       }
       if (wantRx) {
-        const rxRow = await queryOne(
-          "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = $1 LIMIT 1",
-          [currency]
-        );
-        rxPrice = rxRow ? Number(rxRow.tashkheesa_price) || 0 : 0;
+        // The coming-soon hold is enforced here too, not only in the UI: a
+        // crafted POST must not be able to add a line the product cannot
+        // deliver. See src/services/prescriptions_flag.js.
+        const { prescriptionsComingSoon } = require('../services/prescriptions_flag');
+        if (!prescriptionsComingSoon()) {
+          const resolved = await resolveAddonPrice('prescription', currency);
+          rxPrice = resolved ? Number(resolved.amount) || 0 : 0;
+        }
       }
     }
     const selVideo = wantVideo && videoPrice > 0;
@@ -359,6 +379,11 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
 
 
 router.post('/callback', async (req, res, next) => {
+  // AUDIT-2026-08-22 (R3, P0): declared OUTSIDE the try so the finally at the
+  // bottom of this handler can release the advisory lock on EVERY exit path,
+  // including the `return next(err)` in the catch. See the lock block below.
+  let _txnLockClient = null;
+  let _txnLockKey = null;
   try {
     // P1-PAY-1 commit 4: HMAC is the only auth path. The legacy
     // PAYMENT_WEBHOOK_SECRET shared-secret fallback was deleted in
@@ -512,6 +537,131 @@ router.post('/callback', async (req, res, next) => {
       _normalizedForEvent === 'failed' ? 'payment_failed'    :
       _normalizedForEvent === 'cancelled' ? 'payment_failed' :
                                            'webhook_received';
+    // ── AUDIT-2026-08-22 (M6): the claim is PROVISIONAL until the outcome is
+    //    actually applied ──────────────────────────────────────────────────
+    //
+    // This row was inserted with its FINAL event_type before the order lookup
+    // (below), the intention binding, the amount check and markCasePaid. Every
+    // one of those can throw — and a throw reaches the handler's outer catch,
+    // which calls next(err) and answers 500. Paymob then retries, the retry
+    // hits ON CONFLICT DO NOTHING, and the retry was treated as a replay of a
+    // transaction that had never been processed at all. Net effect: the patient
+    // is charged, the order NEVER becomes paid, nothing assigns, no SLA clock
+    // starts, and the only trace is an "idempotent replay" timeline row saying
+    // the work was already done. A transient DB blip on the money path
+    // permanently stranded the payment.
+    //
+    // Fix: claim the transaction id under a PROVISIONAL event_type and rewrite
+    // it to the real one only once the outcome has been applied (finalizeClaim
+    // below, called at every point this handler answers with a decision). The
+    // unique index still does the real work — a second delivery of a FINALISED
+    // transaction is still a no-op, which is the replay protection we must not
+    // lose. What changes is the meaning of a conflict on a row that is still
+    // provisional: that is an abandoned attempt, not a completed one, and it
+    // must be re-processed rather than swallowed.
+    //
+    // A provisional row is the RAW MATERIAL for an operational signal:
+    //   SELECT * FROM payment_events WHERE event_type = 'webhook_processing';
+    // is exactly the list of deliveries that died mid-flight.
+    //
+    // AUDIT-2026-08-22 (R7, P1): it is NOT a signal anyone currently sees, and
+    // the original wording claimed otherwise. Nothing reads this event_type —
+    // routes/ops.js:598 deliberately restricts lastWebhookAt to
+    // ('webhook_received','payment_succeeded','payment_failed'), and no other
+    // reader mentions it. HAND-OFF (ops owner): add a webhook_processing count
+    // + oldest-age tile to /ops; a row older than a few minutes is a webhook
+    // that died holding the claim. Until that exists, the two paths that leave
+    // a row provisional AND end the request (order-not-found below, and the
+    // outer catch) are the ones that page on-call directly.
+    const PROVISIONAL_EVENT_TYPE = 'webhook_processing';
+    // Long enough that two near-simultaneous deliveries of the same
+    // transaction cannot both process it (the second is told to retry), short
+    // enough that a crashed attempt is retried inside Paymob's retry schedule.
+    const CLAIM_TAKEOVER_SECONDS = 60;
+    let _claimOwned = false;
+
+    // ── AUDIT-2026-08-22 (R3, P0): REAL serialisation, held for the whole
+    //    handler ────────────────────────────────────────────────────────────
+    //
+    // M6 replaced an unconditional `ON CONFLICT DO NOTHING` — which made
+    // concurrent processing of one transaction STRUCTURALLY impossible — with a
+    // 60-second, heartbeat-free takeover window. A slow-but-alive attempt is
+    // indistinguishable from a dead one under that rule, and 60s is reachable
+    // here: markCasePaid does assignment + broadcast + notifications,
+    // getOrCreatePaymentUrl (:1125) makes an outbound HTTPS call, and the pool
+    // is capped at ~12 against Supabase Free. Sequence that resulted:
+    //
+    //   A claims at t=0 and is slow. Paymob retries. B at t≥61s takes the claim
+    //   and runs the handler CONCURRENTLY with A. A has already committed
+    //   payment_status='paid' but not finished markCasePaid, so B's read sees
+    //   status != 'paid' and no deadline_at → needsBackfill is true (:1090) → B
+    //   does not short-circuit, calls markCasePaid again and re-runs the whole
+    //   add-on fulfilment block: safeDualWrite('video_consult','onPurchase'),
+    //   the purchase notifications, the addons_json merge.
+    //
+    // The lock below restores the lost property without giving back M6's: only
+    // one delivery of a given transaction id can be inside this handler at a
+    // time, and a transient failure still cannot strand the payment (the claim
+    // row stays provisional and a retry re-processes it).
+    //
+    // WHY pg_try_advisory_XACT_lock ON A DEDICATED CLIENT, AND NOT
+    // pg_try_advisory_lock: DATABASE_URL is the Supabase TRANSACTION-mode
+    // pooler (port 6543), where a node-pg client is NOT bound to a backend. A
+    // session-scoped advisory lock is taken on backend A and unlocked on
+    // whichever backend is free — that is the exact bug AUDIT-WATCHDOG-LOCK-1
+    // found in services/worker_watchdog.js, where the leaked lock silently
+    // disabled every ops push. An xact lock inside an explicit BEGIN is
+    // released by the server at COMMIT/ROLLBACK and cannot be released on the
+    // wrong backend, and the pooler pins one backend for the duration of a
+    // transaction. Only the lock lives in this transaction — every query in
+    // this handler still runs on the ordinary pool, so nothing below is holding
+    // rows or reading a stale snapshot.
+    //
+    // NOT acquired (`false`) means a sibling delivery is genuinely mid-flight:
+    // answer 503 and let Paymob redeliver, exactly as for the in-flight claim
+    // below. An ERROR acquiring it (pool exhausted, connect timeout) also
+    // answers 503 rather than proceeding unserialised — on the money path,
+    // "try again" beats "run the non-idempotent block twice".
+    //
+    // COST, stated so it is not a surprise: one pooled client (of PG_POOL_MAX,
+    // default 10) is held idle-in-transaction for the length of the handler.
+    // Paymob webhook volume on this platform is a handful per minute, so the
+    // budget is not close; and if it ever were, the failure mode is a
+    // connect-timeout here → 503 → redelivery, not a corrupted order. If the
+    // deployment ever sets idle_in_transaction_session_timeout below the
+    // handler's worst case, the backend is killed and the lock drops early —
+    // the ROLLBACK below then fails harmlessly and serialisation degrades to
+    // the takeover window. Neither is silent: both land in error_logs.
+    if (paymobTxnId) {
+      _txnLockKey = 'paymob:txn:' + paymobTxnId;
+      try {
+        _txnLockClient = await pool.connect();
+        await _txnLockClient.query('BEGIN');
+        const lockRow = await _txnLockClient.query(
+          'SELECT pg_try_advisory_xact_lock(hashtext($1)) AS locked',
+          [_txnLockKey]
+        );
+        const gotLock = !!(lockRow && lockRow.rows && lockRow.rows[0] && lockRow.rows[0].locked);
+        if (!gotLock) {
+          logOrderEvent({
+            orderId,
+            label: 'Payment callback: concurrent delivery in flight — asked Paymob to retry',
+            meta: JSON.stringify({ paymob_transaction_id: paymobTxnId, status }),
+            actorRole: 'system'
+          });
+          return res.status(503).json({ ok: false, error: 'processing_in_progress' });
+        }
+      } catch (lockErr) {
+        logErrorToDb(lockErr, {
+          context: 'payment_callback_txn_lock',
+          orderId,
+          requestId: req.requestId,
+          category: 'payment'
+        });
+        return res.status(503).json({ ok: false, error: 'lock_unavailable' });
+      }
+    }
+
     if (paymobTxnId) {
       // ON CONFLICT must repeat the partial-index predicate
       // (WHERE paymob_transaction_id IS NOT NULL) for Postgres to match
@@ -526,29 +676,155 @@ router.post('/callback', async (req, res, next) => {
           orderId,
           paymobTxnId,
           paymobIntentionId,
-          _eventType,
+          PROVISIONAL_EVENT_TYPE,
           JSON.stringify(req.body || {})
         ]
       );
-      if (!idemRes || idemRes.rowCount === 0) {
-        // Replay of an already-recorded transaction — no-op, return 200
-        // so Paymob stops retrying. The original processing already ran.
-        logOrderEvent({
-          orderId,
-          label: 'Payment callback: idempotent replay (already recorded)',
-          meta: JSON.stringify({ paymob_transaction_id: paymobTxnId, status }),
-          actorRole: 'system'
-        });
-        return res.json({ ok: true, idempotent: true });
+      if (idemRes && idemRes.rowCount > 0) {
+        _claimOwned = true;
+      } else {
+        // Someone already holds the claim. Take it over ONLY if it is still
+        // provisional AND stale — i.e. an attempt that died without applying
+        // an outcome. The predicate makes the takeover atomic: if a finaliser
+        // commits first, event_type no longer matches and we match 0 rows.
+        // AUDIT-2026-08-22 (R10, P2): the takeover used to bump received_at
+        // ONLY, leaving payload_json / order_id / paymob_intention_id from the
+        // ABANDONED attempt. Forensics on a re-processed delivery — the
+        // amount-mismatch join in routes/api/admin.js, services/
+        // payment_event_review, any manual reconciliation — then read a body
+        // that is not the one this run acted on. The claim now carries THIS
+        // delivery's body, which is the whole point of taking it over.
+        const takeover = await execute(
+          `UPDATE payment_events
+              SET received_at = NOW(),
+                  order_id = $3,
+                  paymob_intention_id = $4,
+                  payload_json = $5
+            WHERE paymob_transaction_id = $1
+              AND event_type = $2
+              AND received_at < NOW() - INTERVAL '${CLAIM_TAKEOVER_SECONDS} seconds'`,
+          [
+            paymobTxnId,
+            PROVISIONAL_EVENT_TYPE,
+            orderId,
+            paymobIntentionId,
+            JSON.stringify(req.body || {})
+          ]
+        );
+        if (takeover && takeover.rowCount > 0) {
+          _claimOwned = true;
+          logOrderEvent({
+            orderId,
+            label: 'Payment callback: re-processing an abandoned webhook claim',
+            meta: JSON.stringify({ paymob_transaction_id: paymobTxnId, status }),
+            actorRole: 'system'
+          });
+        } else {
+          const heldRow = await queryOne(
+            `SELECT event_type FROM payment_events WHERE paymob_transaction_id = $1 LIMIT 1`,
+            [paymobTxnId]
+          );
+          if (heldRow && String(heldRow.event_type) === PROVISIONAL_EVENT_TYPE) {
+            // A concurrent delivery of this same transaction is in flight right
+            // now (or died inside the takeover window). Deliberately NOT a 200:
+            // if that attempt dies, a 200 here is precisely the swallow this
+            // fix removes. The retry either finds the row finalised (200 replay
+            // below) or clears the takeover window above and re-processes.
+            //
+            // AUDIT-2026-08-22 (R7, P1): 503, not 409. Nothing in this repo
+            // establishes that Paymob retries on 4xx, and many gateways treat
+            // 4xx as terminal and retry only 5xx — under that contract the
+            // loser of a concurrent pair was simply DROPPED, and if the winner
+            // then threw, nobody redelivered: patient charged, order never
+            // paid, which is the exact failure M6 set out to remove. 503 is the
+            // conventional retriable answer and is safe under both contracts.
+            return res.status(503).json({ ok: false, error: 'processing_in_progress' });
+          }
+          // Finalised row → a genuine replay of an already-APPLIED
+          // transaction. No-op, 200, Paymob stops retrying. Unchanged.
+          logOrderEvent({
+            orderId,
+            label: 'Payment callback: idempotent replay (already recorded)',
+            meta: JSON.stringify({
+              paymob_transaction_id: paymobTxnId,
+              status,
+              recorded_event_type: heldRow ? heldRow.event_type : null
+            }),
+            actorRole: 'system'
+          });
+          return res.json({ ok: true, idempotent: true });
+        }
       }
     }
     // (If paymobTxnId is missing — defensive fallback — we skip the
     // per-txn idempotency check and rely on the per-order UPDATE guard
     // below. Paymob's documented payload always includes obj.id.)
 
+    // AUDIT-2026-08-22 (M6): promote the provisional claim to its real
+    // event_type. Call this at EVERY point below where this handler answers
+    // with a decision that has been applied — after that point a redelivery
+    // must be a no-op replay. Never call it on a path that leaves work undone.
+    //
+    // The steady state after finalisation is byte-identical to what this route
+    // wrote before the fix (same id, same payload_json, same event_type), so
+    // every existing reader of payment_events — routes/ops.js's webhook
+    // metrics, the amount-mismatch join in routes/api/admin.js,
+    // services/payment_event_review — is unaffected.
+    //
+    // Non-throwing: a failure here leaves the row provisional, so a redelivery
+    // re-processes and lands on the already-paid / already-recorded guards
+    // downstream. That is the safe direction — the opposite (claiming success
+    // we did not achieve) is the bug.
+    const finalizeClaim = async function () {
+      if (!paymobTxnId || !_claimOwned) return;
+      try {
+        await execute(
+          `UPDATE payment_events
+              SET event_type = $2
+            WHERE paymob_transaction_id = $1
+              AND event_type = $3`,
+          [paymobTxnId, _eventType, PROVISIONAL_EVENT_TYPE]
+        );
+      } catch (finErr) {
+        logErrorToDb(finErr, {
+          context: 'payment_callback_finalize_claim',
+          orderId,
+          requestId: req.requestId,
+          category: 'payment'
+        });
+      }
+    };
+
   const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order) {
-    return res.status(404).json({ ok: false, error: 'order not found' });
+    // AUDIT-2026-08-22 (M6): deliberately NOT finalised. Money arrived for an
+    // order we cannot see (orders_active hides soft-deleted rows, so the 48h
+    // unpaid sweep can produce exactly this) — nothing has been applied, so a
+    // redelivery must re-run the lookup rather than be swallowed as a replay.
+    //
+    // AUDIT-2026-08-22 (R7, P1): 503, not 404. Leaving the claim provisional
+    // only helps if the delivery actually comes back, and a 404 is terminal
+    // under most gateway retry contracts — so "re-run the lookup" never
+    // happened and the patient stayed charged on an unpaid order. 503 asks for
+    // a redelivery, which is what a soft-deleted-then-restored order or an
+    // in-flight write needs. If the order genuinely does not exist the retries
+    // stop of their own accord and the provisional row remains as the record.
+    //
+    // The claim row alone was NOT a working reconciliation signal: nothing
+    // reads event_type='webhook_processing' today (routes/ops.js:599 excludes
+    // it deliberately), so this now pages on-call directly. sendCriticalAlert
+    // throttles per key, so a probe flood cannot spam the founder's phone.
+    // HAND-OFF (ops owner): surface webhook_processing rows on /ops — they are
+    // the list of deliveries that died mid-flight, and there is currently no
+    // view of them anywhere.
+    try {
+      sendCriticalAlert(
+        'Paymob webhook for UNKNOWN order ' + orderId +
+        ' (txn ' + (paymobTxnId || 'n/a') + ') — money taken, no order to apply it to',
+        'paymob_order_not_found'
+      );
+    } catch (_) {}
+    return res.status(503).json({ ok: false, error: 'order not found' });
   }
 
   // ── FIX 2: a refund/void is audited and paged, never silently dropped ─────
@@ -585,6 +861,10 @@ router.post('/callback', async (req, res, next) => {
         'paymob_refund_or_void'
       );
     } catch (_) {}
+    // AUDIT-2026-08-22 (M6): the outcome for a refund/void IS "audited, paged,
+    // order untouched" — that is fully applied above, so the claim finalises
+    // and a redelivery is a genuine replay.
+    await finalizeClaim();
     return res.json({ ok: true, refund_or_void: true });
   }
 
@@ -787,6 +1067,10 @@ router.post('/callback', async (req, res, next) => {
       );
     } catch (_) {}
     // Ack 200 so Paymob stops retrying; the order is deliberately left UNPAID.
+    // AUDIT-2026-08-22 (M6): "reject and leave unpaid" is an applied outcome —
+    // the mismatch row is written and on-call is paged — so the claim
+    // finalises. Re-processing a rejected binding would only re-page.
+    await finalizeClaim();
     return res.json({ ok: true, intention_mismatch: true });
   }
 
@@ -800,6 +1084,9 @@ router.post('/callback', async (req, res, next) => {
       meta: JSON.stringify({ status, method, reference }),
       actorRole: 'system'
     });
+    // AUDIT-2026-08-22 (M6): an unclassifiable status moves no money and needs
+    // no further work — recording it IS the outcome.
+    await finalizeClaim();
     return res.json({ ok: true });
   }
 
@@ -842,6 +1129,10 @@ router.post('/callback', async (req, res, next) => {
       }
     }
 
+    // AUDIT-2026-08-22 (M6): a failed/cancelled/pending callback moves no money
+    // — the timeline row and the retry notification above are the whole
+    // outcome, so the claim finalises here.
+    await finalizeClaim();
     return res.json({ ok: true });
   }
 
@@ -937,6 +1228,10 @@ router.post('/callback', async (req, res, next) => {
         console.error('[callback] amount_mismatch ops push failed:', pushErr && pushErr.message);
       }
       // Ack 200 (Paymob stops retrying); order stays UNPAID — no markCasePaid.
+      // AUDIT-2026-08-22 (M6): the mismatch row, the timeline entry, the admin
+      // notification and the ops push are the applied outcome; re-processing a
+      // redelivery would produce the same rejection, so finalise the claim.
+      await finalizeClaim();
       return res.json({ ok: true, amount_mismatch: true });
     }
   }
@@ -975,6 +1270,9 @@ router.post('/callback', async (req, res, next) => {
         meta: JSON.stringify({ status, method, reference }),
         actorRole: 'system'
       });
+      // AUDIT-2026-08-22 (M6): the order is fully paid and fully transitioned —
+      // there is nothing left for a redelivery to do, so finalise.
+      await finalizeClaim();
       return res.json({ ok: true });
     }
     logOrderEvent({
@@ -1042,6 +1340,19 @@ router.post('/callback', async (req, res, next) => {
       } catch (_) {}
     }
   }
+
+  // AUDIT-2026-08-22 (M6): THE point the claim becomes durable. Everything the
+  // webhook is responsible for has now happened — orders.payment_status='paid'
+  // committed by the guarded UPDATE above, and markCasePaid has run (or has
+  // failed loudly with a critical alert and an error_logs row, which is the
+  // pre-existing, deliberate behaviour: a redelivery cannot re-drive it because
+  // the order is already paid, so acking is correct and paging is the recovery
+  // path). Everything BELOW this line is best-effort fulfilment — notifications,
+  // referral flags, add-on rows — each already wrapped in its own catch, and
+  // none of it is re-runnable by a redelivery (the already-paid guard above
+  // short-circuits first). Finalising later would therefore buy nothing and
+  // risk leaving a settled payment looking abandoned.
+  await finalizeClaim();
 
   logOrderEvent({
     orderId,
@@ -1122,198 +1433,56 @@ router.post('/callback', async (req, res, next) => {
     );
   } catch (_) {}
 
-  // === FULFILL SELECTED ADD-ONS FROM PERSISTED ORDER STATE ===
-  // B6 (launch audit): fulfillment is driven by the add-on selection persisted
-  // on the order at intention time (order_pricing.parseSelectedAddons reads
-  // orders.addons_json / video_consultation_selected), NOT by addon_* query
-  // params — those never reach this server-to-server webhook, so the old
-  // req.query branches were dead and add-ons went un-fulfilled (and, before
-  // create-intention priced them in, uncharged).
-  const selectedAddons = parseSelectedAddons(order);
-
-  if (selectedAddons.video_consultation) {
-    // Theme 9 Sub-issue C: kill-switch gate. If the video flag is off,
-    // skip the addon work entirely — the case payment itself still
-    // proceeds. The wizard EJS should also hide the checkbox so the
-    // patient never sees the option (separate edit).
-    const { isVideoEnabled } = require('../video_helpers');
-    if (!isVideoEnabled()) {
-      console.error('[payments] video_consultation addon requested but VIDEO_CONSULTATION_ENABLED=false');
-      logOrderEvent({
-        orderId,
-        label: 'video_consultation_addon_skipped_feature_disabled',
-        meta: '{}',
-        actorRole: 'system'
-      });
-    } else {
-    try {
-      // ── AUDIT 2026-08-17 (FIX 8): fulfilment must not destroy the price the
-      // patient was CHARGED.
-      //
-      // This block used to (a) re-read the FLAT services.video_consultation_price
-      // column, which is the legacy fallback — the patient was charged from
-      // services.video_consultation_prices_json via resolveAddonJsonPrice (see
-      // create-intention above) — and (b) REPLACE addons_json wholesale with
-      // {video_consultation:true}, wiping video_consultation_price AND any
-      // prescription lines that were charged in the same transaction. An 800 EGP
-      // add-on was persisted as 200, and the refund ceiling, the doctor's
-      // commission basis and the receipt all inherited the wrong number.
-      //
-      // Correct source of truth, in order: the price locked on the order at
-      // intention time (parseSelectedAddons reads addons_json, which
-      // create-intention wrote and which owedCentsForOrder then verified against
-      // what Paymob actually charged), then the prices_json catalogue, then the
-      // flat column. And MERGE with `||` instead of replacing — exactly what the
-      // prescription branch below already does correctly.
-      // `selectedAddons` above IS parseSelectedAddons(order) — reuse it rather
-      // than re-parsing, so fulfilment and the selection gate can never
-      // disagree about the same JSON.
-      let videoPrice = Number(selectedAddons.video_consultation_price) || 0;
-      let videoPriceSource = 'order.addons_json (charged)';
-      if (videoPrice <= 0) {
-        const service = await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id]);
-        const addonCurrency = String(order.currency || order.locked_currency || 'EGP').toUpperCase();
-        videoPrice = resolveAddonJsonPrice(
-          service && service.video_consultation_prices_json,
-          addonCurrency,
-          Number(service && service.video_consultation_price) || 0
-        );
-        videoPriceSource = 'services.video_consultation_prices_json (fallback)';
-      }
-
-      await execute(`
-        UPDATE orders
-        SET video_consultation_selected = true,
-            video_consultation_price = $1,
-            addons_json = COALESCE(addons_json, '{}')::jsonb || $2::jsonb
-        WHERE id = $3
-      `, [videoPrice, JSON.stringify({ video_consultation: true, video_consultation_price: videoPrice }), orderId]);
-
-      logOrderEvent({
-        orderId,
-        label: 'Video consultation add-on selected',
-        meta: JSON.stringify({ price: videoPrice, price_source: videoPriceSource }),
-        actorRole: 'system'
-      });
-
-      // ---- V2 dual-write (gated by ADDON_SYSTEM_V2) ----
-      // FIX 9: pass the CHARGED price through so the doctor's
-      // price_at_purchase_egp snapshot is taken from the same catalogue the
-      // patient paid from. Previously onPurchase snapshotted
-      // addon_services.base_price_egp while the patient paid from
-      // services.video_consultation_prices_json — two independent catalogues on
-      // the two halves of one transaction, i.e. structurally negative margin the
-      // moment they drift. commissionPct still comes from the registry.
-      await safeDualWrite('video_consult', 'onPurchase', orderId, async () => {
-        const svc = getAddon('video_consult');
-        const addonService = await queryOne(`SELECT * FROM addon_services WHERE id = 'video_consult'`);
-        if (!svc || !addonService) throw new Error('video_consult addon not registered/seeded');
-        const currency = order.locked_currency || 'EGP';
-        return svc.onPurchase({ order, addonService, currency, chargedPriceEgp: videoPrice });
-      });
-
-      // WhatsApp-via-OpenClaw rollout: confirmation notification for
-      // the video consultation add-on. Fires after V2 dual-write so
-      // appointment data (if any) is already persisted. Fire-and-forget —
-      // a failed notification must not block the payment callback.
-      queueMultiChannelNotification({
-        orderId,
-        toUserId: order.patient_id,
-        channels: ['email', 'whatsapp', 'internal'],
-        template: 'addon_purchased_video',
-        response: {
-          order_id: orderId,
-          caseReference: String(orderId).slice(0, 12).toUpperCase()
-        }
-      }).catch(function(err) {
-        console.error('[notify] addon_purchased_video queue failed:', err && err.message);
-      });
-    } catch (e) {
-      console.error('Error processing video consultation add-on:', e);
-      logOrderEvent({
-        orderId,
-        label: 'Video consultation add-on processing failed',
-        meta: JSON.stringify({ error: String(e && e.message ? e.message : e) }),
-        actorRole: 'system'
-      });
-    }
-    }  // end !isVideoEnabled() else branch (Theme 9 Sub-issue C)
-  }
-
-  // The sla_24hr addon branch that used to live here was DEAD CODE after
-  // migration 019b removed the addon — urgency / faster-turnaround is now
-  // expressed via urgency tiers on main-service pricing, not via an addon.
-  // See docs/architecture/addon_service_abstraction.md §0 and §1.2.
-  // Removed as part of Phase 3 dual-write wiring.
-
-  // === PRESCRIPTION SERVICE ADD-ON (from persisted selection, see above) ===
-  if (selectedAddons.prescription) {
-    try {
-      const rxCurrency = order.locked_currency || 'EGP';
-      // FIX 8 (same class): prefer the price LOCKED ON THE ORDER at intention
-      // time — that is the figure owedCentsForOrder verified against what
-      // Paymob actually charged. Re-reading the catalogue here would silently
-      // adopt any price change made between checkout and settlement. The
-      // catalogue read stays as the fallback for legacy rows whose addons_json
-      // carries no price.
-      let rxPrice = Number(selectedAddons.prescription_price) || 0;
-      if (rxPrice <= 0) {
-        const rxRow = await queryOne(
-          "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = $1 LIMIT 1",
-          [rxCurrency]
-        );
-        rxPrice = rxRow ? Number(rxRow.tashkheesa_price) || 350 : 350;
-      }
-
-      await execute(`
-        UPDATE orders
-        SET addons_json = COALESCE(addons_json, '{}')::jsonb || $1::jsonb
-        WHERE id = $2
-      `, [JSON.stringify({ prescription: true, prescription_price: rxPrice }), orderId]);
-
-      logOrderEvent({
-        orderId,
-        label: 'Prescription add-on selected',
-        meta: JSON.stringify({ price: rxPrice, currency: rxCurrency }),
-        actorRole: 'system'
-      });
-
-      // ---- V2 dual-write (gated by ADDON_SYSTEM_V2) ----
-      await safeDualWrite('prescription', 'onPurchase', orderId, async () => {
-        const svc = getAddon('prescription');
-        const addonService = await queryOne(`SELECT * FROM addon_services WHERE id = 'prescription'`);
-        if (!svc || !addonService) throw new Error('prescription addon not registered/seeded');
-        return svc.onPurchase({ order, addonService, currency: rxCurrency });
-      });
-
-      // Confirmation notification for the prescription add-on.
-      queueMultiChannelNotification({
-        orderId,
-        toUserId: order.patient_id,
-        channels: ['email', 'whatsapp', 'internal'],
-        template: 'addon_purchased_prescription',
-        response: {
-          order_id: orderId,
-          caseReference: String(orderId).slice(0, 12).toUpperCase()
-        }
-      }).catch(function(err) {
-        console.error('[notify] addon_purchased_prescription queue failed:', err && err.message);
-      });
-    } catch (e) {
-      console.error('Error processing prescription add-on:', e);
-      logOrderEvent({
-        orderId,
-        label: 'Prescription add-on processing failed',
-        meta: JSON.stringify({ error: String(e && e.message ? e.message : e) }),
-        actorRole: 'system'
-      });
-    }
-  }
+  // === SETTLE SELECTED ADD-ONS ===
+  //
+  // 2026-08-24: this used to be ~190 lines of inline video + prescription
+  // fulfilment, living only here. That was the bug: the Paymob webhook has
+  // never fired in production (the integration is rejecting the live
+  // credentials), so every paid order on the platform reached 'paid' through
+  // an operator pressing Mark paid — a path that ran none of this. Money
+  // collected, add-on never recorded, doctor never paid, patient never told.
+  //
+  // The logic now lives in services/addon_settlement.js and is called from all
+  // three payment entry points. It is idempotent, it never throws, and it logs
+  // every failure to the order's activity log.
+  //
+  // 'gateway_amount_check' is claimable HERE and only here: this handler runs
+  // behind the HMAC check and the owedCentsForOrder comparison, so the amount
+  // the gateway captured has already been verified to cover base + add-ons.
+  // No operator path may claim it — see the verification contract in
+  // services/addon_settlement.js.
+  await settleAddonsForPaidOrder({
+    orderId,
+    order,
+    verifiedBy: 'gateway_amount_check',
+    via: 'paymob_webhook',
+    actorRole: 'system',
+    notify: queueMultiChannelNotification
+  });
 
   return res.json({ ok: true });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, context: 'payment_callback' });
     return next(err);
+  } finally {
+    // AUDIT-2026-08-22 (R3): release the serialisation lock on EVERY exit —
+    // the 200s, the 4xx/503 early returns and the next(err) above. ROLLBACK is
+    // what actually drops the xact lock (nothing else ran in this transaction,
+    // so there is nothing to commit); releasing the client without it would
+    // hand a pooler backend back mid-transaction. Both are wrapped: a failure
+    // here must never turn a delivered webhook into a 500, and destroying the
+    // client on error guarantees the backend — and the lock with it — is gone.
+    if (_txnLockClient) {
+      const c = _txnLockClient;
+      _txnLockClient = null;
+      try {
+        await c.query('ROLLBACK');
+        c.release();
+      } catch (unlockErr) {
+        console.error('[callback] txn lock release failed:', unlockErr && unlockErr.message);
+        try { c.release(true); } catch (_) {}
+      }
+    }
   }
 });
 

@@ -16,6 +16,8 @@ const { buildFilters, additionalFilesDecisionPredicate } = require('./superadmin
 const { broadcastOrderToSpecialty } = require('../notify/broadcast');
 const { TEMPLATES } = require('../notify/templates');
 const { logErrorToDb } = require('../logger');
+const { resolvePrescriptionAccess } = require('../services/addons/prescription_access');
+const { prescriptionsComingSoon } = require('../services/prescriptions_flag');
 const { getDecryptedNationalId } = require('../services/national-id');
 // Shared assignment safety gate (spec §4.6) — the single source of truth for
 // "which doctors may legally receive a case". See services/doctor_eligibility.js.
@@ -1153,9 +1155,27 @@ router.get('/admin', requireAdmin, async (req, res) => {
   const monthRevenue = canSeeFinancials
     ? await safeGet("SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as total FROM orders_active WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at > date_trunc('month', NOW())", [], { total: 0 })
     : { total: 0 };
-  const pendingPayouts = canSeeFinancials
+  // 2026-08-24 — both payout ledgers. doctor_earnings holds the case fee and
+  // urgency uplift; addon_earnings holds video/prescription commissions, which
+  // services/earnings_writer.js deliberately keeps out of the first. Summing
+  // only doctor_earnings understated what the platform owes by every add-on
+  // ever sold, while the doctors' own earnings page counted both.
+  //
+  // Queried SEPARATELY on purpose. One safeGet wrapping both subqueries falls
+  // back to {total: 0} if EITHER fails, so an error reading the newer add-on
+  // ledger would render the platform's whole liability as zero — strictly worse
+  // than the understatement this change set out to fix. Two reads, two
+  // fallbacks: a failure on the add-on side degrades to the case figure, which
+  // is exactly what this tile showed before.
+  const pendingCasePayouts = canSeeFinancials
     ? await safeGet("SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'pending'", [], { total: 0 })
     : { total: 0 };
+  const pendingAddonPayouts = canSeeFinancials
+    ? await safeGet("SELECT COALESCE(SUM(earned_amount_egp), 0) as total FROM addon_earnings WHERE status = 'pending'", [], { total: 0 })
+    : { total: 0 };
+  const pendingPayouts = {
+    total: (Number(pendingCasePayouts.total) || 0) + (Number(pendingAddonPayouts.total) || 0)
+  };
   const refundsThisMonth = canSeeFinancials
     ? await safeGet("SELECT COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE refund_status = 'refunded' AND created_at > date_trunc('month', NOW())", [], { total: 0 })
     : { total: 0 };
@@ -1411,6 +1431,16 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
       text: 'Reassign failed — the case lifecycle refused the change and nothing was written. The case is unchanged; check the activity log below, then retry or escalate.'
     },
     'payment:marked_paid': { type: 'success', text: 'Payment marked as paid.' },
+    'rx:notified': { type: 'success', text: 'The patient has been told a prescription is recommended, with the price. Release it once they have paid.' },
+    'rx:released': { type: 'success', text: 'Prescription add-on released — the doctor can now write it.' },
+    'rx:declined': { type: 'success', text: 'Prescription request declined. The doctor cannot write one on this case.' },
+    'rx:not_pending': { type: 'error', text: 'That prescription add-on is not awaiting payment — nothing was changed.' },
+    'rx:failed': { type: 'error', text: 'The prescription add-on action failed — nothing was changed.' },
+    'addons:settled': { type: 'success', text: 'Add-ons settled. The patient has been confirmed and the doctor\u2019s commission will be credited when the case completes.' },
+    'addons:none': { type: 'error', text: 'Nothing to settle \u2014 those add-ons are already recorded, or none were selected on this order.' },
+    'addons:terminal': { type: 'error', text: 'This case is cancelled, refunded or has a refund open, so its add-ons cannot be settled. Nothing was changed.' },
+    'addons:failed': { type: 'error', text: 'Settling the add-ons failed. Check the activity log below \u2014 some may have gone through.' },
+    'rx:coming_soon': { type: 'error', text: 'Digital prescriptions are not live yet — no add-on action was taken. Set PRESCRIPTIONS_ENABLED=true once the pricing row and mark-paid activation are fixed.' },
     'payment:failed': { type: 'error', text: 'Marking the payment failed — the order is unchanged.' },
     'lifecycle:failed': {
       type: 'error',
@@ -1418,12 +1448,80 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
     }
   };
   const flashes = [];
-  for (const key of ['reassign', 'payment', 'lifecycle']) {
+  for (const key of ['reassign', 'payment', 'lifecycle', 'rx', 'addons']) {
     const raw = req.query && req.query[key];
     if (!raw) continue;
     const hit = FLASH_CODES[key + ':' + String(raw)];
     if (hit) flashes.push(hit);
     else flashes.push({ type: 'error', text: key + ': ' + String(raw).slice(0, 80) });
+  }
+
+  // AUDIT-2026-08-23 (C4) — the operations half of the prescription add-on
+  // pipeline. A doctor who finds a prescription clinically indicated on a case
+  // that never bought one raises a request (POST
+  // /portal/doctor/case/:id/request-prescription), which lands as an
+  // order_addons row at status 'pending'. It surfaces here so an operator can
+  // tell the patient, take the money and release it — steps 3 and 4 of the
+  // sequence documented on that route.
+  //
+  // Review round 3: driven by resolvePrescriptionAccess rather than a raw
+  // order_addons read. The raw read (a) missed every prescription bought at
+  // checkout, because that purchase lives in orders.addons_json and the
+  // order_addons row is written only through safeDualWrite, and (b) INNER
+  // JOINed addon_services, so a renamed catalogue row would have hidden the
+  // card entirely. Those are exactly the cases an operator most needs to see.
+  // Add-ons the patient SELECTED at checkout that have no order_addons row yet.
+  //
+  // These are the ones mark-paid deliberately refuses to settle, because
+  // marking the base fee paid says nothing about whether the add-on money
+  // arrived. Surfacing them here turns a silent gap into an explicit operator
+  // decision. See src/services/addon_settlement.js for the full contract.
+  let outstandingAddons = [];
+  try {
+    const { parseSelectedAddons } = require('../services/order_pricing');
+    const sel = parseSelectedAddons(order || {});
+    const wanted = [];
+    // D2/D7 (review round 2): only offer to settle what can actually be
+    // delivered. Settlement itself refuses a disabled video add-on and would
+    // report `failed` every time, so offering the button would be a
+    // permanently failing action; and settling a frozen prescription would book
+    // 400 EGP and a 50% commission for a product the doctor is blocked from
+    // writing — exactly what services/prescriptions_flag.js exists to prevent.
+    let _videoOn = false;
+    try { _videoOn = require('../video_helpers').isVideoEnabled(); } catch (_) {}
+    let _rxFrozen = true;
+    try { _rxFrozen = require('../services/prescriptions_flag').prescriptionsComingSoon(); } catch (_) {}
+    const _ccy = String(order.locked_currency || order.currency || 'EGP').toUpperCase();
+    if (sel.video_consultation && _videoOn) {
+      wanted.push({ id: 'video_consult', label: 'Video consultation', price: Number(sel.video_consultation_price) || null, currency: _ccy });
+    }
+    if (sel.prescription && !_rxFrozen) {
+      wanted.push({ id: 'prescription', label: 'Digital prescription', price: Number(sel.prescription_price) || null, currency: _ccy });
+    }
+    if (wanted.length) {
+      const rows = await queryAll('SELECT addon_service_id FROM order_addons WHERE order_id = $1', [orderId]);
+      const have = new Set((rows || []).map(function (r) { return String(r.addon_service_id); }));
+      outstandingAddons = wanted.filter(function (w) { return !have.has(w.id); });
+    }
+  } catch (_) {
+    outstandingAddons = [];
+  }
+
+  let prescriptionAddon = null;
+  try {
+    const access = await resolvePrescriptionAccess(order);
+    if (access.addon || access.purchasedV1) {
+      prescriptionAddon = Object.assign({}, access.addon || {}, {
+        status: access.status || (access.purchasedV1 ? 'paid' : null),
+        purchasedAtCheckout: access.purchasedV1 && !access.addon,
+        price_at_purchase_amount: (access.addon && access.addon.price_at_purchase_amount) != null
+          ? access.addon.price_at_purchase_amount
+          : access.priceEgp,
+        price_at_purchase_currency: (access.addon && access.addon.price_at_purchase_currency) || access.currency
+      });
+    }
+  } catch (_) {
+    prescriptionAddon = null;
   }
 
   const langCode = (req.user && req.user.lang) ? req.user.lang : 'en';
@@ -1436,6 +1534,8 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
     doctors,
     flashes,
     additionalFilesRequest,
+    prescriptionAddon,
+    outstandingAddons,
     portalFrame: true,
     portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'orders'
@@ -1533,7 +1633,22 @@ router.post('/admin/orders/:id/additional-files/approve', requireAdmin, async (r
       toUserId: order.patient_id,
       channel: 'internal',
       template: 'additional_files_requested_patient',
-      status: 'queued'
+      status: 'queued',
+      // AUDIT-2026-08-22 (N7): no dedupe key at all, so a double-submitted
+      // approve form (or an admin re-approving the same request after a
+      // browser back) told the patient twice that files are needed.
+      //
+      // Keyed on request_event_id rather than on the order: an additional-files
+      // request can legitimately be raised MORE THAN ONCE on the same case —
+      // superadmin.js's equivalent site documents that by deliberately defeating
+      // its own key with Date.now() — so an order-scoped key would silently
+      // swallow every request after the first. The request event id is the
+      // natural idempotency token: same approval, same key; new request, new
+      // key. Omitted entirely when the form did not carry one, which leaves
+      // today's behaviour rather than risking a permanent suppression.
+      dedupe_key: request_event_id
+        ? 'additional_files_approved:' + orderId + ':' + request_event_id
+        : null
     });
   }
 
@@ -1567,6 +1682,272 @@ router.post('/admin/orders/:id/additional-files/reject', requireAdmin, async (re
 });
 
 // Mark order as paid manually (admin)
+// ---------------------------------------------------------------------------
+// AUDIT-2026-08-23 (C4) — prescription add-on: the operator's three actions.
+//
+// A doctor raising a prescription request writes an order_addons row at
+// status 'pending' (see POST /portal/doctor/case/:caseId/request-prescription
+// in routes/doctor.js for the full sequence and why step 3 is a human).
+// These handlers are that human step:
+//
+//   notify-patient — tell the patient a prescription is recommended and what
+//                    it costs. Does NOT change the add-on's state; it can be
+//                    sent more than once as a chase.
+//   release        — payment has been collected. 'pending' → 'paid', which is
+//                    what unlocks the doctor's Write-prescription CTA and what
+//                    prescription.onFulfill requires.
+//   decline        — the patient said no, or the request was not appropriate.
+//                    'pending' → 'cancelled'. Terminal.
+//
+// Release is deliberately the ONLY way an add-on reaches 'paid' outside the
+// payment webhook, and it refuses anything not currently 'pending' so it can
+// never overwrite a real Paymob purchase or resurrect a cancelled one.
+async function loadPendingPrescription(orderId) {
+  return queryOne(
+    `SELECT * FROM order_addons
+      WHERE order_id = $1 AND addon_service_id = 'prescription'
+      LIMIT 1`,
+    [orderId]
+  );
+}
+
+// POST /admin/orders/:id/settle-addons
+//
+// The operator half of the verification contract in
+// src/services/addon_settlement.js.
+//
+// mark-paid records that the base fee arrived. It cannot record that an add-on
+// arrived, because it has no amount field and orders.addons_json is written
+// when the patient ticks the box — before any money moves, and it survives an
+// abandoned gateway. Settling from mark-paid would confirm purchases to
+// patients who never made them and accrue doctor commissions against nothing
+// collected, which is precisely what an earlier draft did.
+//
+// So this is a separate, deliberate click. Pressing it is an operator saying
+// "I received the money for these specific lines", and their user id goes on
+// the record. That is the same standard the prescription release action already
+// holds itself to.
+router.post('/admin/orders/:id/settle-addons', requireAdmin, async (req, res) => {
+  const orderId = req.params.id;
+  const back = '/admin/orders/' + encodeURIComponent(orderId);
+  try {
+    const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
+    if (!order) return res.redirect('/admin');
+
+    // Only for an order whose payment is actually recorded. Settling an add-on
+    // on an unpaid case would be asserting money arrived for a line item while
+    // the case itself is still owed.
+    const ps = String(order.payment_status || '').toLowerCase();
+    if (ps !== 'paid' && ps !== 'captured') return res.redirect(back + '?addons=none');
+
+    // D1 (review round 2) — and NOT on a case that is on its way back out.
+    //
+    // Cancelling a paid case leaves payment_status='paid' and opens a refund,
+    // so a payment_status check alone let an operator settle an add-on on a
+    // case being refunded: patient emailed a purchase confirmation for a
+    // cancelled case, doctor commission accrued on completion.
+    // services/refund_eligibility.js already treats these as terminal; this now
+    // agrees with it.
+    const cs = String(order.status || '').toLowerCase();
+    if (['cancelled', 'canceled', 'refunded', 'expired_unpaid'].indexOf(cs) !== -1) {
+      return res.redirect(back + '?addons=terminal');
+    }
+    let refundOpen = false;
+    try {
+      const r = await queryOne(
+        `SELECT 1 AS ok FROM refunds
+          WHERE order_id = $1 AND LOWER(COALESCE(status, '')) NOT IN ('denied','rejected','cancelled','closed')
+          LIMIT 1`,
+        [orderId]
+      );
+      refundOpen = !!r;
+    } catch (_) {
+      // No refunds table / unreadable: do not block on an unknown.
+      refundOpen = false;
+    }
+    if (refundOpen) return res.redirect(back + '?addons=terminal');
+
+    const { settleAddonsForPaidOrder } = require('../services/addon_settlement');
+    const outcome = await settleAddonsForPaidOrder({
+      orderId,
+      order,
+      verifiedBy: 'operator_assertion',
+      via: 'admin_settle_addons',
+      actorUserId: req.user && req.user.id,
+      actorRole: (req.user && req.user.role) || 'admin',
+      notify: queueMultiChannelNotification
+    });
+
+    if (outcome.failed && outcome.failed.length) return res.redirect(back + '?addons=failed');
+    if (!outcome.settled || !outcome.settled.length) return res.redirect(back + '?addons=none');
+    return res.redirect(back + '?addons=settled');
+  } catch (err) {
+    logErrorToDb(err, { context: 'admin.settle_addons', orderId });
+    return res.redirect(back + '?addons=failed');
+  }
+});
+
+router.post('/admin/orders/:id/prescription/notify-patient', requireAdmin, async (req, res) => {
+  const orderId = req.params.id;
+  const back = '/admin/orders/' + encodeURIComponent(orderId);
+  try {
+    // Held back for launch (2026-08-24) — see src/services/prescriptions_flag.js.
+    // Refused on the server, not only hidden in the view: releasing an add-on
+    // the doctor is currently blocked from writing would take a patient's money
+    // for something that cannot be delivered.
+    if (prescriptionsComingSoon()) return res.redirect(back + '?rx=coming_soon');
+    const order = await queryOne('SELECT id, patient_id FROM orders_active WHERE id = $1', [orderId]);
+    if (!order) return res.redirect('/admin');
+    const addon = await loadPendingPrescription(orderId);
+    if (!addon || String(addon.status || '').toLowerCase() !== 'pending') {
+      return res.redirect(back + '?rx=not_pending');
+    }
+    await queueMultiChannelNotification({
+      orderId,
+      toUserId: order.patient_id,
+      // Email + in-app only. A WhatsApp channel here would need a template
+      // approved on the Meta side first; whatsappTemplateMap treats an
+      // unmapped event as a PERMANENT failure, so queueing it unregistered
+      // would just bury the notification in 'failed'.
+      channels: ['email', 'internal'],
+      template: 'prescription_recommended_patient',
+      response: {
+        case_id: orderId,
+        caseReference: String(orderId).slice(0, 12).toUpperCase(),
+        // Quote the amount AND the currency the add-on was actually priced in.
+        // Hardcoding "EGP" in the template would misquote every non-EGP order
+        // (order_addons stores price_at_purchase_currency for exactly this).
+        addonPrice: Number(addon.price_at_purchase_amount || addon.price_at_purchase_egp) || 0,
+        addonCurrency: String(addon.price_at_purchase_currency || 'EGP').toUpperCase()
+      }
+      // No dedupe_key: an operator may legitimately chase the same patient
+      // more than once, and a dedupe would silently swallow the second send.
+    });
+    logOrderEvent({
+      orderId,
+      label: 'Patient told a prescription is recommended',
+      meta: JSON.stringify({ priceEgp: Number(addon.price_at_purchase_egp) || 0 }),
+      actorUserId: req.user && req.user.id,
+      actorRole: (req.user && req.user.role) || 'admin'
+    });
+    return res.redirect(back + '?rx=notified');
+  } catch (err) {
+    logErrorToDb(err, { context: 'admin.prescription_notify_patient', orderId });
+    return res.redirect(back + '?rx=failed');
+  }
+});
+
+router.post('/admin/orders/:id/prescription/release', requireAdmin, async (req, res) => {
+  const orderId = req.params.id;
+  const back = '/admin/orders/' + encodeURIComponent(orderId);
+  try {
+    // Held back for launch (2026-08-24) — see src/services/prescriptions_flag.js.
+    // Refused on the server, not only hidden in the view: releasing an add-on
+    // the doctor is currently blocked from writing would take a patient's money
+    // for something that cannot be delivered.
+    if (prescriptionsComingSoon()) return res.redirect(back + '?rx=coming_soon');
+    // d.name feeds the "Dr. {{doctorName}}" salutation and the subject line;
+    // without it notification_worker's stripDrPrefix(undefined) renders "Dr. ,".
+    const order = await queryOne(
+      `SELECT o.id, o.patient_id, o.doctor_id, d.name AS doctor_name
+         FROM orders_active o
+         LEFT JOIN users d ON d.id = o.doctor_id
+        WHERE o.id = $1`,
+      [orderId]
+    );
+    if (!order) return res.redirect('/admin');
+
+    const note = String((req.body && req.body.payment_note) || '').trim().slice(0, 500);
+
+    // The WHERE clause carries the state check, so two operators clicking at
+    // once cannot both "release" — the second updates zero rows.
+    const updated = await queryOne(
+      `UPDATE order_addons
+          SET status = 'paid',
+              metadata_json = COALESCE(metadata_json, '{}'::jsonb) || $2::jsonb
+        WHERE order_id = $1
+          AND addon_service_id = 'prescription'
+          AND status = 'pending'
+      RETURNING *`,
+      [orderId, JSON.stringify({
+        released_by: (req.user && req.user.id) || null,
+        released_at: new Date().toISOString(),
+        payment_note: note || null
+      })]
+    );
+    if (!updated) return res.redirect(back + '?rx=not_pending');
+
+    logOrderEvent({
+      orderId,
+      label: 'Prescription add-on released (payment collected)',
+      meta: JSON.stringify({ payment_note: note || null }),
+      actorUserId: req.user && req.user.id,
+      actorRole: (req.user && req.user.role) || 'admin'
+    });
+
+    // Tell the doctor they can now write it — otherwise the request they
+    // raised simply goes quiet and they have to keep reopening the case.
+    if (order.doctor_id) {
+      try {
+        await queueMultiChannelNotification({
+          orderId,
+          toUserId: order.doctor_id,
+          channels: ['internal', 'email'],
+          template: 'prescription_unlocked_doctor',
+          response: {
+            case_id: orderId,
+            caseReference: String(orderId).slice(0, 12).toUpperCase(),
+            doctorName: order.doctor_name || ''
+          },
+          dedupe_key: 'rx-unlocked:' + orderId
+        });
+      } catch (_) {}
+    }
+    return res.redirect(back + '?rx=released');
+  } catch (err) {
+    logErrorToDb(err, { context: 'admin.prescription_release', orderId });
+    return res.redirect(back + '?rx=failed');
+  }
+});
+
+router.post('/admin/orders/:id/prescription/decline', requireAdmin, async (req, res) => {
+  const orderId = req.params.id;
+  const back = '/admin/orders/' + encodeURIComponent(orderId);
+  try {
+    // Held back for launch (2026-08-24) — see src/services/prescriptions_flag.js.
+    // Refused on the server, not only hidden in the view: releasing an add-on
+    // the doctor is currently blocked from writing would take a patient's money
+    // for something that cannot be delivered.
+    if (prescriptionsComingSoon()) return res.redirect(back + '?rx=coming_soon');
+    const updated = await queryOne(
+      `UPDATE order_addons
+          SET status = 'cancelled',
+              cancelled_at = NOW(),
+              metadata_json = COALESCE(metadata_json, '{}'::jsonb) || $2::jsonb
+        WHERE order_id = $1
+          AND addon_service_id = 'prescription'
+          AND status = 'pending'
+      RETURNING *`,
+      [orderId, JSON.stringify({
+        declined_by: (req.user && req.user.id) || null,
+        declined_at: new Date().toISOString()
+      })]
+    );
+    if (!updated) return res.redirect(back + '?rx=not_pending');
+    logOrderEvent({
+      orderId,
+      label: 'Prescription request declined',
+      meta: '{}',
+      actorUserId: req.user && req.user.id,
+      actorRole: (req.user && req.user.role) || 'admin'
+    });
+    return res.redirect(back + '?rx=declined');
+  } catch (err) {
+    logErrorToDb(err, { context: 'admin.prescription_decline', orderId });
+    return res.redirect(back + '?rx=failed');
+  }
+});
+
 router.post('/admin/orders/:id/mark-paid', requireAdmin, async (req, res) => {
   const orderId = req.params.id;
   const { payment_method, payment_reference } = req.body || {};
@@ -1643,11 +2024,62 @@ router.post('/admin/orders/:id/mark-paid', requireAdmin, async (req, res) => {
         sendCriticalAlert(
           'markCasePaid FAILED for order ' + orderId + ' after an ADMIN marked it paid: ' +
           msg.slice(0, 300) + ' — case is paid but is not in the assignment queue',
-          'markcasepaid_failed'
+          // AUDIT-2026-08-22 (N4): distinct throttle key per site. Three
+          // separate call sites (this one, routes/payments.js and
+          // routes/superadmin.js) shared the literal 'markcasepaid_failed',
+          // and critical-alert buckets the 5-minute throttle by key — so a
+          // webhook capture failing moments after an admin mark-paid failure
+          // suppressed the second alert entirely. Different actor, different
+          // order, different remediation: they must not share a bucket.
+          'markcasepaid_failed_admin'
         );
       } catch (_) {}
       return res.redirect(`/admin/orders/${orderId}?payment=marked_paid&lifecycle=failed`);
     }
+  }
+
+  // === ADD-ONS: RECORD AS OUTSTANDING, DO NOT SETTLE (2026-08-24) ===
+  //
+  // Marking the base fee paid is NOT evidence that an add-on was paid for.
+  //
+  // This handler has no amount field anywhere in it — it records
+  // payment_method and payment_reference and nothing about how much arrived.
+  // orders.addons_json, meanwhile, is written when the patient TICKS the box at
+  // create-intention time, before any money moves, and survives an abandoned
+  // gateway. So "addons_json says video_consultation" plus "an operator pressed
+  // Mark paid" does not add up to "the patient paid for a video consultation" —
+  // and settling on that basis would email them a confirmation for something
+  // they never bought and accrue the doctor 85% of 200 EGP against nothing.
+  //
+  // An earlier draft of this change did exactly that. It is called out here
+  // because it reads like an obvious convenience and is not.
+  //
+  // Instead: flag it. The admin order page surfaces any selected-but-unsettled
+  // add-on with a separate Settle button — a human explicitly asserting that
+  // the money for THOSE LINES arrived, recorded against their user id.
+  try {
+    const { parseSelectedAddons } = require('../services/order_pricing');
+    const _o = await queryOne('SELECT addons_json, video_consultation_selected FROM orders WHERE id = $1', [orderId]);
+    const _sel = parseSelectedAddons(_o || {});
+    const _pending = [];
+    if (_sel.video_consultation) _pending.push('video_consult');
+    if (_sel.prescription) _pending.push('prescription');
+    if (_pending.length) {
+      const _existing = await queryAll('SELECT addon_service_id FROM order_addons WHERE order_id = $1', [orderId]);
+      const _have = new Set((_existing || []).map(function (r) { return String(r.addon_service_id); }));
+      const _outstanding = _pending.filter(function (id) { return !_have.has(id); });
+      if (_outstanding.length) {
+        logOrderEvent({
+          orderId,
+          label: 'Add-ons awaiting settlement',
+          meta: JSON.stringify({ addons: _outstanding, reason: 'marked paid without amount verification', via: 'admin_mark_paid' }),
+          actorUserId: req.user && req.user.id,
+          actorRole: 'admin'
+        });
+      }
+    }
+  } catch (e) {
+    try { logErrorToDb(e, { context: 'admin.mark_paid.flag_addons', orderId }); } catch (_) {}
   }
 
   return res.redirect(`/admin/orders/${orderId}?payment=marked_paid`);

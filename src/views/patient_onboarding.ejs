@@ -130,13 +130,27 @@
             <input type="tel" id="ob-phone" name="phone" autocomplete="tel" value="<%= _dbUser.phone || '' %>" placeholder="+20 1XX XXX XXXX" dir="ltr">
           </div>
 
+          <%# AUDIT-2026-08-22 (L8): date of birth and sex became SERVER-required
+              in routes/onboarding.js, but this form still presented them as
+              optional — no `*` on either label and no client-side check — so a
+              patient who left one blank paid a full round-trip to find out.
+              The `*` is the same marker the two fields above use.
+
+              The value is sliced to 10 chars: node-postgres hands a DATE column
+              back as a JS Date, whose default string form
+              ("Mon Jan 01 1990 …") is not a valid `<input type="date">` value,
+              so the browser renders an EMPTY box. That is survivable while the
+              field is optional; now that it is required it means the phone-less
+              cohort that _handleOnboardingGet deliberately pulls back into this
+              wizard would be forced to re-key a date of birth they had already
+              given. Same treatment as patient_profile.ejs. %>
           <div class="form-row">
             <div class="form-group">
-              <label><%= _isAr ? 'تاريخ الميلاد' : 'Date of Birth' %></label>
-              <input type="date" id="ob-dob" name="date_of_birth" autocomplete="bday" value="<%= _dbUser.date_of_birth || '' %>" dir="ltr">
+              <label><%= _isAr ? 'تاريخ الميلاد' : 'Date of Birth' %> *</label>
+              <input type="date" id="ob-dob" name="date_of_birth" autocomplete="bday" value="<%= _dbUser.date_of_birth ? String(_dbUser.date_of_birth).slice(0, 10) : '' %>" dir="ltr">
             </div>
             <div class="form-group">
-              <label><%= _isAr ? 'الجنس' : 'Gender' %></label>
+              <label><%= _isAr ? 'الجنس' : 'Gender' %> *</label>
               <select id="ob-gender" name="gender" autocomplete="sex">
                 <option value=""><%= _isAr ? 'اختر' : 'Select' %></option>
                 <option value="male" <%= (_dbUser.gender === 'male') ? 'selected' : '' %>><%= _isAr ? 'ذكر' : 'Male' %></option>
@@ -320,6 +334,17 @@
     var lang = document.getElementById('ob-lang').value;
     if (!name || !phone) {
       showError('<%= _isAr ? "الاسم ورقم الهاتف مطلوبان" : "Name and phone number are required" %>');
+      return;
+    }
+    // AUDIT-2026-08-22 (L8): mirror the server's new requirements so a blank
+    // field costs nothing. The server remains authoritative (it also range-checks
+    // the date) — this only saves the round-trip.
+    if (!dob) {
+      showError('<%= _isAr ? "تاريخ الميلاد مطلوب" : "Date of birth is required" %>');
+      return;
+    }
+    if (!gender) {
+      showError('<%= _isAr ? "الجنس مطلوب" : "Sex is required" %>');
       return;
     }
     var payload = { name: name, phone: phone, date_of_birth: dob, gender: gender, preferred_lang: lang };

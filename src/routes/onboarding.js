@@ -88,24 +88,56 @@ router.post('/portal/patient/onboarding/profile', requireRole('patient'), async 
     if (!name) errors.push(isAr ? 'الاسم الكامل مطلوب' : 'Full name is required');
     if (!phoneCheck.ok) errors.push(phoneCheck.error);
 
+    // AUDIT-2026-08-22 (L8) — date of birth and sex are REQUIRED here.
+    //
+    // Both were optional, and a malformed value was silently blanked (the two
+    // `= ''` assignments below used to be the whole validation), so a patient
+    // could complete the entire funnel with date_of_birth and gender NULL —
+    // the case wizard never asks for either. Every diagnostic report that
+    // patient then receives is signed by a radiologist who was never told the
+    // patient's age or sex, and the PDF header prints "Age: —  Gender: —".
+    // Age and sex change the differential for essentially every study; they
+    // are not optional profile decoration.
+    //
+    // WHY THIS SURFACE: this is the only place in the product that asks for
+    // them, and it is the gate a patient passes before reaching /dashboard and
+    // the case wizard. The wizard itself would be the better place (it is the
+    // point of need) but its step-1 POST lives in routes/patient.js — see the
+    // hand-off note. Enforcing it here is authoritative for everyone who
+    // passes through onboarding; it does NOT retro-gate patients who already
+    // completed onboarding with the fields blank.
+    //
+    // A malformed value is now an explicit error rather than a silent blank:
+    // silently discarding what a patient typed is how these ended up NULL.
+    if (!dateOfBirth) {
+      errors.push(isAr ? 'تاريخ الميلاد مطلوب' : 'Date of birth is required');
+    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+      errors.push(isAr ? 'تاريخ الميلاد غير صالح (YYYY-MM-DD)' : 'Date of birth must be in YYYY-MM-DD format');
+    } else {
+      var dobMs = Date.parse(dateOfBirth + 'T00:00:00Z');
+      var ageYears = Number.isNaN(dobMs) ? NaN : (Date.now() - dobMs) / (365.2425 * 24 * 60 * 60 * 1000);
+      if (Number.isNaN(dobMs) || ageYears < 0 || ageYears > 120) {
+        errors.push(isAr ? 'تاريخ الميلاد غير صالح' : 'Please enter a valid date of birth');
+      }
+    }
+
+    if (!gender) {
+      errors.push(isAr ? 'الجنس مطلوب' : 'Sex is required');
+    } else if (!['male', 'female'].includes(gender)) {
+      errors.push(isAr ? 'قيمة الجنس غير صالحة' : 'Please select a valid option for sex');
+    }
+
     if (errors.length > 0) {
       return res.status(400).json({ ok: false, errors: errors });
     }
     var phone = phoneCheck.normalized;
 
-    // Validate gender
-    if (gender && !['male', 'female'].includes(gender)) {
-      gender = '';
-    }
-
-    // Validate date format (YYYY-MM-DD)
-    if (dateOfBirth && !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
-      dateOfBirth = '';
-    }
-
+    // AUDIT-2026-08-22 (L8): dateOfBirth and gender are validated non-empty
+    // above, so the `|| null` fallbacks can no longer quietly blank a column
+    // that a diagnostic report depends on.
     await execute(
       'UPDATE users SET name = $1, phone = $2, date_of_birth = $3, gender = $4, lang = $5 WHERE id = $6',
-      [name, phone, dateOfBirth || null, gender || null, preferredLang, userId]
+      [name, phone, dateOfBirth, gender, preferredLang, userId]
     );
 
     // P0-FORM-1: re-sign the session cookie with the freshly saved phone

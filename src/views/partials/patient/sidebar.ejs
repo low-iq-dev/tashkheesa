@@ -53,7 +53,11 @@
     { k: 'cases',         icon: 'case',     href: '/patient/cases',             label: __labels.cases,    badge: __caseCount > 0 ? String(__caseCount) : null },
     { k: 'messages',      icon: 'message',  href: '/portal/messages',           label: __labels.messages, badge: __unread > 0 ? String(__unread) : null },
     { k: 'appointments',  icon: 'calendar', href: '/portal/patient/appointments', label: __labels.appointments },
-    { k: 'prescriptions', icon: 'file',     href: '/portal/patient/prescriptions', label: __labels.prescriptions },
+    /* Coming soon (2026-08-24) — kept in the nav on purpose. A patient who was
+       told their consultant might prescribe should see the feature coming, not
+       find it absent. See src/services/prescriptions_flag.js. */
+    { k: 'prescriptions', icon: 'file',     href: '/portal/patient/prescriptions', label: __labels.prescriptions,
+      pill: (typeof prescriptionsComingSoon === 'undefined' || prescriptionsComingSoon) ? (__isAr ? 'قريباً' : 'Soon') : null },
     { k: 'records',       icon: 'activity', href: '/portal/patient/records',    label: __labels.records },
     { k: 'referrals',     icon: 'heart',    href: '/portal/patient/referrals',  label: __labels.referrals },
     { k: 'reviews',       icon: 'star',     href: '/portal/patient/reviews',    label: __labels.reviews }
@@ -110,6 +114,7 @@
       <%- include('icon', { name: i.icon, size: 16 }) %>
       <span><%= i.label %></span>
       <% if (i.badge) { %><span class="p-nav__count"><%= i.badge %></span><% } %>
+      <% if (i.pill) { %><span class="p-nav__soon"><%= i.pill %></span><% } %>
     </a>
   <% }); %>
 

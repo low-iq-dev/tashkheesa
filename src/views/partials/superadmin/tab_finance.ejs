@@ -78,12 +78,19 @@
       <% if (!d.payouts || !d.payouts.length) { %>
         <%- include('c_empty', { title: 'No payout data', sub: 'Earnings rows will appear after the first paid case.' }) %>
       <% } else { %>
-        <%- include('c_table_open', { headers: ['Doctor', 'Cycle cases', { label: 'Owed', align: 'end' }, 'Last paid', 'Next'] }) %>
+        <%# 2026-08-24 — Owed is split into its two ledgers. Case fees settle in
+            doctor_earnings, add-on commissions (video consults, prescriptions)
+            in addon_earnings, and the total is what the doctor sees on their
+            own earnings page. Showing only the first meant this figure and the
+            doctor's disagreed, with the gap growing per add-on sold. %>
+        <%- include('c_table_open', { headers: ['Doctor', 'Cycle cases', { label: 'Cases', align: 'end' }, { label: 'Add-ons', align: 'end' }, { label: 'Owed', align: 'end' }, 'Last paid', 'Next'] }) %>
           <% d.payouts.forEach(function(p) { %>
             <tr>
               <td><%= p.doctor %></td>
               <td class="tabular"><%= p.cases %></td>
-              <td class="num"><%= Number(p.owed).toLocaleString('en-US') %></td>
+              <td class="num" style="color:var(--fg-2);"><%= Number(p.owedCases || 0).toLocaleString('en-US') %></td>
+              <td class="num" style="color:var(--fg-2);"><% if (p.owedAddons) { %><%= Number(p.owedAddons).toLocaleString('en-US') %><% } else { %><span style="color:var(--fg-3);">—</span><% } %></td>
+              <td class="num" style="font-weight:600;"><%= Number(p.owed).toLocaleString('en-US') %></td>
               <td><%= p.lastPaid %></td>
               <td><%= p.next %></td>
             </tr>

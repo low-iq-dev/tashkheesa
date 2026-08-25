@@ -20,8 +20,42 @@ const { emitNotificationDropped } = require('./notify');
 const { isIntlOrder, primaryPrice, egpCharge } = require('./utils/money_display');
 const { formatMoney } = require('./utils/formatNumber');
 
-const MAX_RETRIES = parseInt(process.env.NOTIFICATION_MAX_RETRIES || '3', 10);
+// AUDIT-2026-08-22: parseInt('' | 'three' | 'null', 10) is NaN, and NaN poisons
+// the whole retry state machine rather than failing loudly:
+//   * `attempts >= NaN` is ALWAYS false, so no row ever reaches 'failed' — the
+//     max-retries branch (and its NOTIFICATION_DROPPED emit and error_logs
+//     write) becomes unreachable and a permanently-broken send retries forever.
+//   * the escape hatch is then the backoff, `30000 * 4**(attempts-1)`, which
+//     overflows to Infinity around attempt 537 — and `new Date(Infinity)` is an
+//     Invalid Date whose .toISOString() THROWS RangeError, inside the very
+//     catch block meant to contain per-candidate failures.
+// Clamp to a sane finite integer instead. The upper bound is not paranoia: it
+// is what guarantees backoffFor() below can never produce Infinity.
+const MAX_RETRIES = (function resolveMaxRetries() {
+  const parsed = parseInt(process.env.NOTIFICATION_MAX_RETRIES || '3', 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return 3;
+  return Math.min(parsed, 20);
+})();
 const DRY_RUN = String(process.env.NOTIFICATION_DRY_RUN || 'false').toLowerCase() === 'true';
+
+/**
+ * Exponential backoff (30s, 120s, 480s, …) as an ISO timestamp.
+ *
+ * AUDIT-2026-08-22: factored out of the retry branch so the per-candidate
+ * catch below can use the SAME schedule. The catch used to write
+ * status='retry' with no retry_after at all, which left the 10-minute CLAIM
+ * LEASE the fetch UPDATE had just stamped into that column sitting in place —
+ * so a row that failed by exception waited ~10 minutes for its next attempt
+ * instead of 30 seconds, on the same column the claim recovery pass reads.
+ *
+ * `attempts` is clamped so the multiplication cannot overflow to Infinity and
+ * make new Date(...).toISOString() throw (see MAX_RETRIES above).
+ */
+function backoffFor(attempts) {
+  const n = Math.min(Math.max(Number(attempts) || 1, 1), 12); // 30s·4^11 ≈ 48 days
+  const ms = 30000 * Math.pow(4, n - 1);
+  return new Date(Date.now() + ms).toISOString();
+}
 
 // B10 (launch audit): re-entrancy guard + claim-lease window. The 30s
 // setInterval in server.js has no overlap protection; a slow email/WhatsApp
@@ -124,6 +158,11 @@ const TEMPLATE_TO_EMAIL = {
   addon_purchased_video:        'addon-video-purchased',
   addon_purchased_urgency:      'addon-urgency-purchased',
   addon_purchased_prescription: 'addon-prescription-purchased',
+  // AUDIT-2026-08-23 (C4) — doctor-requested prescription pipeline. Without a
+  // mapping here processEmail answers no_email_template_mapping_for_<t> and
+  // burns three retries straight into 'failed'.
+  prescription_recommended_patient: 'prescription-recommended',
+  prescription_unlocked_doctor:     'prescription-unlocked',
   // #66: payment-reminder series for unpaid cases. Queued by
   // case_lifecycle.dispatchUnpaidCaseReminders at 30m / 6h / 24h
   // elapsed from order creation. The 24h reminder is included for
@@ -325,6 +364,106 @@ async function processWhatsApp(notification, user, order) {
     return { skipped: 'no_phone_for_user' };
   }
 
+  // ── AUDIT-2026-08-22 (N1): WhatsApp opt-out is enforced HERE. ───────────
+  //
+  // `users.notify_whatsapp` — the flag routes/openclaw-api.js writes when a
+  // recipient replies STOP — was read in exactly ONE place repo-wide:
+  // notify.queueMultiChannelNotification. The nineteen single-channel
+  // `queueNotification({ channel:'whatsapp' })` call sites bypassed it
+  // entirely, and neither this worker (which already SELECTed the column and
+  // then ignored it), nor notify/whatsapp.js, nor lib/openclaw_client.js
+  // checked. Replying STOP therefore did nothing on almost every message the
+  // platform sends.
+  //
+  // That is not a preference bug at launch: migration 062 bulk-set the flag
+  // true for every patient holding a phone number and flipped the column
+  // DEFAULT to true, so opt-out is the ONLY consent control that exists.
+  //
+  // The check belongs in the worker rather than in each caller because the
+  // worker is the single chokepoint every whatsapp row passes through — one
+  // check covers all nineteen sites plus any added later, and it cannot be
+  // forgotten at a new call site.
+  //
+  // EXEMPTION — superadmins. Two separate questions were considered:
+  //   1. The genuinely operational pages (worker-down, Paymob HMAC failure,
+  //      error-rate spike) do not travel this path at all: sendCriticalAlert
+  //      goes straight to the transport with no notifications row, so it was
+  //      never at risk and needs no exemption here.
+  //   2. What DOES reach a superadmin over whatsapp is the SLA-breach
+  //      escalation (notify.dispatchSlaBreach). Silencing a medical-deadline
+  //      escalation to the on-call operator because someone once replied STOP
+  //      to a different message is a worse failure than the consent question
+  //      it answers, and a superadmin is staff on a work number rather than a
+  //      marketing recipient.
+  //
+  // ── AUDIT-2026-08-22 (AUDIT-STAFF-OPTOUT-1): THE EXEMPTION WAS TOO NARROW ──
+  //
+  // The previous revision exempted `superadmin` ONLY, and reasoned that a
+  // doctor's false flag is "an explicit administrative setting". On this
+  // database it is nothing of the sort — it is the ORIGINAL DEFAULT:
+  //
+  //   * 001_initial_tables.sql declares users.notify_whatsapp DEFAULT false.
+  //   * 062_notify_whatsapp_default_true.sql flipped the DEFAULT to true, but
+  //     its backfill UPDATE is scoped `WHERE role = 'patient'` (062:41-44).
+  //
+  // So EVERY doctor and admin row created before migration 062 still holds
+  // false, indistinguishable from a deliberate opt-out. Under the old check
+  // those users silently stopped receiving case-assignment, acceptance-window
+  // and SLA-breach WhatsApp: status='skipped', which /ops deliberately excludes
+  // from the failure pill, and no NOTIFICATION_DROPPED event. Nothing anywhere
+  // would have said so.
+  //
+  // THE RULE NOW: `notify_whatsapp` is CONSENT FOR PATIENTS, where reply-STOP
+  // is the only opt-out that exists and the 062 backfill made the value
+  // meaningful. For STAFF (doctor / admin / superadmin / anything non-patient)
+  // it is not a consent signal at all on this data, so it is NOT treated as a
+  // kill switch — a false value there is logged and the message is still sent.
+  //
+  // This deliberately means a staff member who replies STOP keeps receiving
+  // operational WhatsApp. That is the correct trade for medical-deadline
+  // traffic on a work number, and the honest way to opt a staff member out is
+  // to clear their phone number (handled by the no_phone branch above) or to
+  // give staff their own preference column with a trustworthy default. Until
+  // one exists, the send is logged so it is at least visible.
+  //
+  // Modelled as `skipped` (not a failure): the row lands on status='skipped',
+  // which /ops deliberately excludes from both the sent and failure pills.
+  // Deliberately NOT emitting NOTIFICATION_DROPPED — an opted-out patient
+  // generates one skip per notification per case, and flooding
+  // /ops/silent-failures with a working consent control would bury the real
+  // drops. This matches the existing no_phone_for_user skip directly above.
+  // Strict false/0 only — the exact comparison queueMultiChannelNotification
+  // uses, so the two enforcement points cannot disagree about the same user. A
+  // NULL column (rows predating migration 062) is therefore NOT an opt-out,
+  // which matches that migration flipping the DEFAULT to true.
+  const optedOut = (user.notify_whatsapp === false || user.notify_whatsapp === 0);
+  // AUDIT-2026-08-22 (AUDIT-STAFF-OPTOUT-1) — patient vs staff, not
+  // superadmin vs everyone. An unknown/empty role is treated as STAFF (send
+  // rather than silently drop): the failure mode of an extra message is
+  // recoverable, the failure mode of an invisible skip is not.
+  const isPatientRecipient = String(user.role || '').toLowerCase() === 'patient';
+  if (optedOut && isPatientRecipient) {
+    return { skipped: 'whatsapp_opted_out' };
+  }
+  if (optedOut && !isPatientRecipient) {
+    // Visible on stdout AND in error_logs, so a staff member whose flag is
+    // false is discoverable instead of silently unreachable. Not a
+    // NOTIFICATION_DROPPED event: nothing is being dropped — we are sending.
+    console.warn('[notify-worker] staff recipient has notify_whatsapp=false; SENDING ANYWAY ' +
+      '(pre-062 default, not a real opt-out — see AUDIT-STAFF-OPTOUT-1)', {
+        userId: user.id, role: user.role, template: notification.template
+      });
+    try {
+      logErrorToDb(new Error('staff notify_whatsapp=false ignored for operational WhatsApp'), {
+        context: 'notification_worker.staff_optout_ignored',
+        category: 'notifications',
+        level: 'warn',
+        orderId: notification.order_id || null,
+        userId: user.id
+      });
+    } catch (_) {}
+  }
+
   // Parse response payload for template variables
   let rawVars = {};
   try {
@@ -433,25 +572,41 @@ async function processWhatsApp(notification, user, order) {
     };
   } else {
     const mapped = getWhatsAppTemplate(notification.template, userLang);
-    wa = mapped
-      ? {
-          to: user.phone,
-          template: mapped.templateName,
-          lang: mapped.lang || fallbackLang,
-          // Meta's Cloud API takes ordered positional body parameters, so the
-          // paramBuilder projection is required here (and only here).
-          vars: typeof mapped.paramBuilder === 'function' ? mapped.paramBuilder(vars) : vars,
-          orderId: orderIdForSend,
-          userId: user.id
-        }
-      : {
-          to: user.phone,
-          template: notification.template,
-          lang: fallbackLang,
-          vars,
-          orderId: orderIdForSend,
-          userId: user.id
-        };
+    // AUDIT-2026-08-22: an unmapped event used to fall through to Meta with
+    // `template: notification.template` — the INTERNAL event name, which is
+    // not an approved HSM name — and `Object.values(vars)` as an UNORDERED
+    // positional parameter list (JS object key order is insertion order, which
+    // has nothing to do with Meta's {{1}}/{{2}} slots). 25 whatsapp-channel
+    // templates have no map entry. Meta rejects that submission today with
+    // 132001, so the practical outcome is three wasted retries and a 'failed'
+    // row — but the branch should refuse rather than post garbage to a
+    // third-party API on the strength of Meta's validator, and if it ever DID
+    // clear it would deliver scrambled parameters to a patient.
+    //
+    // Mirrors the OpenClaw branch's `no_openclaw_template` contract: a missing
+    // mapping is a deployment gap, so it is permanent (no retry storm) and
+    // NOT 'skipped' (the worker's permanent branch marks it failed and writes
+    // to error_logs, so it shows on /ops as the undelivered message it is).
+    if (!mapped) {
+      // THEME8-LINT-EXEMPT-HELPER: no logErrorToDb here on purpose — the
+      // `permanent: true` return below routes this through the worker's
+      // permanent branch, which is what writes error_logs and surfaces it on
+      // /ops. Logging here too would double-count every occurrence.
+      console.error('[notify-worker] NO META TEMPLATE MAPPING for event — message NOT delivered', {
+        template: notification.template, lang: userLang
+      });
+      return { ok: false, error: 'no_meta_whatsapp_template', permanent: true, template: notification.template };
+    }
+    wa = {
+      to: user.phone,
+      template: mapped.templateName,
+      lang: mapped.lang || fallbackLang,
+      // Meta's Cloud API takes ordered positional body parameters, so the
+      // paramBuilder projection is required here (and only here).
+      vars: typeof mapped.paramBuilder === 'function' ? mapped.paramBuilder(vars) : vars,
+      orderId: orderIdForSend,
+      userId: user.id
+    };
   }
 
   const result = await sendWhatsApp(wa);
@@ -590,8 +745,11 @@ async function runNotificationWorker(limit = 50) {
 
   for (const n of notifications) {
     try {
+      // AUDIT-2026-08-22 (N1): `role` added — processWhatsApp exempts
+      // superadmins from the notify_whatsapp opt-out so an operator's STOP
+      // cannot silence the SLA-breach escalation. See the note there.
       const user = await queryOne(
-        'SELECT id, email, name, phone, lang, notify_whatsapp FROM users WHERE id = $1',
+        'SELECT id, email, name, phone, lang, role, notify_whatsapp FROM users WHERE id = $1',
         [n.to_user_id]
       );
 
@@ -708,8 +866,7 @@ async function runNotificationWorker(limit = 50) {
           console.error('[notify-worker] max retries reached', { id: n.id, template: n.template, channel, attempts });
         } else {
           // Exponential backoff: 30s, 120s, 480s
-          const backoffMs = 30000 * Math.pow(4, attempts - 1);
-          const retryAfter = new Date(Date.now() + backoffMs).toISOString();
+          const retryAfter = backoffFor(attempts);
 
           await execute('UPDATE notifications SET status = $1, response = $2, attempts = $3, retry_after = $4 WHERE id = $5', [
             'retry',
@@ -735,10 +892,27 @@ async function runNotificationWorker(limit = 50) {
       });
       console.error('[notify-worker] failed to process notification', n.id, err);
       const attempts = (n.attempts || 0) + 1;
-      await execute('UPDATE notifications SET status = $1, response = $2, attempts = $3 WHERE id = $4', [
-        attempts >= MAX_RETRIES ? 'failed' : 'retry',
+      const exhausted = attempts >= MAX_RETRIES;
+      // AUDIT-2026-08-22: retry_after is now written on BOTH outcomes.
+      //
+      // This UPDATE used to leave the column alone. But the fetch UPDATE that
+      // claimed this row stamped retry_after with the 10-MINUTE CLAIM LEASE
+      // (STUCK_SENDING_LEASE_MS) — the column does double duty for 'sending'
+      // leases and queued/retry backoff. Writing status='retry' on top of a
+      // live lease value means the row is not eligible again until the lease
+      // expires: ~10 minutes instead of the intended 30s / 120s / 480s. Every
+      // failure that arrived as a THROWN exception (rather than an
+      // { ok:false } return) retried on the wrong schedule, including on the
+      // time-critical SLA path.
+      //
+      // On the exhausted branch the lease is cleared to NULL instead, so a
+      // dead row does not carry a stale future timestamp that the stuck-
+      // 'sending' recovery pass reads as a live claim.
+      await execute('UPDATE notifications SET status = $1, response = $2, attempts = $3, retry_after = $4 WHERE id = $5', [
+        exhausted ? 'failed' : 'retry',
         `error: ${String(err).slice(0, 500)}`,
         attempts,
+        exhausted ? null : backoffFor(attempts),
         n.id
       ]);
     }

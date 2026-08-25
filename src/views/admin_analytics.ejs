@@ -334,8 +334,18 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
     if (empty) empty.style.display = 'flex';
   }
 
+  // AUDIT-2026-08-22: every chart payload below goes through jsonForScript()
+  // (res.locals, src/middleware.js) rather than bare JSON.stringify().
+  // JSON.stringify leaves '<' intact, so a DB string containing the literal
+  // text "</script>" closes this inline script from inside a JS string literal
+  // and everything after it is parsed as fresh HTML — stored XSS running with
+  // the viewing admin/superadmin session. charts.doctorWorkload carries
+  // doctor-supplied names (POST /portal/doctor/profile stores them with only
+  // String(v).trim()); the other six carry service names, status labels,
+  // payment-method names and notification template names, all DB-derived and
+  // therefore in scope for the same break-out. All seven are escaped.
   // Revenue Trend
-  var revData = <%- JSON.stringify(charts.revenueTrend || []) %>;
+  var revData = <%- jsonForScript(charts.revenueTrend || []) %>;
   if (revData.length && document.getElementById('revenueTrendChart')) {
     new Chart(document.getElementById('revenueTrendChart'), {
       type: 'line',
@@ -358,7 +368,7 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
   }
 
   // Revenue by Service
-  var svcData = <%- JSON.stringify(charts.revenueByService || []) %>;
+  var svcData = <%- jsonForScript(charts.revenueByService || []) %>;
   if (svcData.length && document.getElementById('revenueByServiceChart')) {
     new Chart(document.getElementById('revenueByServiceChart'), {
       type: 'doughnut',
@@ -376,7 +386,7 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
   }
 
   // Cases by Status
-  var statusData = <%- JSON.stringify(charts.casesByStatus || []) %>;
+  var statusData = <%- jsonForScript(charts.casesByStatus || []) %>;
   if (statusData.length && document.getElementById('casesByStatusChart')) {
     var statusColors = {
       'completed': '#10b981', 'done': '#10b981', 'delivered': '#10b981',
@@ -403,7 +413,7 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
   }
 
   // SLA Compliance Trend
-  var slaData = <%- JSON.stringify(charts.slaTrend || []) %>;
+  var slaData = <%- jsonForScript(charts.slaTrend || []) %>;
   if (slaData.length && document.getElementById('slaTrendChart')) {
     new Chart(document.getElementById('slaTrendChart'), {
       type: 'bar',
@@ -429,7 +439,7 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
   }
 
   // Payment Methods (pie)
-  var pmData = <%- JSON.stringify(charts.paymentMethods || []) %>;
+  var pmData = <%- jsonForScript(charts.paymentMethods || []) %>;
   if (pmData.length && document.getElementById('paymentMethodsChart')) {
     new Chart(document.getElementById('paymentMethodsChart'), {
       type: 'pie',
@@ -447,7 +457,7 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
   }
 
   // Doctor Workload (horizontal bar)
-  var wlData = <%- JSON.stringify(charts.doctorWorkload || []) %>;
+  var wlData = <%- jsonForScript(charts.doctorWorkload || []) %>;
   if (wlData.length && document.getElementById('doctorWorkloadChart')) {
     new Chart(document.getElementById('doctorWorkloadChart'), {
       type: 'bar',
@@ -467,7 +477,7 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
   }
 
   // Notification Stats (grouped bar)
-  var nData = <%- JSON.stringify(charts.notificationStats || []) %>;
+  var nData = <%- jsonForScript(charts.notificationStats || []) %>;
   if (nData.length && document.getElementById('notificationStatsChart')) {
     // Group by channel
     var channels = {};

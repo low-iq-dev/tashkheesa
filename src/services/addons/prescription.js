@@ -25,9 +25,56 @@ class PrescriptionAddon extends AddonService {
   static type = 'prescription';
   static hasLifecycle = true;
 
-  async onPurchase({ order, addonService, currency = 'EGP' }) {
+  /**
+   * @param {object}  args.order
+   * @param {object}  args.addonService
+   * @param {string} [args.currency='EGP']
+   * @param {number} [args.chargedPriceEgp]  What the patient was ACTUALLY
+   *   charged for this add-on, in EGP.
+   */
+  async onPurchase({ order, addonService, currency = 'EGP', chargedPriceEgp = null, chargedAmount = null }) {
     const resolved = await resolveAddonPrice(PrescriptionAddon.id, currency);
     if (!resolved) throw new Error('prescription addon is not active');
+
+    // 2026-08-24 — the same fix video_consult got in FIX 9, which this class
+    // never received. price_at_purchase_egp is the base onComplete computes
+    // the doctor's commission from, so it has to be what the PATIENT PAID.
+    //
+    // Prescription is charged from one catalogue and snapshotted from another:
+    // the checkout priced it from service_regional_prices('addon_prescription')
+    // with a hardcoded 350 fallback, while this row took
+    // addon_services.base_price_egp = 400. A 50% commission on a 350 sale paid
+    // the doctor 200. Worse, prescription_access.ensurePrescriptionAddonRow
+    // already got this right, so the purchase path and the backfill path
+    // computed different numbers for the same sale.
+    //
+    // The charged amount wins when the caller supplies one; the registry still
+    // owns commissionPct, which is a contract percentage rather than a
+    // per-order fact.
+    // 2026-08-24 (review round 2) — the EGP figure and the LOCAL charged amount
+    // are two different numbers and must land in two different columns.
+    //
+    // price_at_purchase_egp is the commission base onComplete multiplies.
+    // price_at_purchase_amount is what the patient actually paid, in
+    // price_at_purchase_currency, and is what the admin page prints. Setting
+    // both from chargedPriceEgp stamped an EGP number under a foreign currency
+    // label — "SAR 200" for a 50 SAR add-on — and put the purchase path back in
+    // disagreement with prescription_access's backfill, which stores the true
+    // local amount. chargedAmount closes that.
+    const charged = Number(chargedPriceEgp);
+    const usingCharged = Number.isFinite(charged) && charged > 0;
+    const priceEgp = usingCharged ? Math.round(charged) : resolved.baseEgp;
+    const localCharged = Number(chargedAmount);
+    const priceAmount = Number.isFinite(localCharged) && localCharged > 0
+      ? Math.round(localCharged)
+      : (usingCharged ? Math.round(charged) : resolved.amount);
+    if (!usingCharged) {
+      console.warn(
+        '[prescription.onPurchase] no chargedPriceEgp for order ' + order.id +
+        ' — falling back to addon_services.base_price_egp=' + resolved.baseEgp +
+        '; doctor commission may not match what the patient paid'
+      );
+    }
 
     const row = await queryOne(
       `INSERT INTO order_addons (
@@ -38,9 +85,11 @@ class PrescriptionAddon extends AddonService {
        ) VALUES ($1, $2, 'paid', $3, $4, $5, $6, '{}'::jsonb)
        ON CONFLICT (order_id, addon_service_id) DO UPDATE
          SET status = order_addons.status
-       RETURNING *`,
+       -- See the note in video_consult.onPurchase: xmax distinguishes the
+       -- inserting caller from the one that lost the race.
+       RETURNING *, (xmax = 0) AS inserted`,
       [order.id, PrescriptionAddon.id,
-       resolved.baseEgp, resolved.currency, resolved.amount, resolved.commissionPct]
+       priceEgp, resolved.currency, priceAmount, resolved.commissionPct]
     );
     return row;
   }

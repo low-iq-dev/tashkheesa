@@ -18,6 +18,27 @@
 // admin_doctor_invite.js import this constant — do not redeclare it elsewhere.
 const WELCOME_EXPIRY_HOURS = 168;
 
+// SQL fragment producing the boolean the template's {{#if servicesReady}} gates
+// on. SINGLE SOURCE — every query that feeds buildDoctorWelcomePayload must
+// select it, aliased `services_ready`, and they must all agree. It mirrors
+// loadDoctorServiceCatalog's union exactly (visible services in the doctor's own
+// specialty, OR any service they already hold), because what the email promises
+// has to match what the page actually shows.
+//
+// There are three send paths for this email — admin_doctor_invite (single +
+// bulk), superadmin approve/resend-welcome, and the self-serve forgot-password
+// re-send — and they build the doctor row three different ways. A path that
+// forgets this column silently takes the {{else}} branch and tells a doctor
+// with a full service list that their specialty is still being set up. Assumes
+// the users row is aliased `u`.
+const SERVICES_READY_SQL = `(
+    EXISTS (SELECT 1 FROM services sv
+             WHERE sv.specialty_id = u.specialty_id
+               AND COALESCE(sv.is_visible, true) = true)
+    OR EXISTS (SELECT 1 FROM doctor_services ds
+                WHERE ds.doctor_id = u.id)
+  ) AS services_ready`;
+
 // Strip an English "Dr." or Arabic "د." prefix. Mirrors superadmin.js:3181 and
 // openclawTemplates.js stripDr(). Doctor names are frequently stored
 // already-prefixed ("Dr. Ahmed Hassan"), and the template hardcodes both
@@ -74,12 +95,21 @@ function buildDoctorWelcomePayload({ doctor, token, baseUrl } = {}) {
   const specialtyAr = specNameAr || specName;
   const specialtyEn = specName || specNameAr;
 
+  // Whether the doctor has a services list waiting to be confirmed. Supplied by
+  // the caller (admin_doctor_invite.js computes it in SQL); undefined from the
+  // superadmin mirror, which is fine — the template gates on it and falls back
+  // to copy that is true either way. Never invent a value: promising a list to
+  // a doctor whose specialty has no services is the failure this exists to
+  // prevent.
+  const servicesReady = d.services_ready === true;
+
   return {
     doctorName: d.name || (lang === 'ar' ? 'الطبيب' : 'Doctor'),
     firstName,
     nameAr,
     specialtyAr,
     specialtyEn,
+    servicesReady,
     magicLinkUrl,
     // Ziad-locked bilingual welcome copy references {{password_setup_link}};
     // expose it as an alias of magicLinkUrl so the template renders with no
@@ -91,4 +121,4 @@ function buildDoctorWelcomePayload({ doctor, token, baseUrl } = {}) {
   };
 }
 
-module.exports = { buildDoctorWelcomePayload, WELCOME_EXPIRY_HOURS };
+module.exports = { buildDoctorWelcomePayload, WELCOME_EXPIRY_HOURS, SERVICES_READY_SQL };

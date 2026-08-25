@@ -35,7 +35,7 @@
 'use strict';
 
 const { queryAll } = require('../pg');
-const { owedCentsForOrder } = require('./order_pricing');
+const { owedCentsForOrder, toCents, parseSelectedAddons } = require('./order_pricing');
 
 const PRE_DOCTOR_ACCEPT = new Set(['PAID', 'ASSIGNED']);
 const REVIEW_REQUIRED = new Set(['IN_REVIEW', 'REJECTED_FILES', 'REASSIGNED']);
@@ -115,6 +115,62 @@ async function isEligibleForRefund(order, requestingUserId) {
   return { eligible: false, reason: 'unknown_status', autoApprove: false };
 }
 
+// ── AUDIT-2026-08-22 (R5, P1): a CONSUMED video add-on is not refundable ────
+//
+// readVideoAddonEntitlement (routes/video.js) only checks payment_status='paid'
+// — which stays 'paid' right up until a refund is marked paid — so a patient
+// could book a video consultation out of their add-on, immediately request the
+// auto-approved refund (status PAID / ASSIGNED is pre-doctor-accept and
+// auto-approves), and walk away with the WHOLE 1800 EGP invoice back plus a
+// live, funded appointment. If the consultation then happened, the platform
+// paid the doctor 80% of money it had already returned.
+//
+// Two repairs were possible: cancel the appointment whenever the order is
+// refunded, or take the consumed add-on out of the refund ceiling. This is the
+// second, chosen because:
+//
+//   * It is COMPLETE. Every refund path — this file's callers are the patient
+//     request form, services/admin_refund.js, routes/superadmin.js, the Command
+//     app and services/refund_closure.js — bounds itself by maxRefundableEgp,
+//     so one change closes all of them. The cancel-on-refund approach would
+//     have to be wired into each create path separately, and two of those files
+//     are outside this change's ownership; a half-wired version leaves the hole
+//     open on the paths it misses.
+//   * It is HONEST to the patient. They keep the consultation they paid for and
+//     get every other piastre back. The alternative takes away a service they
+//     have already booked in order to hand back money they would have to spend
+//     again on the same thing.
+//   * It is SYMMETRIC with the release path. The exclusion is keyed on
+//     `video_consultation_consumed_by`, the same marker
+//     services/video_addon_entitlement.js clears when a consultation is
+//     cancelled, no-showed by the doctor, or auto-cancelled at 48h. The moment
+//     the entitlement is handed back, the add-on becomes fully refundable
+//     again — no separate bookkeeping.
+//
+// Note this deliberately does NOT touch owedCentsForOrder: that is the
+// intention/webhook charge parity number and must never move.
+//
+// Residual, documented: a patient whose consultation has already been
+// DELIVERED is in the same position — the add-on stays consumed, so it stays
+// out of the ceiling. That is the correct answer for a delivered service.
+function consumedVideoAddonCents(order) {
+  if (!order) return 0;
+  let json = order.addons_json;
+  if (typeof json === 'string') {
+    try { json = JSON.parse(json); } catch (_) { json = null; }
+  }
+  if (!json || typeof json !== 'object') return 0;
+  if (!json.video_consultation_consumed_by) return 0;
+
+  // Price it exactly the way owedCentsForOrder charged it, so the subtraction
+  // cannot leave a stray piastre behind (parseSelectedAddons carries the legacy
+  // video_consultation_price fallback for rows whose addons_json has the flag
+  // but no price).
+  const sel = parseSelectedAddons(order);
+  if (!sel.video_consultation) return 0;
+  return toCents(sel.video_consultation_price);
+}
+
 /**
  * The maximum EGP that may be refunded for an order — i.e. everything the
  * patient was actually charged.
@@ -153,6 +209,10 @@ function maxRefundableEgp(order) {
   // price + every add-on locked on the order at intention time.
   let cents = owedCentsForOrder(order);
 
+  // …minus a video consultation the patient has already claimed and still
+  // holds. See consumedVideoAddonCents above.
+  cents -= consumedVideoAddonCents(order);
+
   const price = Number(order.price);
   if (!Number.isFinite(price) || price <= 0) {
     // Legacy / partial row with no canonical price: rebuild the main fee from
@@ -168,4 +228,4 @@ function maxRefundableEgp(order) {
   return Math.round(cents) / 100;
 }
 
-module.exports = { isEligibleForRefund, maxRefundableEgp };
+module.exports = { isEligibleForRefund, maxRefundableEgp, consumedVideoAddonCents };

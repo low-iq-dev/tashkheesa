@@ -141,6 +141,27 @@ a.p-sidebar__lang-btn:hover { color: #F2E4C7; background: rgba(255,255,255,0.06)
   font-variant-numeric: tabular-nums;
 }
 
+/* Coming-soon marker on a nav entry (2026-08-24).
+   Brass rather than the brand green the count badge uses — a count is live
+   data, this is a promise, and they should not look like the same thing. */
+.p-nav__soon {
+  margin-inline-start: auto;
+  background: rgba(242, 228, 199, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(242, 228, 199, 0.30);
+  color: #F2E4C7;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.p-sidebar--light .p-nav__soon {
+  background: #F7EEDC;
+  box-shadow: none;
+  color: #8E6C2C;
+}
+
 .p-sidebar__trust {
   margin-top: auto;
   padding: 14px 10px 4px;

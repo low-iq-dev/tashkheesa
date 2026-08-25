@@ -109,7 +109,7 @@ const {
   normalizeTier,
   doctorSupportsTier,
   capFor,
-  acceptByIso,
+  acceptByIsoForOrder,
 } = require('./_assign_helpers');
 const { bulkAutoAssign } = require('../../services/admin_bulk_assign');
 const { issueRefund } = require('../../services/admin_refund');
@@ -235,7 +235,7 @@ function fileKind(mime, name) {
   return 'file';
 }
 
-// /assign helpers (doctorSupportsTier, capFor, acceptByIso) now live in
+// /assign helpers (doctorSupportsTier, capFor, acceptByIsoForOrder) now live in
 // ./_assign_helpers.js — imported at the top.
 
 // Package 2 (Task 28): per-IP limiter for the Command-API doctor invite. It is
@@ -522,7 +522,29 @@ module.exports = function (db, helpers, deploy, deps) {
   // Every comparison below now folds case. ACTIVE_STATUS_LIST is the single
   // definition; tests/lint/status-comparisons-fold-case.test.js fails the build
   // if a status comparison is hand-written without LOWER() again.
-  const ACTIVE_STATUS_LIST = ['paid', 'in_progress', 'in_review', 'submitted', 'assigned', 'rejected_files'];
+  // AUDIT-2026-08-22 — 'sla_breach', 'breached' and 'reassigned' added.
+  //
+  // This one list drives the /pulse "Active cases", "Awaiting review"(no),
+  // "Pending assign", "Breached" and "No active timer" tiles AND the Cases
+  // screen's ?active=1 / ?timer=none filters. Omitting the breach statuses
+  // meant a case DROPPED OUT of every active tile the instant it breached —
+  // while the standalone deadline-based `breached` facet below (which has no
+  // status predicate at all) went on counting it. The dashboard therefore
+  // disagreed with itself on exactly the cases that need attention: the
+  // breach count could exceed the active count it was supposedly a subset of.
+  // 'breached' is the legacy lowercase spelling of SLA_BREACH that still
+  // exists in this table (see case_lifecycle DB_STATUS_VARIANTS).
+  //
+  // 'reassigned' is here for the P0 above it: reassignCase with no alternate
+  // doctor parks a PAID case at REASSIGNED with doctor_id NULL. That case is
+  // unassigned, un-worked and waiting — the definition of something ops must
+  // see — and it was in no tile at all.
+  //
+  // Left out deliberately: the remaining SLA_BREACH spellings
+  // ('breached_sla', 'sla_breached', 'delayed', 'overdue'). No writer in this
+  // codebase produces them; they exist only in the alias map. Add them here if
+  // one is ever found in prod.
+  const ACTIVE_STATUS_LIST = ['paid', 'in_progress', 'in_review', 'submitted', 'assigned', 'rejected_files', 'sla_breach', 'breached', 'reassigned'];
   const ACTIVE_STATUSES = '(' + ACTIVE_STATUS_LIST.map((s) => "'" + s + "'").join(',') + ')';
   // Case-folded column reference, for use on either side of an IN.
   const ST = "LOWER(COALESCE(status, ''))";
@@ -915,7 +937,11 @@ module.exports = function (db, helpers, deploy, deps) {
         safeGet(`SELECT COUNT(*) AS total ${fromJoins} ${where}`, params),
         safeAll(
           `SELECT LOWER(o.status) AS s, COUNT(*) AS n,
-                  COUNT(*) FILTER (WHERE o.doctor_id IS NULL AND o.completed_at IS NULL AND LOWER(o.status) = 'paid') AS unassigned,
+                  -- AUDIT-2026-08-22 — 'reassigned' joins 'paid'. A case that
+                  -- breached with no alternate doctor is parked at REASSIGNED
+                  -- with doctor_id NULL; it is unassigned in every sense that
+                  -- matters and was missing from this count entirely.
+                  COUNT(*) FILTER (WHERE o.doctor_id IS NULL AND o.completed_at IS NULL AND LOWER(o.status) IN ('paid','reassigned')) AS unassigned,
                   COUNT(*) FILTER (WHERE o.completed_at IS NULL AND o.deadline_at IS NOT NULL AND o.deadline_at::timestamptz < NOW()) AS breached
              FROM orders_active o GROUP BY LOWER(o.status)`,
           []
@@ -949,7 +975,8 @@ module.exports = function (db, helpers, deploy, deps) {
           payment: String(r.payment_status || 'unpaid').toLowerCase(),
           slaMins: r.sla_mins == null ? null : Number(r.sla_mins),
           breached: !r.completed_at && r.sla_mins != null && Number(r.sla_mins) < 0,
-          unassigned: !r.doctor_id && norm === 'paid',
+          // AUDIT-2026-08-22 — mirrors the `unassigned` facet above.
+          unassigned: !r.doctor_id && (norm === 'paid' || norm === 'reassigned'),
           createdAt: toIso(r.created_at),
           // Money (additive). base = base_price; price = charged (urgency incl.);
           // grandTotal = COALESCE(total_price_with_addons, price) (incl. add-ons).
@@ -1280,13 +1307,23 @@ module.exports = function (db, helpers, deploy, deps) {
     }
   });
 
-  // ─── POST /cases/:id/assign (FIRST production WRITE — atomic) ──
-  // One all-or-nothing transaction: SELECT … FOR UPDATE, re-validate all 10
-  // rules from fresh in-txn reads (client never trusted), then 4 writes (orders
-  // UPDATE + doctor_assignments INSERT + order_events + admin_audit error_logs).
-  // Silent by design: NO accepted_at/deadline_at (SLA starts at acceptance),
-  // NO notifications/email/conversation. Reassign = doctor swap + reassigned
-  // audit columns, no earnings side-effects; reassign-to-same-doctor rejected.
+  // ─── POST /cases/:id/assign ──
+  // FIRST ASSIGN is one all-or-nothing transaction: SELECT … FOR UPDATE,
+  // re-validate all 10 rules from fresh in-txn reads (client never trusted),
+  // then 4 writes (orders UPDATE + doctor_assignments INSERT + order_events +
+  // admin_audit error_logs). Silent by design: NO accepted_at/deadline_at (the
+  // SLA clock starts at acceptance). Reassign-to-same-doctor rejected.
+  //
+  // REASSIGN (AUDIT-2026-08-22) no longer writes raw SQL. It validates under
+  // the same lock, releases it, and calls case_lifecycle.reassignCase — see the
+  // long note at that branch. Two deliberate consequences of that switch:
+  //   * reassign is no longer atomic with the audit rows (the lifecycle write
+  //     commits first; the audit rows are best-effort after it);
+  //   * reassign now HAS earnings side-effects. reassignCase runs
+  //     markPartialPayOnReassignment, so the outgoing doctor is moved to 10%
+  //     partial pay exactly as an automatic reassignment already does. This
+  //     endpoint used to be the one reassignment path in the system that left
+  //     the original doctor on full pay for work someone else finished.
   router.post('/cases/:id/assign', async (req, res) => {
     const id = req.params.id;
     const doctorId = req.body && req.body.doctorId;
@@ -1307,7 +1344,11 @@ module.exports = function (db, helpers, deploy, deps) {
       await client.query('BEGIN');
 
       const o = (await client.query(
-        `SELECT id, doctor_id, status, payment_status, paid_at, specialty_id, service_id, urgency_tier, sla_hours
+        // AUDIT-2026-08-22 — `tier` added: acceptance_window resolves the
+        // window from `tier || urgency_tier`, and `tier` is what
+        // notify/broadcast.js writes. Selecting only urgency_tier silently
+        // demoted every broadcast case to the sla_hours fallback bucket.
+        `SELECT id, doctor_id, status, payment_status, paid_at, specialty_id, service_id, tier, urgency_tier, sla_hours
            FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
         [id]
       )).rows[0];
@@ -1351,40 +1392,134 @@ module.exports = function (db, helpers, deploy, deps) {
       const fromDoctor = o.doctor_id || null;
 
       if (isReassign) {
-        await client.query(
-          `UPDATE orders SET doctor_id = $1, reassigned_count = COALESCE(reassigned_count,0) + 1,
-             reassigned_to_doctor_id = $1, reassigned_at = NOW(), reassignment_reason = $2, updated_at = NOW()
-           WHERE id = $3`,
-          [doctorId, reason, id]
-        );
-        await client.query(`UPDATE doctor_assignments SET completed_at = $1 WHERE case_id = $2 AND completed_at IS NULL`, [now, id]);
+        // ─── AUDIT-2026-08-22 (P0) — reassign goes through the lifecycle ───
+        //
+        // This branch used to write doctor_id, reassigned_count,
+        // reassigned_to_doctor_id, reassigned_at and reassignment_reason, and
+        // nothing else. It bypassed case_lifecycle entirely, so:
+        //   * the SLA reset in assignDoctor (accepted_at / deadline_at /
+        //     breached_at -> NULL) never ran, and
+        //   * `status` was left exactly as it was.
+        // Reassigning out of sla_breach — which is the normal reason to
+        // reassign at all — therefore handed doctor #2 a case that:
+        //   * carries a deadline already in the past, so every countdown in the
+        //     product shows a negative number;
+        //   * can never breach again (fetchSlaCandidates filters
+        //     breached_at IS NULL);
+        //   * can never time out (fetchDoctorTimeouts filters
+        //     accepted_at IS NULL, and the inherited accepted_at is not null);
+        //   * and that they CANNOT ACCEPT, because 'sla_breach' is not in
+        //     routes/doctor.js's UNACCEPTED_STATUSES. A case handed to a doctor
+        //     who has no button to take it.
+        // reassignCase -> transitionCase(REASSIGNED) -> assignDoctor performs
+        // the reset and the status transition every other reassignment in the
+        // system gets, writes the doctor_assignments row with the shared
+        // acceptance window, closes the previous assignment, and records the
+        // earnings/partial-pay consequence for the outgoing doctor.
+        //
+        // WHY THE TRANSACTION IS DROPPED FIRST. The validations above ran under
+        // SELECT … FOR UPDATE; case_lifecycle takes its own pool connections, so
+        // calling it while this txn still holds the row lock self-deadlocks.
+        // We ROLLBACK (no writes have happened on this client — every statement
+        // so far is a SELECT) purely to release the lock, then call the
+        // lifecycle. The window between the two is safe: assignDoctor re-reads
+        // the row and re-asserts payment and status, and reassignCase rejects
+        // any status outside ASSIGNED/IN_REVIEW/SLA_BREACH/REASSIGNED, so a
+        // racing second reassign is refused rather than applied twice.
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
+
+        // Lazy require: case_lifecycle -> notify -> ... closes a boot-order
+        // loop back to the routers if taken at module scope (same reason as
+        // the lazy logCaseEvent require at the top of this file).
+        const { reassignCase } = require('../../case_lifecycle');
+        try {
+          // AUDIT-2026-08-22 — flag this as operator-initiated, and keep the
+          // 'admin_manual' marker at the FRONT of the free-text reason.
+          //
+          // reassignCase -> _checkPauseAsync -> doctor_pause.checkAndAutoPauseDoctor
+          // counts every reassignment earnings row a doctor accumulates in 30
+          // days and auto-pauses at 3, labelled 'auto:sla_breach_threshold'. The
+          // Command reassign is used for reasons that are not the doctor's fault
+          // at all (on leave, patient asked for a different reader, wrong
+          // subspecialty), so three of those in a month silently removed a good
+          // doctor from findAlternateDoctor and every broadcast. The flag
+          // suppresses the check; the reason prefix is what
+          // doctor_pause's own query filters on, so an operator's free text
+          // ("covering for annual leave") cannot defeat it.
+          const lifecycleReason = reason ? ('admin_manual: ' + reason).slice(0, 500) : 'admin_manual';
+          await reassignCase(id, doctorId, {
+            reason: lifecycleReason,
+            operatorInitiated: true
+          });
+        } catch (e) {
+          // The lifecycle re-validates on its own reads and can legitimately
+          // refuse (another operator got there first, the case moved on).
+          // Surface its reason instead of the generic ASSIGN_ERROR, which
+          // would read as "the server broke" for what is a lost race.
+          console.error('[admin/assign] reassignCase failed:', e && e.message);
+          af('Reassignment failed: ' + ((e && e.message) || 'lifecycle error'), 500, 'REASSIGN_FAILED');
+        }
+
+        // reassignCase writes reassigned_to_doctor_id / reassigned_at /
+        // reassignment_reason but not the counter, which is this app's own
+        // column. Kept as a separate statement so the Command app's
+        // reassigned_count semantics are unchanged.
+        try {
+          await safeRun('UPDATE orders SET reassigned_count = COALESCE(reassigned_count,0) + 1 WHERE id = $1', [id]);
+        } catch (e) {
+          console.error('[admin/assign] reassigned_count bump failed:', e && e.message);
+        }
       } else {
+        // AUDIT-2026-08-22 — ONE acceptance window, from the shared resolver, and
+        // it lands on BOTH columns that claim to hold it: doctor_assignments
+        // .accept_by_at (what case_sla_worker.fetchDoctorTimeouts enforces) and
+        // orders.acceptance_deadline_at (what acceptance_watcher's expiry sweep
+        // reads). The orders column used to be left holding whatever
+        // notify/broadcast.js wrote at payment time — long past, and describing a
+        // broadcast rather than this assignment.
+        //
+        // Declared HERE, not above the branch: the reassign path hands the whole
+        // job to case_lifecycle.assignDoctor, which computes and writes its own
+        // window from the same resolver, so a copy computed out here was dead.
+        const acceptByAt = acceptByIsoForOrder(o);
         await client.query(
-          `UPDATE orders SET doctor_id = $1, status = 'ASSIGNED', assignment_status = 'assigned', updated_at = NOW() WHERE id = $2`,
-          [doctorId, id]
+          `UPDATE orders SET doctor_id = $1, status = 'ASSIGNED', assignment_status = 'assigned',
+             acceptance_deadline_at = $3, updated_at = NOW() WHERE id = $2`,
+          [doctorId, id, acceptByAt]
+        );
+        await client.query(
+          `INSERT INTO doctor_assignments (id, case_id, doctor_id, assigned_at, accept_by_at, reassigned_from_doctor_id)
+             VALUES ($1, $2, $3, $4, $5, NULL)`,
+          [randomUUID(), id, doctorId, now, acceptByAt]
         );
       }
 
-      await client.query(
-        `INSERT INTO doctor_assignments (id, case_id, doctor_id, assigned_at, accept_by_at, reassigned_from_doctor_id)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-        [randomUUID(), id, doctorId, now, acceptByIso(o.sla_hours), isReassign ? fromDoctor : null]
-      );
-
+      // Audit rows. On the first-assign path they are still part of the atomic
+      // transaction; on the reassign path the lifecycle write has already
+      // committed, so they are best-effort on the pool (an audit-row failure
+      // must not report a reassignment that actually happened as a 500).
       const label = `Case ${isReassign ? 'reassigned' : 'assigned'} to ${d.name} by superadmin`;
-      await client.query(
-        `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
+      const auditStatements = [
+        [`INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
            VALUES ($1, $2, $3, $4, NOW(), $5, 'superadmin')`,
-        [randomUUID(), id, label, JSON.stringify({ doctorId, from: fromDoctor, reason }), req.user.id]
-      );
-      await client.query(
-        `INSERT INTO error_logs (id, level, category, message, user_id, context)
+          [randomUUID(), id, label, JSON.stringify({ doctorId, from: fromDoctor, reason }), req.user.id]],
+        [`INSERT INTO error_logs (id, level, category, message, user_id, context)
            VALUES ($1, 'audit', 'admin_audit', $2, $3, $4)`,
-        [randomUUID(), `${isReassign ? 'reassigned' : 'assigned'} case ${id} to doctor ${doctorId}`, req.user.id,
-          JSON.stringify({ action: isReassign ? 'case_reassigned' : 'case_assigned', caseId: id, doctorId, from: fromDoctor, reason })]
-      );
-
-      await client.query('COMMIT');
+          [randomUUID(), `${isReassign ? 'reassigned' : 'assigned'} case ${id} to doctor ${doctorId}`, req.user.id,
+            JSON.stringify({ action: isReassign ? 'case_reassigned' : 'case_assigned', caseId: id, doctorId, from: fromDoctor, reason })]],
+      ];
+      if (client) {
+        for (const [sql, params] of auditStatements) await client.query(sql, params);
+        await client.query('COMMIT');
+      } else {
+        for (const [sql, params] of auditStatements) {
+          try { await safeRun(sql, params); } catch (e) {
+            console.error('[admin/assign] audit row failed:', e && e.message);
+          }
+        }
+      }
 
       // ─── Post-commit notifications (best-effort) ─────────────────────────
       // The atomic assignment above is the source of truth and is already
@@ -1463,20 +1598,20 @@ module.exports = function (db, helpers, deploy, deps) {
             nstat.patient = 'skipped_no_patient';
           }
 
-          // 3b) Previous doctor — informational ("reassigned to another
-          // doctor"); internal + email (no WhatsApp template is mapped).
-          if (fromDoctor) {
-            nstat.previousDoctor = await safeQueue({
-              orderId: id,
-              toUserId: fromDoctor,
-              channels: ['internal', 'email'],
-              template: 'order_reassigned_from_doctor',
-              response: { case_id: id, caseReference: caseRef },
-              dedupe_key: `order_reassigned_from:${id}:${fromDoctor}`,
-            });
-          } else {
-            nstat.previousDoctor = 'skipped';
-          }
+          // 3b) Previous doctor — NOT queued here.
+          //
+          // AUDIT-2026-08-22 — this was a duplicate. Since the reassign path
+          // was routed through case_lifecycle.reassignCase (above), the
+          // lifecycle's _queueOriginalDoctorNotification already queues
+          // 'order_reassigned_from_doctor' to this same doctor for this same
+          // event, on ['internal','email'], with dedupe key
+          // 'reassign:from:<case>:<doctor>'. The key here was different, so
+          // neither deduped the other and the booted doctor got the message
+          // twice — and this copy passed no partialPct/partialAmount, so the
+          // 'case-reassigned-original' email rendered its partial-pay box as
+          // "You'll receive % partial pay (EGP )". The lifecycle copy is the
+          // one that knows the figures, so it is the single owner now.
+          nstat.previousDoctor = fromDoctor ? 'queued_by_lifecycle' : 'skipped';
         } else if (patientId) {
           // 3) Patient (first assignment): in-app bell (internal only — the
           // email/WhatsApp channels are unmapped for this template) PLUS the
@@ -1526,8 +1661,13 @@ module.exports = function (db, helpers, deploy, deps) {
       }
 
       return res.ok({
+        // AUDIT-2026-08-22 — reassign now transitions through
+        // REASSIGNED -> ASSIGNED like every other reassignment, so it reports
+        // 'assigned' too. It used to echo back the UNCHANGED prior status
+        // (typically 'sla_breach'), which was accurate about the bug and
+        // therefore told the operator the swap had worked when it had not.
         id,
-        status: isReassign ? status : 'assigned',
+        status: 'assigned',
         reassigned: isReassign,
         doctor: { id: d.id, name: d.name },
         notifications: nstat,
@@ -3442,18 +3582,46 @@ module.exports = function (db, helpers, deploy, deps) {
         // HAVING — a doctor fully settled and inactive this month is not a
         // payout, and dropping them is what keeps this screen readable.
         safeAll(
+          // 2026-08-24 — owed spans BOTH payout ledgers.
+          //
+          // This screen is the one an operator actually pays InstaPay from, and
+          // it was the only surface left summing doctor_earnings alone after
+          // the web console, the doctors tab, the /admin tile and the doctor's
+          // own earnings page were all moved to the total. Its own doc block
+          // promises the definition is "identical to the web console" — that
+          // promise is what makes leaving it behind a defect rather than an
+          // omission: an operator would have transferred a number the platform
+          // itself no longer believed, short by every add-on commission owed.
+          //
+          // addon_earnings is LEFT JOINed as a pre-aggregated subquery rather
+          // than a second JOIN onto the same GROUP BY, which would multiply the
+          // doctor_earnings rows by the addon_earnings rows and inflate both.
+          //
+          // An INNER JOIN on doctor_earnings is kept deliberately: a doctor
+          // with add-on commission but no case earnings is not a real state
+          // (add-ons only settle at case completion, which writes the case
+          // earning first), and switching to a FULL JOIN to chase it would
+          // change what the HAVING trims off the phone screen.
           `SELECT u.id AS doctor_id,
                   COALESCE(u.name, '—') AS doctor_name,
-                  COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) AS owed,
+                  COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0)
+                    + COALESCE(ae.owed_addons, 0) AS owed,
+                  COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) AS owed_cases,
+                  COALESCE(ae.owed_addons, 0) AS owed_addons,
                   COUNT(*) FILTER (WHERE de.status = 'pending')::int AS unpaid_cases,
                   MIN(de.created_at) FILTER (WHERE de.status = 'pending') AS oldest_unpaid_at,
                   MAX(COALESCE(de.paid_at, de.created_at)) FILTER (WHERE de.status = 'paid') AS last_paid_at,
                   COALESCE(SUM(de.earned_amount) FILTER (WHERE ${PAID_THIS_MONTH}), 0) AS paid_this_month
              FROM users u
              JOIN doctor_earnings de ON de.doctor_id = u.id
+             LEFT JOIN (
+               SELECT doctor_id, SUM(earned_amount_egp) AS owed_addons
+                 FROM addon_earnings WHERE status = 'pending' GROUP BY doctor_id
+             ) ae ON ae.doctor_id = u.id
             WHERE u.role = 'doctor'
-            GROUP BY u.id, u.name
-           HAVING COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) > 0
+            GROUP BY u.id, u.name, ae.owed_addons
+           HAVING COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0)
+                    + COALESCE(ae.owed_addons, 0) > 0
                OR COALESCE(SUM(de.earned_amount) FILTER (WHERE ${PAID_THIS_MONTH}), 0) > 0
             ORDER BY owed DESC, paid_this_month DESC, doctor_name ASC
             LIMIT 200`
@@ -3462,7 +3630,11 @@ module.exports = function (db, helpers, deploy, deps) {
         // the headline liability stays true even if the list is capped or a
         // doctor row was filtered out by the HAVING.
         safeGet(
-          `SELECT COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) AS owed_total,
+          `SELECT COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0)
+                    + COALESCE((SELECT SUM(earned_amount_egp) FROM addon_earnings WHERE status = 'pending'), 0)
+                    AS owed_total,
+                  COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) AS owed_cases_total,
+                  COALESCE((SELECT SUM(earned_amount_egp) FROM addon_earnings WHERE status = 'pending'), 0) AS owed_addons_total,
                   COUNT(*) FILTER (WHERE de.status = 'pending')::int AS unpaid_cases_total,
                   COUNT(DISTINCT de.doctor_id) FILTER (WHERE de.status = 'pending')::int AS doctors_owed,
                   MIN(de.created_at) FILTER (WHERE de.status = 'pending') AS oldest_unpaid_at,
@@ -3479,6 +3651,10 @@ module.exports = function (db, helpers, deploy, deps) {
         id: r.doctor_id,
         name: r.doctor_name,
         owedEgp: money(r.owed),
+        // The split, so an operator paying from the phone can see why a total
+        // differs from the case count times a fee.
+        owedCasesEgp: money(r.owed_cases),
+        owedAddonsEgp: money(r.owed_addons),
         unpaidCases: Number(r.unpaid_cases) || 0,
         oldestUnpaidAt: toIso(r.oldest_unpaid_at),
         lastPaidAt: toIso(r.last_paid_at),
@@ -3488,6 +3664,8 @@ module.exports = function (db, helpers, deploy, deps) {
       return res.ok({
         totals: {
           owedEgp: money(totalsRow && totalsRow.owed_total),
+          owedCasesEgp: money(totalsRow && totalsRow.owed_cases_total),
+          owedAddonsEgp: money(totalsRow && totalsRow.owed_addons_total),
           unpaidCases: (totalsRow && Number(totalsRow.unpaid_cases_total)) || 0,
           doctorsOwed: (totalsRow && Number(totalsRow.doctors_owed)) || 0,
           // The single most useful number on the screen: how long the oldest
@@ -3502,9 +3680,9 @@ module.exports = function (db, helpers, deploy, deps) {
         },
         doctors,
         basis: {
-          owed: "doctor_earnings status='pending', SUM(earned_amount) — identical to the web console finance tab",
+          owed: "doctor_earnings status='pending' SUM(earned_amount) PLUS addon_earnings status='pending' SUM(earned_amount_egp) — identical to the web console finance tab. Case fees and add-on commissions settle in two separate ledgers (earnings_writer keeps add-ons out of doctor_earnings by design); only the sum is what the doctor is shown on their own earnings page.",
           paid: "doctor_earnings status='paid' — set at CASE COMPLETION by earnings_writer.markCaseEarningsPaid, not by a bank transfer. There is no InstaPay settlement ledger.",
-          scope: 'all earnings rows for the doctor: main-case, video-consult and no-show alike',
+          scope: 'all earnings rows for the doctor: main-case, video-consult and no-show alike, plus add-on commissions (video consult, prescription) from addon_earnings',
           bucketing: 'Cairo business month (Africa/Cairo)',
           listing: 'doctors with EGP owed or paid this month; capped at 200. Totals are over the whole table.',
         },

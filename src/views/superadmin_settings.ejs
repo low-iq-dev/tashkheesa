@@ -10,6 +10,18 @@
     classifier_threshold_minimum: 0.55
   };
   const savedFlag = (typeof saved !== 'undefined') ? !!saved : false;
+
+  // Auto-assign (2026-08-25). Defaults chosen so a missing local renders the
+  // switch OFF rather than claiming an "on" the engine is not honouring.
+  const aaOn        = (typeof autoAssignOn !== 'undefined') ? !!autoAssignOn : false;
+  const aaRow       = (typeof autoAssign !== 'undefined' && autoAssign) ? autoAssign : null;
+  const aaReady     = (typeof autoAssignReadiness !== 'undefined' && autoAssignReadiness) ? autoAssignReadiness : null;
+  const aaSavedTo   = (typeof autoAssignSavedTo !== 'undefined') ? autoAssignSavedTo : null;
+  const aaDoctors    = aaReady ? Number(aaReady.assignable_doctors) || 0 : null;
+  const aaBookable   = aaReady ? Number(aaReady.bookable_services)  || 0 : null;
+  const aaUncovered  = aaReady ? Number(aaReady.uncovered_services) || 0 : null;
+  const aaGapSpecs   = aaReady ? Number(aaReady.specialties_with_gaps) || 0 : null;
+  const aaWaiting    = aaReady ? Number(aaReady.awaiting_manual)    || 0 : null;
   const errStr = (typeof queryErr === 'string') ? queryErr : '';
   const _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
 
@@ -69,10 +81,20 @@
     </div>
   <% } %>
 
+  <%# The auto-assign toggle redirects here on failure too, and "each must
+      parse to a number in [0, 1]" is nonsense advice for a checkbox — so the
+      banner now says which setting failed. %>
   <% if (errStr) { %>
+    <% const _aaErr = errStr.indexOf('auto_assign') === 0; %>
     <div role="alert" style="border-left:4px solid #dc2626;background:#fef2f2;padding:12px 16px;color:#991b1b;font-size:13px;border-radius:8px;margin-bottom:16px;">
       <strong><%= isArSafe ? 'فشل الحفظ.' : 'Save failed.' %></strong>
-      <%= isArSafe ? 'تحقق من القيم — يجب أن تكون أرقاماً بين 0 و 1.' : 'Check the values — each must parse to a number in [0, 1].' %>
+      <% if (_aaErr) { %>
+        <%= isArSafe
+          ? 'تعذّر تغيير إعداد الإسناد التلقائي. لم يتغيّر شيء — حاول مرة أخرى.'
+          : 'The automatic-assignment setting could not be changed. Nothing was altered — try again.' %>
+      <% } else { %>
+        <%= isArSafe ? 'تحقق من القيم — يجب أن تكون أرقاماً بين 0 و 1.' : 'Check the values — each must parse to a number in [0, 1].' %>
+      <% } %>
       <code style="font-size:11px;color:#7f1d1d;background:#fee2e2;padding:2px 6px;border-radius:4px;margin-inline-start:6px;"><%= errStr %></code>
     </div>
   <% } %>
@@ -166,6 +188,115 @@
       <div style="margin-top:20px;display:flex;gap:8px;">
         <button type="submit" class="btn primary"><%= isArSafe ? 'حفظ' : 'Save' %></button>
         <a class="btn" href="/superadmin/settings"><%= isArSafe ? 'إلغاء' : 'Cancel' %></a>
+      </div>
+    </form>
+  <%- include('partials/superadmin/c_card_close') %>
+
+  <%# ── Automatic case assignment (2026-08-25) ───────────────────────────
+      This flag has been false since 1 June and nothing in the codebase wrote
+      it — changing it meant a hand-written SQL UPDATE against production. It
+      decides whether a paid case is routed to a doctor automatically or waits
+      for someone to notice, so it gets a switch, an audit trail, and enough
+      context that nobody flips it blind. %>
+  <div style="margin-top:20px;"></div>
+  <%- include('partials/superadmin/c_card_open', {
+        title: isArSafe ? 'الإسناد التلقائي للحالات' : 'Automatic case assignment',
+        sub: isArSafe
+          ? 'يتحكم في الإسناد التلقائي فور الدفع. لا يوقف الإسناد التلقائي بعد انتهاء مهلة القبول — ذلك يعمل دائماً.'
+          : 'Controls automatic routing at the moment of payment. It does NOT stop the acceptance-window sweep, which assigns a doctor either way.'
+      }) %>
+
+    <% if (aaSavedTo) { %>
+      <div role="status" style="border-left:4px solid <%= aaSavedTo === 'on' ? '#10b981' : '#d97706' %>;background:<%= aaSavedTo === 'on' ? '#ecfdf5' : '#fffbeb' %>;padding:12px 16px;color:<%= aaSavedTo === 'on' ? '#065f46' : '#92400e' %>;font-size:13px;border-radius:8px;margin-bottom:16px;">
+        <strong><%= aaSavedTo === 'on'
+          ? (isArSafe ? 'تم تفعيل الإسناد التلقائي.' : 'Automatic assignment is on.')
+          : (isArSafe ? 'تم إيقاف الإسناد التلقائي.' : 'Automatic assignment is off.') %></strong>
+        <%= aaSavedTo === 'on'
+          ? (isArSafe ? 'ستُسند الحالات الجديدة المدفوعة فور استلامها.' : 'New paid cases will be routed the moment they are paid.')
+          : (isArSafe ? 'لن تُسند الحالات الجديدة عند الدفع، لكن كنس مهلة القبول سيظل يسندها لاحقاً.' : 'New cases will not be routed at payment — but the acceptance-window sweep still assigns them afterwards.') %>
+      </div>
+    <% } %>
+
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+      <span style="display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:0.02em;background:<%= aaOn ? '#ecfdf5' : '#fef2f2' %>;color:<%= aaOn ? '#065f46' : '#991b1b' %>;">
+        <span style="width:7px;height:7px;border-radius:50%;background:currentColor;"></span>
+        <%= aaOn ? (isArSafe ? 'مفعَّل' : 'ON') : (isArSafe ? 'متوقف' : 'OFF') %>
+      </span>
+      <% if (aaRow && aaRow.updated_at) { %>
+        <span style="font-size:12px;color:#6b7280;">
+          <%= isArSafe ? 'آخر تغيير' : 'Last changed' %> <%= formatUpdated(aaRow) %><% if (aaRow.updated_by) { %> · <%= aaRow.updated_by %><% } %>
+        </span>
+      <% } %>
+    </div>
+
+    <%# Readiness. Auto-assign turned on with nothing behind it fails silently
+        and looks exactly like it being off, so the numbers come first. %>
+    <% if (aaReady) { %>
+      <div style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:1px;background:#e5e7eb;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+        <div style="background:#fff;padding:11px 14px;">
+          <div style="font-size:10.5px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#6b7280;"><%= isArSafe ? 'أطباء قابلون للإسناد' : 'Assignable doctors' %></div>
+          <div style="font-size:19px;font-weight:600;margin-top:2px;color:<%= aaDoctors > 0 ? '#111827' : '#991b1b' %>;font-variant-numeric:tabular-nums;"><%= aaDoctors %></div>
+        </div>
+        <%# Service level, not specialty level — the engine matches the ORDER'S
+            service, so a specialty that looks staffed can still have services
+            with nobody behind them. %>
+        <div style="background:#fff;padding:11px 14px;">
+          <div style="font-size:10.5px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#6b7280;"><%= isArSafe ? 'خدمات بلا طبيب مؤهل' : 'Bookable services with no doctor' %></div>
+          <div style="font-size:19px;font-weight:600;margin-top:2px;color:<%= aaUncovered > 0 ? '#92400e' : '#111827' %>;font-variant-numeric:tabular-nums;"><%= aaUncovered %><span style="font-size:13px;color:#9ca3af;font-weight:500;"> / <%= aaBookable %></span></div>
+        </div>
+        <div style="background:#fff;padding:11px 14px;">
+          <div style="font-size:10.5px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#6b7280;"><%= isArSafe ? 'حالات مدفوعة تنتظر إسناداً' : 'Paid cases awaiting assignment' %></div>
+          <div style="font-size:19px;font-weight:600;margin-top:2px;color:#111827;font-variant-numeric:tabular-nums;"><%= aaWaiting %></div>
+        </div>
+      </div>
+
+      <% if (aaDoctors === 0) { %>
+        <div role="alert" style="margin-top:12px;padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;font-size:12px;color:#991b1b;">
+          <strong><%= isArSafe ? 'لا يوجد طبيب مؤهل واحد.' : 'Not one eligible doctor.' %></strong>
+          <%= isArSafe
+            ? 'تفعيل الإسناد التلقائي الآن لن يغيّر شيئاً: كل حالة ستفشل في الإسناد وتذهب للطابور اليدوي. يحتاج الطبيب إلى إكمال التسجيل واختيار خدماته.'
+            : 'Turning this on changes nothing yet — every case will fail to assign and fall into the manual queue. A doctor needs to finish onboarding and pick their services before automatic routing can do anything.' %>
+        </div>
+      <% } else if (aaUncovered > 0) { %>
+        <div role="status" style="margin-top:12px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e;">
+          <strong><%= aaUncovered %> <%= isArSafe ? 'خدمة قابلة للحجز بلا طبيب مؤهل' : (aaUncovered === 1 ? 'bookable service has no eligible doctor' : 'bookable services have no eligible doctor') %><% if (aaGapSpecs) { %><%= isArSafe ? '، عبر ' : ', across ' %><%= aaGapSpecs %> <%= isArSafe ? 'تخصص.' : (aaGapSpecs === 1 ? 'specialty.' : 'specialties.') %><% } else { %>.<% } %></strong>
+          <%= isArSafe
+            ? 'الحالات على هذه الخدمات ستذهب للطابور اليدوي سواء كان الإسناد التلقائي مفعَّلاً أو لا. لاحظ أن التخصص قد يبدو مغطّى بينما بعض خدماته ليست كذلك.'
+            : 'Cases on those go to the manual queue whether this is on or off. Note a specialty can look covered while some of its services are not — the engine matches the case\'s service, not just its specialty.' %>
+        </div>
+      <% } %>
+    <% } %>
+
+    <form method="post" action="/superadmin/settings/auto-assign" autocomplete="off" style="margin-top:18px;">
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+      <%# Distinguishes a real submission with the box unticked from a request
+          with no body — without it, a malformed POST reads as "disable". %>
+      <input type="hidden" name="intent" value="set_auto_assign" />
+      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;max-width:640px;">
+        <input type="checkbox" name="auto_assign_enabled" value="on" <%= aaOn ? 'checked' : '' %> style="margin-top:3px;width:16px;height:16px;" />
+        <span>
+          <span style="font-size:14px;font-weight:600;color:#111827;"><%= isArSafe ? 'إسناد الحالات المدفوعة تلقائياً' : 'Route paid cases automatically' %></span>
+          <span style="display:block;font-size:12.5px;color:#6b7280;line-height:1.55;margin-top:3px;">
+            <%= isArSafe
+              ? 'يُطبَّق على الحالات الجديدة فقط عند لحظة الدفع. الحالات الموجودة في الطابور اليدوي تبقى كما هي.'
+              : 'Applies to new cases at the moment of payment. Anything already in the manual queue stays there.' %>
+          </span>
+          <%# Scope, stated plainly. This flag gates ONE path — the enqueue in
+              job_queue.handleAutoAssign. workers/acceptance_watcher.js sweeps
+              every two minutes for paid cases whose acceptance window lapsed
+              and assigns a doctor outright, and case_sla_worker's alternate-
+              doctor path does the same; neither consults this setting. Leaving
+              that unsaid would let an operator believe switching this off means
+              no case is ever assigned without a human. %>
+          <span style="display:block;font-size:12px;color:#9ca3af;line-height:1.5;margin-top:6px;">
+            <%= isArSafe
+              ? 'لا يشمل: كنس مهلة القبول واستبدال الطبيب عند اقتراب المهلة — كلاهما يُسند تلقائياً بغض النظر عن هذا الإعداد.'
+              : 'Does not cover: the acceptance-window sweep, or SLA reassignment to an alternate doctor. Both assign automatically regardless of this setting.' %>
+          </span>
+        </span>
+      </label>
+      <div style="margin-top:16px;display:flex;gap:8px;">
+        <button type="submit" class="btn primary"><%= isArSafe ? 'حفظ' : 'Save' %></button>
       </div>
     </form>
   <%- include('partials/superadmin/c_card_close') %>

@@ -105,6 +105,40 @@ async function _claimSend(alertKey, message) {
   }
 }
 
+// AUDIT-2026-08-22 (N4) — a suppressed alert must be as visible as a failed one.
+//
+// The two env gates below used to call _logCriticalAlertAttempt ALONE, which
+// writes to critical_alert_log and nowhere else. Every other non-delivery in
+// this file also calls _logToErrorLogs, which is what /ops/errors reads. So the
+// one failure mode that was silencing all 18 critical alerts — no template
+// name configured, on a transport that could not deliver anyway — was the one
+// failure mode that never reached the errors dashboard. An operator looking at
+// /ops saw nothing at all: no alert, and no record that an alert had been
+// suppressed. This helper makes both writes, always.
+function _suppressed(claimId, reason, key) {
+  _logCriticalAlertAttempt(claimId, null, reason);
+  _logToErrorLogs(null, reason, key);
+  console.error('[critical-alert] SUPPRESSED — alert not delivered', { reason: reason, alertKey: key });
+}
+
+// AUDIT-2026-08-22 (N4) — derive a throttle key for callers that pass none.
+//
+// The throttle buckets by alert_key over a 5-minute window, so two distinct
+// events sharing a key mean the second one is swallowed. server.js's two
+// process-death handlers both call sendCriticalAlert(msg) with no key, so an
+// uncaughtException within five minutes of an unhandledRejection (a very
+// ordinary crash-loop shape) is thrown away — and those are precisely the two
+// events you need both halves of. server.js is not this agent's file to edit,
+// so the split is derived here from the message's own leading EVENT_NAME:
+// prefix, which both handlers already emit ('UNHANDLED_REJECTION: …',
+// 'UNCAUGHT_EXCEPTION: …'). Anything without that shape still buckets as
+// 'generic', exactly as before.
+function _deriveAlertKey(alertKey, message) {
+  if (alertKey) return String(alertKey).slice(0, 200);
+  var m = /^([A-Z][A-Z0-9_]{3,60}):/.exec(String(message || ''));
+  return m ? m[1].toLowerCase() : 'generic';
+}
+
 // Public API: sendCriticalAlert(message, alertKey?)
 //
 // `alertKey` defaults to 'generic' for back-compat — existing callers
@@ -112,10 +146,9 @@ async function _claimSend(alertKey, message) {
 // New callers (Phase 7 Widget 4 error-rate alert) pass a distinct key
 // so the throttle buckets don't collide.
 //
-// Returns a Promise that resolves AFTER the HTTPS request is queued
-// (not after Meta responds — that happens asynchronously). Existing
-// non-await callers continue to work; the DB log row settles whenever
-// the response lands.
+// Returns a Promise that resolves AFTER the request is queued (Meta) or
+// dispatched (OpenClaw) — not after the provider's response, which settles
+// asynchronously into the DB log row. Existing non-await callers are unchanged.
 async function sendCriticalAlert(message, alertKey) {
   // Theme 9-B: read envs per call. Render rotation takes effect on
   // the next call, not the next deploy.
@@ -125,16 +158,128 @@ async function sendCriticalAlert(message, alertKey) {
   var templateName  = (process.env.CRITICAL_ALERT_TEMPLATE_NAME || '').trim();
   var templateLang  = (process.env.CRITICAL_ALERT_TEMPLATE_LANG || 'en').trim();
 
-  var key = String(alertKey || 'generic').slice(0, 200);
+  var key = _deriveAlertKey(alertKey, message);
   var text = '[TASHKHEESA CRITICAL] ' + String(message || 'Unknown error').slice(0, 1000);
 
   var claimId = await _claimSend(key, text);
   if (claimId === null) return;  // throttled
 
-  // Env gate — log the attempt as suppressed so /ops widget 5 still
-  // shows we tried (and why it didn't go through).
-  if (!adminPhone || !phoneNumberId || !accessToken) {
-    _logCriticalAlertAttempt(claimId, null, 'env_missing');
+  if (!adminPhone) {
+    _suppressed(claimId, 'env_missing_admin_phone', key);
+    return;
+  }
+
+  // ── AUDIT-2026-08-22 (N4): route through the CONFIGURED transport. ─────
+  //
+  // This function always spoke to Meta's Graph API directly, ignoring
+  // NOTIFICATIONS_WHATSAPP_TRANSPORT. But .env.example documents the Meta path
+  // as blocked pending Business verification, and the default transport was
+  // flipped to OpenClaw precisely because OpenClaw is the one that is live. So
+  // on the running system every one of the 18 critical alerts — Paymob HMAC
+  // failure, payment-intention mismatch, all three markCasePaid-failed-after-
+  // capture sites, "video paid while disabled, manual refund needed",
+  // worker-down, error-rate spike, the WhatsApp-401 alarm itself — was
+  // unreachable, and setting CRITICAL_ALERT_TEMPLATE_NAME would not have fixed
+  // it, because the template gate is on a road that leads nowhere.
+  //
+  // OpenClaw takes free-form text, so there is no HSM template to configure and
+  // no 24h customer-service window to fall foul of; the alert text goes as-is.
+  //
+  // Deliberately calls sendViaOpenClaw directly rather than notify/whatsapp
+  // sendWhatsApp: the latter gates on NOTIFICATIONS_WHATSAPP_ENABLED (the
+  // patient/doctor notification kill-switch) and on the non-production
+  // recipient allowlist. Neither should govern ops paging — an operator
+  // turning off patient notifications, or running a staging instance, must
+  // still be told the payment webhook is rejecting signatures. ADMIN_PHONE is
+  // a single explicitly-configured staff number, not a user's.
+  //
+  // Both requires are lazy: this module is loaded from server.js's boot path
+  // before much of the graph exists, and a critical-alert module that cannot
+  // be required is a critical-alert module that cannot warn anyone.
+  var transport = 'openclaw';
+  try {
+    transport = require('./notify/whatsapp').whatsappTransport();
+  } catch (_) { /* default stands */ }
+
+  // ── AUDIT-2026-08-22 (AUDIT-ALERT-TRANSPORT-1): DON'T LET THE ROUTING FIX
+  //    BECOME A NEW SINGLE POINT OF FAILURE. ───────────────────────────────
+  //
+  // whatsappTransport() returns 'openclaw' for ANY value that is not exactly
+  // 'meta' — including unset — so the block above made every critical alert
+  // depend on OpenClaw being configured, and made the Meta branch below
+  // UNREACHABLE unless someone explicitly sets
+  // NOTIFICATIONS_WHATSAPP_TRANSPORT=meta.
+  //
+  // That combination is a configuration bootCheck.js positively blesses: with
+  // NOTIFICATIONS_WHATSAPP_ENABLED=false the OPENCLAW_* pair is not required at
+  // all, so a deploy can boot green with valid WHATSAPP_PHONE_NUMBER_ID /
+  // WHATSAPP_ACCESS_TOKEN / CRITICAL_ALERT_TEMPLATE_NAME and no OpenClaw creds.
+  // On that deploy all 18 critical alerts returned oc_env_misconfigured — the
+  // Paymob HMAC failure, the three markCasePaid-failed-after-capture sites, the
+  // worker-down alarm — while a perfectly good Meta path sat unused.
+  //
+  // Ops paging must use whatever transport is ACTUALLY configured, so fall back
+  // to Meta when the OpenClaw credentials are absent. Note this checks the same
+  // two variables lib/openclaw_client.js:60-71 checks, so the fallback triggers
+  // in exactly the cases that would have returned oc_env_misconfigured.
+  if (transport === 'openclaw') {
+    var ocBaseConfigured = String(process.env.OPENCLAW_BASE_URL || '').trim();
+    var ocKeyConfigured  = String(process.env.OPENCLAW_SEND_KEY || '').trim();
+    var ocStubbed = String(process.env.WHATSAPP_TEST_STUB || '').trim().toLowerCase() === 'true';
+    if (!ocStubbed && !(ocBaseConfigured && ocKeyConfigured)) {
+      if (phoneNumberId && accessToken) {
+        console.warn('[critical-alert] OpenClaw is the configured transport but ' +
+          'OPENCLAW_BASE_URL/OPENCLAW_SEND_KEY are unset — falling back to the Meta ' +
+          'Cloud API so this alert is not silently dropped.');
+        transport = 'meta';
+      } else {
+        // Neither transport can send. Say so precisely rather than letting the
+        // OpenClaw branch log the misleading oc_env_misconfigured 18 times.
+        _suppressed(claimId, 'env_missing_openclaw_and_meta', key);
+        return;
+      }
+    }
+  }
+
+  if (transport === 'openclaw') {
+    var sendViaOpenClaw;
+    try {
+      sendViaOpenClaw = require('./lib/openclaw_client').sendViaOpenClaw;
+    } catch (e) {
+      _suppressed(claimId, 'openclaw_client_unavailable', key);
+      return;
+    }
+    try {
+      var ocResult = await sendViaOpenClaw({
+        to: adminPhone,
+        lang: 'en',
+        body: text,
+        ref: null,
+        userId: null,
+        template: 'critical_alert'
+      });
+      if (ocResult && ocResult.ok) {
+        _logCriticalAlertAttempt(claimId, 200, null);
+      } else {
+        var ocErr = 'openclaw: ' + String((ocResult && ocResult.error) || 'unknown').slice(0, 300);
+        _logCriticalAlertAttempt(claimId, (ocResult && ocResult.status) || null, ocErr);
+        // sendViaOpenClaw already writes its own error_logs row with
+        // category='whatsapp_send'; this second write carries the alertKey and
+        // the critical_alert subsystem tag, which is what makes the row
+        // attributable to a paging failure rather than a patient message.
+        _logToErrorLogs((ocResult && ocResult.status) || null, ocErr, key);
+      }
+    } catch (e) {
+      var ocMsg = 'openclaw_threw: ' + (e && e.message ? e.message : 'unknown');
+      _logCriticalAlertAttempt(claimId, null, ocMsg);
+      _logToErrorLogs(null, ocMsg, key);
+    }
+    return;
+  }
+
+  // ── Meta Cloud API transport (legacy, blocked pending verification) ────
+  if (!phoneNumberId || !accessToken) {
+    _suppressed(claimId, 'env_missing', key);
     return;
   }
 
@@ -142,9 +287,9 @@ async function sendCriticalAlert(message, alertKey) {
   // is silently rejected by Meta (response code 131047). Send as a
   // utility-category template instead. If no template name is configured
   // (e.g. pre-Meta-verification), skip the send and log it — the operator
-  // still sees the suppression in /ops widget 5.
+  // now sees the suppression on /ops/errors as well as in /ops widget 5.
   if (!templateName) {
-    _logCriticalAlertAttempt(claimId, null, 'template_not_configured');
+    _suppressed(claimId, 'template_not_configured', key);
     return;
   }
 

@@ -3,6 +3,13 @@
 // Returns true if transition is allowed, false if blocked (never throws).
 // ---------------------------------------------------------------------------
 function assertPaidGate(existingCase, nextStatus) {
+  // DEAD BRANCH — orders.payment_due_at does not exist, so this is never
+  // entered (see submitCase). Left in place rather than deleted because it is
+  // the correct shape if a payment window is ever recorded, but READ THIS
+  // FIRST if you add that column: the branch returns false, and a false here
+  // SILENTLY SKIPS the transition. Adding the column without also deciding
+  // what happens to a case whose window has lapsed would start stranding paid
+  // work with nothing but a console.warn to show for it.
   if (existingCase.payment_due_at && !existingCase.paid_at) {
     const dueMs = new Date(existingCase.payment_due_at).getTime();
     if (Number.isFinite(dueMs) && Date.now() > dueMs) {
@@ -96,7 +103,13 @@ const SILENT_FAILURE_EVENTS = Object.freeze([
   // AUDIT-ACCEPT-4 — workers/acceptance_watcher: the doctor_assignments mirror
   // INSERT failed after the orders row was already claimed. Used to be a bare
   // `catch {}`; the case it stranded was the definition of a silent failure.
-  'ASSIGNMENT_MIRROR_FAILED'
+  'ASSIGNMENT_MIRROR_FAILED',
+  // AUDIT-2026-08-22 — case_lifecycle.reassignCase, no-alternate-doctor branch.
+  // Both were a bare `catch (e) {}` around an UPDATE that had quietly grown to
+  // six columns. CASE_UNASSIGN_FAILED is the serious one: the case is sitting at
+  // REASSIGNED with a doctor still attached, which matches no sweep at all.
+  'CASE_UNASSIGN_FAILED',
+  'CASE_SLA_RESET_FAILED'
 ]);
 
 
@@ -688,12 +701,24 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
           ` AND (payment_status IS NULL OR LOWER(TRIM(payment_status)) NOT IN (${UNPAID_SWEEP_STATUS_SQL_LIST}))`
         : ' AND paid_at IS NULL';
 
-      const terminalStatuses = [
+      // AUDIT-2026-08-22 — the exclusion list carried the bare strings
+      // 'expired'/'EXPIRED' but NOT 'expired_unpaid', which is the value HARD
+      // STOP #1 below actually writes. So every row this sweep expired at 24h
+      // was re-selected on the very next tick and stayed selectable until the
+      // 48h soft-delete. With `ORDER BY created_at ASC LIMIT 200` those rows
+      // are the OLDEST, so they sit at the head of the page: once ~200 of them
+      // accumulate inside a 24h window, newer unpaid cases fall off the end and
+      // stop receiving payment reminders altogether.
+      //
+      // dbStatusValuesFor(EXPIRED_UNPAID) already contains 'expired'/'EXPIRED'
+      // plus both spellings of 'expired_unpaid', so it replaces the literals
+      // rather than adding to them. De-duplicated because the variant lists
+      // repeat the canonical key (harmless in an IN list, noisy in a log).
+      const terminalStatuses = [...new Set([
         ...dbStatusValuesFor(CASE_STATUS.COMPLETED),
         ...dbStatusValuesFor(CASE_STATUS.CANCELLED),
-        'expired',
-        'EXPIRED'
-      ];
+        ...dbStatusValuesFor(CASE_STATUS.EXPIRED_UNPAID)
+      ])];
       const placeholders = terminalStatuses.map((_, i) => `$${i + 1}`).join(', ');
 
       const rows = await queryAll(
@@ -750,6 +775,13 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
   // in-memory orderRow cannot expire or delete a case that has since been paid.
   // That guarantee only holds if the predicate agrees with
   // isUnpaidReminderEligible — it now does, on both gates.
+  //
+  // AUDIT-2026-08-22 — the status test is `LOWER(status) NOT IN (...)`. It was
+  // written unfolded, and orders.status holds BOTH cases (the canonical writer
+  // stores 'COMPLETED', raw SQL stores 'completed'), so an already-COMPLETED
+  // row passed the guard and could be stamped expired_unpaid. LOWER(), not
+  // LOWER(COALESCE(...)): a NULL status must keep behaving exactly as before
+  // (predicate NULL -> no update), which the COALESCE form would change.
   if (!force && elapsedSeconds >= 24 * 60 * 60 && elapsedSeconds < 48 * 60 * 60) {
     await execute(`
       UPDATE ${CASE_TABLE}
@@ -757,7 +789,7 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
       WHERE id = $1
         AND paid_at IS NULL
         AND (payment_status IS NULL OR LOWER(TRIM(payment_status)) NOT IN (${UNPAID_SWEEP_STATUS_SQL_LIST}))
-        AND status NOT IN ('completed','expired_unpaid')
+        AND LOWER(status) NOT IN ('completed','expired_unpaid')
     `, [orderRow.id]);
 
     return { ok: true, sentCount: 0, skipped: 'expired_unpaid' };
@@ -1004,6 +1036,102 @@ function slaHoursForTier(tier) {
 const { isUrgentWindowOpen, nextSevenAmCairoUtc } = require('./services/urgency_window');
 const { acceptanceMinutesForOrder, acceptanceDeadlineIso } = require('./acceptance_window');
 
+// ─────────────────────────────────────────────────────────────────────────────
+// URGENT WINDOW — WORKING DAYS  (AUDIT-2026-08-22)
+//
+// There is no Friday/Saturday concept anywhere in this codebase today.
+// isUrgentWindowOpen() gates on the Cairo HOUR only (07:00–18:59) and
+// nextSevenAmCairoUtc() anchors to the next calendar 07:00 whatever day that
+// lands on. So an urgent case paid at 19:02 on a Thursday is promised
+// Friday 07:00 + 4h regardless of whether anyone is rostered on a Friday.
+//
+// WHY THIS IS CONFIGURATION AND NOT A POLICY. Asked about weekend cover the
+// owner said "depends on doctor availability, I have no knowledge of
+// coverage". Hardcoding Fri/Sat closed would invent a roster that does not
+// exist; hardcoding nothing leaves the promise unbacked the day one does. So
+// the working days are a setting, and THE DEFAULT IS ALL SEVEN DAYS — with the
+// variable unset, behaviour is identical to before this change, byte for byte.
+//
+// TO SET IT once the roster exists (Cairo-local days):
+//
+//     URGENT_WINDOW_WORKING_DAYS=0,1,2,3,4      # Sun–Thu, the usual EG week
+//     URGENT_WINDOW_WORKING_DAYS=sun,mon,tue,wed,thu
+//
+// 0=Sunday … 6=Saturday, comma separated; three-letter day names also work.
+// Anything unparseable — or a value that parses to nothing — falls back to all
+// seven days. A typo must never silently close the urgent tier.
+//
+// Deliberately ENV-ONLY rather than an admin_settings row: this is consulted
+// from inside markCasePaid's payment transaction, where a DB read would take a
+// SECOND pool connection while the orders row is held FOR UPDATE (see the
+// "peak is 1" note in markCasePaid). If it must become live-tunable, resolve it
+// BEFORE withTransaction() and pass the value in.
+//
+// HAND-OFF: routes/patient.js:2113 and routes/api/cases.js:358 call the bare
+// isUrgentWindowOpen() and routes/patient.js:2207 the bare
+// nextSevenAmCairoUtc(). Those files are owned elsewhere; they should switch to
+// the two exports below so the sell-side gate and the pay-side anchor agree.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _DAY_NAME_TO_INDEX = Object.freeze({ sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 });
+const _ALL_DAYS = Object.freeze([0, 1, 2, 3, 4, 5, 6]);
+
+function parseUrgentWorkingDays(raw) {
+  const text = String(raw == null ? '' : raw).trim();
+  if (!text) return _ALL_DAYS.slice();
+  const out = [];
+  for (const part of text.split(',')) {
+    const token = part.trim().toLowerCase();
+    if (!token) continue;
+    const idx = /^[0-6]$/.test(token) ? Number(token) : _DAY_NAME_TO_INDEX[token.slice(0, 3)];
+    if (!Number.isInteger(idx)) continue;
+    if (out.indexOf(idx) === -1) out.push(idx);
+  }
+  return out.length ? out : _ALL_DAYS.slice();
+}
+
+// Parsed once per distinct env value (re-parses if a test mutates process.env).
+let _urgentWorkingDays = null;
+let _urgentWorkingDaysRaw;
+function urgentWorkingDays() {
+  const raw = process.env.URGENT_WINDOW_WORKING_DAYS;
+  if (_urgentWorkingDays === null || raw !== _urgentWorkingDaysRaw) {
+    _urgentWorkingDaysRaw = raw;
+    _urgentWorkingDays = parseUrgentWorkingDays(raw);
+  }
+  return _urgentWorkingDays;
+}
+
+// Cairo-local day of week (0=Sunday) for an instant. Via Intl, not a fixed
+// offset — same reason services/urgency_window.js does: Egypt has DST again
+// since 2023, so a UTC+2 assumption is wrong for half the year and can land the
+// weekday on the wrong side of midnight.
+const _CAIRO_WEEKDAY_FMT = new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Cairo', weekday: 'short' });
+function cairoDayOfWeek(date) {
+  const d = date || new Date();
+  const idx = _DAY_NAME_TO_INDEX[String(_CAIRO_WEEKDAY_FMT.format(d)).slice(0, 3).toLowerCase()];
+  return Number.isInteger(idx) ? idx : d.getUTCDay();
+}
+
+/** Urgent window open = inside the Cairo hours AND on a configured working day. */
+function isUrgentWindowOpenNow(now) {
+  const d = now || new Date();
+  if (!isUrgentWindowOpen(d)) return false;
+  return urgentWorkingDays().indexOf(cairoDayOfWeek(d)) !== -1;
+}
+
+/** The next 07:00 Cairo that falls on a configured working day, as a UTC Date. */
+function nextUrgentWindowOpenUtc(now) {
+  let target = nextSevenAmCairoUtc(now);
+  const days = urgentWorkingDays();
+  // At most 7 hops; nextSevenAmCairoUtc(07:00) returns the FOLLOWING day's
+  // 07:00 (its `cur.hour >= 7` branch) and re-anchors across a DST change.
+  for (let i = 0; i < 7 && days.indexOf(cairoDayOfWeek(target)) === -1; i++) {
+    target = nextSevenAmCairoUtc(target);
+  }
+  return target;
+}
+
 const STATUS_TRANSITIONS = Object.freeze({
   [CASE_STATUS.DRAFT]: [CASE_STATUS.SUBMITTED],
   [CASE_STATUS.SUBMITTED]: [CASE_STATUS.PAID],
@@ -1018,8 +1146,18 @@ const STATUS_TRANSITIONS = Object.freeze({
     CASE_STATUS.REASSIGNED,
     CASE_STATUS.REFUNDED
   ],
-  [CASE_STATUS.IN_REVIEW]: [CASE_STATUS.COMPLETED, CASE_STATUS.REJECTED_FILES, CASE_STATUS.REFUNDED],
-  [CASE_STATUS.REJECTED_FILES]: [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.REFUNDED],
+  // AUDIT-2026-08-22 — REASSIGNED added. reassignCase() accepts IN_REVIEW as a
+  // reassignable status (and routes/api/admin.js's /cases/:id/assign offers it
+  // in the UI), but its transitionCase(REASSIGNED) call threw
+  // "Cannot transition from IN_REVIEW to REASSIGNED" because this list did not
+  // contain it — so taking an in-review case off a doctor was impossible
+  // through the lifecycle. Nothing hit it before only because the Command app
+  // reassigned with raw SQL that bypassed the lifecycle entirely (the A1 bug).
+  [CASE_STATUS.IN_REVIEW]: [CASE_STATUS.COMPLETED, CASE_STATUS.REJECTED_FILES, CASE_STATUS.REASSIGNED, CASE_STATUS.REFUNDED],
+  // AUDIT-2026-08-22 — SLA_BREACH added: case_sla_worker's SCAN_STATUSES has
+  // always included REJECTED_FILES, so a resumed (unpaused) rejected-files case
+  // with a live deadline is a legitimate breach. See the transitionCase guard.
+  [CASE_STATUS.REJECTED_FILES]: [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.SLA_BREACH, CASE_STATUS.REFUNDED],
   [CASE_STATUS.SLA_BREACH]: [CASE_STATUS.REASSIGNED, CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.REFUNDED],
   [CASE_STATUS.REASSIGNED]: [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.REFUNDED],
   // A completed case can still be refunded in full afterwards — the patient
@@ -1670,7 +1808,19 @@ async function transitionCase(caseId, nextStatus, data = {}, client) {
   }
 
   if (desiredStatus === CASE_STATUS.SLA_BREACH) {
-    if (![CASE_STATUS.IN_REVIEW].includes(currentStatus)) {
+    // AUDIT-2026-08-22 — REJECTED_FILES admitted. The breach SCAN and this
+    // guard disagreed: case_sla_worker.SCAN_STATUSES is
+    // [IN_REVIEW, REJECTED_FILES] and case_lifecycle.sweepSlaBreaches scans the
+    // same two, but only IN_REVIEW could actually transition here. The
+    // `sla_paused_at IS NULL` filter covers a PAUSED rejected-files case; it
+    // does not cover a RESUMED one. resumeSla() clears the pause and writes a
+    // live deadline_at, and the REJECTED_FILES -> IN_REVIEW flip that should
+    // follow is an independently-failing try block in routes/patient.js. When
+    // that flip failed the row was selected on every 5-minute tick, handleBreach
+    // threw, breached_at was never set, no breach and no refund — forever.
+    // A resumed rejected-files case has a running clock and a waiting patient;
+    // missing that clock is a breach like any other.
+    if (![CASE_STATUS.IN_REVIEW, CASE_STATUS.REJECTED_FILES].includes(currentStatus)) {
       throw new Error('Only active review cases can escalate to SLA breach');
     }
   } else {
@@ -1707,7 +1857,54 @@ async function transitionCase(caseId, nextStatus, data = {}, client) {
       if (!expectedDeadline) {
         throw new Error('Cannot compute deadline_at from accepted_at');
       }
-      if (shouldUpdateDeadline(currentDeadline, expectedDeadline)) {
+      // AUDIT-2026-08-22 — ACCEPTANCE ONLY EVER *BACKFILLS* A DEADLINE.
+      //
+      // This used to overwrite deadline_at with accepted_at + sla_hours in
+      // BOTH directions. markCasePaid anchors an urgent case paid outside the
+      // Cairo window to nextUrgentWindowOpenUtc() + sla_hours and the patient
+      // is told that exact time (urgent_case_window_deferred_patient). The
+      // first transition into IN_REVIEW then silently threw it away:
+      // paid 19:02 -> promised 11:00 -> a doctor accepts at 10:30 -> deadline
+      // becomes 14:30. Three and a half hours of the promise vanish, so the
+      // case never breaches and the patient never gets the breach refund they
+      // were owed. dispatchSlaReminders already goes to lengths to protect this
+      // anchor (see AUDIT-SLA-10); transitionCase runs first and reverted it.
+      //
+      // The first repair gated on DIRECTION ("never move later"), and that was
+      // exactly backwards for the case that matters most. A resumed deadline
+      // is ALWAYS later than accepted_at + sla_hours — that is what the pause
+      // credit IS — so the direction guard let the recompute through and moved
+      // the deadline EARLIER, frequently into the past:
+      //   doctor accepts T0 (48h) -> requests files T0+2h (pauseSla banks 46h)
+      //   -> patient uploads T0+72h -> resumeSla writes T0+118h
+      //   -> routes/patient.js transitions IN_REVIEW -> rewritten to T0+48h,
+      //   24h in the past -> next 5-minute tick breaches the case, zeroes the
+      //   doctor's earnings to a 10% token, reassigns, and refunds the patient
+      //   BECAUSE THE PATIENT TOOK THREE DAYS TO UPLOAD THE FILMS.
+      //
+      // The rule is now the same one dispatchSlaReminders applies (AUDIT-SLA-10),
+      // and for the same reasons: never touch a deadline somebody deliberately
+      // set. Write only when
+      //   (a) there is no usable deadline at all — the genuine backfill this
+      //       block exists for; or
+      //   (b) the stored deadline is at or before accepted_at, which no valid
+      //       post-acceptance SLA can be. That shape is the legacy
+      //       paid-anchored value, and repairing it moves the deadline LATER,
+      //       in the doctor's favour, never into a surprise breach.
+      // A paused case is skipped outright: its deadline_at is stale ON PURPOSE
+      // (pauseSla banks the remainder in sla_remaining_seconds) and resumeSla
+      // owns recomputing it. Without this a pause taken while the deadline had
+      // already slipped past accepted_at would fall into (b) and be "repaired"
+      // straight over the credit.
+      const currentMs = currentDeadline ? new Date(currentDeadline).getTime() : NaN;
+      const acceptedMsForGuard = new Date(acceptedAt).getTime();
+      const deadlineMissing = !currentDeadline || !Number.isFinite(currentMs);
+      const atOrBeforeAcceptance =
+        !deadlineMissing && Number.isFinite(acceptedMsForGuard) && currentMs <= acceptedMsForGuard;
+      const slaPaused = HAS_SLA_PAUSED_AT_COLUMN && Boolean(existing.sla_paused_at);
+      if (!slaPaused &&
+          (deadlineMissing || atOrBeforeAcceptance) &&
+          shouldUpdateDeadline(currentDeadline, expectedDeadline)) {
         data.deadline_at = expectedDeadline;
       }
     }
@@ -1754,12 +1951,19 @@ async function createDraftCase({ language = 'en', urgency_flag = false, reason_f
 
 async function submitCase(caseId) {
   const result = await transitionCase(caseId, CASE_STATUS.SUBMITTED);
-  try {
-    const dueAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    if (!result.payment_due_at) {
-      await updateCase(caseId, { payment_due_at: dueAt });
-    }
-  } catch (e) {}
+  // 2026-08-25 — removed a write to orders.payment_due_at.
+  //
+  // That column does not exist on ANY table in this database
+  // (information_schema returns nothing for it), so the UPDATE raised 42703
+  // every single time a case was submitted and the bare `catch (e) {}` around
+  // it threw the error away. Nobody ever saw it and the 24-hour payment window
+  // it was meant to open was never actually recorded.
+  //
+  // Not fixed by adding the column: unpaid cases are ALREADY expired at 24h by
+  // case_lifecycle.dispatchUnpaidCaseReminders / the expired_unpaid hard-stop,
+  // and standing up a second, independent expiry mechanism a week before
+  // launch is how you get two clocks disagreeing about the same order. The
+  // reader is flagged where it sits — see assertPaidGate.
   await logCaseEvent(caseId, 'CASE_SUBMITTED');
   return result;
 }
@@ -1820,9 +2024,13 @@ async function markCasePaid(caseId) {
   // was given is anchored to the calendar, not to when a doctor happens to
   // accept. sla_deadline gets the same value so the patient-facing countdown
   // (routes/api/cases.js reads COALESCE(deadline_at, sla_deadline)) agrees.
-  if (String(existing.urgency_tier || '').trim().toLowerCase() === 'urgent' && !isUrgentWindowOpen()) {
+  // AUDIT-2026-08-22 — isUrgentWindowOpenNow / nextUrgentWindowOpenUtc instead
+  // of the bare hour-only helpers, so the anchor lands on a day the roster
+  // actually covers once URGENT_WINDOW_WORKING_DAYS is set. Unset (the default)
+  // means all seven days and this is the same computation as before.
+  if (String(existing.urgency_tier || '').trim().toLowerCase() === 'urgent' && !isUrgentWindowOpenNow()) {
     urgentDeferredTo = new Date(
-      nextSevenAmCairoUtc().getTime() + slaHours * 60 * 60 * 1000
+      nextUrgentWindowOpenUtc().getTime() + slaHours * 60 * 60 * 1000
     ).toISOString();
   }
 
@@ -1951,18 +2159,51 @@ async function markCasePaid(caseId) {
 }
 
 async function markSlaBreach(caseId) {
+  await ensureColumnCache();
   const existing = await getCase(caseId);
   if (!existing) throw new Error('Case not found');
 
   const currentStatus = normalizeStatus(existing.status);
 
-  // SLA model: deadline is based on accepted_at. If accepted_at exists and the
-  // acceptance-based deadline is not yet passed, do NOT breach.
+  // AUDIT-2026-08-22 — a PAUSED SLA cannot breach. pauseSla stops the clock and
+  // deliberately leaves a stale deadline_at behind (the remainder is banked in
+  // sla_remaining_seconds), so the stored deadline of a paused case is not a
+  // promise that has been missed — it is a promise that is on hold. Both sweeps
+  // filter `sla_paused_at IS NULL`, but the per-id callers do not
+  // (routes/doctor.js accept handler, /superadmin recalc), and neither did this
+  // function. Breaching here would zero the doctor's earnings for a case that is
+  // waiting on the PATIENT.
+  if (HAS_SLA_PAUSED_AT_COLUMN && existing.sla_paused_at) {
+    return existing;
+  }
+
+  // SLA model: the deadline is normally accepted_at + sla_hours, and a sweep
+  // that selected a case before that moment must not breach it (AUDIT-TZ-2:
+  // under the old Cairo/UTC skew the sweep ran ~3h early and this guard was the
+  // only thing standing between a punctual doctor and a wrongful clawback).
+  //
+  // AUDIT-2026-08-22 — but the acceptance-derived value is NOT always the
+  // promise. markCasePaid can anchor an urgent case to the next Cairo window,
+  // and an admin can shorten a deadline; where the STORED deadline_at is
+  // EARLIER than accepted_at + sla_hours, the stored value is what the patient
+  // was told and what the sweep selected on. Deferring to the acceptance
+  // arithmetic there meant the case could not breach until accepted_at +
+  // sla_hours no matter what the row said — so preserving the anchor above
+  // would only have changed the displayed countdown, and the patient still
+  // would not get their breach refund. Take the EARLIER of the two.
+  //
+  // A stored deadline that is LATER (a pause credit, an admin extension) is
+  // deliberately NOT taken as the floor here: the sweeps already hold those
+  // back with `deadline_at <= NOW()`, and widening this guard to trust a later
+  // stored value would disarm the acceptance recheck for any caller that
+  // selected on some other predicate.
   try {
     const expected = deadlineFromAcceptance(existing);
     if (expected) {
       const expectedMs = new Date(expected).getTime();
-      if (Number.isFinite(expectedMs) && Date.now() < expectedMs) {
+      const storedMs = existing.deadline_at ? new Date(existing.deadline_at).getTime() : NaN;
+      const effectiveMs = (Number.isFinite(storedMs) && storedMs < expectedMs) ? storedMs : expectedMs;
+      if (Number.isFinite(effectiveMs) && Date.now() < effectiveMs) {
         return existing;
       }
     }
@@ -2087,10 +2328,25 @@ async function markSlaBreach(caseId) {
 // intentionally — see the worker for the same shape. Consolidating
 // later is fine; for now the duplication keeps the worker untouched.
 async function sweepSlaBreaches() {
-  const statuses = [
-    String(CASE_STATUS.IN_REVIEW).toLowerCase(),
-    String(CASE_STATUS.REJECTED_FILES || 'rejected_files').toLowerCase()
-  ];
+  // AUDIT-2026-08-22 — the pause filter below is the FIRST hard reference to
+  // sla_paused_at in this query, and this file already carries a schema flag
+  // for exactly that column. Without the cache the filter is emitted blind: on
+  // an environment that has not run the pause migration the whole SELECT
+  // throws, the catch below turns it into `{ swept: 0 }`, and the sweep
+  // degrades from "over-selects paused cases" to "silently breaches nothing" —
+  // strictly worse, and invisible.
+  await ensureColumnCache();
+  // AUDIT-2026-08-22 — expand through dbStatusValuesFor, the same map
+  // case_sla_worker.scanStatusValues uses. This listed only the two canonical
+  // keys lowercased, so the twin sweeps did not scan the same set: a row stored
+  // as 'in_progress' or 'files_requested' (both real spellings in this table —
+  // see the DB_STATUS_VARIANTS note) was swept by the worker and invisible here.
+  const statuses = [...new Set(
+    [CASE_STATUS.IN_REVIEW, CASE_STATUS.REJECTED_FILES]
+      .reduce((acc, canon) => acc.concat(dbStatusValuesFor(canon)), [])
+      .map((v) => String(v).toLowerCase())
+  )];
+  const statusPlaceholders = statuses.map((_, i) => '$' + (i + 1)).join(', ');
 
   let candidates;
   try {
@@ -2101,10 +2357,18 @@ async function sweepSlaBreaches() {
     candidates = await queryAll(
       `SELECT o.id AS case_id
          FROM ${CASE_TABLE} o
-        WHERE LOWER(COALESCE(o.status, '')) IN ($1, $2)
+        WHERE LOWER(COALESCE(o.status, '')) IN (${statusPlaceholders})
           AND o.deadline_at IS NOT NULL
           AND o.breached_at IS NULL
           AND o.deleted_at IS NULL
+          -- AUDIT-2026-08-22 — case_sla_worker.fetchSlaCandidates has carried
+          -- an sla_paused_at IS NULL filter since AUDIT-P0-4; this twin query, which
+          -- scans the SAME two statuses and is fired by dashboard refreshes and
+          -- the manual /superadmin/sla/recalc, had no pause filter at all.
+          -- pauseSla deliberately leaves a stale deadline_at behind, so every
+          -- dashboard load re-selected every paused rejected-files case and
+          -- pushed it at markSlaBreach.
+          ${HAS_SLA_PAUSED_AT_COLUMN ? 'AND o.sla_paused_at IS NULL' : ''}
           AND o.deadline_at <= NOW()`,
       statuses
     );
@@ -2227,11 +2491,52 @@ async function markOrderRejectedFiles(caseId, doctorId, reason = '', opts = {}) 
 
   // Transition into REJECTED_FILES so the system understands the case is blocked waiting for files.
   // IMPORTANT: We only log an admin/superadmin approval-required event here. Patient notification happens AFTER approval.
-  await transitionCase(caseId, CASE_STATUS.REJECTED_FILES, {
-    rejected_files_at: new Date().toISOString()
-  });
+  //
+  // AUDIT-2026-08-22 — the transition and the pause are ONE UPDATE.
+  //
+  // These used to be two statements: transitionCase(REJECTED_FILES) and then
+  // pauseSla(). Between them the case is REJECTED_FILES with sla_paused_at
+  // still NULL, and REJECTED_FILES -> SLA_BREACH is now a permitted transition
+  // (see the SLA_BREACH block in transitionCase). Both breach sweeps scan
+  // REJECTED_FILES and select on `deadline_at <= NOW() AND sla_paused_at IS
+  // NULL`, so on a case whose deadline had already slipped past — precisely the
+  // case a doctor is most likely to be asking for more films on — that window
+  // is now a REAL breach where it previously threw harmlessly. Anything that
+  // fails in between (a crash, a lost connection) leaves the case permanently
+  // in that shape.
+  //
+  // pauseSla's own arithmetic and guards are reproduced here rather than
+  // called, because pauseSla takes its own pool connection and cannot join this
+  // write. It stays as the fallback below for the paths this cannot cover
+  // (missing columns, no deadline_at, already paused) so its skip events are
+  // still emitted.
+  await ensureColumnCache();
+  const rejectedNow = new Date();
+  const transitionData = { rejected_files_at: rejectedNow.toISOString() };
 
-  await pauseSla(caseId, 'rejected_files');
+  let pausedRemainingSeconds = null;
+  if (HAS_SLA_PAUSED_AT_COLUMN && HAS_SLA_REMAINING_SECONDS_COLUMN &&
+      !existing.sla_paused_at && existing.deadline_at) {
+    const deadlineMs = new Date(existing.deadline_at).getTime();
+    if (Number.isFinite(deadlineMs)) {
+      pausedRemainingSeconds = Math.max(0, Math.floor((deadlineMs - rejectedNow.getTime()) / 1000));
+      transitionData.sla_paused_at = rejectedNow.toISOString();
+      transitionData.sla_remaining_seconds = pausedRemainingSeconds;
+    }
+  }
+
+  await transitionCase(caseId, CASE_STATUS.REJECTED_FILES, transitionData);
+
+  if (pausedRemainingSeconds != null) {
+    // Same event pauseSla writes, so resumeSla / the timeline / any consumer
+    // reading SLA_PAUSED sees no difference between the two paths.
+    await logCaseEvent(caseId, 'SLA_PAUSED', {
+      reason: 'rejected_files',
+      remaining_seconds: pausedRemainingSeconds
+    });
+  } else {
+    await pauseSla(caseId, 'rejected_files');
+  }
 
   await logCaseEvent(caseId, 'FILES_REQUESTED', {
     requested_by: doctorId || null,
@@ -2461,7 +2766,14 @@ VALUES ($1, $2, $3, $4, $5, $6)`,
   return await getCase(caseId);
 }
 
-async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
+// AUDIT-2026-08-22 — `operatorInitiated` marks a reassignment a HUMAN ordered
+// for a non-fault reason (doctor on leave, the patient asked for a different
+// reader, wrong subspecialty). The only caller today is the Command app's
+// assign endpoint (routes/api/admin.js), which was routed through this function
+// in the same fix series. See the auto-pause suppression at the bottom of this
+// function for why it exists.
+async function reassignCase(caseId, newDoctorId, { reason = 'auto', operatorInitiated = false } = {}) {
+  await ensureColumnCache();
   const existing = await getCase(caseId);
   if (!existing) {
     throw new Error('Case not found');
@@ -2469,6 +2781,22 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
   const currentStatus = normalizeStatus(existing.status);
   if (![CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.SLA_BREACH, CASE_STATUS.REASSIGNED].includes(currentStatus)) {
     throw new Error(`Cannot reassign case in status ${currentStatus}`);
+  }
+
+  // AUDIT-2026-08-22 — refuse to hand a doctor their own case back.
+  //
+  // Neither this function nor assignDoctor checked it. routes/api/admin.js does
+  // check, but under SELECT … FOR UPDATE that it then RELEASES before calling
+  // us, so two operators racing on the same case (or one racing the SLA worker)
+  // could both pass that check and the loser would arrive here with
+  // newDoctorId === the doctor already on the row. The consequence is not a
+  // no-op: markPartialPayOnReassignment below would zero that doctor's earnings
+  // row and write them a 10% token, then assignDoctor would hand them back the
+  // very case they are still working on — paid 10% for it, and counted toward
+  // the 3-in-30 auto-pause. Rejecting is the safe side of the race: the caller
+  // surfaces it as "already assigned to this doctor", which is the truth.
+  if (newDoctorId && existing.doctor_id && String(newDoctorId) === String(existing.doctor_id)) {
+    throw new Error('Case is already assigned to this doctor');
   }
 
   const previousAssignment = await getLatestAssignment(caseId);
@@ -2522,15 +2850,112 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
 
   if (!newDoctorId) {
     // No alternate doctor available: unassign so it leaves doctor dashboards and awaits admin action.
+    //
+    // AUDIT-2026-08-22 (P0) — this used to write doctor_id = null and nothing
+    // else, and that combination made a PAID case invisible to every sweep in
+    // the system at once:
+    //   * fetchSlaCandidates      — wrong status, and breached_at is set;
+    //   * fetchDoctorTimeouts     — requires LOWER(status)='assigned';
+    //   * acceptance_watcher      — its status list did not include
+    //                               'reassigned' (fixed alongside this), and
+    //                               acceptance_deadline_at could be NULL;
+    //   * Command "Pending assign" — counted only doctor_id IS NULL AND
+    //                               status='paid' (fixed alongside this).
+    // A patient who paid and whose case breached during a doctor shortage was
+    // dropped permanently, with no worker, no queue and no tile holding it.
+    //
+    // Three changes make it findable again:
+    //  1. The SLA clock is reset here, not only inside assignDoctor. The stale
+    //     accepted_at / deadline_at / breached_at belong to a doctor who no
+    //     longer has the case; leaving breached_at set is specifically what
+    //     stops the case ever breaching again for whoever picks it up next.
+    //  2. acceptance_deadline_at is stamped so the acceptance_watcher's
+    //     `acceptance_deadline_at < NOW()` predicate matches it and retries
+    //     auto-assign against a fresh doctor pool — the case retries itself
+    //     instead of waiting for a human. (The offset is 0 on the first
+    //     attempt and grows with reassigned_count; see the backoff below.)
+    //  3. A case event, so /ops and the timeline show WHY it is sitting there.
+    // The patient's total wait is unchanged; a case reassigned late is a
+    // patient-comms problem, not a reason to hold the next doctor to a dead
+    // deadline (same reasoning as AUDIT-SLA-6 in assignDoctor).
+    // AUDIT-2026-08-22 — the doctor_id null-out is its OWN statement, and
+    // nothing here is silently swallowed any more.
+    //
+    // This UPDATE grew from 2 columns to 6 inside a bare `catch (e) {}`, and
+    // updateCase has no per-column schema guard (contrast HAS_ASSIGNED_AT_COLUMN
+    // / HAS_SLA_PAUSED_AT_COLUMN above). One absent column, or any transient
+    // write failure, and the WHOLE update is lost — including `doctor_id = null`
+    // — leaving the case at REASSIGNED with a doctor still attached, which
+    // matches NO sweep in the system. That is exactly the P0 this branch was
+    // written to fix, reintroduced by the failure mode of the fix itself.
+    //
+    // Nulling the doctor is therefore attempted alone first: it is the one
+    // column that decides whether anything can ever pick this case up again,
+    // and it has existed since the initial schema. The clock reset follows as a
+    // separate best-effort write, and a failure of either is logged rather than
+    // discarded.
+    //
+    // AUDIT-2026-08-22 — acceptance_deadline_at BACKS OFF instead of being
+    // stamped `now` unconditionally. `now` + acceptance_watcher admitting
+    // 'reassigned' is what makes the case retry itself on the next 2-minute
+    // tick, and that property is kept for the first attempt (offset 0). But on
+    // a case that keeps coming back — a specialty with nobody eligible — an
+    // immediate stamp is a 2-minute retry loop that bumps reassigned_count and
+    // writes case_events every cycle until /ops/silent-failures is one case
+    // repeated. The offset grows with reassigned_count and is capped, so the
+    // case stays visible and self-healing without spinning.
+    const reassignAttempts = Math.max(0, Number(existing.reassigned_count) || 0);
+    const retryDelayMinutes = Math.min(30, reassignAttempts * 2);
+    const retryAtIso = new Date(Date.now() + retryDelayMinutes * 60 * 1000).toISOString();
+
+    let doctorCleared = false;
     try {
       await updateCase(caseId, { doctor_id: null, updated_at: nowIso() });
-    } catch (e) {}
+      doctorCleared = true;
+    } catch (e) {
+      console.error('[reassign] could not clear doctor_id on ' + caseId +
+                    ' — case is REASSIGNED with a doctor still attached:', e && e.message);
+      try {
+        await logCaseEvent(caseId, 'CASE_UNASSIGN_FAILED', {
+          reason,
+          from: originalDoctorId,
+          error: String((e && e.message) || e).slice(0, 500)
+        });
+      } catch (_) {}
+    }
+
+    try {
+      await updateCase(caseId, {
+        accepted_at: null,
+        deadline_at: null,
+        breached_at: null,
+        acceptance_deadline_at: retryAtIso,
+        updated_at: nowIso()
+      });
+    } catch (e) {
+      console.error('[reassign] SLA clock reset failed on ' + caseId + ':', e && e.message);
+      try {
+        await logCaseEvent(caseId, 'CASE_SLA_RESET_FAILED', {
+          reason,
+          from: originalDoctorId,
+          error: String((e && e.message) || e).slice(0, 500)
+        });
+      } catch (_) {}
+    }
+
+    await logCaseEvent(caseId, 'CASE_AWAITING_REASSIGNMENT', {
+      reason,
+      from: originalDoctorId,
+      sla_clock_reset: true,
+      doctor_cleared: doctorCleared,
+      retry_after: retryAtIso
+    });
 
     // P1-FIN-2: still notify original doctor + check auto-pause when
     // partial pay was written, even if no replacement doctor was found.
     if (originalDoctorId && partialPayResult && (partialPayResult.written || partialPayResult.idempotent)) {
       _queueOriginalDoctorNotification(caseId, originalDoctorId, reason, partialPayResult);
-      _checkPauseAsync(originalDoctorId);
+      if (!operatorInitiated) _checkPauseAsync(originalDoctorId);
     }
 
     return await getCase(caseId);
@@ -2554,9 +2979,30 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
 
   // P1-FIN-2: notify ORIGINAL doctor + run auto-pause check. Both are
   // best-effort — financial state is already correct in DB regardless.
+  //
+  // AUDIT-2026-08-22 — the auto-pause is SKIPPED for an operator-initiated
+  // reassignment. checkAndAutoPauseDoctor counts every `earn-reassign-%` row in
+  // 30 days with no notion of why, and at 3 it sets is_paused with
+  // pause_reason='auto:sla_breach_threshold:3_in_30d'. Routing the Command
+  // app's reassign through this function (routes/api/admin.js, same fix series)
+  // fed it a class of reassignment that is not the doctor's fault at all —
+  // doctor on leave, patient asked for a different reader, wrong subspecialty.
+  // Three of those in a month silently removed a good doctor from
+  // findAlternateDoctor and every broadcast, labelled an SLA offender, in a
+  // launch-sized pool where that is most of the specialty's capacity. The
+  // 'admin_manual' reason was already being stored and simply never consulted;
+  // services/doctor_pause.js now also excludes those rows from the count, so a
+  // caller that forgets this flag still cannot trip the pause on a non-fault
+  // reassignment.
+  //
+  // The 10% partial pay is deliberately NOT suppressed: the pending earnings
+  // row is per (order, doctor) and skipping the write-down would leave a doctor
+  // who did not deliver the case holding a full-fee pending row that
+  // markCaseEarningsPaid can later pay out. Correcting the compensation policy
+  // for non-fault reassignment is an earnings_writer change — see the hand-off.
   if (originalDoctorId && partialPayResult && (partialPayResult.written || partialPayResult.idempotent)) {
     _queueOriginalDoctorNotification(caseId, originalDoctorId, reason, partialPayResult);
-    _checkPauseAsync(originalDoctorId);
+    if (!operatorInitiated) _checkPauseAsync(originalDoctorId);
   }
 
   return await getCase(caseId);
@@ -2567,11 +3013,28 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
 function _queueOriginalDoctorNotification(caseId, doctorId, reason, partialPayResult) {
   try {
     const { queueMultiChannelNotification } = require('./notify');
+    // AUDIT-2026-08-22 — `data:` -> `response:`, and the email channel added.
+    //
+    // queueMultiChannelNotification takes { orderId, toUserId, channels,
+    // template, response, dedupe_key }. There is no `data` parameter, so every
+    // one of these figures was silently dropped and the notification went out
+    // with response = null — the 'case-reassigned-original' email template
+    // renders "You'll receive % partial pay (EGP )" off exactly these fields.
+    //
+    // The email channel is explicit because routes/api/admin.js used to queue a
+    // SECOND copy of this same template to the same doctor for the same event
+    // on ['internal','email'] with a different dedupe key, so the booted doctor
+    // got two messages — one mentioning the 10% and one not. That duplicate is
+    // removed and this is now the single owner of the notification, so it has
+    // to carry the channel the admin path was providing. No whatsapp: the
+    // template is unmapped there (notification_worker whatsappTemplateMap).
     queueMultiChannelNotification({
       orderId: caseId,
       toUserId: doctorId,
+      channels: ['internal', 'email'],
       template: 'order_reassigned_from_doctor',
-      data: {
+      response: {
+        case_id: caseId,
         partialPct: partialPayResult.partialPct,
         partialAmount: partialPayResult.partialAmount,
         reason: reason,
@@ -2640,6 +3103,13 @@ module.exports = {
   isTerminalStatus,
   ensureColumnCache,
   sweepSlaBreaches,
+  // AUDIT-2026-08-22 — working-day-aware urgent window. Exported so the
+  // sell-side gate (routes/api/cases.js, routes/patient.js) can adopt the same
+  // answer as the pay-side anchor once those files' owners pick it up; see the
+  // URGENT_WINDOW_WORKING_DAYS block above for the env format.
+  isUrgentWindowOpenNow,
+  nextUrgentWindowOpenUtc,
+  parseUrgentWorkingDays,
   // recalcSlaBreaches is the historical name from the deleted sla.js.
   // It now resolves to sweepSlaBreaches (no-arg sweep) — the previous
   // alias to markSlaBreach was a per-id function and threw "Case not

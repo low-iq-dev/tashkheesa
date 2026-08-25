@@ -6,19 +6,31 @@
 // from the catalogue; see design §4.3 / §10). Idempotent: safe to call after
 // any doctor_services change or any change to a doctor's is_active.
 //
-// Runs the EXACT design §4.3 UPDATE, unchanged. Accepts an optional pg client
-// so a caller can fold the re-sync into its own transaction (atomic with the
-// status flip); when omitted it runs a single autocommit statement on the pool.
+// 2026-08-25 — this was briefly widened to also require NOT pending_approval
+// AND onboarding_complete, on the reasoning that those doctors cannot be
+// assigned a case. That reasoning was WRONG and the change was reverted before
+// it shipped. buildPortalCasesUnassigned (routes/doctor.js) filters the
+// doctor's unassigned queue on users.specialty_id alone, and
+// POST /portal/doctor/case/:id/accept never consults eligibleDoctorClause — so
+// a doctor who has not finished onboarding still SEES paid cases in their
+// specialty and can still accept them. Combined with case broadcast (which now
+// matches on specialty_id too), those services are deliverable.
 //
-// Callers that own a txn (the Command services admin_doctor_approve /
-// admin_doctor_pause) pass their client so the recompute commits/rolls-back
-// atomically with the write. Web routes (superadmin.js, execute()/pool
-// autocommit) call it with no client, post-commit + best-effort.
+// Only auto_assign and the SLA workers apply the stricter gate, and
+// auto_assign is disabled in production anyway. Withdrawing 50 of 79 bookable
+// services — three of the six visible specialties, down to zero each — is a
+// commercial decision about what to sell, not a correctness fix, and it does
+// not belong in this helper.
+//
+// The real defect that prompted it is fixed where it lives: step 3 of the
+// wizard rendered coming_soon services as clickable cards that its own POST
+// then rejected. See routes/patient.js.
 
 'use strict';
 
 const { pool } = require('../pg');
 
+// Runs the EXACT design §4.3 UPDATE, unchanged.
 const RESYNC_SQL = `
   UPDATE public.services sv
   SET coming_soon = NOT EXISTS (

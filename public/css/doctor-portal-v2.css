@@ -1786,3 +1786,388 @@ body.patient-theme {
 body.doctor-theme.portal-v2 .v2-alerts-dropdown {
   max-height: min(480px, calc(100vh - var(--bell-offset, 80px) - 24px));
 }
+
+/* ═══════════════════════════════════════
+   Pre-accept case brief  (AUDIT-2026-08-23, C2/C3)
+
+   Replaces .v2-gated__thumbs — the two-tile row whose right-hand tile was a
+   hand-drawn navy SVG blob captioned "Locked preview". It was not a preview
+   of anything: no patient study is rendered there, and the page had almost no
+   real content around it, which is what made the screen read as empty. The
+   brief below is content-led, so the layout carries information rather than
+   filling space with a placeholder.
+
+   .v2-gated__* rules above are retained: the commitment list and its check
+   glyphs are reused verbatim by the new markup.
+   ═══════════════════════════════════════ */
+body.doctor-theme.portal-v2 .v2-brief {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
+body.doctor-theme.portal-v2 .v2-brief__main {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+@media (max-width: 1024px) {
+  body.doctor-theme.portal-v2 .v2-brief { grid-template-columns: 1fr; }
+}
+
+/* A brass rail on the inline-start edge. Logical property, so it lands on the
+   right in the Arabic RTL layout without a second rule. */
+body.doctor-theme.portal-v2 .v2-card--railed {
+  border-inline-start: 3px solid var(--v2-accent);
+}
+body.doctor-theme.portal-v2 .v2-card--commit {
+  background: linear-gradient(180deg, var(--v2-surface) 0%, var(--v2-surface-tint) 100%);
+  border-color: var(--v2-rule-strong);
+  box-shadow: var(--v2-shadow-md);
+}
+
+/* The referring question — the single most important thing on this screen and
+   previously the one thing withheld until after the doctor had committed. */
+body.doctor-theme.portal-v2 .v2-brief__quote {
+  background: var(--v2-brand-lt);
+  border-radius: var(--v2-r-md);
+  padding: 16px 18px;
+  margin-block-end: 18px;
+}
+body.doctor-theme.portal-v2 .v2-brief__quote--empty { background: var(--v2-surface-sunk); }
+body.doctor-theme.portal-v2 .v2-brief__quote-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--v2-brand-dk);
+  margin-block-end: 8px;
+}
+body.doctor-theme.portal-v2 .v2-brief__quote--empty .v2-brief__quote-label { color: var(--v2-muted); }
+body.doctor-theme.portal-v2 .v2-brief__quote-text {
+  margin: 0;
+  font-family: var(--v2-font-display);
+  font-size: 17px;
+  line-height: 1.5;
+  color: var(--v2-ink);
+}
+body.doctor-theme.portal-v2 .v2-brief__quote-text--muted {
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--v2-muted);
+}
+
+body.doctor-theme.portal-v2 .v2-brief__notes {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-block-end: 18px;
+}
+body.doctor-theme.portal-v2 .v2-brief__note-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--v2-muted);
+  margin-block-end: 4px;
+}
+body.doctor-theme.portal-v2 .v2-brief__note-body {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--v2-ink-2);
+  white-space: pre-wrap;
+}
+
+/* Spec table. auto-fit rather than a fixed column count so a case missing
+   half these fields does not leave holes in the grid. */
+body.doctor-theme.portal-v2 .v2-brief__specs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  margin: 0;
+  background: var(--v2-rule);
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-md);
+  overflow: hidden;
+}
+body.doctor-theme.portal-v2 .v2-brief__spec {
+  background: var(--v2-surface);
+  padding: 11px 14px;
+}
+body.doctor-theme.portal-v2 .v2-brief__spec dt {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--v2-muted);
+  margin: 0 0 3px;
+}
+body.doctor-theme.portal-v2 .v2-brief__spec dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--v2-ink);
+  line-height: 1.35;
+}
+
+/* File inventory: counts and extensions only. Filenames are withheld on
+   purpose — imaging exports are routinely named after the patient, so
+   listing them would defeat the identity gate this screen enforces. */
+body.doctor-theme.portal-v2 .v2-brief__files {
+  margin-block-start: 16px;
+  border: 1px dashed var(--v2-rule-strong);
+  border-radius: var(--v2-r-md);
+  padding: 13px 15px;
+  background: var(--v2-surface-tint);
+}
+body.doctor-theme.portal-v2 .v2-brief__files-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+body.doctor-theme.portal-v2 .v2-brief__files-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--v2-ink-2);
+}
+body.doctor-theme.portal-v2 .v2-brief__files-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--v2-muted);
+}
+body.doctor-theme.portal-v2 .v2-brief__filerow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-block-start: 10px;
+}
+body.doctor-theme.portal-v2 .v2-brief__filepill {
+  font-family: var(--v2-font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--v2-ink-2);
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-pill);
+  padding: 4px 11px;
+}
+body.doctor-theme.portal-v2 .v2-brief__filepill b { color: var(--v2-accent-dk); }
+body.doctor-theme.portal-v2 .v2-brief__files-empty {
+  font-size: 12.5px;
+  color: var(--v2-muted);
+  margin-block-start: 8px;
+}
+
+/* The service line under the patient name — the one-sentence answer to
+   "what is this case?", which the header carried in neither state. */
+body.doctor-theme.portal-v2 .v2-case-header__service {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--v2-accent-dk);
+  margin-block-start: 4px;
+}
+
+/* ═══════════════════════════════════════
+   Prescription card (AUDIT-2026-08-23, C4)
+   ═══════════════════════════════════════ */
+body.doctor-theme.portal-v2 .v2-rx__body {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+body.doctor-theme.portal-v2 .v2-rx__glyph {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--v2-r-lg);
+  background: linear-gradient(135deg, var(--v2-accent-lt), var(--v2-accent-tint));
+  color: var(--v2-accent-dk);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+body.doctor-theme.portal-v2 .v2-rx__text { flex: 1; min-width: 200px; }
+body.doctor-theme.portal-v2 .v2-rx__title {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--v2-ink);
+  margin-block-end: 4px;
+}
+body.doctor-theme.portal-v2 .v2-rx__sub {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--v2-ink-2);
+}
+body.doctor-theme.portal-v2 .v2-rx__cta { flex-shrink: 0; text-decoration: none; }
+body.doctor-theme.portal-v2 .v2-rx__line {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--v2-ink-2);
+}
+body.doctor-theme.portal-v2 .v2-rx__details { margin-block-start: 12px; }
+body.doctor-theme.portal-v2 .v2-rx__summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--v2-brand);
+  list-style: none;
+}
+body.doctor-theme.portal-v2 .v2-rx__summary::-webkit-details-marker { display: none; }
+body.doctor-theme.portal-v2 .v2-rx__summary::before {
+  content: "+";
+  display: inline-block;
+  inline-size: 1em;
+  font-weight: 700;
+}
+body.doctor-theme.portal-v2 .v2-rx__details[open] .v2-rx__summary::before { content: "−"; }
+body.doctor-theme.portal-v2 .v2-rx__form {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-block-start: 12px;
+  align-items: flex-start;
+}
+body.doctor-theme.portal-v2 .v2-rx__form .v2-field__textarea { inline-size: 100%; }
+
+/* ═══════════════════════════════════════
+   Pills  (2026-08-24)
+
+   Ziad: "for the button redesign you think we can add coloured pills too
+   cause i felt like that was missing".
+
+   .v2-chip already existed but only in five muted variants, all used for
+   status, and the brief read flat because everything on it was ink-on-white.
+   Pills are the smaller, denser sibling: same token palette, but sized for
+   sitting inside a spec grid, a file row or a card header rather than next to
+   a page title.
+
+   Every variant is a background/foreground PAIR drawn from the same token
+   family, so contrast holds without hand-picking hex values — and adding a
+   colour later means adding one line, not inventing a new scale.
+   ═══════════════════════════════════════ */
+body.doctor-theme.portal-v2 .v2-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--v2-r-pill);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+body.doctor-theme.portal-v2 .v2-pill--teal    { background: var(--v2-brand-lt);   color: var(--v2-brand-dk); }
+body.doctor-theme.portal-v2 .v2-pill--brass   { background: var(--v2-accent-lt);  color: var(--v2-accent-dk); }
+body.doctor-theme.portal-v2 .v2-pill--green   { background: var(--v2-success-bg); color: var(--v2-success); }
+body.doctor-theme.portal-v2 .v2-pill--red     { background: var(--v2-danger-bg);  color: var(--v2-danger); }
+body.doctor-theme.portal-v2 .v2-pill--amber   { background: var(--v2-warn-bg);    color: var(--v2-warn); }
+body.doctor-theme.portal-v2 .v2-pill--info    { background: var(--v2-info-bg);    color: var(--v2-info); }
+body.doctor-theme.portal-v2 .v2-pill--neutral { background: var(--v2-surface-sunk); color: var(--v2-ink-soft); }
+body.doctor-theme.portal-v2 .v2-pill--soon    { background: var(--v2-accent-tint); color: var(--v2-accent-dk); }
+/* Outline variant for the file inventory — a row of eight solid pills reads as
+   noise, so these carry their colour on the border and the count only. */
+body.doctor-theme.portal-v2 .v2-pill--ghost {
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-rule-strong);
+  color: var(--v2-ink-2);
+  font-family: var(--v2-font-mono);
+  font-weight: 600;
+}
+body.doctor-theme.portal-v2 .v2-pill--ghost b { color: var(--v2-accent-dk); font-weight: 700; }
+/* A 6px dot that takes the pill's own colour — used to key the "Why you got
+   this case" rows so the eye can group them without extra text. */
+body.doctor-theme.portal-v2 .v2-pill__dot {
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* A card that is present but deliberately inert. Muted ground, dashed edge —
+   reads as "there, not yet" rather than "broken" or "you missed a step". */
+body.doctor-theme.portal-v2 .v2-card--soon {
+  background: var(--v2-surface-tint);
+  border-style: dashed;
+  border-color: var(--v2-rule-strong);
+  box-shadow: none;
+}
+body.doctor-theme.portal-v2 .v2-rx__glyph--soon {
+  background: var(--v2-surface-sunk);
+  color: var(--v2-muted);
+}
+body.doctor-theme.portal-v2 .v2-card--soon .v2-rx__title { color: var(--v2-ink-soft); }
+
+/* Spec grid cells key their label with a colour bar so the brief scans as a
+   set of facts rather than a wall of small caps. */
+body.doctor-theme.portal-v2 .v2-brief__spec--keyed {
+  border-inline-start: 3px solid var(--v2-rule-strong);
+}
+body.doctor-theme.portal-v2 .v2-brief__spec--key-teal  { border-inline-start-color: var(--v2-brand); }
+body.doctor-theme.portal-v2 .v2-brief__spec--key-brass { border-inline-start-color: var(--v2-accent); }
+body.doctor-theme.portal-v2 .v2-brief__spec--key-red   { border-inline-start-color: var(--v2-danger); }
+body.doctor-theme.portal-v2 .v2-brief__spec--key-amber { border-inline-start-color: var(--v2-warn); }
+body.doctor-theme.portal-v2 .v2-brief__spec--key-info  { border-inline-start-color: var(--v2-info); }
+
+/* Coming-soon marker on a doctor nav entry (2026-08-24). Sits where the alert
+   count would, in brass so it never reads as an unread badge. */
+body.doctor-theme.portal-v2 .v2-nav-soon {
+  margin-inline-start: auto;
+  background: rgba(242, 228, 199, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(242, 228, 199, 0.28);
+  color: #F2E4C7;
+  padding: 1px 8px;
+  border-radius: var(--v2-r-pill);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* A pill carrying a fact the reader must not skim past — the turnaround tier
+   on a case row, where it decides how many hours the doctor has. Heavier and
+   slightly larger than the base pill, with a hairline of its own colour so it
+   holds against the status chip beside it. */
+body.doctor-theme.portal-v2 .v2-pill--strong {
+  font-weight: 800;
+  font-size: 11.5px;
+  letter-spacing: 0.03em;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+/* Nudge banners inside the topbar (2026-08-24).
+ *
+ * .v2-topbar is an unwrapped flex row, and both nudges are direct children of
+ * it — so without this they compete for horizontal space with the 28px page
+ * title and the search form. The services nudge got away with it because it is
+ * one short line; the tier nudge is a heading plus a full sentence plus a
+ * button, and after migration 089 every assignable doctor sees it, ~19 of them
+ * alongside the services nudge as well. Three blocks in one nowrap row crushes
+ * the title toward zero width.
+ *
+ * Forcing each nudge onto its own full-width line (and allowing the row to
+ * wrap) makes them behave as the banners they are drawn as, rather than as
+ * columns. `order: 1` keeps them BELOW the title/actions line regardless of
+ * where the include sits in the markup.
+ */
+body.doctor-theme.portal-v2 .v2-topbar { flex-wrap: wrap; }
+body.doctor-theme.portal-v2 .v2-topbar > .v2-services-nudge,
+body.doctor-theme.portal-v2 .v2-topbar > .v2-tier-nudge {
+  flex: 0 0 100%;
+  order: 1;
+}
+/* Scoped to `> .v2-topbar` on purpose: the dashboard includes both partials
+   outside the topbar, where they are ordinary block children and need no flex
+   sizing at all. inline-size:100% is the block default there. */
+body.doctor-theme.portal-v2 .v2-services-nudge,
+body.doctor-theme.portal-v2 .v2-tier-nudge { inline-size: 100%; }

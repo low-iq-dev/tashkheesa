@@ -284,11 +284,35 @@ async function runWorkerWatchdogSweep(pool, opts) {
     var toPushDown = [];       // workers claimed for a down push {name,ageSec,staleSeconds}
     var toPushRecovered = [];  // worker names claimed for a recovery push
     var pushClient = null;
+    var pushClaimError = null;
+    // AUDIT-2026-08-22 (AUDIT-WATCHDOG-RELEASE-1) — set when ROLLBACK itself
+    // fails; passed to release() so the pool destroys the connection.
+    var pushRollbackFailed = null;
     try {
       pushClient = await pool.connect();
       var gotPushLock = false;
+      // AUDIT-2026-08-22 (AUDIT-WATCHDOG-LOCK-1) — was pg_try_advisory_lock +
+      // pg_advisory_unlock on a `pool` client.
+      //
+      // `pool` is the Supabase TRANSACTION-mode pooler (DATABASE_URL, port 6543).
+      // pool.connect() there hands back a logical client, NOT a pinned backend:
+      // the lock was taken on backend A and the unlock statement was routed to
+      // whichever backend was free — usually B, where it returned FALSE and was
+      // discarded by the empty `catch (_)`. Backend A kept the lock, and the
+      // pooler does not run server_reset_query in transaction mode, so it kept
+      // it forever. From the first sweep onward pg_try_advisory_lock returned
+      // false, gotPushLock was permanently false, and EVERY ops push — including
+      // the worker-down alerts this whole file exists to send — was silently
+      // skipped. The founder would have learned about a dead worker from a
+      // patient.
+      //
+      // pg_try_advisory_xact_lock is released by the server at COMMIT/ROLLBACK,
+      // so it cannot outlive the transaction and cannot be released on the wrong
+      // backend. The pooler pins one backend for the duration of a transaction,
+      // which is precisely the scope the claim needs.
       try {
-        var lockRow = await pushClient.query('SELECT pg_try_advisory_lock($1) AS locked', [PUSH_LOCK_KEY]);
+        await pushClient.query('BEGIN');
+        var lockRow = await pushClient.query('SELECT pg_try_advisory_xact_lock($1) AS locked', [PUSH_LOCK_KEY]);
         gotPushLock = !!(lockRow && lockRow.rows && lockRow.rows[0] && lockRow.rows[0].locked);
         if (gotPushLock) {
           var pushState = await _getDownPushState(pushClient);
@@ -326,15 +350,54 @@ async function runWorkerWatchdogSweep(pool, opts) {
           }
         }
         // !gotPushLock → another sweep owns the claim this tick; skip cleanly.
-      } finally {
-        if (gotPushLock) {
-          try { await pushClient.query('SELECT pg_advisory_unlock($1)', [PUSH_LOCK_KEY]); } catch (_) {}
-        }
+        // COMMIT both persists the claim writes and releases the xact lock.
+        await pushClient.query('COMMIT');
+      } catch (eTx) {
+        // AUDIT-2026-08-22 (AUDIT-WATCHDOG-RELEASE-1) — capture a FAILING
+        // rollback. node-pg does not reset a released connection, so a client
+        // left inside an aborted transaction is handed straight to the next
+        // borrower, who gets "current transaction is aborted, commands ignored
+        // until end of transaction block" for a fault they did not cause.
+        // Passing the rollback error to release() makes the pool DESTROY the
+        // connection instead. src/pg.js withTransaction:383-386 already does
+        // exactly this; the finally below now does the same.
+        try { await pushClient.query('ROLLBACK'); }
+        catch (rollbackErr) { pushRollbackFailed = rollbackErr; }
+        throw eTx;
       }
     } catch (e4) {
-      try { _deps.logFatal('[worker-watchdog] layer-4 claim failed (swallowed)', e4); } catch (_) {}
+      // AUDIT-2026-08-22 (AUDIT-WATCHDOG-LOCK-1) — this catch used to log
+      // "(swallowed)" and move on, which is how a permanently-broken alerting
+      // path stayed invisible. The sweep still must not throw (layers 1-3 have
+      // already done real work and the caller is a bare setInterval), but the
+      // failure is now (a) logged as a hard failure of the ALERTING PATH, not a
+      // shrug, (b) written to error_logs, and (c) surfaced in the sweep result
+      // as pushClaimError so /healthz and the admin health card can see that
+      // ops pushes are not being delivered.
+      pushClaimError = (e4 && e4.message) ? e4.message : String(e4);
+      // The claim transaction rolled back, so the cooldown stamps were NOT
+      // persisted. Anything staged in memory is an UNCLAIMED slot — sending it
+      // would re-send on every subsequent tick with no throttle. Drop it.
+      toPushDown = [];
+      toPushRecovered = [];
+      try {
+        _deps.logFatal('[worker-watchdog] layer-4 push claim FAILED — ops pushes ' +
+          '(including worker-down alerts) are NOT being delivered this tick', e4);
+      } catch (_) {}
+      try {
+        await _deps.logErrorToDb(e4, {
+          category: 'worker_watchdog',
+          level: 'error',
+          context: 'layer4_push_claim',
+        });
+      } catch (_) {}
     } finally {
-      if (pushClient && pushClient.release) pushClient.release();
+      // AUDIT-2026-08-22 (AUDIT-WATCHDOG-RELEASE-1) — release(err) destroys the
+      // connection rather than returning a poisoned one to the pool.
+      if (pushClient && pushClient.release) {
+        try { pushClient.release(pushRollbackFailed || undefined); }
+        catch (_) { try { pushClient.release(); } catch (_e) {} }
+      }
     }
 
     // Send AFTER releasing the lock. Each slot is already claimed (stamp written),
@@ -375,6 +438,9 @@ async function runWorkerWatchdogSweep(pool, opts) {
       pushed: pushed,
       pushRecovered: pushRecovered,
       liveness: liveness.map(function (w) { return { name: w.name, status: w.status, ageSec: w.ageSec }; }),
+      // AUDIT-2026-08-22 (AUDIT-WATCHDOG-LOCK-1) — null on the happy path; a
+      // string means the push CLAIM failed and no ops push was sent this tick.
+      pushClaimError: pushClaimError,
     };
   } catch (err) {
     // Self-isolating: a watchdog failure logs and is swallowed — never throws

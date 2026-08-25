@@ -298,6 +298,16 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
     </div>
   </div>
 
+  <%# 2026-08-24 — the nudge banners.
+      This page is the doctor's landing page (/portal/doctor, /today and
+      /dashboard all render it), and it is the ONE doctor page that does not
+      include partials/doctor/topbar — so neither the services nudge nor the
+      turnaround-tier nudge appeared on the screen a doctor actually opens.
+      Both flags are set per-request by middleware in routes/doctor.js and read
+      off res.locals, so including the partials here is enough. %>
+  <%- include('partials/doctor/services_banner', { isAr: _isAr }) %>
+  <%- include('partials/doctor/tier_banner', { isAr: _isAr }) %>
+
   <!-- ===================================================================
        HERO STATS — 4 tiles
        =================================================================== -->

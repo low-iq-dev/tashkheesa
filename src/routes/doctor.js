@@ -20,6 +20,8 @@ const dbStatusValuesFor = caseLifecycle.dbStatusValuesFor;
 // action is implemented directly against the `orders` table to support human-friendly case IDs.
 const { generateMedicalReportPdf } = require('../report-generator');
 const { computeDoctorEarnings } = require('../services/earnings_calc');
+const { getAddon } = require('../services/addons/registry');
+const { resolvePrescriptionAccess, resolvePrescriptionQuote, prescriptionCommissionPct } = require('../services/addons/prescription_access');
 const { loadDoctorServiceCatalog, diffServiceSelection } = require('../services/doctor_service_catalog');
 const { resyncComingSoon } = require('../services/services_coming_soon_sync');
 const { shouldLandOnServices } = require('../services/doctor_landing');
@@ -128,6 +130,7 @@ const requireDoctor = requireRole('doctor');
 // Best-effort: errors are swallowed, banner stays off rather than breaking any page.
 router.use(async (req, res, next) => {
   try { await _computeServicesBannerFlag(req, res); } catch (_) { /* banner is best-effort; never break the page */ }
+  try { await _computeTierConfirmBannerFlag(req, res); } catch (_) { /* same */ }
   next();
 });
 
@@ -965,6 +968,26 @@ router.get('/portal/doctor/services', requireDoctor, async (req, res) => {
     loadDoctorServiceCatalog(client, { doctorId, specialtyId })
   );
 
+  // Turnaround tiers. Read here rather than in the catalog loader because they
+  // live on users, not on the service join, and because the confirmation state
+  // drives both the banner and the highlight on the card.
+  let slaTiers = ['standard'];
+  let tiersUnconfirmed = false;
+  // Default false, not true: if the query below fails we would rather omit the
+  // "please confirm" framing than show it to a doctor who is already done.
+  let servicesUnconfirmed = false;
+  try {
+    const t = await queryOne(
+      'SELECT sla_tiers_supported, sla_tiers_confirmed_at, onboarding_complete FROM users WHERE id = $1',
+      [doctorId]
+    );
+    if (t) {
+      slaTiers = readDoctorTiers(t.sla_tiers_supported);
+      tiersUnconfirmed = !t.sla_tiers_confirmed_at;
+      servicesUnconfirmed = !t.onboarding_complete;
+    }
+  } catch (_) { /* best-effort: the page still renders with Standard ticked */ }
+
   assertRenderableView('portal_doctor_services');
   return res.render('portal_doctor_services', {
     portalFrame: true,
@@ -985,8 +1008,91 @@ router.get('/portal/doctor/services', requireDoctor, async (req, res) => {
     error: null,
     warning: null,
     confirmEmpty: false,
+    slaTiers,
+    tiersUnconfirmed,
+    servicesUnconfirmed,
     success: req.query.success || null
   });
+});
+
+// POST /portal/doctor/turnaround — the doctor's own tier control.
+//
+// 2026-08-24. Its own route rather than a field on the services form, for two
+// reasons that only became clear on review:
+//
+//   * An empty-catalog doctor never sees the services form. Three Pediatrics
+//     doctors in production have no visible services in their specialty, so
+//     portal_doctor_services.ejs renders the "your services are being finalised"
+//     card and nothing else. With the checkboxes living inside that form they
+//     had no way to answer the reconfirmation prompt, and the banner — which
+//     migration 089 turns on for every assignable doctor — would have followed
+//     them around the portal forever with no dismiss. src/services/doctor_landing.js
+//     already excludes exactly these doctors from the services nudge for the
+//     same reason; this route is the equivalent escape hatch.
+//
+//   * Coupling the write to the services save made a read failure destructive.
+//     The GET's tier lookup falls back to ['standard'] on error, and the
+//     rendered checkboxes were the only input to the write — so one timed-out
+//     query rendered VIP and Urgent unticked and the doctor's next save
+//     silently dropped tiers they had never touched. A dedicated form can't be
+//     submitted by someone who was shown the wrong state for a different reason.
+//
+// Saving stamps sla_tiers_confirmed_at whatever the answer — keeping all three
+// or dropping to Standard both count as confirming. That is the point of the
+// prompt.
+router.post('/portal/doctor/turnaround', requireDoctor, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  const back = '/portal/doctor/services#turnaround';
+  if (!doctorId) return res.redirect('/portal/doctor/dashboard');
+
+  try {
+    // Same shape as service_ids: array, single string, or absent.
+    //
+    // Absent means every box was unticked, which is a real answer — but it
+    // cannot mean "no tiers": a doctor with an empty list is invisible to
+    // assignment at EVERY speed and would simply stop receiving work with no
+    // explanation. Standard is the floor, which is what the pre-089 default was.
+    let posted = req.body ? req.body.sla_tiers : undefined;
+    if (posted == null) posted = [];
+    else if (!Array.isArray(posted)) posted = [posted];
+    const wanted = new Set(posted.map((x) => String(x).trim().toLowerCase()));
+
+    // Whitelisted against DOCTOR_SLA_TIERS so a crafted POST cannot write a
+    // value the assignment gate has never heard of and silently strand the
+    // doctor — precisely how 'priority' stranded every VIP order.
+    let tiers = DOCTOR_SLA_TIERS.filter((t) => wanted.has(t));
+    if (!tiers.length) tiers = ['standard'];
+
+    await execute(
+      `UPDATE users
+          SET sla_tiers_supported    = $2::jsonb,
+              sla_tiers_confirmed_at = NOW()
+        WHERE id = $1 AND role = 'doctor'`,
+      [doctorId, JSON.stringify(tiers)]
+    );
+
+    const label = tiers
+      .map((t) => (t === 'vip' ? 'VIP' : t === 'urgent'
+        ? (isAr ? 'عاجل' : 'Urgent')
+        : (isAr ? 'قياسي' : 'Standard')))
+      .join(isAr ? ' و' : ', ');
+
+    return res.redirect(back.split('#')[0] + '?success=' + encodeURIComponent(
+      isAr ? ('تم الحفظ. أنت الآن مُدرج لـ: ' + label)
+           : ('Saved. You are now listed for: ' + label)
+    ) + '#turnaround');
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'doctor.turnaround_save', requestId: req.requestId,
+      userId: doctorId, url: req.originalUrl, method: req.method
+    });
+    return res.redirect(back.split('#')[0] + '?success=' + encodeURIComponent(
+      isAr ? 'تعذَّر حفظ سرعات التسليم. يرجى المحاولة مرة أخرى.'
+           : 'Could not save your turnaround speeds. Please try again.'
+    ) + '#turnaround');
+  }
 });
 
 // POST My Services — diff-save the doctor's confirmed services.
@@ -1007,6 +1113,26 @@ router.post('/portal/doctor/services', requireDoctor, async (req, res) => {
   const confirmEmpty = String(req.body && req.body.confirm_empty || '') === '1';
 
   async function rerender(opts) {
+    // The turnaround card is its own form and its own route, so a failed
+    // SERVICES save must redisplay the tiers AS STORED — not as this request
+    // saw them, and not with "Needs your confirmation" put back on a doctor who
+    // confirmed weeks ago. Read here rather than asking each of the three call
+    // sites to remember to pass it.
+    let _rrTiers = ['standard'];
+    let _rrUnconfirmed = false;
+    let _rrSvcUnconfirmed = false;
+    try {
+      const t = await queryOne(
+        'SELECT sla_tiers_supported, sla_tiers_confirmed_at, onboarding_complete FROM users WHERE id = $1',
+        [doctorId]
+      );
+      if (t) {
+        _rrTiers = readDoctorTiers(t.sla_tiers_supported);
+        _rrUnconfirmed = !t.sla_tiers_confirmed_at;
+        _rrSvcUnconfirmed = !t.onboarding_complete;
+      }
+    } catch (_) { /* best-effort; the services error is what matters here */ }
+
     let specialtyName = '', specialtyNameAr = null, subSpecialties = [];
     try {
       const ctx = await queryOne(
@@ -1034,7 +1160,10 @@ router.post('/portal/doctor/services', requireDoctor, async (req, res) => {
       title: isAr ? 'خدماتي' : 'My Services', user: req.user, lang, isAr,
       nextPath: '/portal/doctor/services', canonicalUrl: '/portal/doctor/services',
       groups: cat.groups, isEmpty: !!cat.isEmpty, subSpecialties, specialtyName, specialtyNameAr,
-      error: opts.error || null, warning: opts.warning || null, confirmEmpty
+      error: opts.error || null, warning: opts.warning || null, confirmEmpty,
+      slaTiers: _rrTiers,
+      tiersUnconfirmed: _rrUnconfirmed,
+      servicesUnconfirmed: _rrSvcUnconfirmed
     });
   }
 
@@ -1070,6 +1199,16 @@ router.post('/portal/doctor/services', requireDoctor, async (req, res) => {
         );
       }
       // Any explicit save (incl. confirmed-empty) marks onboarding complete.
+      //
+      // Review round 2: this handler deliberately does NOT write
+      // sla_tiers_supported. The first version did, from checkboxes rendered
+      // higher up the same form, and that was two bugs at once. The tier read
+      // on GET is wrapped in a catch that falls back to ['standard'], so any
+      // transient failure of that one query rendered the boxes unticked and the
+      // doctor's next save silently, permanently dropped tiers they had never
+      // touched. And an empty-catalog doctor never sees this form at all, so
+      // the tiers had no reachable control for them. Turnaround now has its own
+      // form and its own route — see POST /portal/doctor/turnaround.
       await client.query('UPDATE users SET onboarding_complete = true WHERE id = $1', [doctorId]);
       // Re-sync coming_soon in the SAME txn (contract: resyncComingSoon(client)).
       await resyncComingSoon(client);
@@ -1303,6 +1442,64 @@ async function _computeServicesBannerFlag(req, res) {
     res.locals.doctorServicesBanner = await shouldLandOnServices(row);
   } catch (_) {
     res.locals.doctorServicesBanner = false;
+  }
+}
+
+// Turnaround tiers a doctor may hold, in display order. Mirrors
+// ALLOWED_SLA_TIERS in src/validators/doctor_signup.js and tierSpellings() in
+// src/auto_assign.js — if a tier is ever added, all three change together.
+const DOCTOR_SLA_TIERS = ['standard', 'vip', 'urgent'];
+
+// Read users.sla_tiers_supported defensively: it is jsonb, but older rows and
+// some clients have stored it as a JSON string, and NULL means "standard only"
+// everywhere else in the codebase.
+function readDoctorTiers(raw) {
+  let arr = raw;
+  if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch (_) { arr = null; } }
+  if (!Array.isArray(arr)) return ['standard'];
+  const seen = arr.map((x) => String(x).toLowerCase());
+  const out = DOCTOR_SLA_TIERS.filter((t) => seen.includes(t));
+  // A legacy row carrying only the retired 'priority' spelling still means VIP.
+  if (!out.includes('vip') && (seen.includes('priority') || seen.includes('fast_track'))) out.push('vip');
+  return out.length ? out : ['standard'];
+}
+
+// 2026-08-24 — the turnaround-tier reconfirmation nudge.
+//
+// Migration 089 opened Standard, VIP and Urgent to every assignable doctor,
+// because 25 of 31 sat at Standard alone and that was never a considered
+// choice: the tier checkboxes appeared once, on the signup form, with Standard
+// pre-ticked — and there was nowhere in the portal to change them afterwards.
+// The default became the answer, permanently, and the platform ended up selling
+// an 18-hour tier one doctor could serve.
+//
+// Opening them without asking would be worse than the problem, so 089 also
+// clears users.sla_tiers_confirmed_at and this banner runs until the doctor
+// gives an affirmative answer on the services page. Saving there stamps the
+// column and the banner stops — whether they keep all three or drop back to
+// Standard. Confirming is the point, not the answer they give.
+//
+// Same shape as the services nudge above: one query per request, best-effort,
+// suppressed on the page it points at, and never a hard gate.
+async function _computeTierConfirmBannerFlag(req, res) {
+  res.locals.doctorTierBanner = false;
+  try {
+    if (req.originalUrl && req.originalUrl.startsWith('/portal/doctor/services')) return;
+    if (!req.user || String(req.user.role).toLowerCase() !== 'doctor' || !req.user.id) return;
+    const row = await queryOne(
+      `SELECT sla_tiers_confirmed_at, is_active, is_paused, pending_approval
+         FROM users WHERE id = $1`,
+      [String(req.user.id)]
+    );
+    if (!row) return;
+    // Don't nag someone who cannot be assigned anything anyway — a paused or
+    // pending doctor has nothing to confirm and no cases to receive.
+    if (row.is_active === false || row.is_paused === true || row.pending_approval === true) return;
+    res.locals.doctorTierBanner = !row.sla_tiers_confirmed_at;
+  } catch (_) {
+    // Fail to OFF. A banner that cannot resolve its own condition should stay
+    // quiet rather than follow a doctor around every page of the portal.
+    res.locals.doctorTierBanner = false;
   }
 }
 
@@ -1919,7 +2116,9 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
   let files = [];
   try {
     const urlCol = await getOrderFilesUrlColumnName();
-    const labelCol = await getOrderFilesLabelColumnName();
+    // AUDIT-2026-08-22 (L6): COALESCE over every label-bearing column instead
+    // of the first one that exists — see getOrderFilesLabelExpression.
+    const labelCol = await getOrderFilesLabelExpression();
     const atCol = await getOrderFilesCreatedAtColumnName();
 
     if (urlCol) {
@@ -2056,6 +2255,89 @@ const canAccept =
       ? (isAr ? 'التقرير غير متوفر بعد.' : 'Report not available yet.')
       : null;
 
+  // AUDIT-2026-08-22 (L2/L4/L5/P2): the report-submit and save-notes handlers
+  // bounce back here with ?error=<code> instead of a bare 500 or a silent
+  // no-op, so the doctor is told what happened and whether their text is safe.
+  // Codes only — never a message from the query string.
+  const REPORT_SUBMIT_ERRORS = {
+    report_empty: {
+      // AUDIT-2026-08-22: the submit handler now saves the typed text as a
+      // draft BEFORE this check, so "kept as a draft" is a statement of fact —
+      // the boxes below are repopulated from what was just saved.
+      en: 'Findings and Impression are required before a report can be submitted. Your text has been kept as a draft and nothing was sent to the patient.',
+      ar: 'النتائج والانطباع مطلوبان قبل إرسال التقرير. تم حفظ نصّك كمسودة ولم يُرسل شيء للمريض.'
+    },
+    report_pdf_failed: {
+      en: 'Your report was saved, but the PDF could not be produced. Nothing was sent to the patient — please press Submit report again.',
+      ar: 'تم حفظ تقريرك، لكن تعذّر إنشاء ملف PDF. لم يُرسل شيء للمريض — يرجى الضغط على إرسال التقرير مرة أخرى.'
+    },
+    // AUDIT-2026-08-22: "Your text is still in the editor" was false on BOTH
+    // of this code's call sites, because both answered 302 and the editor is
+    // repopulated from the DB. On the persist-failure site nothing reached the
+    // DB at all, so the doctor was told their work was safe at the one moment
+    // it was not. Split into two codes that each say what actually happened.
+    report_save_failed: {
+      en: 'We could not save this report right now, so nothing was written and the case has been left open. Please re-enter your findings and try again in a moment.',
+      ar: 'تعذّر حفظ التقرير الآن، فلم يُكتب أي شيء وبقيت الحالة مفتوحة. يرجى إعادة إدخال النتائج والمحاولة بعد قليل.'
+    },
+    report_complete_failed: {
+      en: 'Your report is saved but the case could not be closed, so nothing was sent to the patient. Press Submit report again to finish.',
+      ar: 'تم حفظ تقريرك لكن تعذّر إغلاق الحالة، فلم يُرسل شيء للمريض. اضغط إرسال التقرير مرة أخرى لإتمام العملية.'
+    },
+    case_completed: {
+      en: 'This case has already been delivered to the patient, so its report can no longer be edited.',
+      ar: 'تم تسليم هذه الحالة للمريض بالفعل، لذا لم يعد بالإمكان تعديل تقريرها.'
+    }
+  };
+  const submitErrorEntry = REPORT_SUBMIT_ERRORS[String((req.query && req.query.error) || '')];
+  const submitErrorMessage = submitErrorEntry ? (isAr ? submitErrorEntry.ar : submitErrorEntry.en) : null;
+
+  // AUDIT-2026-08-23 (C4, round 4) — outcomes of POST .../request-prescription.
+  // Without these every refusal was a silent bounce back to a card that still
+  // said "not purchased", so the doctor had no way to tell a sent request from
+  // a swallowed one.
+  const RX_FLASH = {
+    requested: {
+      ok: true,
+      en: 'Request sent. Clinical operations will arrange the prescription with the patient and it will unlock here once settled.',
+      ar: 'تم إرسال الطلب. سيرتب فريق العمليات السريرية الروشتة مع المريض وستُفتح هنا فور إتمام الأمر.'
+    },
+    already_requested: {
+      ok: true,
+      en: 'A request for this case is already with clinical operations.',
+      ar: 'يوجد طلب لهذه الحالة لدى فريق العمليات السريرية بالفعل.'
+    },
+    already_available: {
+      ok: true,
+      en: 'A prescription is already available on this case — no request needed.',
+      ar: 'الروشتة متاحة بالفعل لهذه الحالة — لا حاجة لطلب.'
+    },
+    declined: {
+      ok: false,
+      en: 'The prescription add-on for this case was cancelled, so a new request cannot be raised. Contact clinical operations.',
+      ar: 'تم إلغاء خدمة الروشتة لهذه الحالة، فلا يمكن إرسال طلب جديد. تواصل مع فريق العمليات السريرية.'
+    },
+    no_price: {
+      ok: false,
+      en: 'The prescription add-on has no price configured, so the request could not be raised. This is a platform issue — please tell support.',
+      ar: 'لا يوجد سعر مُهيّأ لخدمة الروشتة، لذا تعذّر إرسال الطلب. هذه مشكلة في المنصة — يرجى إبلاغ الدعم.'
+    },
+    coming_soon: {
+      ok: false,
+      en: 'Digital prescriptions are not live yet, so a request cannot be raised. The feature is coming — nothing is expected of you on this case.',
+      ar: 'خدمة الروشتة الرقمية غير مفعّلة بعد، لذا لا يمكن إرسال طلب. الخدمة قادمة قريباً — ولا يُطلب منك شيء بخصوص هذه الحالة.'
+    },
+    failed: {
+      ok: false,
+      en: 'The prescription request could not be sent. Nothing was changed — please try again.',
+      ar: 'تعذّر إرسال طلب الروشتة. لم يتغير شيء — يرجى المحاولة مرة أخرى.'
+    }
+  };
+  const rxFlashEntry = RX_FLASH[String((req.query && req.query.rx) || '')];
+  const rxFlash = rxFlashEntry
+    ? { ok: rxFlashEntry.ok, text: isAr ? rxFlashEntry.ar : rxFlashEntry.en }
+    : null;
+
   const viewStatus = isUnaccepted ? normalizedStatus : 'in_review';
   const viewReportUrl = reportAvailable ? reportUrl : null;
 
@@ -2110,20 +2392,81 @@ const canAccept =
   const patientAge = computeAgeFromDob(order && order.patient_date_of_birth);
   const reportDraft = buildReportDraftFields(order);
 
+  // AUDIT-2026-08-23 (C1) — the pre-accept screen quoted an SLA that does not
+  // exist.
+  //
+  // The template hardcoded a "Fast-track · 24h" chip and a "24-hour
+  // turnaround" line in the "Accepting this case commits you to" list, because
+  // the minimal pre-accept `order` below carried neither urgency_tier nor
+  // sla_hours and there was nothing real to render. No order in the database
+  // has ever had a 24-hour SLA (they are 4 / 18 / 48 / 72), so the doctor was
+  // consenting to a deadline that was wrong on every single case and then
+  // shown a different one the moment they accepted. Tier and window are
+  // clinical scheduling facts, not patient identity, so they belong in the
+  // pre-accept payload.
+  const slaHoursRaw = Number(order && order.sla_hours);
+  const slaHoursForView = Number.isFinite(slaHoursRaw) && slaHoursRaw > 0 ? slaHoursRaw : null;
+
   // IMPORTANT: When a case is unaccepted we still pass a minimal `order` object
   // so the template can read `order.payment_status` without leaking case details.
+  //
+  // AUDIT-2026-08-23 (C2) — a doctor could not tell what the case WAS before
+  // committing to it. The minimal object below carried an id, a status and a
+  // payment status and nothing else, so the preview screen said "a patient is
+  // waiting for your specialist review" and left the doctor to accept a
+  // 48-hour clinical commitment blind. The fields added here are the ones a
+  // worklist has always shown at triage — service, specialty, tier, window,
+  // patient age and sex, report language, submission time and the clinical
+  // question. None of them identify the patient: name, contact details and the
+  // files themselves stay locked until accept.
   const viewOrder = isUnaccepted
     ? {
         id: orderId,
         status: viewStatus,
-        payment_status: paymentStatus || null
+        payment_status: paymentStatus || null,
+        specialty_name: (order && order.specialty_name) || null,
+        specialty_name_ar: (order && order.specialty_name_ar) || null,
+        service_name: (order && order.service_name) || null,
+        urgency_tier: (order && order.urgency_tier) || null,
+        sla_hours: slaHoursForView,
+        patient_age: patientAge,
+        patient_gender: (order && order.patient_gender) || null,
+        report_language: (order && (order.report_language || order.language)) || null,
+        created_at_human: createdAtHuman
+        // NOT doctor_fee. `order` here is the output of stripPricingFields(),
+        // which deletes doctor_fee outright, so passing it would be dead.
+        //
+        // AUDIT-2026-08-23 (C5, unresolved) — that strip means the fee has
+        // NEVER rendered on this page in either state: portal_doctor_case.ejs
+        // reads _order.doctor_fee for both the "Fee breakdown" card and the
+        // fee line in the accept commitments, and both have silently been
+        // false since the strip was introduced. A specialist is therefore
+        // asked to commit to a deadline without being told what the case
+        // pays. Deliberately NOT patched here: reconstructing the figure
+        // means going through computeDoctorEarnings with base fee, urgency
+        // uplift and uplift share, and a wrong number on a compensation
+        // screen is worse than no number. Raised for a decision instead.
       }
     : {
         ...order,
         status: viewStatus,
+        // AUDIT-2026-08-23 (C6) — the template's real status, alongside the
+        // display one.
+        //
+        // portal_doctor_case.ejs computes _statusKey as
+        // (db_status || status), and viewStatus is hardcoded to 'in_review'
+        // for everything accepted — so _statusKey could never be 'completed'
+        // and every `_statusKey !== 'completed'` branch in that view was
+        // permanently true. A delivered case therefore rendered the editable
+        // report form instead of the "Submitted report" card written for it,
+        // and pressing Submit came back with the case_completed refusal this
+        // same handler defines. db_status was never passed by anything; the
+        // view has been reading a local that did not exist.
+        db_status: normalizedStatus,
         report_url: viewReportUrl || null,
         reportUrl: viewReportUrl || null,
         sla: caseSla,
+        sla_hours: slaHoursForView,
         created_at_human: createdAtHuman,
         accepted_at_human: acceptedAtHuman,
         patient_age: patientAge,
@@ -2196,6 +2539,109 @@ const canAccept =
     );
   } catch (_) {}
 
+  // AUDIT-2026-08-23 (C3) — "Why you got this case" was fabricated.
+  //
+  // The card hardcoded the strings "Trusted reviewer" and "Your SLA compliance
+  // and patient ratings made you a top match." for EVERY doctor, with no query
+  // behind either one, and fell back to the literal "Your primary specialty"
+  // for the specialty line. A doctor onboarded the same day — zero completed
+  // cases, no SLA history, no rating — was told the platform had assessed a
+  // track record it does not have. Telling a clinician a fact about themselves
+  // that the database cannot support is not a design flourish, it is a lie in
+  // the consent step of a medical workflow.
+  //
+  // These are the facts that ARE knowable, and they are the ones that actually
+  // answer the question: the doctor is listed for this exact service, the case
+  // is in a specialty they cover, and here is when it reached them and by when
+  // they must answer.
+  let routingFacts = null;
+  try {
+    const assignment = await queryOne(
+      `SELECT assigned_at, accept_by_at, reassigned_from_doctor_id
+         FROM doctor_assignments
+        WHERE case_id = $1 AND doctor_id = $2
+        ORDER BY assigned_at DESC NULLS LAST
+        LIMIT 1`,
+      [orderId, doctorId]
+    );
+    let listedForService = false;
+    if (order && order.service_id) {
+      const listed = await queryOne(
+        `SELECT 1 AS ok FROM doctor_services WHERE doctor_id = $1 AND service_id = $2 LIMIT 1`,
+        [doctorId, order.service_id]
+      );
+      listedForService = !!listed;
+    }
+    routingFacts = {
+      serviceName: (order && order.service_name) || null,
+      specialtyName: (order && order.specialty_name) || null,
+      specialtyNameAr: (order && order.specialty_name_ar) || null,
+      listedForService,
+      assignedAtHuman: assignment && assignment.assigned_at ? formatDisplayDate(assignment.assigned_at) : null,
+      respondByHuman: assignment && assignment.accept_by_at ? formatDisplayDate(assignment.accept_by_at) : null,
+      isReassignment: !!(assignment && assignment.reassigned_from_doctor_id)
+    };
+  } catch (_) {
+    routingFacts = null;
+  }
+
+  // AUDIT-2026-08-23 (C4) — the prescription CTA ignored the add-on it sells.
+  //
+  // `prescription` is a paid add-on (addon_services: EGP 400, doctor
+  // commission 50%) with a full purchase → fulfil → earnings lifecycle in
+  // src/services/addons/prescription.js. The case page rendered an
+  // unconditional "Write prescription" card AND a second shortcut in the
+  // header on every accepted case, both pointing at /prescribe — a route
+  // that writes the `prescriptions` table and never touches `order_addons`.
+  // So a patient who never bought it received a EGP 400 service free, and a
+  // patient who DID buy it had it delivered while the add-on stayed unpaid,
+  // which routes to onRefund at completion: patient refunded, doctor paid
+  // nothing, prescription delivered anyway.
+  //
+  // The CTA is now driven by the add-on's real state, and a doctor who thinks
+  // one is clinically indicated raises a request instead of writing it.
+  let prescriptionAddon = null;
+  try {
+    // Review round 2: reads BOTH purchase records via the shared resolver.
+    // The first draft consulted order_addons alone, which is written only
+    // through safeDualWrite and is empty in production — so every patient who
+    // had genuinely paid for a prescription at checkout would have been shown
+    // the "not purchased, request one?" card, and an operator invited to bill
+    // them a second time.
+    const access = await resolvePrescriptionAccess(order);
+    // Review round 3: scoped to the ORDER, not to this doctor. Scoping it to
+    // the doctor meant a reassigned case showed the second specialist "this
+    // patient has paid for a prescription" on a case where the first one had
+    // already written and delivered it — two signed prescriptions from two
+    // clinicians against a single purchase.
+    const existingRx = await queryOne(
+      `SELECT id, doctor_id FROM prescriptions WHERE order_id = $1 ORDER BY created_at ASC LIMIT 1`,
+      [orderId]
+    );
+    prescriptionAddon = {
+      exists: !!access.addon || access.purchasedV1,
+      status: access.status,
+      isRequested: access.isRequested,
+      isPaid: access.canWrite && !access.isFulfilled,
+      isFulfilled: access.isFulfilled,
+      isTerminal: access.isTerminal,
+      canWrite: access.canWrite,
+      hasPrescription: !!existingRx,
+      // Only link it when it is this doctor's — the detail route authorises on
+      // doctor_id and would 404 for anyone else.
+      prescriptionId: (existingRx && String(existingRx.doctor_id || '') === String(doctorId)) ? existingRx.id : null,
+      priceEgp: access.priceEgp
+    };
+  } catch (_) {
+    // Never let the add-on probe take down a case the doctor can work. Failing
+    // CLOSED (canWrite false) is the safe direction: the worst outcome is a
+    // doctor being told to raise a request for something already paid, which
+    // an operator sees and resolves. Failing open would give the product away.
+    prescriptionAddon = { exists: false, status: null, isRequested: false, isPaid: false,
+                          isFulfilled: false, isTerminal: false, canWrite: false,
+                          hasPrescription: false, prescriptionId: null, priceEgp: null };
+  }
+
   const payload = {
     portalFrame: true,
     portalRole: 'doctor',
@@ -2219,6 +2665,10 @@ const canAccept =
       medicalHistory: (order && (order.medical_history || order.history)) || '',
       medications: (order && (order.current_medications || order.medications)) || ''
     },
+    routingFacts,
+    prescriptionAddon,
+    rxFlash,
+    prescriptionRequestUrl: `/portal/doctor/case/${orderId}/request-prescription`,
     showAcceptButton: canAccept,
     acceptBlockedReason,
     isPaid,
@@ -2229,6 +2679,8 @@ const canAccept =
     ...(reportMissingMessage ? { errorMessage: reportMissingMessage } : {}),
     ...(viewQuery ? { query: viewQuery } : {}),
     ...(capacityMessage ? { errorMessage: capacityMessage } : {}),
+    // Last, so a just-refused submit wins over the ambient banners above.
+    ...(submitErrorMessage ? { errorMessage: submitErrorMessage } : {}),
   };
 
   // Try canonical template name first
@@ -2393,6 +2845,166 @@ router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(r
 // ---- end portal doctor case intelligence view ----
 
 // ---- Portal doctor accept case ----
+// POST /portal/doctor/case/:caseId/request-prescription
+//
+// AUDIT-2026-08-23 (C4) — the doctor-initiated half of the prescription
+// add-on pipeline.
+//
+// `prescription` is a paid add-on. Before this route the case page simply
+// handed every doctor a "Write prescription" button, so the EGP 400 product
+// was given away on cases nobody had bought it for. But a doctor genuinely
+// does discover mid-review that a prescription is indicated — the add-on's own
+// patient-facing copy says "delivered with your report if clinically
+// indicated" — and refusing them any outlet would just push that conversation
+// into the chat thread where it earns nothing and is never recorded.
+//
+// So the doctor raises a REQUEST, not a prescription. The sequence is:
+//
+//   1. doctor flags it here      → order_addons row at status 'pending'
+//   2. superadmins are notified  → admin_prescription_requested
+//   3. admin collects payment    → POST /admin/orders/:id/prescription/release
+//   4. add-on flips to 'paid'    → doctor's Write-prescription CTA unlocks
+//   5. doctor writes it          → prescription.onFulfill, status 'fulfilled'
+//   6. case completes            → prescription.onComplete, addon_earnings
+//
+// Step 3 is deliberately a human step. Paymob is not currently accepting the
+// live credentials, so there is no reliable machine path from "patient owes
+// EGP 400" to "patient has paid" — and inventing one that silently marks
+// add-ons paid would be worse than an admin clicking a button.
+//
+// 'pending' is used rather than a new status value because it is already in
+// the order_addons_status_check CHECK constraint, so this needs no migration,
+// and because every downstream consumer already treats not-'paid' as
+// not-payable.
+router.post('/portal/doctor/case/:caseId/request-prescription', requireDoctor, async (req, res) => {
+  const caseId = String(req.params.caseId || '').trim();
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  const backTo = (code) => '/portal/doctor/case/' + encodeURIComponent(caseId) + (code ? ('?rx=' + code) : '');
+  const back = backTo('');
+  if (!caseId || !doctorId) return res.redirect('/portal/doctor/dashboard');
+
+  try {
+    // Coming soon (2026-08-24): no requests either. Raising one would put an
+    // operator on to collecting money for a product that cannot yet be
+    // delivered, which is the one outcome the pill exists to prevent.
+    if (require('../services/prescriptions_flag').prescriptionsComingSoon()) {
+      return res.redirect(backTo('coming_soon'));
+    }
+
+    // Ownership: only the doctor who accepted this case may request an add-on
+    // on it, and only once they have actually accepted. Mirrors the guard on
+    // /api/orders/:orderId/addons/:addonServiceId/fulfill (AUDIT-P0-7).
+    const order = await queryOne(
+      // addons_json and locked_currency are what resolvePrescriptionAccess and
+      // resolvePrescriptionQuote read — omitting them would make the resolver
+      // silently answer "not purchased" for every case.
+      `SELECT id, doctor_id, patient_id, accepted_at, status, addons_json, locked_currency, currency, payment_status
+         FROM orders_active WHERE id = $1`,
+      [caseId]
+    );
+    if (!order) return res.status(404).redirect('/portal/doctor/cases');
+    if (String(order.doctor_id || '') !== doctorId) return res.status(403).redirect('/portal/doctor/cases');
+    if (!order.accepted_at) return res.redirect(back);
+
+    const reason = String((req.body && req.body.clinical_reason) || '').trim().slice(0, 1000);
+
+    // AUDIT-2026-08-23 (C4, review round 2) — never raise a request for an
+    // add-on the patient has ALREADY bought.
+    //
+    // The purchase lives in orders.addons_json (written unconditionally by the
+    // payment callback), not necessarily in order_addons (written only through
+    // safeDualWrite, which no-ops when ADDON_SYSTEM_V2 is off). Checking only
+    // the latter — the first draft of this route — would let a doctor "request"
+    // something already paid for and an operator collect the money twice.
+    const access = await resolvePrescriptionAccess(order);
+    // Round 4: every refusal below now carries a reason. They all used to be a
+    // bare redirect back to a card still reading "not purchased", so the
+    // doctor pressed Send request, saw nothing change, and pressed it again.
+    if (access.canWrite) return res.redirect(backTo('already_available'));
+    if (access.isRequested) return res.redirect(backTo('already_requested'));
+    if (access.isTerminal) return res.redirect(backTo('declined'));
+
+    // Price and commission come from the SAME catalogue the checkout reads
+    // (service_regional_prices.addon_prescription), not addon_services — those
+    // are two different numbers, and quoting the wrong one means telling the
+    // patient a price the payment page will not charge and computing the
+    // doctor's commission off a figure nobody paid. Same two-catalogue drift
+    // FIX 8/9 corrected for video_consult.
+    const quote = await resolvePrescriptionQuote(order.locked_currency || order.currency || 'EGP');
+    if (!quote) return res.redirect(backTo('no_price'));
+    const commissionPct = await prescriptionCommissionPct();
+    // price_at_purchase_egp is what prescription.onComplete computes the
+    // doctor's commission from, so it has to hold an EGP figure. On a non-EGP
+    // order the charged amount goes in price_at_purchase_amount with its own
+    // currency and the EGP column takes the catalogue's EGP price, rather than
+    // a number in the wrong unit silently becoming the commission base.
+    const egpQuote = quote.currency === 'EGP' ? quote : await resolvePrescriptionQuote('EGP');
+    const egpAmount = egpQuote ? egpQuote.amount : 0;
+
+    // ON CONFLICT DO NOTHING: a doctor double-clicking must not overwrite an
+    // add-on the patient has already PAID for and drop it back to pending.
+    await execute(
+      `INSERT INTO order_addons (
+         order_id, addon_service_id, status,
+         price_at_purchase_egp, price_at_purchase_currency, price_at_purchase_amount,
+         doctor_commission_pct_at_purchase, metadata_json
+       ) VALUES ($1, 'prescription', 'pending', $6, $5, $2, $3, $4::jsonb)
+       ON CONFLICT (order_id, addon_service_id) DO NOTHING`,
+      [
+        caseId,
+        quote.amount,
+        commissionPct,
+        JSON.stringify({
+          requested_by_doctor: doctorId,
+          requested_at: new Date().toISOString(),
+          clinical_reason: reason || null
+        }),
+        quote.currency,
+        egpAmount
+      ]
+    );
+
+    try {
+      logOrderEvent({
+        orderId: caseId,
+        label: 'Prescription requested by doctor',
+        meta: JSON.stringify({ clinical_reason: reason || null }),
+        actorUserId: doctorId,
+        actorRole: 'doctor'
+      });
+    } catch (_) {}
+
+    try {
+      await notifyAdmins({
+        template: 'admin_prescription_requested',
+        orderId: caseId,
+        dedupeKey: 'rx-request:' + caseId,
+        payload: {
+          case_id: caseId,
+          caseReference: caseId.slice(0, 12).toUpperCase(),
+          doctorName: (req.user && req.user.name) || 'Doctor',
+          clinical_reason: reason || null,
+          priceEgp: quote.amount,
+          priceCurrency: quote.currency
+        }
+      });
+    } catch (e) {
+      // The request is already recorded in order_addons and order_events; a
+      // notification failure must not lose it. It stays visible on the admin
+      // order page regardless.
+      logErrorToDb(e, { context: 'doctor.prescription_request_notify', orderId: caseId });
+    }
+
+    return res.redirect(backTo('requested'));
+  } catch (err) {
+    logErrorToDb(err, {
+      requestId: req.requestId, url: req.originalUrl, method: req.method,
+      context: 'doctor.request_prescription', orderId: caseId, userId: doctorId
+    });
+    return res.redirect(backTo('failed'));
+  }
+});
+
 router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res) => {
   const orderId = String(req.params.caseId || '');
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
@@ -2837,6 +3449,18 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, 
   const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order || String(order.doctor_id || '') !== doctorId) {
     return res.redirect('/portal/doctor/dashboard');
+  }
+
+  // AUDIT-2026-08-22 (P2): a COMPLETED case has already been delivered — the
+  // PDF is signed, uploaded, recorded in report_exports and emailed to the
+  // patient, and the doctor has been paid. This route had no status guard, so
+  // a POST here rewrote diagnosis_text / impression_text / recommendation_text
+  // on a delivered case: the patient's on-site report silently changed while
+  // the PDF in their inbox did not, with no version marker and no audit trail
+  // distinguishing the two. Amendments need their own versioned flow; until
+  // there is one, the honest answer is to refuse.
+  if (normalizeStatus(order.status) === 'completed') {
+    return res.redirect(`/portal/doctor/case/${orderId}?error=case_completed`);
   }
 
   const diagnosisText = String(req.body.diagnosis || '').trim();
@@ -4517,17 +5141,38 @@ const SAFE_SCHEMA_TABLES = new Set([
 ]);
 const _tableColumnsCache = Object.create(null);
 
+// AUDIT-2026-08-22 (L5): a failed probe must NEVER be cached.
+//
+// This used to write [] into the cache on any error, and the guard above
+// treats [] as "already probed" — so ONE transient DB blip (a dropped
+// connection, a pool timeout during a deploy) permanently convinced this
+// process that order_files has no columns at all, for its whole lifetime.
+// Downstream that renders the doctor's file list empty with no error, and the
+// order-completion writers build SET lists with no report text in them.
+// Return the empty list to the caller for this request, but leave the cache
+// unset so the very next call re-probes. Also filter on table_schema='public'
+// — without it a same-named table in another schema (or a leftover temp
+// table) can answer the probe with the wrong column set. Every migration
+// guard in src/migrations already pins the schema this way.
 async function getTableColumns(tableName) {
   if (!tableName || !SAFE_SCHEMA_TABLES.has(tableName)) return [];
   if (_tableColumnsCache[tableName]) return _tableColumnsCache[tableName];
   try {
     const cols = await queryAll(
-      "SELECT column_name AS name FROM information_schema.columns WHERE table_name = $1",
+      "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1",
       [tableName]
     );
-    _tableColumnsCache[tableName] = Array.isArray(cols) ? cols.map((c) => c.name) : [];
+    const names = Array.isArray(cols) ? cols.map((c) => c.name) : [];
+    // An empty result is itself a failed probe: every table in
+    // SAFE_SCHEMA_TABLES exists in every supported schema snapshot.
+    if (!names.length) return [];
+    _tableColumnsCache[tableName] = names;
   } catch (e) {
-    _tableColumnsCache[tableName] = [];
+    // THEME8-LINT-EXEMPT-HELPER: the DB is the thing that just failed, so
+    // logErrorToDb would most likely fail too and could storm on retry. The
+    // caller returns [] WITHOUT caching, so the next request re-probes.
+    console.error('[schema-probe] column probe for', tableName, 'failed — NOT cached:', e && e.message ? e.message : e);
+    return [];
   }
   return _tableColumnsCache[tableName];
 }
@@ -4544,8 +5189,29 @@ async function getOrderFilesUrlColumnName() {
   return await pickFirstExistingTableColumn('order_files', ['url', 'file_url', 'cdn_url']);
 }
 
-async function getOrderFilesLabelColumnName() {
-  return await pickFirstExistingTableColumn('order_files', ['label', 'file_label', 'name']);
+// AUDIT-2026-08-22 (L6): getOrderFilesLabelColumnName() removed — it had zero
+// callers once getOrderFilesLabelExpression() below replaced it, so the
+// `filename` candidate added to its probe list was dead code that read like a
+// live fix.
+
+// AUDIT-2026-08-22 (L6): probing for a single label column is not enough on
+// its own. `label` DOES exist (migration 001), so the probe always answered
+// 'label' and never looked at `filename` — and a mobile-uploaded row has
+// label NULL / filename set, so the doctor saw the generic "Uploaded file"
+// for every one of them. A radiologist must be able to tell a current CT from
+// a prior MRI without opening each. Build a COALESCE over whichever
+// label-bearing columns this schema actually has, in preference order, so a
+// row resolves through whichever one carries its name.
+//
+// Column names come from the fixed allow-list below, never from user input.
+const ORDER_FILES_LABEL_CANDIDATES = ['label', 'file_label', 'name', 'filename'];
+async function getOrderFilesLabelExpression() {
+  const cols = await getTableColumns('order_files');
+  const present = ORDER_FILES_LABEL_CANDIDATES.filter((c) => cols.includes(c));
+  if (!present.length) return null;
+  if (present.length === 1) return present[0];
+  // NULLIF('') so an empty-string label falls through to the next candidate.
+  return 'COALESCE(' + present.map((c) => `NULLIF(${c}, '')`).join(', ') + ')';
 }
 
 async function getOrderFilesCreatedAtColumnName() {
@@ -4577,15 +5243,27 @@ async function getAdditionalFilesUploadedAtColumnName() {
 }
 
 let _ordersColumnCache = null;
+// AUDIT-2026-08-22 (L5): same poisoned-cache defect as getTableColumns above,
+// but with clinical consequences — markOrderCompletedFallback and
+// POST /diagnosis both build their SET lists from this list, so a cached []
+// meant a case was marked COMPLETED and the doctor paid with no report text
+// and no report_url written at all. Never cache a failed (or empty) probe, and
+// pin table_schema='public' like every migration guard does.
 async function getOrdersColumns() {
   if (_ordersColumnCache) return _ordersColumnCache;
   try {
     const cols = await queryAll(
-      "SELECT column_name AS name FROM information_schema.columns WHERE table_name = 'orders'"
+      "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'orders'"
     );
-    _ordersColumnCache = Array.isArray(cols) ? cols.map((c) => c.name) : [];
+    const names = Array.isArray(cols) ? cols.map((c) => c.name) : [];
+    if (!names.length) return [];
+    _ordersColumnCache = names;
   } catch (e) {
-    _ordersColumnCache = [];
+    // THEME8-LINT-EXEMPT-HELPER: same as getTableColumns above — the probe
+    // failing means the DB is unreachable, so an error_logs INSERT would fail
+    // too. Not cached, so the next request re-probes.
+    console.error('[schema-probe] orders column probe failed — NOT cached:', e && e.message ? e.message : e);
+    return [];
   }
   return _ordersColumnCache;
 }
@@ -4967,6 +5645,83 @@ async function getReportUrlColumnName() {
   ]);
 }
 
+// AUDIT-2026-08-22 (L5) — a case must never be completed on an unresolved
+// schema probe.
+//
+// getOrdersColumns() answers [] when the information_schema query itself
+// failed. Before this guard the writers below happily carried on: every
+// `if (col)` test was false, the SET list came out holding nothing but
+// `status = 'completed'`, and the case was delivered and the doctor paid with
+// no findings, no impression, no recommendation and no report_url in the row.
+// The patient's on-site report was permanently blank and the editor was
+// already hidden. Throwing is the only safe answer — the caller keeps the
+// doctor's text and lets them retry.
+class ReportSchemaUnresolvedError extends Error {
+  constructor(detail) {
+    super('report columns could not be resolved: ' + detail);
+    this.name = 'ReportSchemaUnresolvedError';
+    this.code = 'REPORT_SCHEMA_UNRESOLVED';
+  }
+}
+
+// AUDIT-2026-08-22 (L4) — persist the doctor's written report BEFORE anything
+// that can fail.
+//
+// The submit handler used to call generateMedicalReportPdf() (which renders
+// with pdfkit and uploads to R2) FIRST and only wrote the text columns
+// afterwards. Any storage or rendering failure threw, the handler answered
+// 500, and the doctor's report — which may be twenty minutes of work — had
+// never touched the database. Writing the text first is a plain draft-shaped
+// UPDATE: it does not change status, so if the PDF step then fails the case
+// is still open, the editor is still rendered, the text is still in the boxes
+// and the doctor can simply press Submit again.
+async function persistReportTextOrThrow({ orderId, diagnosisText, impressionText, recommendationsText }) {
+  const diagnosisCol = await getDiagnosisColumnName();
+  const impressionCol = await getImpressionColumnName();
+  const recsCol = await getRecommendationsColumnName();
+
+  if (!diagnosisCol) {
+    throw new ReportSchemaUnresolvedError('no diagnosis column on orders');
+  }
+
+  const nowIso = new Date().toISOString();
+  const orderCols = await getOrdersColumns();
+
+  // Mirrors the draft-save path: findings own the diagnosis column when the
+  // other two sections have columns of their own, otherwise the combined blob
+  // is the only way not to drop them.
+  const diagnosisValue = (impressionCol && recsCol)
+    ? diagnosisText
+    : buildCombinedReportText(
+        String(diagnosisText || '').trim(),
+        String(impressionText || '').trim(),
+        String(recommendationsText || '').trim()
+      );
+
+  const sets = [];
+  const params = [];
+  let idx = 1;
+
+  sets.push(`${diagnosisCol} = $${idx++}`);
+  params.push(diagnosisValue || null);
+
+  if (impressionCol) {
+    sets.push(`${impressionCol} = $${idx++}`);
+    params.push(impressionText || null);
+  }
+  if (recsCol) {
+    sets.push(`${recsCol} = $${idx++}`);
+    params.push(recommendationsText || null);
+  }
+  if (orderCols.includes('updated_at')) {
+    sets.push(`updated_at = $${idx++}`);
+    params.push(nowIso);
+  }
+
+  params.push(orderId);
+  await execute(`UPDATE orders SET ${sets.join(', ')} WHERE id = $${idx}`, params);
+}
+
 async function markOrderCompletedFallback({
   orderId,
   doctorId,
@@ -4979,6 +5734,16 @@ async function markOrderCompletedFallback({
   const nowIso = new Date().toISOString();
   const diagnosisCol = await getDiagnosisColumnName();
   const reportCol = await getReportUrlColumnName();
+
+  // AUDIT-2026-08-22 (L5): refuse to complete a case whose report columns the
+  // probe could not resolve — see ReportSchemaUnresolvedError above. Checked
+  // before a single write, so nothing is half-applied.
+  const orderColsProbe = await getOrdersColumns();
+  if (!orderColsProbe.length || !diagnosisCol || !reportCol) {
+    throw new ReportSchemaUnresolvedError(
+      `orders columns=${orderColsProbe.length}, diagnosis=${diagnosisCol || 'none'}, report_url=${reportCol || 'none'}`
+    );
+  }
   // Submit used to persist the diagnosis column only. The doctor's Impression
   // and Recommendation went into the PDF and were then thrown away, so the
   // patient's on-site report (which reads impression_text /
@@ -5022,7 +5787,7 @@ async function markOrderCompletedFallback({
   }
 
   // Only set timestamps if those columns exist in this DB schema.
-  const orderCols = await getOrdersColumns();
+  const orderCols = orderColsProbe;
 
   // Ensure the order remains attributable to the doctor who completed it (helps dashboard visibility).
   if (orderCols.includes('doctor_id') && doctorId) {
@@ -5110,13 +5875,129 @@ async function markOrderCompletedFallback({
   } catch (e) {
     // ignore
   }
+
+  // AUDIT-2026-08-23 (C4) — settle the prescription add-on when the case
+  // completes.
+  //
+  // prescription.onComplete (which writes addon_earnings) and
+  // prescription.onRefund had NO caller anywhere in the codebase: grep either
+  // name outside services/addons and its tests and you get nothing.
+  // video_consult settles itself from routes/video.js; prescription had no
+  // equivalent, so a fulfilled add-on would never have paid the doctor.
+  //
+  // Review round 2 killed the auto-refund this block originally did. The first
+  // draft routed a still-'paid' add-on to onRefund here, on the reasoning that
+  // "paid but not written" means the patient did not get what they bought.
+  // That is wrong, and dangerously so: writing a prescription AFTER the report
+  // is explicitly supported (the eligible-cases query in routes/prescriptions.js
+  // includes 'completed', and neither prescribe handler gates on status), and
+  // submitting the report is the normal FIRST action. So the common case —
+  // doctor submits the report, then writes the prescription — would have
+  // refunded the add-on a second earlier, flipped the case page to the silent
+  // terminal state, and left the paying patient with nothing.
+  //
+  // Nor is that refund even real: refund_pending has no reader anywhere in
+  // src/ — no worker, no admin screen, no refunds row, no notification — so
+  // the flag would have marked the money returned without returning it.
+  //
+  // Completion therefore only settles what is genuinely finished. An add-on
+  // still sitting at 'paid' stays 'paid': the doctor can still deliver it
+  // (routes/prescriptions.js settles it on the spot when the case is already
+  // completed), and if they never do, it is an operator's judgement call, not
+  // an automatic write-off. It is logged so that call can be made.
+  try {
+    const rx = await queryOne(
+      `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'prescription' LIMIT 1`,
+      [orderId]
+    );
+    if (rx) {
+      const rxStatus = String(rx.status || '').toLowerCase();
+      const svc = getAddon('prescription');
+      if (svc && rxStatus === 'fulfilled') {
+        // Not wrapped in safeDualWrite: that no-ops when ADDON_SYSTEM_V2 is
+        // off, which would silently skip paying a doctor for work already
+        // delivered. addon_earnings has a UNIQUE index on order_addon_id, so
+        // this cannot double-pay however many times completion runs.
+        try {
+          await svc.onComplete({ order: { id: orderId }, addon: rx, doctorId: doctorId || rx_doctorFallback(rx) });
+        } catch (payErr) {
+          logErrorToDb(payErr, { context: 'doctor.prescription_addon_oncomplete', category: 'doctor_case', orderId });
+        }
+      } else if (rxStatus === 'paid') {
+        try {
+          logOrderEvent({
+            orderId,
+            label: 'Case completed with an unwritten paid prescription',
+            meta: JSON.stringify({ addon: 'prescription', status: rxStatus }),
+            actorUserId: doctorId,
+            actorRole: 'doctor'
+          });
+        } catch (_) {}
+      }
+      // 'pending' (doctor requested, patient never paid), 'cancelled' and
+      // 'refunded' are terminal for settlement: nothing was collected, so
+      // there is nothing to pay out or give back.
+    }
+  } catch (e) {
+    logErrorToDb(e, { context: 'doctor.prescription_addon_settlement', category: 'doctor_case', orderId });
+  }
+}
+
+// onComplete needs a doctor to credit. The completion path always has one, but
+// if it were ever called without, fall back to whoever the add-on itself
+// recorded rather than inserting an addon_earnings row with a null doctor.
+function rx_doctorFallback(addon) {
+  try {
+    const meta = addon && addon.metadata_json ? addon.metadata_json : null;
+    const parsed = typeof meta === 'string' ? JSON.parse(meta) : meta;
+    return (parsed && (parsed.attached_by || parsed.requested_by_doctor)) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// AUDIT-2026-08-22 (L2) — what "empty" means for a report section.
+//
+// A submitted report is irreversible: it renders a PDF, writes the text
+// columns, flips the case to COMPLETED, inserts report_exports, marks the
+// doctor's earnings PAID and emails the patient "your report is ready". The
+// editor is then hidden and the handler early-returns on completed, so an
+// accidental submit could not be corrected by anyone. A section counts as
+// empty when nothing but whitespace, dashes and the em-dash placeholder the
+// PDF itself prints for "nothing here" remains — otherwise a doctor who typed
+// "—" to move on would still deliver a blank report.
+function isReportSectionEmpty(text) {
+  const t = String(text == null ? '' : text).trim();
+  if (!t) return true;
+  return !t.replace(/[\s\-—–_.·•*]+/g, '');
+}
+
+// AUDIT-2026-08-22 (L7): users.gender is free text. Map the values the product
+// writes and pass anything else through rather than hiding it; the em-dash is
+// reserved for genuinely unknown.
+function reportGenderLabel(raw) {
+  const g = String(raw == null ? '' : raw).trim();
+  if (!g) return '';
+  const k = g.toLowerCase();
+  if (k === 'male' || k === 'm') return 'Male';
+  if (k === 'female' || k === 'f') return 'Female';
+  if (k === 'other') return 'Other';
+  if (k === 'prefer_not_to_say' || k === 'unspecified') return 'Not specified';
+  return g;
 }
 
 async function handlePortalDoctorGenerateReport(req, res) {
-  try {
-    const doctorId = req.user && req.user.id;
-    const orderId = req.params.caseId;
+  // AUDIT-2026-08-22 (L4): declared OUT here on purpose. `orderId` used to be
+  // a `const` inside the try block, and the sibling catch at the bottom of
+  // this function references it in its logErrorToDb payload — a
+  // ReferenceError that fired BEFORE logErrorToDb ran, so /ops/errors recorded
+  // "orderId is not defined" instead of the real cause of every failed report
+  // submission. Same for doctorId, which the catch does not read today but
+  // would be just as unsafe to reach for.
+  const doctorId = req.user && req.user.id;
+  const orderId = req.params.caseId;
 
+  try {
     if (!doctorId || !orderId) {
       return res.status(400).send('Invalid request');
     }
@@ -5155,13 +6036,83 @@ async function handlePortalDoctorGenerateReport(req, res) {
     const recommendationsText =
       (req.body && (req.body.recommendations || req.body.recommendation_text)) || storedDraft.recommendations || '';
 
+    // AUDIT-2026-08-22 (L4) — persist the written report BEFORE anything else.
+    //
+    // generateMedicalReportPdf renders with pdfkit and uploads to R2. It used
+    // to run first, with the text columns written only afterwards, so an R2
+    // outage or a pdfkit throw lost the doctor's entire report: the catch
+    // below answered 500 and nothing had been saved. This write does not
+    // touch `status`, so a later failure leaves the case open, the editor
+    // rendered, the text back in the boxes and Submit retryable.
+    //
+    // AUDIT-2026-08-22 — and it now runs BEFORE the emptiness check below, not
+    // after. The check answered 302 on a report with a blank Impression, and
+    // portal_doctor_case.ejs repopulates the three textareas from the DB ONLY
+    // (_exDiag/_exImpr/_exRec, view line ~113) — so a doctor who typed twenty
+    // minutes of findings and left Impression blank was bounced back to an
+    // empty editor with everything gone. The client-side pre-check was the only
+    // thing standing in front of that, and it is bypassed with JS disabled or
+    // after any earlier script error on the page. persistReportTextOrThrow is
+    // draft-shaped by construction — it writes only the three text columns and
+    // updated_at, never `status` — so saving first cannot complete a case, and
+    // each value already falls back to the stored draft (above) so a field the
+    // browser dropped cannot blank a saved section.
+    try {
+      await persistReportTextOrThrow({
+        orderId,
+        diagnosisText,
+        impressionText,
+        recommendationsText
+      });
+    } catch (e) {
+      logErrorToDb(e, {
+        context: 'doctor.report_persist_text',
+        requestId: req.requestId,
+        userId: doctorId,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_case',
+        orderId
+      });
+      console.error('[doctor][report] could not persist report text — refusing to continue', e && e.message);
+      return res.redirect(`/portal/doctor/case/${orderId}?error=report_save_failed`);
+    }
+
+    // AUDIT-2026-08-22 (L2) — refuse an empty report, authoritatively.
+    //
+    // There was no emptiness check at all here, and the three textareas in
+    // portal_doctor_case.ejs are labelled "required" but carry no `required`
+    // attribute (deliberately — the same form's "Save draft" button must keep
+    // accepting a partial report). So one stray click on "Submit report"
+    // produced a PDF whose three clinical sections all read "—", wrote NULL
+    // over diagnosis_text/impression_text/recommendation_text, flipped the
+    // case to COMPLETED, inserted a report_exports row, marked the doctor's
+    // earnings PAID and emailed the patient that their report was ready —
+    // irreversibly, because the editor is hidden and this handler
+    // early-returns on completed.
+    //
+    // Findings and Impression are the clinically load-bearing sections: the
+    // findings are the observation and the impression is the opinion the
+    // patient is paying for. Recommendations can legitimately be empty (an
+    // unremarkable study needs no plan), so it is not required here even
+    // though the editor labels it "required".
+    //
+    // The redirect is safe now: the text above is already saved as a draft, so
+    // the case page renders it straight back into the boxes.
+    if (isReportSectionEmpty(diagnosisText) || isReportSectionEmpty(impressionText)) {
+      return res.redirect(`/portal/doctor/case/${orderId}?error=report_empty`);
+    }
+
     // Fetch related entities for a rich PDF
     let patient = {};
     let doctor = {};
     let specialty = {};
     let annotations = [];
     try {
-      patient = (await queryOne('SELECT name, email, phone FROM users WHERE id = $1', [order.patient_id])) || {};
+      // AUDIT-2026-08-22 (L7): date_of_birth and gender added to the SELECT —
+      // every delivered PDF printed a hardcoded "Age: —  Gender: —" while the
+      // case page beside it rendered both from these very columns.
+      patient = (await queryOne('SELECT name, email, phone, date_of_birth, gender FROM users WHERE id = $1', [order.patient_id])) || {};
       doctor  = (await queryOne('SELECT name, specialty_id FROM users WHERE id = $1', [doctorId])) || {};
       if (doctor.specialty_id) {
         specialty = (await queryOne('SELECT name FROM specialties WHERE id = $1', [doctor.specialty_id])) || {};
@@ -5176,21 +6127,52 @@ async function handlePortalDoctorGenerateReport(req, res) {
       );
     } catch (_) { /* non-critical — proceed without */ }
 
-    const reportUrl = await generateMedicalReportPdf({
-      caseId:          orderId,
-      doctorName:      doctor.name  || '',
-      specialty:       specialty.name || '',
-      createdAt:       order.created_at,
-      findings:        diagnosisText || order.diagnosis_text || order.notes || '',
-      impression:      impressionText,
-      recommendations: recommendationsText,
-      patient: {
-        name:   patient.name   || '—',
-        age:    '—',
-        gender: '—',
-      },
-      annotations,
-    });
+    // AUDIT-2026-08-22 (L7): real demographics. computeAgeFromDob already
+    // rejects nonsense (unparseable, negative, >120) and returns null, so the
+    // em-dash still stands for genuinely unknown.
+    const reportPatientAge = computeAgeFromDob(patient.date_of_birth);
+    const reportPatientGender = reportGenderLabel(patient.gender);
+
+    let reportUrl;
+    try {
+      reportUrl = await generateMedicalReportPdf({
+        caseId:          orderId,
+        doctorName:      doctor.name  || '',
+        specialty:       specialty.name || '',
+        createdAt:       order.created_at,
+        // AUDIT-2026-08-22 (L2): `|| order.notes` REMOVED. orders.notes is
+        // patient-written intake text. On any order carrying it, a findings
+        // box the doctor left blank fell through to the patient's own words,
+        // which were then printed into the PDF's "Findings / Observations"
+        // section under the doctor's signature and delivered as a clinical
+        // opinion. The diagnosis_text fallback is kept: that column is the
+        // doctor's own saved draft.
+        findings:        diagnosisText || order.diagnosis_text || '',
+        impression:      impressionText,
+        recommendations: recommendationsText,
+        patient: {
+          name:   patient.name || '—',
+          age:    (reportPatientAge != null) ? String(reportPatientAge) : '—',
+          gender: reportPatientGender || '—',
+        },
+        annotations,
+      });
+    } catch (e) {
+      // AUDIT-2026-08-22 (L4): the text is already saved above, so this is
+      // recoverable — send the doctor back to a still-open case with their
+      // report intact rather than a bare 500 on a case that looks lost.
+      logErrorToDb(e, {
+        context: 'doctor.report_pdf_generate',
+        requestId: req.requestId,
+        userId: doctorId,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_case',
+        orderId
+      });
+      console.error('[doctor][report] PDF generation failed (text was saved)', e && e.message);
+      return res.redirect(`/portal/doctor/case/${orderId}?error=report_pdf_failed`);
+    }
 
     // AUDIT-P1-4 — walk the case into IN_REVIEW before completing it.
     //
@@ -5223,15 +6205,38 @@ async function handlePortalDoctorGenerateReport(req, res) {
       console.error('[report] IN_REVIEW transition before completion failed:', e && e.message);
     }
 
-    await markOrderCompletedFallback({
-      orderId,
-      doctorId,
-      reportUrl,
-      diagnosisText,
-      impressionText,
-      recommendationsText,
-      annotatedFiles: []
-    });
+    // AUDIT-2026-08-22 (L5): markOrderCompletedFallback now throws rather than
+    // completing a case on an unresolved schema probe. Bounce the doctor back
+    // to a still-open case (their text is already persisted) instead of a bare
+    // 500 — completing without the report columns is the outcome we are
+    // preventing, and a retry once the DB recovers is the fix.
+    try {
+      await markOrderCompletedFallback({
+        orderId,
+        doctorId,
+        reportUrl,
+        diagnosisText,
+        impressionText,
+        recommendationsText,
+        annotatedFiles: []
+      });
+    } catch (e) {
+      logErrorToDb(e, {
+        context: 'doctor.report_mark_completed',
+        requestId: req.requestId,
+        userId: doctorId,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_case',
+        orderId
+      });
+      console.error('[doctor][report] completion write failed — case left open', e && e.message);
+      // AUDIT-2026-08-22: report_complete_failed, not report_save_failed — the
+      // text (and the PDF) ARE saved at this point; only the completion write
+      // failed, and telling the doctor their report was lost would have them
+      // retype a report that is sitting in the boxes in front of them.
+      return res.redirect(`/portal/doctor/case/${orderId}?error=report_complete_failed`);
+    }
 
     // AUDIT-P1-4 — close the open assignment and emit the canonical case event.
     // Without the close, sweepDoctorTimeouts kept selecting this completed case

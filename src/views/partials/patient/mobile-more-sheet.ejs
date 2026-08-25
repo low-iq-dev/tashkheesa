@@ -38,7 +38,8 @@
 
   const __rows = [
     { k: 'appointments',  icon: 'calendar', href: '/portal/patient/appointments',  label: __labels.appointments },
-    { k: 'prescriptions', icon: 'file',     href: '/portal/patient/prescriptions', label: __labels.prescriptions },
+    { k: 'prescriptions', icon: 'file',     href: '/portal/patient/prescriptions',
+      label: __labels.prescriptions + ((typeof prescriptionsComingSoon === 'undefined' || prescriptionsComingSoon) ? (__isAr ? ' · قريباً' : ' · Soon') : '') },
     { k: 'records',       icon: 'activity', href: '/portal/patient/records',       label: __labels.records },
     { k: 'referrals',     icon: 'heart',    href: '/portal/patient/referrals',     label: __labels.referrals },
     { k: 'reviews',       icon: 'star',     href: '/portal/patient/reviews',       label: __labels.reviews },

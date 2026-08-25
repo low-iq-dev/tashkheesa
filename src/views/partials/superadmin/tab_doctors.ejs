@@ -48,7 +48,14 @@
           </td>
           <td class="tabular"><% if (r.rating == null) { %><span style="color:var(--fg-3);">—</span><% } else { %>★ <%= r.rating.toFixed ? r.rating.toFixed(1) : r.rating %><% } %></td>
           <td class="num"><%= Number(r.rev).toLocaleString('en-US') %></td>
-          <td class="num"><% if (r.owed > 0) { %><%= Number(r.owed).toLocaleString('en-US') %><% } else { %><span style="color:var(--fg-3);">—</span><% } %></td>
+          <%# Total across both payout ledgers; the add-on split is called out
+              in the title so a figure that does not match doctor_earnings alone
+              is explicable without opening the code. %>
+          <td class="num"<% if (r.owedAddons) { %> title="Cases <%= Number(r.owedCases || 0).toLocaleString('en-US') %> + add-ons <%= Number(r.owedAddons).toLocaleString('en-US') %>"<% } %>>
+            <% if (r.owed > 0) { %>
+              <%= Number(r.owed).toLocaleString('en-US') %><% if (r.owedAddons) { %><span style="color:var(--fg-3);font-size:11px;"> +<%= Number(r.owedAddons).toLocaleString('en-US') %> add-on</span><% } %>
+            <% } else { %><span style="color:var(--fg-3);">—</span><% } %>
+          </td>
         </tr>
       <% }); %>
     <%- include('c_table_close') %>

@@ -455,6 +455,13 @@ app.use(function(req, res, next) {
       // ('self' + nonce + host-sources) still gates which code can RUN; this only
       // relaxes the eval() *function*. Tracked for migration to Uploadcare Blocks
       // v1.x (CSP-strict compatible) in a follow-up.
+      // AUDIT-2026-08-22: re-verified before the jsDelivr tightening below and
+      // deliberately RETAINED. The only new Function()/eval consumer in the
+      // tree is the Uploadcare widget 3.x bundle loaded by patient_new_case.ejs
+      // and patient_order.ejs (ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js);
+      // nothing under public/js or public/vendor evals. Dropping it here would
+      // silently kill patient file upload, and there is no local build step to
+      // swap the widget out. Removal is gated on the Blocks v1.x migration.
       // unpkg.com removed: the only reference to it in the tree is a
       // <link rel="stylesheet"> for lucide-static in layouts/auth.ejs and
       // layouts/public.ejs — a STYLE, governed by style-src, never a script.
@@ -463,7 +470,21 @@ app.use(function(req, res, next) {
       // KEPT — chart.js 4.4.0 is genuinely loaded from it by admin_errors,
       // admin_analytics, superadmin_errors, superadmin_analytics and
       // doctor_analytics.
-      "script-src 'self' 'unsafe-eval' 'nonce-" + nonce + "' https://ucarecdn.com https://cdn.jsdelivr.net https://media.twiliocdn.com",
+      //
+      // AUDIT-2026-08-22: the bare host source `https://cdn.jsdelivr.net`
+      // defeated the nonce. jsDelivr will serve ANY npm package or GitHub repo,
+      // so an injected `<script src="https://cdn.jsdelivr.net/gh/attacker/x@main/
+      // p.js">` needed no nonce to run — turning any HTML-injection sink
+      // (e.g. the analytics chart payloads, fixed in the same pass) into full
+      // script execution in an admin/superadmin session. CSP source
+      // expressions match on path as well as host, and a path that does not
+      // end in '/' must match EXACTLY, so pinning the one file we actually
+      // load keeps all five chart views working while making the CDN useless
+      // as an attacker-controlled script origin. Keep this string
+      // byte-identical to the src="" in those views, or the charts 403.
+      // Removing the CDN entirely needs chart.js vendored under public/vendor/
+      // — see the report.
+      "script-src 'self' 'unsafe-eval' 'nonce-" + nonce + "' https://ucarecdn.com https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js https://media.twiliocdn.com",
       // AUDIT-P0-5 — Twilio Video added. media.twiliocdn.com was already in
       // script-src so the SDK loaded, and the token fetch is same-origin so it
       // succeeded — but Twilio.Video.connect() opens a WebSocket to
@@ -573,6 +594,26 @@ app.use(function(req, res, next) {
 // Current URL for templates
 app.use(function(req, res, next) {
   res.locals.currentUrl = req.originalUrl || req.url || '/';
+  next();
+});
+
+// Prescriptions coming-soon flag, global to every render.
+//
+// Thirteen views mention prescriptions across the doctor portal, the patient
+// portal, both sidebars, the mobile tab bar and the more-sheet. Threading a
+// local through thirteen handlers is how you end up with one surface that
+// still says "Write prescription" after the rest have been labelled, so it is
+// set once here and every template reads the same value.
+// See src/services/prescriptions_flag.js for why the feature is held back.
+app.use(function(req, res, next) {
+  try {
+    var rxFlag = require('./services/prescriptions_flag');
+    res.locals.prescriptionsComingSoon = rxFlag.prescriptionsComingSoon();
+  } catch (_) {
+    // Fail to the SAFE side: if the flag module cannot be loaded, treat the
+    // feature as not ready rather than exposing an unaudited money path.
+    res.locals.prescriptionsComingSoon = true;
+  }
   next();
 });
 

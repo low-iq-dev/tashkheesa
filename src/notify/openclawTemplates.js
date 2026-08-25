@@ -42,6 +42,13 @@ function doctorCaseUrl(orderId) {
   return orderId ? `${appUrl()}/portal/doctor/case/${orderId}` : `${appUrl()}/portal/doctor`;
 }
 
+// AUDIT-2026-08-22 (N6) — ops-facing order view, for alerts fanned out to
+// superadmins. Same missing-id guard as doctorCaseUrl: fall back to the ops
+// order list rather than emit a URL with an empty final segment.
+function opsOrderUrl(orderId) {
+  return orderId ? `${appUrl()}/superadmin/orders/${orderId}` : `${appUrl()}/superadmin/orders`;
+}
+
 // All composers receive an enriched `vars` object:
 //   {
 //     caseReference, doctorName, patientName, amount, currency,
@@ -227,9 +234,28 @@ const OPENCLAW_TEMPLATES = {
   },
 
   // ── Doctor: assignment lifecycle ──────────────────────────────────
+  // AUDIT-2026-08-22 (N3) — this body was DOCTOR copy on a PATIENT-only event.
+  //
+  // `tashkheesa_case_assigned` has exactly two call sites repo-wide —
+  // routes/admin.js (force-assign) and workers/acceptance_watcher.js
+  // (acceptance-timeout auto-assign) — and BOTH queue it to `order.patient_id`.
+  // There is no doctor call site: doctors get CASE_AUTO_ASSIGNED /
+  // order_assigned_doctor, which have their own doctor bodies below.
+  //
+  // So the patient was told "Case X has been assigned to YOU. Review and
+  // accept:" followed by a /portal/doctor/case/ URL they cannot open — asking
+  // them to accept their own case. The bell title for the same template
+  // ('Your case has been assigned to a doctor' / 'تم إسناد حالتك إلى طبيب')
+  // was already correct patient copy, so the two surfaces contradicted each
+  // other on the same event.
+  //
+  // Fixed by rewriting the BODY to match the (correct) title rather than by
+  // renaming the template at the call sites: that repairs both call sites at
+  // once — including acceptance_watcher.js, which this agent does not own —
+  // and leaves no window where one site is renamed and the other is not.
   tashkheesa_case_assigned: {
-    en: (v) => `Case ${v.caseReference} has been assigned to you. Review and accept: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`,
-    ar: (v) => `تم إسناد حالة ${v.caseReference} إليك. للمراجعة والقبول: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+    en: (v) => `Your case (${v.caseReference}) has been assigned to ${v.doctorName ? `Dr. ${v.doctorName}` : 'a specialist'}. Track updates here: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تم إسناد حالتك (${v.caseReference}) إلى ${v.doctorName ? `د. ${v.doctorName}` : 'طبيب مختص'}. للمتابعة: ${v.link}\n— تشخيصة`
   },
   tashkheesa_case_auto_assigned: {
     en: (v) => `Case ${v.caseReference} was auto-assigned to you. Please accept it to start the SLA clock: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`,
@@ -255,9 +281,25 @@ const OPENCLAW_TEMPLATES = {
     en: (v) => `Payment confirmed on case ${v.caseReference} — it is ready for review: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`,
     ar: (v) => `تم تأكيد الدفع لحالة ${v.caseReference} — جاهزة للمراجعة: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
   },
+  // DOCTOR-facing breach alert (notify.sendSlaReminder level 'breach' → the
+  // assigned doctor). doctorCaseUrl() rather than raw interpolation so a
+  // missing orderId lands on the doctor's queue instead of a URL ending in a
+  // bare slash — see the helper's note above (AUDIT-2026-08-22, N6).
   sla_breach: {
-    en: (v) => `SLA BREACHED on case ${v.caseReference}. Immediate action needed: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`,
-    ar: (v) => `تم تجاوز المهلة على حالة ${v.caseReference}. مطلوب إجراء فوري: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+    en: (v) => `SLA BREACHED on case ${v.caseReference}. Immediate action needed: ${doctorCaseUrl(v.orderId)}\n— Tashkheesa`,
+    ar: (v) => `تم تجاوز المهلة على حالة ${v.caseReference}. مطلوب إجراء فوري: ${doctorCaseUrl(v.orderId)}\n— تشخيصة`
+  },
+  // AUDIT-2026-08-22 (N6) — SUPERADMIN-facing breach escalation
+  // (notify.dispatchSlaBreach fans this to every active superadmin).
+  //
+  // It used to fan `sla_breach` above: doctor-addressed copy ("Immediate
+  // action needed") with a /portal/doctor/case/ CTA, sent to operators who
+  // cannot write the review and do not use that portal. The ops action on a
+  // breach is to chase, reassign or escalate, so the copy says that and the
+  // CTA points at the ops order view.
+  sla_breach_superadmin: {
+    en: (v) => `SLA BREACHED — case ${v.caseReference}${v.doctorName ? ` (Dr. ${v.doctorName})` : ''} is past its deadline and needs escalation or reassignment: ${opsOrderUrl(v.orderId)}\n— Tashkheesa`,
+    ar: (v) => `تم تجاوز المهلة — حالة ${v.caseReference}${v.doctorName ? ` (د. ${v.doctorName})` : ''} تجاوزت موعد التسليم وتحتاج تصعيدًا أو إعادة إسناد: ${opsOrderUrl(v.orderId)}\n— تشخيصة`
   },
   doctor_approved: {
     en: (v) => `Your Tashkheesa specialist account is approved. Sign in to view available cases: ${appUrl()}/portal/doctor\n— Tashkheesa`,
@@ -334,6 +376,39 @@ const OPENCLAW_TEMPLATES = {
   video_slot_review_requested: {
     en: (v) => `A new video-consultation time needs your review on case ${v.caseReference}: ${appUrl()}/portal/doctor/case/${v.orderId}\n— Tashkheesa`,
     ar: (v) => `مطلوب مراجعتك لموعد استشارة مرئية على حالة ${v.caseReference}: ${appUrl()}/portal/doctor/case/${v.orderId}\n— تشخيصة`
+  },
+
+  // ── AUDIT-2026-08-22: three NEW video events (routes/video.js) ────────
+  //
+  // Added ahead of the emitting code. A queued whatsapp-channel event with no
+  // entry in this table is NOT a soft skip: whatsapp.js returns
+  // { ok:false, permanent:true, error:'no_openclaw_template' } and the worker
+  // files it as a failure on /ops. Registering them here is what keeps three
+  // real events off the failure dashboard on day one.
+  //
+  // Distinct from video_no_show_patient / video_no_show_doctor above, which
+  // are the PATIENT-no-show pair (suffix = recipient, not absentee).
+
+  // The DOCTOR failed to join. The patient is fully refunded, so the refund is
+  // stated plainly and unconditionally — `refund:'full'` is a constant on this
+  // event, so there is nothing to branch on and no reason to hedge the wording.
+  // No apology-plus-no-remedy: the rebook link is the remedy.
+  video_doctor_no_show_patient: {
+    en: (v) => `We're sorry — the specialist could not join your video consultation (${v.caseReference}). You have been refunded in full. To book a new time: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `نعتذر — تعذّر انضمام الطبيب إلى استشارتك المرئية (${v.caseReference}). تم رد المبلغ بالكامل. لحجز موعد جديد: ${v.link}\n— تشخيصة`
+  },
+  // The PATIENT cancelled. The doctor needs to know the slot is free and what
+  // happened to the money (refund_status is operational context for them, not
+  // a promise to the patient), so it renders only when the payload carries it.
+  video_appointment_cancelled_doctor: {
+    en: (v) => `The patient cancelled the video consultation for case ${v.caseReference}${v.refundStatus ? ` (refund: ${v.refundStatus})` : ''}. The slot is now free. Details: ${doctorCaseUrl(v.orderId)}\n— Tashkheesa`,
+    ar: (v) => `المريض ألغى الاستشارة المرئية لحالة ${v.caseReference}${v.refundStatus ? ` (حالة الاسترداد: ${v.refundStatus})` : ''}. الموعد أصبح متاحًا. التفاصيل: ${doctorCaseUrl(v.orderId)}\n— تشخيصة`
+  },
+  // The patient ACCEPTED the time the doctor proposed — the doctor's slot is
+  // now committed, so the confirmed time is the whole point of the message.
+  video_slot_confirmed_doctor: {
+    en: (v) => `The patient confirmed the video consultation for case ${v.caseReference}${v.confirmedSlot ? `: ${v.confirmedSlot}` : ''}. Details: ${doctorCaseUrl(v.orderId)}\n— Tashkheesa`,
+    ar: (v) => `المريض أكد موعد الاستشارة المرئية لحالة ${v.caseReference}${v.confirmedSlot ? `: ${v.confirmedSlot}` : ''}. التفاصيل: ${doctorCaseUrl(v.orderId)}\n— تشخيصة`
   }
 };
 
@@ -399,6 +474,16 @@ function getOpenClawBody(eventName, lang, rawVars, opts) {
     // which is the safe side: a doctor shown the patient wording loses an
     // action prompt, a patient shown the doctor wording is told they are late.
     role: String(vars.role || '').toLowerCase(),
+    // AUDIT-2026-08-22: `enriched` is a FIXED key set — it deliberately does
+    // not spread `vars`, so a composer can only read what is listed here. The
+    // three new video events carry payload fields that had no slot, and a
+    // composer reading `v.confirmed_slot` would have rendered `undefined` in a
+    // patient-visible body. Mapped explicitly, snake_case first (that is what
+    // routes/video.js queues) with a camelCase alias for callers that use it.
+    confirmedSlot: vars.confirmed_slot || vars.confirmedSlot || vars.appointmentTime || vars.appointment_time || '',
+    refundStatus: vars.refund_status || vars.refundStatus || vars.refund || '',
+    cancelledBy: vars.cancelled_by || vars.cancelledBy || '',
+    appointmentId: vars.appointment_id || vars.appointmentId || '',
     link: vars.link || patientOrderUrl(orderId),
     orderId: orderId || ''
   };

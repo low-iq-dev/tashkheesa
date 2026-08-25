@@ -25,7 +25,8 @@ const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, 
 const emailService = require('../services/emailService');
 const { logAdminAudit } = require('../services/admin_audit');
 const { bulkWelcomePasswordlessDoctors } = require('../services/admin_doctor_bulk_invite');
-const { WELCOME_EXPIRY_HOURS } = require('../services/doctor_welcome_payload');
+const { inviteDoctor } = require('../services/admin_doctor_invite');
+const { WELCOME_EXPIRY_HOURS, SERVICES_READY_SQL } = require('../services/doctor_welcome_payload');
 const rateLimit = require('express-rate-limit');
 const adminSettings = require('../services/admin_settings');
 const superadminDashboard = require('../services/superadmin_dashboard');
@@ -72,9 +73,10 @@ const welcomeSendIpLimiter = rateLimit({
 
 const IS_PROD = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 
-// Mirrors src/routes/auth.js portal flow — keep in sync. Used by the
-// superadmin "Create Doctor" handler when it issues a one-time setup
-// link to the new doctor instead of generating a temporary password.
+// Mirrors src/routes/auth.js portal flow — keep in sync. AUDIT-2026-08-23: the
+// only consumer left in this file is the manual /superadmin debug reset-link
+// tool; "Create Doctor" no longer mints its own token at all (it delegates to
+// services/admin_doctor_invite, which uses the 7-day WELCOME_EXPIRY_HOURS).
 const RESET_EXPIRY_HOURS = 2;     // forgot-password / manual reset — user is actively requesting, short window
 // P1-NOTIF-5: doctor approval + admin-created doctor first-time setup —
 // recipient is passive (didn't request the email), may not check inbox
@@ -455,6 +457,92 @@ router.get('/superadmin/settings', requireSuperadmin, async (req, res) => {
   const byKey = {};
   for (const r of (rows || [])) byKey[r.key] = r;
 
+  // 2026-08-25 — auto-assign. This flag has existed since June and has been
+  // 'false' the whole time, with NO route or view anywhere that writes it: the
+  // only way to turn automatic case assignment on was a hand-written SQL
+  // UPDATE against production. A switch that decides whether paid cases reach
+  // a doctor should not live in a psql session.
+  let autoAssign = null;
+  try {
+    autoAssign = await queryOne(
+      `SELECT key, value, updated_by, updated_at FROM admin_settings
+        WHERE key = 'auto_assign_enabled'`
+    );
+  } catch (_) { autoAssign = null; }
+  const autoAssignOn = (function () {
+    const v = String((autoAssign && autoAssign.value) || '').toLowerCase().trim();
+    // Mirrors isAutoAssignEnabled() in src/auto_assign.js exactly — if the two
+    // ever disagree the page would show a state the engine does not act on.
+    return v === 'true' || v === '1' || v === 'yes';
+  })();
+
+  // Readiness context, so the toggle is not a switch in the dark. Turning
+  // auto-assign on when nothing downstream works produces silent failures that
+  // look exactly like it being off; the operator should see that first.
+  //
+  // Counted at SERVICE level, not specialty level — a correction from review.
+  // The first version asked "does this specialty have any eligible doctor with
+  // any doctor_services row", but eligibleDoctorsFor gates on the ORDER'S
+  // service (auto_assign.js: ds.service_id = $3). Cardiology has three eligible
+  // doctors mapped to 9 of its 11 services, so the specialty-level question
+  // answered "staffed" while an order on Event Monitor Review or Pre-Op Cardiac
+  // Clearance still had nobody and fell straight into the manual queue. A
+  // readiness panel that misses exactly the cases it exists to warn about is
+  // worse than no panel.
+  let autoAssignReadiness = null;
+  try {
+    const r = await queryOne(
+      `WITH eligible AS (
+         SELECT u.id, u.specialty_id
+           FROM users u
+          WHERE u.role = 'doctor'
+            AND COALESCE(u.is_active, true) = true
+            AND COALESCE(u.is_paused, false) = false
+            AND COALESCE(u.pending_approval, false) = false
+            AND COALESCE(u.onboarding_complete, false) = true
+            AND u.specialty_id IS NOT NULL
+       ),
+       bookable AS (
+         SELECT sv.id, sv.specialty_id
+           FROM services sv
+           JOIN specialties sp ON sp.id = sv.specialty_id
+          WHERE COALESCE(sv.is_visible, true) = true
+            AND COALESCE(sv.coming_soon, false) = false
+            AND COALESCE(sp.is_visible, true) = true
+       ),
+       covered AS (
+         SELECT b.id, b.specialty_id,
+                EXISTS (
+                  SELECT 1 FROM doctor_services ds
+                    JOIN eligible e ON e.id = ds.doctor_id
+                   WHERE ds.service_id = b.id
+                     AND e.specialty_id = b.specialty_id
+                ) AS has_doctor
+           FROM bookable b
+       )
+       SELECT
+         (SELECT count(*) FROM eligible e
+           WHERE EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = e.id)
+         ) AS assignable_doctors,
+         (SELECT count(*) FROM covered) AS bookable_services,
+         (SELECT count(*) FROM covered WHERE NOT has_doctor) AS uncovered_services,
+         (SELECT count(DISTINCT specialty_id) FROM covered WHERE NOT has_doctor) AS specialties_with_gaps,
+         -- Only orders that are genuinely still waiting. orders_active is just
+         -- "not soft-deleted" — no status and no payment filter — so the first
+         -- version's count included an expired_unpaid order and would have
+         -- permanently counted every cancelled or refunded case that ever
+         -- passed through the queue.
+         (SELECT count(*) FROM orders_active o
+           WHERE o.assignment_status IN ('manual_queue', 'manual_pending')
+             AND o.doctor_id IS NULL
+             AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured')
+             AND LOWER(COALESCE(o.status, '')) NOT IN
+                 ('completed', 'cancelled', 'canceled', 'refunded', 'expired_unpaid', 'rejected')
+         ) AS awaiting_manual`
+    );
+    autoAssignReadiness = r || null;
+  } catch (_) { autoAssignReadiness = null; }
+
   return res.render('superadmin_settings', {
     brand: 'Tashkheesa',
     user: req.user,
@@ -468,6 +556,19 @@ router.get('/superadmin/settings', requireSuperadmin, async (req, res) => {
       minimum: byKey.classifier_threshold_minimum || null
     },
     defaults: adminSettings.DEFAULTS,
+    autoAssign,
+    autoAssignOn,
+    autoAssignReadiness,
+    // The confirmation banner is shown only when the query string AND the
+    // stored value agree. Review round 2: deriving it from the query string
+    // alone meant GET /superadmin/settings?autoassign=on rendered a green
+    // "Automatic assignment is on" directly above a status pill reading OFF —
+    // reachable by bookmarking the post-save URL, re-sharing it, or reloading
+    // it after someone else switched the flag back. A banner that contradicts
+    // the state one line below it is worse than no banner.
+    autoAssignSavedTo: (req.query && req.query.autoassign === 'on'  && autoAssignOn)  ? 'on'
+                     : (req.query && req.query.autoassign === 'off' && !autoAssignOn) ? 'off'
+                     : null,
     saved: !!(req.query && req.query.saved === '1'),
     queryErr: (req.query && typeof req.query.err === 'string') ? req.query.err : ''
   });
@@ -529,6 +630,76 @@ router.post('/superadmin/settings', requireSuperadmin, async (req, res) => {
   }
 
   return res.redirect('/superadmin/settings?saved=1');
+});
+
+// POST /superadmin/settings/auto-assign — turn automatic case assignment on or off.
+//
+// 2026-08-25. admin_settings.auto_assign_enabled has been 'false' since
+// 2026-06-01 and NOTHING in the codebase wrote it — the only way to change it
+// was a manual SQL UPDATE against production. That is the switch deciding
+// whether a paid case is routed to a doctor automatically or sits waiting for
+// somebody to notice, so it belongs on a page with an audit trail.
+//
+// Separate route from POST /superadmin/settings on purpose: that handler
+// requires all three classifier thresholds to be present and rejects the whole
+// submission if any is missing, so folding a checkbox into the same form would
+// couple two unrelated settings and make each one able to block the other.
+//
+// Checkbox semantics: an unchecked box submits NOTHING, so absence means off.
+// The explicit intent field distinguishes "the operator submitted this form and
+// left it unchecked" from "something posted here with no body at all" — without
+// it, a malformed request would read as a deliberate disable.
+router.post('/superadmin/settings/auto-assign', requireSuperadmin, async (req, res) => {
+  const body = req.body || {};
+  if (String(body.intent || '') !== 'set_auto_assign') {
+    return res.redirect('/superadmin/settings?err=auto_assign_bad_request');
+  }
+
+  const enable = String(body.auto_assign_enabled || '') === 'on';
+  const userId = req.user && req.user.id ? String(req.user.id) : null;
+
+  try {
+    // Written as the literal 'true' / 'false' text isAutoAssignEnabled() parses
+    // (src/auto_assign.js also accepts '1' and 'yes', but one canonical spelling
+    // in the table beats three).
+    await execute(
+      `INSERT INTO admin_settings (key, value, updated_by, updated_at)
+            VALUES ('auto_assign_enabled', $1, $2, NOW())
+       ON CONFLICT (key) DO UPDATE
+            SET value = EXCLUDED.value,
+                updated_by = EXCLUDED.updated_by,
+                updated_at = EXCLUDED.updated_at`,
+      [enable ? 'true' : 'false', userId]
+    );
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.auto_assign_toggle',
+      requestId: req.requestId,
+      userId: userId,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_action'
+    });
+    return res.redirect('/superadmin/settings?err=auto_assign_write_failed');
+  }
+
+  // Audit separately from the row's own updated_by: that column holds only the
+  // LAST writer, so a flag flipped on and off again leaves no trace of the
+  // first change. This is a routing-behaviour switch — the history matters.
+  try {
+    logAdminAudit({
+      req,
+      action: enable ? 'auto_assign_enabled' : 'auto_assign_disabled',
+      target: 'admin_settings.auto_assign_enabled',
+      // Explicit message: the helper's default is the hardcoded string
+      // "viewed payout data: <target>", which would have filed this flag flip
+      // as a page view. An audit line that misdescribes what happened is worse
+      // than none, because it gets believed.
+      message: 'automatic case assignment turned ' + (enable ? 'ON' : 'OFF')
+    });
+  } catch (_) {}
+
+  return res.redirect('/superadmin/settings?autoassign=' + (enable ? 'on' : 'off'));
 });
 
 // ---- Superadmin services visibility toggles (hide/unhide) ----
@@ -2300,7 +2471,14 @@ router.get('/superadmin/manual-queue/:id', requireSuperadmin, async (req, res) =
             o.specialty_id, o.service_id, o.assignment_status,
             p.id   AS patient_id,
             p.name AS patient_name, p.email AS patient_email, p.phone AS patient_phone,
-            p.gender AS patient_gender, p.dob AS patient_dob
+            -- 2026-08-25: was p.dob. There is no such column — users has
+            -- date_of_birth — so this query raised 42703 every single time the
+            -- page was opened. The rejection escaped as an unhandledRejection
+            -- and src/server.js:379 turned it into process.exit(1), so opening
+            -- a manual-queue case restarted the server for every user on it.
+            -- error_logs records the crash twice on 2026-08-23 alone, and two
+            -- orders are sitting in manual_queue right now.
+            p.gender AS patient_gender, p.date_of_birth AS patient_dob
        FROM orders_active o
        LEFT JOIN users p ON p.id = o.patient_id
       WHERE o.id = $1`,
@@ -2982,6 +3160,120 @@ router.post('/superadmin/orders/:id/additional-files/reject', requireSuperadmin,
 });
 
 // DOCTOR MANAGEMENT
+
+// AUDIT-2026-08-23 (P0-DOC-FORM) — the doctor create/edit form and these two
+// routes disagreed about every field name it posts: the form sent full_name /
+// active / send_whatsapp_alerts / service_ids_csv, the routes read name /
+// is_active / notify_whatsapp / service_ids. Nothing lined up, so "Add doctor"
+// always 400'd on `!name` and "Edit doctor" wrote is_active=false,
+// notify_whatsapp=false and deleted every doctor_services row for the doctor.
+//
+// The view now posts the canonical names (the users column names) and these
+// helpers keep accepting the old spellings, so a bookmarked POST, a cached
+// page still open in an admin's tab, or any other caller keeps working instead
+// of silently doing the wrong thing.
+
+// First non-empty value among `keys`. Empty string counts as absent so that
+// `name=&full_name=Dr+X` resolves to the value the caller actually filled in.
+function pickDoctorField(body, keys) {
+  const b = body || {};
+  for (const k of keys) {
+    const v = b[k];
+    if (v === undefined || v === null) continue;
+    if (String(v).trim() === '') continue;
+    return v;
+  }
+  return undefined;
+}
+
+// A checkbox that is not ticked posts NOTHING, which makes `undefined`
+// ambiguous between "the admin unticked it" and "this caller never sent the
+// field at all". The form pairs each checkbox with a hidden companion of the
+// same name carrying "0", posted first — so unticked arrives as "0" and, when
+// ticked, qs gives ["0","1"] and the last value wins. A field that is truly
+// absent returns `fallback`, which is how the edit route preserves the stored
+// value instead of stamping false over it.
+// AUDIT-2026-08-23 (AUDIT-DOCTOR-LANG-1) — the doctor's email language.
+// Create used to hardcode `lang: 'en'` and Edit never wrote the column at all,
+// so for 27 of 30 doctors `users.lang` was an untouched default rather than a
+// stated preference. The welcome email picks its template directory from this
+// value, so the default decided which language a consultant saw first and
+// nobody was ever asked. Only 'ar' and 'en' are accepted; anything else falls
+// back rather than writing a value the template loader cannot resolve.
+function readDoctorLang(body, fallback) {
+  const raw = String((body && (body.lang != null ? body.lang : body.language)) || '')
+    .trim().toLowerCase();
+  if (raw === 'ar' || raw === 'en') return raw;
+  return (fallback === 'ar') ? 'ar' : 'en';
+}
+
+function readDoctorFlag(body, keys, fallback) {
+  const b = body || {};
+  for (const k of keys) {
+    if (!Object.prototype.hasOwnProperty.call(b, k)) continue;
+    let v = b[k];
+    if (Array.isArray(v)) v = v.length ? v[v.length - 1] : '';
+    const sv = String(v == null ? '' : v).trim().toLowerCase();
+    return !(sv === '' || sv === '0' || sv === 'false' || sv === 'off' || sv === 'no');
+  }
+  return fallback;
+}
+
+// The sub-specialty picker serialises to CSV in two hidden inputs
+// (service_ids_csv + the legacy sub_specialties_csv mirror, both written by
+// public/js/superadmin_doctor_form.js as a bare comma-joined id list, no
+// spaces, empty string when nothing is selected). It never posts a
+// `service_ids` array — accept all three shapes.
+//
+// Returns null when the request carried no service field and no
+// `service_ids_submitted` marker, i.e. the caller said nothing about services.
+// The edit route MUST NOT touch doctor_services in that case: a doctor with no
+// doctor_services rows is unassignable forever (see the EXISTS gate in
+// src/services/doctor_eligibility.js), and that deletion used to happen on
+// every single save.
+function readDoctorServiceIds(body) {
+  const b = body || {};
+  let present = Object.prototype.hasOwnProperty.call(b, 'service_ids_submitted');
+  const seen = new Set();
+  const out = [];
+  for (const key of ['service_ids', 'service_ids_csv', 'sub_specialties_csv']) {
+    if (!Object.prototype.hasOwnProperty.call(b, key)) continue;
+    present = true;
+    const chunks = Array.isArray(b[key]) ? b[key] : [b[key]];
+    for (const chunk of chunks) {
+      String(chunk == null ? '' : chunk).split(',').forEach((piece) => {
+        const v = piece.trim();
+        if (v && !seen.has(v)) { seen.add(v); out.push(v); }
+      });
+    }
+  }
+  return present ? out : null;
+}
+
+// Specialties an admin may actually put a doctor on.
+//
+// AUDIT-2026-08-23 (P0-DOC-FORM): the pickers listed every row in the table —
+// specialties deliberately hidden from patients (migrations 060 psychiatry,
+// 066 oncology, …) and the internal 'addon' bucket from migration 041, which
+// is not a clinical specialty at all but a parent for cross-specialty add-ons.
+// Assigning a doctor there produces a doctor no patient can ever reach.
+//
+// `keepId` re-admits one specific row: a doctor already sitting on a
+// now-hidden specialty must keep seeing their real value on the edit form,
+// otherwise the <select> renders blank and the next save silently clears
+// users.specialty_id.
+async function loadAssignableSpecialties(keepId) {
+  const keep = keepId ? String(keepId) : '';
+  return queryAll(
+    `SELECT id, name
+       FROM specialties
+      WHERE (COALESCE(is_visible, true) = true AND id <> 'addon')
+         OR ($1::text <> '' AND id = $1::text)
+      ORDER BY name ASC`,
+    [keep]
+  );
+}
+
 router.get('/superadmin/doctors', requireSuperadmin, async (req, res) => {
   const statusFilter = req.query.status || 'all';
   const conditions = ["u.role = 'doctor'"];
@@ -3032,7 +3324,7 @@ router.get('/superadmin/doctors', requireSuperadmin, async (req, res) => {
 });
 
 router.get('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
-  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  const specialties = await loadAssignableSpecialties(null);
   const subSpecialties = await queryAll(
     'SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC'
   );
@@ -3050,36 +3342,56 @@ router.get('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
 });
 
 router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
-  const { name, email, specialty_id, phone, notify_whatsapp, is_active, service_ids } = req.body || {};
-  if (!name || !email) {
-    const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  // AUDIT-2026-08-23 (P0-DOC-FORM): the form posts full_name / active /
+  // send_whatsapp_alerts / service_ids_csv, this route only ever read name /
+  // is_active / notify_whatsapp / service_ids — so `!name` was true on every
+  // submission and this form has never created a doctor. Accept both spellings.
+  const body = req.body || {};
+  const name = pickDoctorField(body, ['name', 'full_name']);
+  const email = pickDoctorField(body, ['email']);
+  const specialty_id = pickDoctorField(body, ['specialty_id']);
+  const phone = pickDoctorField(body, ['phone']);
+  // A new doctor with is_active absent stays active (the form's previous,
+  // intended default) rather than being created switched off.
+  const notify_whatsapp = readDoctorFlag(body, ['notify_whatsapp', 'send_whatsapp_alerts'], false);
+  const is_active = readDoctorFlag(body, ['is_active', 'active'], true);
+  const lang = readDoctorLang(body, 'en');
+  const submittedServiceIds = readDoctorServiceIds(body);
+
+  // Re-render helper for the two 400 paths below — same locals, one message.
+  const renderInvalid = async (message) => {
+    const specialties = await loadAssignableSpecialties(specialty_id);
     const subSpecialties = await queryAll('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC');
-    const selectedServiceIds = Array.isArray(service_ids) ? service_ids : (service_ids ? [service_ids] : []);
     return res.status(400).render('superadmin_doctor_form', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       user: req.user,
       specialties,
       subSpecialties,
-      selectedServiceIds,
-      error: 'Name and email are required.',
-      doctor: { name, email, specialty_id, phone, notify_whatsapp, is_active },
+      selectedServiceIds: submittedServiceIds || [],
+      error: message,
+      // Repopulation only — deliberately carries no `id`, and `isEdit: false`
+      // keeps the page titled "Add doctor" (the view used to flip to "Edit
+      // doctor" here purely because this object is truthy).
+      doctor: {
+        name: name || '',
+        email: email || '',
+        specialty_id: specialty_id || '',
+        phone: phone || '',
+        lang,
+        notify_whatsapp,
+        is_active
+      },
       isEdit: false
     });
+  };
+
+  if (!name || !email) {
+    return renderInvalid('Name and email are required.');
   }
 
   const existing = await queryOne('SELECT id FROM users WHERE email = $1', [email]);
   if (existing) {
-    const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
-    const subSpecialties = await queryAll('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC');
-    const selectedServiceIds = Array.isArray(service_ids) ? service_ids : (service_ids ? [service_ids] : []);
-    return res.status(400).render('superadmin_doctor_form', {
-      user: req.user,
-      specialties,
-      subSpecialties,
-      selectedServiceIds,
-      error: 'Email already exists.',
-      doctor: { name, email, specialty_id, phone, notify_whatsapp, is_active },
-      isEdit: false
-    });
+    return renderInvalid('Email already exists.');
   }
 
   // No password is generated here. The doctor sets their own password by
@@ -3089,21 +3401,53 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
   const newDoctorId = randomUUID();
   await execute(
     `INSERT INTO users (id, email, password_hash, name, role, specialty_id, phone, lang, notify_whatsapp, is_active)
-     VALUES ($1, $2, NULL, $3, 'doctor', $4, $5, 'en', $6, $7)`,
+     VALUES ($1, $2, NULL, $3, 'doctor', $4, $5, $6, $7, $8)`,
     [
       newDoctorId,
       email,
       name,
       specialty_id || null,
       phone || null,
+      lang,
       notify_whatsapp ? true : false,
       is_active ? true : false
     ]
   );
 
+
+  // 2026-08-25 — mirror the primary specialty into doctor_specialties.
+  //
+  // That table is what notify/broadcast.js and the assign dropdowns on this
+  // very page key off, but only self-signup ever wrote it — so every doctor an
+  // operator created here was invisible to case broadcast and unpickable in
+  // the assign list, while looking perfectly normal everywhere else. 18 of 31
+  // doctors were in that state before migration 091 backfilled them; without
+  // this line the drift starts again with the next doctor created.
+  //
+  // id is text NOT NULL with no default on this table, hence the explicit
+  // randomUUID(). The anti-join keeps it idempotent — there is no unique
+  // constraint on (doctor_id, specialty_id) to hang ON CONFLICT off.
+  if (specialty_id) {
+    try {
+      await execute(
+        `INSERT INTO doctor_specialties (id, doctor_id, specialty_id, created_at)
+         SELECT $1, $2, $3, NOW()
+          WHERE NOT EXISTS (
+                SELECT 1 FROM doctor_specialties
+                 WHERE doctor_id = $2 AND specialty_id = $3
+              )`,
+        [randomUUID(), newDoctorId, specialty_id]
+      );
+    } catch (e) {
+      // Never block doctor creation on the mirror — broadcast also matches
+      // users.specialty_id directly now, so a miss here degrades rather than
+      // hides the doctor. But it must be visible.
+      logErrorToDb(e, { context: 'superadmin.doctor_create_specialty_mirror', userId: newDoctorId });
+    }
+  }
+
   // Map selected sub-specialties (services) to the doctor
-  const rawServiceIds = Array.isArray(service_ids) ? service_ids : (service_ids ? [service_ids] : []);
-  const cleanedServiceIds = rawServiceIds.map((v) => String(v || '').trim()).filter(Boolean);
+  const cleanedServiceIds = submittedServiceIds || [];
 
   if (cleanedServiceIds.length && specialty_id) {
     const ph = cleanedServiceIds.map((_, i) => `$${i + 1}`).join(',');
@@ -3117,64 +3461,83 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
     }
   }
 
-  // Issue a one-time password-setup token and email it to the doctor.
-  // Mirrors the token-issuance shape used by POST /forgot-password
-  // (src/routes/auth.js:280-329) so a token issued here is redeemable
-  // on the same /reset-password/:token page.
-  // P1-NOTIF-5: uses WELCOME_EXPIRY_HOURS (7d) not RESET_EXPIRY_HOURS (2h) —
-  // an admin-created doctor wasn't actively requesting this email and may
-  // not check inbox for days. Same threat model as the doctor-approval
-  // welcome email below.
-  const resetToken = randomUUID();
-  const tokenNow = new Date();
-  const tokenExpiresAt = new Date(tokenNow.getTime() + WELCOME_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
-  // Remint invalidation (Package 2): burn prior unused tokens before minting.
-  await execute(
-    `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
-    [newDoctorId]
-  );
-  await execute(
-    `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
-     VALUES ($1, $2, $3, $4, NULL, $5)`,
-    [randomUUID(), newDoctorId, resetToken, tokenExpiresAt, tokenNow.toISOString()]
-  );
+  // AUDIT-2026-08-23 (P0-DOC-WELCOME): this route used to hand-roll its own
+  // token and then send the GENERIC 'password-reset' template — English-only,
+  // blue-branded, "We received a request to reset the password for your
+  // Tashkheesa account", addressed to `patientName`. A doctor created here
+  // requested nothing, and EVERY other onboarding path (/approve,
+  // /resend-welcome, /bulk-welcome-passwordless, the Command app) sends the
+  // bilingual v5 doctor-welcome instead. The create path now goes through the
+  // SAME service as the Command app and the bulk invite —
+  // services/admin_doctor_invite.inviteDoctor (remint-DELETE + 7-day token +
+  // welcome stamp + audit in one txn) -> buildDoctorWelcomePayload -> template
+  // 'doctor_approved' -> doctor-welcome.hbs. One welcome email, one place that
+  // mints its token. It also means a normal create now produces exactly ONE
+  // email, so there is no second send to silently invalidate the first link.
 
-  // Resolve the public base URL the same way the manual reset-link
-  // generator below does (env var first, request headers as fallback;
-  // never default to localhost in prod).
-  let baseUrl = String(process.env.BASE_URL || process.env.APP_URL || '').trim().replace(/\/+$/, '');
-  if (!baseUrl) {
-    try {
-      const protoRaw = (req.get('x-forwarded-proto') || req.protocol || 'http');
-      const proto = String(protoRaw).split(',')[0].trim() || 'http';
-      const host = req.get('x-forwarded-host') || req.get('host');
-      baseUrl = host ? `${proto}://${host}` : '';
-    } catch (_) { baseUrl = ''; }
-  }
-  const resetLink = baseUrl ? `${baseUrl}/reset-password/${resetToken}?lang=en` : null;
+  // Resolve the public base URL from CONFIGURATION ONLY.
+  //
+  // AUDIT-2026-08-22 (AUDIT-RESET-HOST-1) — this used to fall back to
+  // `x-forwarded-host || host`, i.e. to a request header, when BASE_URL and
+  // APP_URL were both empty. That puts an attacker-controllable value into the
+  // body of an EMAILED password-setup link: anyone who can reach this service on
+  // a hostname of their choosing gets the token delivered to their own host. The
+  // route is superadmin-gated and BASE_URL is set in render.yaml, so this was
+  // mitigated rather than exploitable — but "never derives a link from the
+  // request" is a property the codebase claims, and it only actually held in
+  // src/routes/auth.js. It holds here now too.
+  //
+  // No link is better than a wrong link: with neither env var set the caller
+  // below reports `base_url_unresolved` and the operator fixes the config.
+  //
+  // AUDIT-2026-08-23: this property SURVIVES the switch to the shared service
+  // only because inviteDoctor takes `baseUrl` as a parameter and never sees
+  // `req` — unlike _issueDoctorWelcomePayload (below), which still falls back to
+  // request headers for /approve and /resend-welcome.
+  const baseUrl = String(process.env.BASE_URL || process.env.APP_URL || '')
+    .trim().replace(/\/+$/, '');
 
   let emailOk = false;
   let emailErrorMsg = null;
-  if (!resetLink) {
+  if (!baseUrl) {
     emailErrorMsg = 'base_url_unresolved';
+  } else if (!is_active) {
+    // AUDIT-2026-08-23: inviteDoctor refuses a non-active doctor by design
+    // (approve/activate first, then invite). Creating a doctor switched OFF is a
+    // deliberate "not yet", so mint nothing and send nothing rather than mailing
+    // "your account is ready" to an account the operator just disabled. The
+    // record is still saved and the message below points at Resend welcome.
+    emailErrorMsg = 'doctor_not_active';
   } else {
+    const inviteClient = await pool.connect();
     try {
-      const result = await emailService.sendEmail({
-        to: email,
-        subject: 'Set up your Tashkheesa doctor account',
-        template: 'password-reset',
-        lang: 'en',
-        data: {
-          patientName: name || 'Doctor',
-          resetLink: resetLink,
-          expiryHours: WELCOME_EXPIRY_HOURS
-        }
+      const { welcomePayload } = await inviteDoctor(inviteClient, {
+        doctorId: newDoctorId,
+        baseUrl,
+        actorId: req.user && req.user.id
       });
-      emailOk = !!(result && result.ok);
-      if (!emailOk) emailErrorMsg = (result && (result.error || result.reason)) || 'send_failed';
+      // POST-COMMIT, and identical to /approve + /resend-welcome in channels,
+      // template and payload. Awaited (those two fire-and-forget) purely so a
+      // queue-insert failure can still be surfaced to the operator below.
+      const queued = await queueMultiChannelNotification({
+        orderId: null,
+        toUserId: newDoctorId,
+        channels: ['internal', 'email', 'whatsapp'],
+        template: 'doctor_approved',
+        response: welcomePayload,
+        // Stable key: a given doctor id is created exactly once, so this can
+        // never suppress a legitimate later resend (those carry their own
+        // timestamped keys).
+        dedupe_key: 'doctor_welcome_create:' + newDoctorId
+      });
+      const emailQueued = queued && queued.results && queued.results.email;
+      emailOk = !!(emailQueued && emailQueued.ok && !emailQueued.skipped);
+      if (!emailOk) {
+        emailErrorMsg = (emailQueued && (emailQueued.reason || emailQueued.error || emailQueued.skipped)) || 'queue_failed';
+      }
     } catch (err) {
       logErrorToDb(err, {
-        context: 'superadmin.doctor_approve_email',
+        context: 'superadmin.doctor_create_welcome',
         requestId: req.requestId,
         userId: req.user?.id,
         url: req.originalUrl,
@@ -3182,25 +3545,27 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
         category: 'superadmin_auth'
       });
       emailErrorMsg = (err && err.message) || 'send_failed';
+    } finally {
+      inviteClient.release();
     }
   }
 
   if (!emailOk) {
     // Doctor record is already saved — do NOT roll back. Surface a clear
-    // failure to the superadmin so they can retry via the manual
-    // reset-link tool. Never include the token in the response or logs.
+    // failure to the superadmin so they can retry from the doctor's page.
+    // Never include the token in the response or logs.
     // THEME8-LINT-EXEMPT-HELPER: downstream diagnostic — the originating
-    // error is already captured by the wrapped catch at the email-send call
-    // site above (context='superadmin.doctor_approve_email'). This line is
-    // a human-readable summary including the masked email for stdout triage;
+    // error is already captured by the wrapped catch at the send call site
+    // above (context='superadmin.doctor_create_welcome'). This line is a
+    // human-readable summary including the masked email for stdout triage;
     // duplicating to /ops/errors would create two rows for one event.
-    console.warn('[doctor-create] reset-email send failed for ' + email + ': ' + emailErrorMsg);
+    console.warn('[doctor-create] welcome-email send failed for ' + email + ': ' + emailErrorMsg);
     return res
       .status(200)
       .type('text/plain')
       .send(
-        'Doctor created for ' + email + ', but the password-setup email failed to send (' + emailErrorMsg + '). ' +
-        'Use the superadmin reset-link tool to retry, then return to /superadmin/doctors.'
+        'Doctor created for ' + email + ', but the welcome email was not sent (' + emailErrorMsg + '). ' +
+        'The record is saved — open /superadmin/doctors/' + newDoctorId + ' and use "Resend welcome" to retry.'
       );
   }
 
@@ -3210,7 +3575,9 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
 router.get('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) => {
   const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [req.params.id]);
   if (!doctor) return res.redirect('/superadmin/doctors');
-  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  // Pass the doctor's current specialty as `keepId` so a doctor sitting on a
+  // specialty that has since been hidden still sees it selected (AUDIT-2026-08-23).
+  const specialties = await loadAssignableSpecialties(doctor.specialty_id);
   const subSpecialties = await queryAll('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC');
   const selectedServiceIds = (await queryAll('SELECT service_id FROM doctor_services WHERE doctor_id = $1', [req.params.id]))
     .map((r) => r.service_id);
@@ -3220,40 +3587,117 @@ router.get('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) =
 router.post('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) => {
   const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [req.params.id]);
   if (!doctor) return res.redirect('/superadmin/doctors');
-  const { name, specialty_id, phone, notify_whatsapp, is_active, service_ids } = req.body || {};
+  // AUDIT-2026-08-23 (P0-DOC-FORM): this destructured is_active /
+  // notify_whatsapp / service_ids, none of which the form posts. Every save
+  // therefore wrote is_active=false (deactivating the doctor), wiped
+  // notify_whatsapp, and — via the unconditional DELETE below — destroyed the
+  // doctor's whole doctor_services mapping, all while redirecting as if it had
+  // worked. Accept both spellings, and treat an absent field as "unchanged"
+  // rather than as false.
+  const body = req.body || {};
+  const name = pickDoctorField(body, ['name', 'full_name']);
+  const phone = pickDoctorField(body, ['phone']);
+  const hasSpecialtyField = Object.prototype.hasOwnProperty.call(body, 'specialty_id');
+  const specialty_id = pickDoctorField(body, ['specialty_id']);
+  const notify_whatsapp = readDoctorFlag(body, ['notify_whatsapp', 'send_whatsapp_alerts'], doctor.notify_whatsapp === true);
+  const is_active = readDoctorFlag(body, ['is_active', 'active'], doctor.is_active === true);
+  const lang = readDoctorLang(body, doctor.lang);
+  const submittedServiceIds = readDoctorServiceIds(body);
+  // Same rule for the specialty: only clear it when the form actually sent an
+  // empty specialty_id, never because the field was missing from the request.
+  const nextSpecialtyId = hasSpecialtyField ? (specialty_id || null) : (doctor.specialty_id || null);
+
   await execute(
     `UPDATE users
-     SET name = $1, specialty_id = $2, phone = $3, notify_whatsapp = $4, is_active = $5
-     WHERE id = $6 AND role = 'doctor'`,
+     SET name = $1, specialty_id = $2, phone = $3, lang = $4, notify_whatsapp = $5, is_active = $6
+     WHERE id = $7 AND role = 'doctor'`,
     [
       name || doctor.name,
-      specialty_id || null,
+      nextSpecialtyId,
       phone || null,
+      lang,
       notify_whatsapp ? true : false,
       is_active ? true : false,
       req.params.id
     ]
   );
-  // Refresh sub-specialties (services) mapping
-  try {
-    await execute('DELETE FROM doctor_services WHERE doctor_id = $1', [req.params.id]);
-
-    const rawServiceIds = Array.isArray(service_ids) ? service_ids : (service_ids ? [service_ids] : []);
-    const cleanedServiceIds = rawServiceIds.map((v) => String(v || '').trim()).filter(Boolean);
-
-    if (cleanedServiceIds.length && specialty_id) {
-      const ph = cleanedServiceIds.map((_, i) => `$${i + 1}`).join(',');
-      const allowed = (await queryAll(
-        `SELECT id FROM services WHERE id IN (${ph}) AND specialty_id = $${cleanedServiceIds.length + 1}`,
-        [...cleanedServiceIds, specialty_id]
-      )).map((r) => r.id);
-
-      for (const sid of allowed) {
-        await execute('INSERT INTO doctor_services (doctor_id, service_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.params.id, sid]);
-      }
+  // 2026-08-25 — keep the doctor_specialties mirror in step with a specialty
+  // change. Same reasoning as the create path: broadcast and the assign
+  // dropdowns key off that table, and an edit that moves a doctor to a new
+  // specialty without it leaves them unreachable under the new one.
+  //
+  // INSERT ONLY — deliberately no DELETE of the previous row. doctor_specialties
+  // has no is_primary column (id, doctor_id, specialty_id, created_at), and
+  // self-signup writes the primary AND every secondary specialty into it. So a
+  // row that is not the current primary is indistinguishable from a legitimate
+  // secondary, and clearing "the old one" would silently destroy a doctor's
+  // secondary specialties on any unrelated edit — this form has no field for
+  // them and must not be the thing that deletes them.
+  //
+  // The cost is that a doctor moved between specialties stays broadcastable
+  // under the old one until someone cleans the row up by hand. That is the
+  // safer failure: a case offered slightly too widely, versus a doctor's
+  // record quietly losing data the form never showed them.
+  if (nextSpecialtyId) {
+    try {
+      await execute(
+        `INSERT INTO doctor_specialties (id, doctor_id, specialty_id, created_at)
+         SELECT $1, $2, $3, NOW()
+          WHERE NOT EXISTS (
+                SELECT 1 FROM doctor_specialties
+                 WHERE doctor_id = $2 AND specialty_id = $3
+              )`,
+        [randomUUID(), req.params.id, nextSpecialtyId]
+      );
+    } catch (e) {
+      logErrorToDb(e, { context: 'superadmin.doctor_edit_specialty_mirror', userId: req.params.id });
     }
-  } catch (_) {
-    // no-op
+  }
+
+  // Refresh sub-specialties (services) mapping.
+  //
+  // AUDIT-2026-08-23 (P0-DOC-FORM): `submittedServiceIds === null` means the
+  // request said nothing about services — leave the existing rows alone. A
+  // doctor with zero doctor_services rows fails the EXISTS gate in
+  // src/services/doctor_eligibility.js and can never be assigned a case again,
+  // so an unconditional DELETE here is not a recoverable mistake.
+  if (submittedServiceIds !== null) {
+    try {
+      const cleanedServiceIds = submittedServiceIds;
+      let allowed = [];
+
+      if (cleanedServiceIds.length && nextSpecialtyId) {
+        const ph = cleanedServiceIds.map((_, i) => `$${i + 1}`).join(',');
+        allowed = (await queryAll(
+          `SELECT id FROM services WHERE id IN (${ph}) AND specialty_id = $${cleanedServiceIds.length + 1}`,
+          [...cleanedServiceIds, nextSpecialtyId]
+        )).map((r) => r.id);
+      }
+
+      // Resolve the replacement set BEFORE deleting. If the admin submitted a
+      // non-empty selection but none of it validated (ids from another
+      // specialty, or no specialty at all), keep what the doctor already has
+      // rather than leaving them with nothing — that is a bad submission, not
+      // an instruction to unassign. An explicitly empty selection still clears.
+      if (allowed.length || cleanedServiceIds.length === 0) {
+        await execute('DELETE FROM doctor_services WHERE doctor_id = $1', [req.params.id]);
+
+        for (const sid of allowed) {
+          await execute('INSERT INTO doctor_services (doctor_id, service_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.params.id, sid]);
+        }
+      } else {
+        await logErrorToDb(
+          new Error('doctor_services rewrite skipped: no submitted service id belongs to specialty ' + String(nextSpecialtyId)),
+          { context: 'superadmin.doctor_edit_services', level: 'warn', userId: req.user?.id, url: req.originalUrl, method: req.method, category: 'superadmin_action' }
+        );
+      }
+    } catch (err) {
+      // Was a bare `catch (_) { /* no-op */ }`. The DELETE can succeed and the
+      // re-INSERT fail, stripping a doctor of every service with no trace while
+      // the route redirects as if the save worked. Non-fatal for the profile
+      // update, but it must be visible in /ops/errors.
+      logErrorToDb(err, { context: 'superadmin.doctor_edit_services', userId: req.user?.id, url: req.originalUrl, method: req.method, category: 'superadmin_action' });
+    }
   }
   // Edit can flip is_active AND rewrite doctor_services → both change supply.
   // Recompute coming_soon after the mapping rewrite (§4.3), best-effort.
@@ -3309,7 +3753,14 @@ router.get('/superadmin/doctors/:id', requireSuperadmin, async (req, res) => {
 // LEFT (not INNER) JOIN: users.specialty_id is nullable and one doctor has none
 // — an inner join would silently drop them from approve/resend entirely.
 const DOCTOR_WITH_SPECIALTY_SQL = `
-  SELECT u.*, sp.name AS specialty_name, sp.name_ar AS specialty_name_ar
+  SELECT u.*, sp.name AS specialty_name, sp.name_ar AS specialty_name_ar,
+         -- 2026-08-25: gates the welcome email's "your services are already
+         -- selected" clause. This query feeds /approve AND the Resend welcome
+         -- button, and without the column {{#if servicesReady}} silently took
+         -- the else branch — telling a doctor with a full service list that
+         -- their specialty was still being set up. Shared fragment so the
+         -- three send paths cannot drift apart.
+         ${SERVICES_READY_SQL}
     FROM users u
     LEFT JOIN specialties sp ON sp.id = u.specialty_id
    WHERE u.id = $1 AND u.role = 'doctor'`;
@@ -3396,6 +3847,10 @@ async function _issueDoctorWelcomePayload(doctor, req) {
     nameAr,
     specialtyAr: specNameAr || specName,
     specialtyEn: specName || specNameAr,
+    // Supplied by DOCTOR_WITH_SPECIALTY_SQL's SERVICES_READY_SQL column. Same
+    // strict === true as the pure builder: an absent column must read false,
+    // never truthy-by-accident.
+    servicesReady: doctor.services_ready === true,
     magicLinkUrl,
     // #66/Ziad-locked: Ziad's bilingual welcome copy references
     // {{password_setup_link}}; expose as an alias of magicLinkUrl so the
@@ -3820,6 +4275,51 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
         );
       } catch (_) {}
     }
+  }
+
+
+  // === ADD-ONS: RECORD AS OUTSTANDING, DO NOT SETTLE (2026-08-24) ===
+  //
+  // Marking the base fee paid is NOT evidence that an add-on was paid for.
+  //
+  // This handler has no amount field anywhere in it — it records
+  // payment_method and payment_reference and nothing about how much arrived.
+  // orders.addons_json, meanwhile, is written when the patient TICKS the box at
+  // create-intention time, before any money moves, and survives an abandoned
+  // gateway. So "addons_json says video_consultation" plus "an operator pressed
+  // Mark paid" does not add up to "the patient paid for a video consultation" —
+  // and settling on that basis would email them a confirmation for something
+  // they never bought and accrue the doctor 85% of 200 EGP against nothing.
+  //
+  // An earlier draft of this change did exactly that. It is called out here
+  // because it reads like an obvious convenience and is not.
+  //
+  // Instead: flag it. The admin order page surfaces any selected-but-unsettled
+  // add-on with a separate Settle button — a human explicitly asserting that
+  // the money for THOSE LINES arrived, recorded against their user id.
+  try {
+    const { parseSelectedAddons } = require('../services/order_pricing');
+    const _o = await queryOne('SELECT addons_json, video_consultation_selected FROM orders WHERE id = $1', [orderId]);
+    const _sel = parseSelectedAddons(_o || {});
+    const _pending = [];
+    if (_sel.video_consultation) _pending.push('video_consult');
+    if (_sel.prescription) _pending.push('prescription');
+    if (_pending.length) {
+      const _existing = await queryAll('SELECT addon_service_id FROM order_addons WHERE order_id = $1', [orderId]);
+      const _have = new Set((_existing || []).map(function (r) { return String(r.addon_service_id); }));
+      const _outstanding = _pending.filter(function (id) { return !_have.has(id); });
+      if (_outstanding.length) {
+        logOrderEvent({
+          orderId,
+          label: 'Add-ons awaiting settlement',
+          meta: JSON.stringify({ addons: _outstanding, reason: 'marked paid without amount verification', via: 'superadmin_mark_paid' }),
+          actorUserId: req.user && req.user.id,
+          actorRole: 'superadmin'
+        });
+      }
+    }
+  } catch (e) {
+    try { logErrorToDb(e, { context: 'superadmin.mark_paid.flag_addons', orderId }); } catch (_) {}
   }
 
   // Audit log.
@@ -4294,16 +4794,14 @@ router.get('/superadmin/debug/reset-link/:userId', requireSuperadmin, async (req
     [uuidv4(), user.id, token, expiresAt, now.toISOString()]
   );
 
-  const baseUrl = String(process.env.BASE_URL || '').trim() || (() => {
-    try {
-      const protoRaw = (req.get('x-forwarded-proto') || req.protocol || 'http');
-      const proto = String(protoRaw).split(',')[0].trim() || 'http';
-      const host = req.get('x-forwarded-host') || req.get('host');
-      return host ? `${proto}://${host}` : '';
-    } catch (_) {
-      return '';
-    }
-  })();
+  // AUDIT-2026-08-22 (AUDIT-RESET-HOST-1) — configuration only; the
+  // `x-forwarded-host || host` fallback is gone. See the identical note on the
+  // doctor-welcome reset link above: this value is emailed with a live reset
+  // token in it, so it must never be derived from the request. APP_URL is
+  // accepted as a second source because render.yaml sets both to the same value
+  // and the welcome-link path above already reads it.
+  const baseUrl = String(process.env.BASE_URL || process.env.APP_URL || '')
+    .trim().replace(/\/+$/, '');
 
   const emailLang = (user.lang === 'ar') ? 'ar' : 'en';
   // Prefer absolute URLs when possible; never default to localhost.
@@ -5010,8 +5508,11 @@ router.get('/superadmin/refunds/create', requireSuperadmin, async (req, res) => 
   // Check for an existing non-terminal refund row (pending / auto_approved /
   // approved / paid). If one exists, operator should use the queue, not
   // create another.
+  // AUDIT-2026-08-22 (M7): `reason` projected so the form can tell the operator
+  // that an unpaid SLA-breach auto-refund is a TOP-UP, not a dead end — the
+  // POST below supersedes it in place. See services/admin_refund.
   const existingRefund = await queryOne(
-    `SELECT id, status FROM refunds
+    `SELECT id, status, reason FROM refunds
       WHERE order_id = $1
         AND status IN ('pending','auto_approved','approved','paid')
       LIMIT 1`,
@@ -5025,13 +5526,33 @@ router.get('/superadmin/refunds/create', requireSuperadmin, async (req, res) => 
   // wrote base_price, pre-filling the operator form with a zero refund.
   const defaultAmount = maxRefundableEgp(order);
 
+  // AUDIT-2026-08-22 (M7): an UNPAID SLA-breach auto-refund must not hide the
+  // form. superadmin_refund_create.ejs renders a "refund already exists — use
+  // the queue" dead end whenever `existingRefund` is set, and the queue has no
+  // top-up action, so a case that breached (uplift refunded automatically) and
+  // then failed outright had no route to a real refund at all — the operator
+  // could not even open the form. Passing null lets the form render; the POST
+  // handler recognises the same blocker and SUPERSEDES the breach row in place
+  // (services/admin_refund.supersedeBreachRefund) instead of inserting a second
+  // row, which migration 083's uniq_refunds_open_per_order forbids. All the
+  // policy is enforced server-side in the POST, never here.
+  //
+  // HANDOFF (view owner): superadmin_refund_create.ejs should say so — "topping
+  // up the automatic SLA-breach refund of X EGP" — rather than presenting this
+  // as a fresh refund. `supersedingBreachRefund` is passed for exactly that and
+  // is currently unused by the template.
+  const supersedableBreach = !!(existingRefund
+    && String(existingRefund.reason) === 'sla_breach'
+    && String(existingRefund.status) !== 'paid');
+
   res.render('superadmin_refund_create', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
     lang, isAr,
     order: order,
     defaultAmount: defaultAmount,
-    existingRefund: existingRefund || null,
+    existingRefund: supersedableBreach ? null : (existingRefund || null),
+    supersedingBreachRefund: supersedableBreach ? existingRefund : null,
     formError: String((req.query && req.query.error) || '').trim() || null
   });
 });
@@ -5062,13 +5583,92 @@ router.post('/superadmin/refunds/create', requireSuperadmin, async (req, res) =>
 
   // Re-check the no-existing-refund gate inside the POST so a race
   // between two operators can't double-write.
+  // AUDIT-2026-08-22 (M7): `reason` projected — see the supersede branch below.
   const existingRefund = await queryOne(
-    `SELECT id FROM refunds
+    `SELECT id, status, reason FROM refunds
       WHERE order_id = $1
         AND status IN ('pending','auto_approved','approved','paid')
       LIMIT 1`,
     [orderId]
   );
+  // ── AUDIT-2026-08-22 (M7): SLA-breach auto-refunds are TOPPED UP, not blocked
+  //
+  // services/sla_breach opens an automatic refund of the urgency uplift only,
+  // reason='sla_breach', status='auto_approved'. Migration 083's
+  // uniq_refunds_open_per_order permits exactly ONE refund row per order across
+  // ('pending','auto_approved','approved','paid'), so that row used to bounce
+  // every operator refund on the case with `refund_already_exists` — for good.
+  // A case that breached and then failed outright could be given back its 200
+  // EGP uplift and NOTHING of the 1000 EGP the patient paid for the report.
+  //
+  // There is no second row to be had (the index forbids it), so the supported
+  // resolution is to raise the row that exists. All the policy — breach-only,
+  // unpaid-only, up-only, reason preserved — lives in
+  // services/admin_refund.supersedeBreachRefund; this is the wiring.
+  if (existingRefund
+      && String(existingRefund.reason) === 'sla_breach'
+      && String(existingRefund.status) !== 'paid') {
+    if (!Number.isFinite(amountRaw) || amountRaw <= 0) {
+      return res.redirect(
+        '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=invalid_amount'
+      );
+    }
+    // Same handle requirement as a fresh operator refund: the auto-created
+    // breach row carries NO instapay_handle (services/sla_breach's INSERT does
+    // not set one), so this is the operator's chance to supply the payout
+    // target rather than leaving the queue with nowhere to send the money.
+    if (!instapayRaw || instapayRaw.length < 3 || instapayRaw.length > 100) {
+      return res.redirect(
+        '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=instapay_required'
+      );
+    }
+    const { supersedeBreachRefund } = require('../services/admin_refund');
+    const client = await pool.connect();
+    try {
+      const out = await supersedeBreachRefund(client, {
+        orderId,
+        amount: amountRaw,
+        instapayHandle: instapayRaw,
+        notes: notesRaw,
+        actorId: req.user.id
+      });
+      logOrderEvent({
+        orderId: orderId,
+        label: 'operator_refund_superseded_breach',
+        meta: {
+          refund_id: out.id,
+          previous_amount_egp: out.previousAmountEgp,
+          amount_egp: out.amountEgp,
+          operator_user_id: req.user.id
+        },
+        actorUserId: req.user.id,
+        actorRole: 'superadmin'
+      });
+      return res.redirect('/superadmin/refunds?flash=superseded');
+    } catch (err) {
+      logErrorToDb(err, {
+        context: 'superadmin.operator_refund_supersede_breach',
+        requestId: req.requestId,
+        userId: req.user.id,
+        orderId: orderId,
+        category: 'refund'
+      });
+      // The service's codes map onto the form's existing error keys where one
+      // fits; anything else falls through to the generic message.
+      const code = String((err && err.code) || '');
+      const errKey =
+        code === 'AMOUNT_EXCEEDS_MAX'   ? 'amount_exceeds_max' :
+        code === 'INVALID_AMOUNT'       ? 'invalid_amount' :
+        code === 'AMOUNT_NOT_A_TOPUP'   ? 'amount_not_a_topup' :
+        code === 'REFUND_ALREADY_PAID'  ? 'refund_already_paid' :
+                                          'refund_already_exists';
+      return res.redirect(
+        '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=' + errKey
+      );
+    } finally {
+      client.release();
+    }
+  }
   if (existingRefund) {
     return res.redirect(
       '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=refund_already_exists'

@@ -8,15 +8,18 @@ const { getOpenClawBody } = require('./openclawTemplates');
 // Theme 9 Sub-issue B (OQ-7): the v22.0 default for WHATSAPP_API_VERSION
 // now lives in src/config/whatsapp.js — imported via waApiVersion() below.
 // Other envs still read at call time inside sendWhatsApp().
-const {
-  WHATSAPP_ENABLED,
-  WHATSAPP_TEST_STUB,
-  WHATSAPP_PHONE_NUMBER_ID,
-  WHATSAPP_ACCESS_TOKEN
-} = process.env;
-
+//
+// AUDIT-2026-08-22: the four Meta envs used to be destructured from
+// process.env HERE, at module load — directly contradicting the comment
+// immediately above, which promises they are read per call. The consequence
+// was operational, not cosmetic: rotating WHATSAPP_ACCESS_TOKEN on Render had
+// no effect until the next redeploy, while jobs/whatsapp_health_check.js
+// fires a critical alert on a 401 whose remediation is "rotate the token".
+// An operator following that instruction would rotate, see the 401 persist,
+// and conclude the new token was also bad. Now read per call, matching
+// isNotificationsWhatsAppEnabled() and whatsappTransport() below.
 function isEnabled() {
-  return String(WHATSAPP_ENABLED).toLowerCase() === 'true';
+  return String(process.env.WHATSAPP_ENABLED || '').toLowerCase() === 'true';
 }
 
 // Master kill-switch for the WhatsApp-via-OpenClaw migration. Read at
@@ -60,7 +63,7 @@ function isStubMode() {
   // and returns { ok: true, stubbed: true } without calling Meta.
   // Used by integration tests to verify the dispatch path fires
   // without burning real template quota or requiring network.
-  return String(process.env.WHATSAPP_TEST_STUB || WHATSAPP_TEST_STUB || '').toLowerCase() === 'true';
+  return String(process.env.WHATSAPP_TEST_STUB || '').toLowerCase() === 'true';
 }
 
 // P1-NOTIF-1: write WhatsApp send failures to error_logs so ops has
@@ -185,9 +188,11 @@ async function sendWhatsApp({ to, template, lang = 'en_US', vars = {}, orderId =
     return { skipped: true };
   }
 
-  const phoneNumberId = String(WHATSAPP_PHONE_NUMBER_ID || '').trim();
+  // AUDIT-2026-08-22: read per call (see the note at the top of the file) so a
+  // Render credential rotation takes effect on the next send, not the next deploy.
+  const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
   const apiVersion = waApiVersion();
-  const token = String(WHATSAPP_ACCESS_TOKEN || '').trim();
+  const token = String(process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
 
   // Normalize phone numbers: WhatsApp Cloud API expects digits with country code, no leading +
   const normalizedTo = String(to).replace(/[^0-9]/g, '');

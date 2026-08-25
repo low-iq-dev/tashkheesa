@@ -47,6 +47,31 @@
   hideBell: false
 }) %>
 
+<%
+  var _rxSoon = (typeof prescriptionsComingSoon !== 'undefined') ? !!prescriptionsComingSoon : true;
+%>
+<% if (_rxSoon) { %>
+  <%# Coming soon (2026-08-24). Kept reachable rather than hidden: a patient
+      whose consultant mentioned a prescription should find an answer here, not
+      a dead nav item. See src/services/prescriptions_flag.js. %>
+  <div class="p-card" style="padding:20px;margin-bottom:18px;border:1px dashed var(--rule, #E5E9EE);background:var(--surface-tint, #FDFBF6);">
+    <div style="display:flex;gap:14px;align-items:flex-start;">
+      <div style="flex-shrink:0;width:44px;height:44px;border-radius:12px;background:#F7EEDC;color:#8E6C2C;display:flex;align-items:center;justify-content:center;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>
+      </div>
+      <div style="flex:1;min-width:0;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px;">
+          <span style="font-size:15px;font-weight:600;"><%= tt('Digital prescriptions are coming soon', 'Digital prescriptions are coming soon', 'الروشتة الرقمية قريباً') %></span>
+          <span style="background:#F7EEDC;color:#8E6C2C;padding:2px 9px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;"><%= tt('Coming soon', 'Coming soon', 'قريباً') %></span>
+        </div>
+        <div style="font-size:13px;line-height:1.6;color:var(--muted, #6B7A8A);">
+          <%= tt('Your written second opinion is unaffected and arrives as normal. A signed digital prescription will be available as an optional extra shortly — we will let you know when it is.', 'Your written second opinion is unaffected and arrives as normal. A signed digital prescription will be available as an optional extra shortly — we will let you know when it is.', 'تقريرك المكتوب لا يتأثر وسيصلك كالمعتاد. ستتوفر قريباً روشتة رقمية موقَّعة كخدمة اختيارية، وسنخبرك فور إتاحتها.') %>
+        </div>
+      </div>
+    </div>
+  </div>
+<% } %>
+
 <% if (_prescriptions.length === 0) { %>
   <div class="p-card" style="text-align:center;padding:3rem 1.5rem;">
     <div style="margin-bottom:1rem;">

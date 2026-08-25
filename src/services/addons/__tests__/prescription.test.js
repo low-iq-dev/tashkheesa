@@ -27,13 +27,56 @@ test.after(async () => {
   await closePool();
 });
 
+// 2026-08-24 — read the catalogue instead of hardcoding it. The literals here
+// (400 EGP, 80%) were already wrong against the seeded row (50%), and migration
+// 088 reprices to 300. A lifecycle test should assert that onPurchase snapshots
+// WHAT THE REGISTRY SAYS and that onComplete pays that percentage OF that
+// snapshot — the arithmetic, not one frozen instance of it.
+async function catalogueRx() {
+  const row = await require('../../../pg').queryOne(
+    `SELECT base_price_egp, doctor_commission_pct FROM addon_services WHERE id = 'prescription'`
+  );
+  assert.ok(row, 'prescription must be seeded in addon_services');
+  return { egp: Math.round(Number(row.base_price_egp)), pct: Math.round(Number(row.doctor_commission_pct)) };
+}
+
 test('onPurchase creates order_addons row at status=paid (awaits doctor attach)', async () => {
+  const cat = await catalogueRx();
   const row = await presc.onPurchase({ order, addonService, currency: 'EGP' });
   assert.equal(row.order_id, order.id);
   assert.equal(row.status, 'paid');
-  assert.equal(row.price_at_purchase_egp, 400);
-  assert.equal(row.doctor_commission_pct_at_purchase, 80);
+  assert.equal(row.price_at_purchase_egp, cat.egp);
+  assert.equal(row.doctor_commission_pct_at_purchase, cat.pct);
   assert.equal(row.refund_pending, false);
+});
+
+test('onPurchase snapshots the CHARGED price over the catalogue price', async () => {
+  // The defect this guards: prescription.onPurchase used to ignore what the
+  // patient actually paid and snapshot addon_services.base_price_egp, so a
+  // charge of 350 against a catalogue of 400 paid the doctor a percentage of
+  // 400. video_consult was fixed for this in FIX 9; prescription was not, until
+  // 2026-08-24.
+  const fresh = await createDisposableOrder({ doctorId: doctor.id });
+  const row = await presc.onPurchase({
+    order: fresh, addonService, currency: 'EGP',
+    chargedPriceEgp: 275, chargedAmount: 275
+  });
+  assert.equal(row.price_at_purchase_egp, 275, 'must use the charged price, not the catalogue');
+  assert.equal(row.price_at_purchase_amount, 275);
+});
+
+test('onPurchase keeps the local charged amount separate from the EGP base', async () => {
+  // price_at_purchase_egp is the commission base and must be EGP;
+  // price_at_purchase_amount is what the patient paid, in their currency.
+  // Writing the EGP figure into both stamped "SAR 300" on a 109 SAR sale.
+  const fresh = await createDisposableOrder({ doctorId: doctor.id });
+  const row = await presc.onPurchase({
+    order: fresh, addonService, currency: 'SAR',
+    chargedPriceEgp: 300, chargedAmount: 109
+  });
+  assert.equal(row.price_at_purchase_egp, 300);
+  assert.equal(row.price_at_purchase_amount, 109);
+  assert.equal(String(row.price_at_purchase_currency).toUpperCase(), 'SAR');
 });
 
 test('onFulfill requires at least one of pdf_storage_key or text_body', async () => {
@@ -62,18 +105,25 @@ test('onFulfill with pdf_storage_key stores attachment metadata', async () => {
   assert.equal(updated.metadata_json.attached_by, doctor.id);
 });
 
-test('onComplete inserts addon_earnings at 80% of 400 EGP = 320 EGP', async () => {
+test('onComplete inserts addon_earnings at the snapshotted pct of the snapshotted price', async () => {
   const addon = await require('../../../pg').queryOne(
     `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'prescription'`, [order.id]
   );
+  const gross = Number(addon.price_at_purchase_egp);
+  const pct = Number(addon.doctor_commission_pct_at_purchase);
+  const expected = Math.round(gross * pct / 100);
+
   const earnings = await presc.onComplete({ order, addon, doctorId: doctor.id });
   assert.ok(earnings);
-  assert.equal(earnings.gross_amount_egp, 400);
-  assert.equal(earnings.commission_pct, 80);
-  assert.equal(earnings.earned_amount_egp, 320);
+  // The point is that the earning is derived from the ROW, not from whatever
+  // the catalogue happens to say at completion time — a price change between
+  // purchase and completion must never reprice a sale that already happened.
+  assert.equal(earnings.gross_amount_egp, gross);
+  assert.equal(earnings.commission_pct, pct);
+  assert.equal(earnings.earned_amount_egp, expected);
   assert.equal(earnings.status, 'pending');
   const refreshed = await getOrderAddon(addon.id);
-  assert.equal(refreshed.doctor_commission_amount_egp, 320);
+  assert.equal(refreshed.doctor_commission_amount_egp, expected);
 });
 
 test('onComplete returns null if prescription is not fulfilled (no accidental payout)', async () => {

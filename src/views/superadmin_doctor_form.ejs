@@ -6,6 +6,8 @@
   //   #subSpecialtySelectedJson     — hidden textarea with selected sub-id array JSON
   //   #subSpecialtiesCsv            — hidden input mirrors selected as CSV (service_ids_csv)
   //   #subSpecialtiesCsvLegacy      — legacy hidden input (sub_specialties_csv)
+  //   (both are seeded server-side with the doctor's current selection, and are
+  //    accompanied by a plain `service_ids_submitted=1` marker — see below)
   //   #subSpecialties / #subSpecialtiesList — <details> panel + slot for checkboxes
   //   #subSpecialtiesEmpty / #subSpecialtiesSummary
   // Anything renaming these IDs will break the JS.
@@ -19,7 +21,14 @@
     || (_doctor && (_doctor.specialty_id || _doctor.specialtyId || _doctor.specialty))
     || '';
 
-  var _selectedSubIds = (typeof selectedSubIds !== 'undefined' ? selectedSubIds : null)
+  // AUDIT-2026-08-23 (P0-DOC-FORM): both GET handlers pass the doctor's current
+  // sub-specialty rows as `selectedServiceIds`, which this chain never read — so
+  // the edit form always rendered with nothing ticked. Combined with the mapping
+  // rewrite in POST /superadmin/doctors/:id/edit that meant an admin who saved a
+  // doctor without opening the picker submitted an empty selection and wiped the
+  // doctor_services rows the eligibility gate needs. Read it first.
+  var _selectedSubIds = (typeof selectedServiceIds !== 'undefined' ? selectedServiceIds : null)
+    || (typeof selectedSubIds !== 'undefined' ? selectedSubIds : null)
     || (typeof selectedSubSpecialtyIds !== 'undefined' ? selectedSubSpecialtyIds : null)
     || (_doctor && (
       _doctor.sub_specialty_ids || _doctor.subSpecialtyIds ||
@@ -95,8 +104,41 @@
   var _fullName = (_doctor && (_doctor.full_name || _doctor.fullName || _doctor.name)) ? String(_doctor.full_name || _doctor.fullName || _doctor.name) : '';
   var _email = (_doctor && _doctor.email) ? String(_doctor.email) : '';
   var _phone = (_doctor && (_doctor.phone || _doctor.phone_number)) ? String(_doctor.phone || _doctor.phone_number) : '';
-  var _active = (_doctor && typeof _doctor.active !== 'undefined') ? !!_doctor.active : true;
-  var _sendWhatsApp = (_doctor && typeof _doctor.send_whatsapp_alerts !== 'undefined') ? !!_doctor.send_whatsapp_alerts : false;
+  // AUDIT-2026-08-23 (AUDIT-DOCTOR-LANG-1) — the doctor's email language.
+  // Drives which doctor-welcome template directory the loader reads, i.e.
+  // which language leads in the welcome email. Was never on this form, so
+  // create hardcoded 'en' and edit never wrote it; default stays 'en'.
+  var _lang = (_doctor && String(_doctor.lang || '').trim().toLowerCase() === 'ar') ? 'ar' : 'en';
+  var langOpts = [
+    { value: 'en', label: 'English' },
+    { value: 'ar', label: 'العربية' }
+  ];
+  // AUDIT-2026-08-23 (P0-DOC-FORM): read the canonical users columns first.
+  // These only looked at `active` / `send_whatsapp_alerts`, which no users row
+  // carries, so Active always rendered ticked (even for a deactivated doctor)
+  // and WhatsApp always unticked regardless of what was stored.
+  var _active = (_doctor && typeof _doctor.is_active !== 'undefined')
+    ? !!_doctor.is_active
+    : ((_doctor && typeof _doctor.active !== 'undefined') ? !!_doctor.active : true);
+  var _sendWhatsApp = (_doctor && typeof _doctor.notify_whatsapp !== 'undefined')
+    ? !!_doctor.notify_whatsapp
+    : ((_doctor && typeof _doctor.send_whatsapp_alerts !== 'undefined') ? !!_doctor.send_whatsapp_alerts : false);
+
+  // AUDIT-2026-08-23 (P0-DOC-FORM): the 400 re-render from POST /doctors/new
+  // passes a `doctor` object rebuilt from the request body purely to repopulate
+  // the inputs. It is truthy but is NOT a saved row, so branching the page
+  // chrome on `_doctor` turned a failed CREATE into "Edit doctor". Trust the
+  // route's explicit `isEdit`; fall back to "carries a real id".
+  var _isEdit = (typeof isEdit !== 'undefined' && isEdit !== null)
+    ? !!isEdit
+    : !!(_doctor && _doctor.id);
+
+  // Mirrors the CSV that /js/superadmin_doctor_form.js writes on init, so the
+  // hidden inputs already carry the doctor's current mapping if that script
+  // never runs (CSP block, JS error). Posting the existing selection is the
+  // safe default; posting an empty CSV would ask the route to unassign
+  // everything. See the marker input below.
+  var _selectedCsv = _selectedSubIdsArr.join(',');
 
   var _formAction = (typeof formAction !== 'undefined' && formAction)
     ? formAction
@@ -108,7 +150,7 @@
   );
 %>
 <%- include('partials/superadmin/header', {
-      title: _doctor ? 'Edit doctor' : 'Add doctor',
+      title: _isEdit ? 'Edit doctor' : 'Add doctor',
       currentSection: 'doctors',
       user: user,
       lang: lang || 'en',
@@ -118,12 +160,12 @@
     }) %>
 
 <%- include('partials/superadmin/page_header', {
-      title: _doctor ? 'Edit doctor' : 'Add doctor',
-      subtitle: _doctor ? 'Update profile and specialties.' : 'Internal onboarding for a new doctor.',
+      title: _isEdit ? 'Edit doctor' : 'Add doctor',
+      subtitle: _isEdit ? 'Update profile and specialties.' : 'Internal onboarding for a new doctor.',
       breadcrumb: [
         { label: 'Dashboard', href: '/superadmin' },
         { label: isAr ? 'الأطباء' : 'Doctors', href: '/superadmin/doctors' },
-        { label: _doctor ? (_doctor.name || 'Edit') : 'New' }
+        { label: _isEdit ? ((_doctor && _doctor.name) || 'Edit') : 'New' }
       ],
       actionsHtml: '<a class="btn" href="/superadmin/doctors">Cancel</a>'
     }) %>
@@ -133,12 +175,12 @@
     <div class="flash err"><%= _err %></div>
   <% } %>
 
-  <%- include('partials/superadmin/c_card_open', { title: _doctor ? 'Doctor profile' : 'New doctor' }) %>
+  <%- include('partials/superadmin/c_card_open', { title: _isEdit ? 'Doctor profile' : 'New doctor' }) %>
     <form action="<%= _formAction %>" method="<%= _formMethod %>" style="max-width:880px;">
       <%- (typeof csrfField === 'function') ? csrfField() : '' %>
 
       <div class="c-form-row">
-        <%- include('partials/superadmin/c_form_field', { name: 'full_name', label: 'Full name', required: true, value: _fullName, autocomplete: 'name' }) %>
+        <%- include('partials/superadmin/c_form_field', { name: 'name', label: 'Full name', required: true, value: _fullName, autocomplete: 'name' }) %>
         <%- include('partials/superadmin/c_form_field', { name: 'email', label: 'Email', type: 'email', required: true, value: _email, autocomplete: 'email' }) %>
       </div>
 
@@ -147,12 +189,25 @@
         <%- include('partials/superadmin/c_form_field', { name: 'phone', label: 'Phone', type: 'tel', value: _phone, autocomplete: 'tel' }) %>
       </div>
 
+      <div class="c-form-row">
+        <%- include('partials/superadmin/c_form_field', { name: 'lang', label: 'Email language', type: 'select', value: _lang, options: langOpts, help: 'Which language leads in the welcome email and notifications.' }) %>
+      </div>
+
       <div class="c-field">
         <label class="c-field-label">Sub-specialties</label>
         <textarea id="subSpecialtyOptionsJson" style="display:none;" aria-hidden="true"><%- _optionsJson %></textarea>
         <textarea id="subSpecialtySelectedJson" style="display:none;" aria-hidden="true"><%- _selectedJson %></textarea>
-        <input id="subSpecialtiesCsv" type="hidden" name="service_ids_csv" value="" />
-        <input id="subSpecialtiesCsvLegacy" type="hidden" name="sub_specialties_csv" value="" />
+        <%# AUDIT-2026-08-23 (P0-DOC-FORM): `service_ids_submitted` is the marker that
+            tells the route this request came from the picker, so an empty CSV means
+            "the admin deliberately cleared the selection" rather than "no service
+            field was sent". Without it the route cannot tell the two apart and has
+            to choose between wiping mappings and never being able to clear them.
+            The CSVs are also pre-seeded with the current selection (they used to be
+            hard-coded empty) so a page where the multi-select JS never ran posts the
+            doctor's existing services back instead of an empty list. %>
+        <input type="hidden" name="service_ids_submitted" value="1" />
+        <input id="subSpecialtiesCsv" type="hidden" name="service_ids_csv" value="<%= _selectedCsv %>" />
+        <input id="subSpecialtiesCsvLegacy" type="hidden" name="sub_specialties_csv" value="<%= _selectedCsv %>" />
         <details id="subSpecialties" class="multi-select" data-placeholder="Select sub-specialties" data-count-label="Sub-specialties" style="background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-sm);padding:8px 11px;">
           <summary id="subSpecialtiesSummary" style="cursor:pointer;font-size:13px;color:var(--fg-1);">Select sub-specialties</summary>
           <div class="multi-select-panel" style="margin-top:10px;border-top:1px solid var(--line-soft);padding-top:10px;">
@@ -165,18 +220,27 @@
         <div class="c-field-help">Options are filtered once you pick a specialty above.</div>
       </div>
 
+      <%# AUDIT-2026-08-23 (P0-DOC-FORM): these posted `send_whatsapp_alerts` / `active`,
+          which neither route reads — the edit route saw `notify_whatsapp` and `is_active`
+          as undefined and wrote false, so saving any edit silently deactivated the doctor.
+          Renamed to the canonical users column names, and each checkbox now carries a
+          hidden companion of the same name posted BEFORE it: unticked arrives as "0"
+          (an explicit false) instead of nothing at all, so the route can still tell a
+          submitted-and-unticked box from a caller that never sent the field. %>
       <div class="c-form-row" style="align-items:end;">
         <label class="c-checkbox">
-          <input type="checkbox" name="send_whatsapp_alerts" value="1" <%= _sendWhatsApp ? 'checked' : '' %> />
+          <input type="hidden" name="notify_whatsapp" value="0" />
+          <input type="checkbox" name="notify_whatsapp" value="1" <%= _sendWhatsApp ? 'checked' : '' %> />
           <span>Send WhatsApp alerts</span>
         </label>
         <label class="c-checkbox">
-          <input type="checkbox" name="active" value="1" <%= _active ? 'checked' : '' %> />
+          <input type="hidden" name="is_active" value="0" />
+          <input type="checkbox" name="is_active" value="1" <%= _active ? 'checked' : '' %> />
           <span>Active</span>
         </label>
       </div>
 
-      <% if (!_doctor) { %>
+      <% if (!_isEdit) { %>
         <p style="font-size:11.5px;color:var(--fg-3);margin-top:10px;">
           No password is created here. A welcome email with a one-time setup link (valid 7 days) is sent to the doctor — that link is the only way in for first login. The doctor sets their own password on the linked page.
         </p>
@@ -184,7 +248,7 @@
 
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;">
         <a class="btn" href="/superadmin/doctors">Cancel</a>
-        <button type="submit" class="btn primary"><%= _doctor ? 'Save doctor' : 'Create doctor' %></button>
+        <button type="submit" class="btn primary"><%= _isEdit ? 'Save doctor' : 'Create doctor' %></button>
       </div>
     </form>
   <%- include('partials/superadmin/c_card_close') %>

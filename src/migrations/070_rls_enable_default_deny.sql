@@ -35,6 +35,43 @@ DECLARE
   orphans text[] := ARRAY[
     'appointment_slots','notify_whatsapp_migration_062_backup','services_sla_hours_migration_063_backup'
   ];  -- 3 tables, dropped by 071
+  -- AUDIT-2026-08-22 — tables created by migrations that run AFTER this one.
+  --
+  -- ── AUDIT-2026-08-22 (AUDIT-070-EXEMPTION-1): NARROWED. READ BEFORE EDITING ──
+  --
+  -- The original note ended with "ADD EVERY NEW PUBLIC TABLE HERE". That
+  -- instruction is REVOKED. Two things were wrong with it:
+  --
+  --   1. On the normal paths this array does nothing at all. On an EXISTING
+  --      database 070 is already recorded in schema_migrations and never runs
+  --      again, so nothing here can affect it. On a FRESH database 070 runs at
+  --      position 070 — before 073 / 075 / 082 create these three tables — so
+  --      Guard 2 could never have seen them either.
+  --   2. Following it would permanently exempt every future table from Guard 2,
+  --      the ONLY drift check that catches an unclassified public table on a
+  --      fresh build. The array would quietly become an allowlist for exactly
+  --      the thing the guard exists to detect.
+  --
+  -- WHY IT IS KEPT RATHER THAN REVERTED: there is one real path where these
+  -- three tables DO exist while 070 has not been recorded — a database restored
+  -- from a dump of a later schema and then migrated from scratch, and any
+  -- environment where the ledger and the schema were reconciled by hand. There,
+  -- an unlisted name aborts the whole migration. Three named, verified
+  -- exceptions cost nothing and close that hole.
+  --
+  -- THE RULE FOR A NEW TABLE: give it `ENABLE ROW LEVEL SECURITY` in the
+  -- migration that CREATES it (073 and 085 are the worked examples) and do NOT
+  -- add it here. If Guard 2 ever trips on it, that is the guard working — audit
+  -- the table and classify it, do not silence it.
+  --
+  -- Each of these locks itself in its own migration:
+  --   doctor_applications    → 073_doctor_applications.sql:55
+  --   payment_event_reviews  → 085_rls_payment_event_reviews_ops_push_log.sql
+  --   ops_push_log           → 085_rls_payment_event_reviews_ops_push_log.sql
+  -- CLOSED SET — do not extend.
+  later_tables text[] := ARRAY[
+    'doctor_applications','payment_event_reviews','ops_push_log'
+  ];  -- 3 tables, created by 073 / 075 / 082, RLS-enabled by 073 and 085
   t text;
   missing  text[];
   surprise text[];
@@ -48,12 +85,14 @@ BEGIN
   END IF;
 
   -- Guard 2: drift check (the 067 lesson) — refuse if any public base table is
-  -- outside (survivors ∪ orphans); a new/renamed table must be classified first.
+  -- outside (survivors ∪ orphans ∪ later_tables); a new/renamed table must be
+  -- classified first.
   SELECT array_agg(c.relname) INTO surprise
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND c.relkind = 'r'
     AND c.relname <> ALL(survivors)
-    AND c.relname <> ALL(orphans);
+    AND c.relname <> ALL(orphans)
+    AND c.relname <> ALL(later_tables);
   IF surprise IS NOT NULL THEN
     RAISE EXCEPTION 'RLS abort: unrecognized public table(s) present — re-audit before locking: %', surprise;
   END IF;
