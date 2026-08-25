@@ -3245,6 +3245,38 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
     ]
   );
 
+
+  // 2026-08-25 — mirror the primary specialty into doctor_specialties.
+  //
+  // That table is what notify/broadcast.js and the assign dropdowns on this
+  // very page key off, but only self-signup ever wrote it — so every doctor an
+  // operator created here was invisible to case broadcast and unpickable in
+  // the assign list, while looking perfectly normal everywhere else. 18 of 31
+  // doctors were in that state before migration 091 backfilled them; without
+  // this line the drift starts again with the next doctor created.
+  //
+  // id is text NOT NULL with no default on this table, hence the explicit
+  // randomUUID(). The anti-join keeps it idempotent — there is no unique
+  // constraint on (doctor_id, specialty_id) to hang ON CONFLICT off.
+  if (specialty_id) {
+    try {
+      await execute(
+        `INSERT INTO doctor_specialties (id, doctor_id, specialty_id, created_at)
+         SELECT $1, $2, $3, NOW()
+          WHERE NOT EXISTS (
+                SELECT 1 FROM doctor_specialties
+                 WHERE doctor_id = $2 AND specialty_id = $3
+              )`,
+        [randomUUID(), newDoctorId, specialty_id]
+      );
+    } catch (e) {
+      // Never block doctor creation on the mirror — broadcast also matches
+      // users.specialty_id directly now, so a miss here degrades rather than
+      // hides the doctor. But it must be visible.
+      logErrorToDb(e, { context: 'superadmin.doctor_create_specialty_mirror', userId: newDoctorId });
+    }
+  }
+
   // Map selected sub-specialties (services) to the doctor
   const cleanedServiceIds = submittedServiceIds || [];
 
@@ -3420,6 +3452,39 @@ router.post('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) 
       req.params.id
     ]
   );
+  // 2026-08-25 — keep the doctor_specialties mirror in step with a specialty
+  // change. Same reasoning as the create path: broadcast and the assign
+  // dropdowns key off that table, and an edit that moves a doctor to a new
+  // specialty without it leaves them unreachable under the new one.
+  //
+  // INSERT ONLY — deliberately no DELETE of the previous row. doctor_specialties
+  // has no is_primary column (id, doctor_id, specialty_id, created_at), and
+  // self-signup writes the primary AND every secondary specialty into it. So a
+  // row that is not the current primary is indistinguishable from a legitimate
+  // secondary, and clearing "the old one" would silently destroy a doctor's
+  // secondary specialties on any unrelated edit — this form has no field for
+  // them and must not be the thing that deletes them.
+  //
+  // The cost is that a doctor moved between specialties stays broadcastable
+  // under the old one until someone cleans the row up by hand. That is the
+  // safer failure: a case offered slightly too widely, versus a doctor's
+  // record quietly losing data the form never showed them.
+  if (nextSpecialtyId) {
+    try {
+      await execute(
+        `INSERT INTO doctor_specialties (id, doctor_id, specialty_id, created_at)
+         SELECT $1, $2, $3, NOW()
+          WHERE NOT EXISTS (
+                SELECT 1 FROM doctor_specialties
+                 WHERE doctor_id = $2 AND specialty_id = $3
+              )`,
+        [randomUUID(), req.params.id, nextSpecialtyId]
+      );
+    } catch (e) {
+      logErrorToDb(e, { context: 'superadmin.doctor_edit_specialty_mirror', userId: req.params.id });
+    }
+  }
+
   // Refresh sub-specialties (services) mapping.
   //
   // AUDIT-2026-08-23 (P0-DOC-FORM): `submittedServiceIds === null` means the

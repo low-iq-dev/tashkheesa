@@ -34,8 +34,15 @@
 -- what keeps a re-run from inserting duplicates.
 -- ============================================================================
 
-INSERT INTO doctor_specialties (doctor_id, specialty_id)
-SELECT u.id, u.specialty_id
+-- id is `text NOT NULL` with NO DEFAULT on this table, so it must be supplied
+-- explicitly — omitting it raises 23502, which src/db.js rethrows, migrate()
+-- rejects on, and src/server.js turns into process.exit(1). That is a
+-- permanent boot loop on every restart, not a failed migration. Both existing
+-- writers (routes/auth.js, create_test_doctor.js) pass a randomUUID(); this is
+-- the SQL equivalent. gen_random_uuid() is built in on PG 13+ — production is
+-- PostgreSQL 17.6, verified.
+INSERT INTO doctor_specialties (id, doctor_id, specialty_id, created_at)
+SELECT gen_random_uuid()::text, u.id, u.specialty_id, NOW()
   FROM users u
  WHERE u.role = 'doctor'
    AND u.specialty_id IS NOT NULL

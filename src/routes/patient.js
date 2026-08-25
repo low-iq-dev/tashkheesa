@@ -1431,7 +1431,17 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     var classifierPending = (specialtyRec === null);
     // Services for the currently-selected specialty (or all services if not yet picked).
     try {
-      const visibleClause = await servicesVisibleClause('sv');
+      // 2026-08-25 — BOOKABLE, not merely visible.
+      //
+      // This grid rendered every visible service as a clickable card, but the
+      // step-3 POST validates against servicesBookableClause (visible AND NOT
+      // coming_soon) plus a visible specialty. So a coming_soon service — one
+      // with no active doctor mapped to it — was offered to the patient, and
+      // clicking it bounced straight back here with err=invalid_service. Every
+      // attempt, no explanation, no way to tell which cards work.
+      //
+      // The two must agree: offer exactly what the next step will accept.
+      const visibleClause = servicesBookableClause('sv');
       services = await safeAll(
         (slaExpr) => `SELECT sv.id, sv.specialty_id, sv.name,
                              COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
