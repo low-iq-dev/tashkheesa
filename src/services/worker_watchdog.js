@@ -42,6 +42,7 @@ var { logErrorToDb, fatal: logFatal, major: logMajor } = require('../logger');
 var { sendCriticalAlert } = require('../critical-alert');
 var { WORKER_SPECS, workerLiveness } = require('./admin_health');
 var { notifySuperadmins } = require('../middleware/push');
+var { recordOpsEvent } = require('./ops_push');
 
 var FLAG_KEY = 'worker_health_banner';
 // LAYER 4 (Command push) cooldown: per-worker last-notified timestamps are kept
@@ -69,6 +70,7 @@ var _deps = {
   logFatal: logFatal,
   logMajor: logMajor,
   notifySuperadmins: notifySuperadmins,
+  recordOpsEvent: recordOpsEvent,
 };
 function _setDepsForTests(d) { if (d) Object.assign(_deps, d); }
 function _resetDepsForTests() {
@@ -78,6 +80,7 @@ function _resetDepsForTests() {
     logFatal: logFatal,
     logMajor: logMajor,
     notifySuperadmins: notifySuperadmins,
+  recordOpsEvent: recordOpsEvent,
   };
 }
 
@@ -439,11 +442,33 @@ async function runWorkerWatchdogSweep(pool, opts) {
     for (var sdi = 0; sdi < toPushDown.length; sdi++) {
       var sdw = toPushDown[sdi];
       try {
+        var downTitle = 'Worker down: ' + sdw.name;
+        var downBody = _agePhrase(sdw.name, sdw.ageSec, sdw.staleSeconds);
         await _deps.notifySuperadmins(pool, {
-          title: 'Worker down: ' + sdw.name,
-          body: _agePhrase(sdw.name, sdw.ageSec, sdw.staleSeconds),
+          title: downTitle,
+          body: downBody,
           data: { type: 'worker_down', worker: sdw.name, ageSec: sdw.ageSec == null ? null : sdw.ageSec },
         });
+        // 2026-08-25 — persist it in the Activity feed.
+        //
+        // This alert was push-ONLY. It never wrote an ops_push_log row, so
+        // missing the push while the phone was locked meant the most severe
+        // alert on the platform vanished — the exact failure the feed exists to
+        // prevent, still live for the one event where it matters most.
+        //
+        // Recorded rather than routed through pushOpsEvent on purpose: the
+        // claim above is a durable, cross-instance, admin_settings-backed
+        // cooldown that is strictly stronger than that module's, and its
+        // per-kind budget could suppress a worker-down alert. See the note on
+        // recordOpsEvent.
+        try {
+          await _deps.recordOpsEvent({
+            kind: 'worker_down',
+            dedupeKey: sdw.name + ':' + Math.floor(Date.now() / 60000),
+            title: downTitle,
+            body: downBody,
+          });
+        } catch (_) { /* the feed row is not worth failing an alert over */ }
       } catch (ep) {
         try { _deps.logFatal('[worker-watchdog] layer-4 down push failed (non-fatal)', ep); } catch (_) {}
       }
@@ -457,6 +482,16 @@ async function runWorkerWatchdogSweep(pool, opts) {
           body: srn + ' is heartbeating again.',
           data: { type: 'worker_recovered', worker: srn },
         });
+        // Recovery persists too. A feed showing every "down" and no "back up"
+        // reads as an outage that never ended.
+        try {
+          await _deps.recordOpsEvent({
+            kind: 'worker_recovered',
+            dedupeKey: srn + ':' + Math.floor(Date.now() / 60000),
+            title: 'Worker recovered: ' + srn,
+            body: srn + ' is heartbeating again.',
+          });
+        } catch (_) { /* see above */ }
       } catch (er) {
         try { _deps.logFatal('[worker-watchdog] layer-4 recovery push failed (non-fatal)', er); } catch (_) {}
       }

@@ -39,6 +39,13 @@ async function runAcceptanceWatcherSweep() {
              -- AUDIT-2026-08-22 — reassigned_count drives the no-doctor backoff
              -- below (see autoAssignOrder).
              o.reassigned_count,
+             -- 2026-08-25 — paid_at drives the escalate-then-stop banding in
+             -- notifyUrgentUnaccepted. Without it, hoursWaiting is permanently
+             -- 0: the alert never escalates AND never stops, which is the exact
+             -- hourly-forever loop the banding was added to end. Selecting the
+             -- column is the whole mechanism, so it is called out here rather
+             -- than buried in the projection.
+             o.paid_at,
              o.urgency_flag, o.sla_24hr_selected
       FROM orders_active o
       WHERE o.doctor_id IS NULL
@@ -156,12 +163,56 @@ async function notifyUrgentUnaccepted(order) {
 
     const minutes = acceptanceMinutesForOrder(order);
 
+    // ── ESCALATE, THEN STOP (2026-08-25) ────────────────────────────────────
+    //
+    // This alert re-fired ONCE AN HOUR, FOREVER, on a case with no eligible
+    // doctor. The sweep runs every 2 minutes, the no-doctor backoff caps at 30,
+    // and the push cooldown is 60 minutes per case — so an unassignable urgent
+    // case buzzed the operator hourly, indefinitely, with the same words and no
+    // escalation. That is the pattern that teaches someone to swipe a channel
+    // away, and it was hitting the exact alert this worker exists for.
+    //
+    // Now the dedupe key carries an attempt band, so the FIRST few hours alert
+    // (with escalating language) and after that it stops pushing. The case does
+    // not disappear: it stays in the manual queue, in the Activity feed, and in
+    // the SLA breach path, all of which are pull surfaces the operator chooses
+    // to look at. Repeating a push nobody can act on is not urgency, it is
+    // noise wearing urgency's clothes.
+    const ageMs = order.paid_at ? (Date.now() - new Date(order.paid_at).getTime()) : 0;
+    const hoursWaiting = Math.floor(ageMs / 3600000);
+    const MAX_ALERT_HOURS = 3;
+
+    if (hoursWaiting > MAX_ALERT_HOURS) {
+      // Recorded, not pushed. It still lands in Activity so the history is
+      // complete and the operator can see how long it has been sitting.
+      try {
+        const { recordOpsEvent } = require('../services/ops_push');
+        await recordOpsEvent({
+          kind: 'urgent_unaccepted',
+          dedupeKey: order.id + ':h' + hoursWaiting,
+          title: 'Still unaccepted (' + hoursWaiting + 'h) — ' + (specialtyName || 'no specialty'),
+          body: caseRef + ' has had no doctor for ' + hoursWaiting + ' hours. Alerts paused; it stays in the manual queue.',
+          orderId: order.id,
+        });
+      } catch (_) { /* best effort */ }
+      return;
+    }
+
+    // Escalating copy — an operator seeing the identical sentence three times
+    // reads it as the same stale alert repeating, not as the situation getting
+    // worse.
+    const escalated = hoursWaiting >= 1;
     await pushOpsEvent({
       kind: 'urgent_unaccepted',
-      dedupeKey: order.id,
-      title: 'Urgent case unaccepted — ' + (specialtyName || 'no specialty'),
-      body: 'No doctor accepted ' + caseRef + ' in its ' + minutes + '-min window. The 4h SLA clock is running.',
-      data: { orderId: order.id, tier: 'urgent', specialtyId: order.specialty_id || null },
+      // Banded so each hour is a distinct event rather than one throttled key.
+      dedupeKey: order.id + ':h' + hoursWaiting,
+      title: escalated
+        ? 'STILL unaccepted after ' + hoursWaiting + 'h — ' + (specialtyName || 'no specialty')
+        : 'Urgent case unaccepted — ' + (specialtyName || 'no specialty'),
+      body: escalated
+        ? caseRef + ' still has no doctor. The 4h SLA clock is running and ' + hoursWaiting + 'h are gone.'
+        : 'No doctor accepted ' + caseRef + ' in its ' + minutes + '-min window. The 4h SLA clock is running.',
+      data: { orderId: order.id, tier: 'urgent', specialtyId: order.specialty_id || null, hoursWaiting },
       orderId: order.id,
     });
   } catch (err) {

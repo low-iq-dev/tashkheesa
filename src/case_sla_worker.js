@@ -390,6 +390,27 @@ async function handlePreBreach(candidate) {
     orderId: candidate.case_id,
   });
 
+  // NOTIFICATIONS 2026-08-25 — and onto the phone.
+  //
+  // notifyAdmins writes rows into `notifications`, which is read by the web
+  // console's bell and by NOTHING in the Command app — there is no
+  // /notifications endpoint in routes/api/admin.js. So the one alert that can
+  // still PREVENT a breach only reached someone sitting at a desk.
+  //
+  // Breaches themselves push (case_lifecycle.markSlaBreach). Warning about one
+  // in time is worth more than reporting it afterwards.
+  try {
+    const { pushOpsEvent } = require('./services/ops_push');
+    await pushOpsEvent({
+      kind: 'sla_prebreach',
+      dedupeKey: candidate.case_id,
+      title: 'Case approaching its SLA',
+      body: 'This case is close to breaching. There is still time to act.',
+      orderId: candidate.case_id,
+      data: { screen: 'case-detail', caseId: candidate.case_id }
+    });
+  } catch (_) { /* the sweep must never throw */ }
+
   // Notify the assigned doctor (port of server.js:runSlaReminderJob's
   // 60-min reminder loop, replacing the orders.sla_reminder_sent column
   // flag with per-(case, doctor) dedupe_key).

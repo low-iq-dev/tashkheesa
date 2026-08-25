@@ -136,6 +136,24 @@ async function runClassification(orderId) {
           `UPDATE orders SET assignment_status = 'manual_queue', updated_at = $1 WHERE id = $2`,
           [new Date().toISOString(), orderId]
         );
+        // NOTIFICATIONS 2026-08-25 — this was silent, and it compounds badly.
+        //
+        // A case parked here is paid, no doctor knows it exists, and no SLA
+        // clock runs. It was discoverable only by someone opening the manual
+        // queue and looking. Worse: if the classifier is DOWN (Anthropic
+        // billing, which has tripped) every new case lands here — so the cause
+        // and the effect were both silent at the same time.
+        try {
+          const { pushOpsEvent } = require('./ops_push');
+          await pushOpsEvent({
+            kind: 'classifier_parked',
+            dedupeKey: orderId,
+            title: 'Case parked for manual triage',
+            body: 'The classifier was not confident enough to route this case.',
+            orderId: orderId,
+            data: { screen: 'manual-queue', caseId: orderId }
+          });
+        } catch (_) { /* never fail classification over an alert */ }
       }
     } catch (_) { /* non-fatal — column default 'auto' is the safe fallback */ }
   } catch (err) {

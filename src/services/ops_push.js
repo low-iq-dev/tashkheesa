@@ -58,6 +58,48 @@ function cooldownFor(kind) {
   return COOLDOWN_MS_BY_KIND[kind] || DEFAULT_COOLDOWN_MS;
 }
 
+// ─── Per-kind budget ────────────────────────────────────────────────────────
+//
+// 2026-08-25. The comment above has said "Per-kind cooldown. Keyed by kind so a
+// noisy class cannot drown a quiet one" since this module was written. It was
+// not true. The claim filters on `event_key`, which is kind + ':' + dedupeKey
+// (see EVENT_KEY below), so the cooldown throttles a REPEAT OF THE SAME EVENT
+// and nothing else. Twenty different refunds in a minute produced twenty
+// pushes. Same for payment mismatches and doctor applications.
+//
+// That mattered little with six producers. It matters now, because this change
+// adds five more — including auto-assign failures, which arrive in bursts
+// exactly when something systemic is wrong and the operator most needs to be
+// able to read their lock screen.
+//
+// So: a real per-kind ceiling, alongside the per-event claim. When a kind
+// exceeds its budget the individual pushes stop and ONE summary event goes out
+// instead, so the operator learns "14 more refund requests" rather than either
+// fourteen buzzes or silence. Suppression that tells nobody is how an alerting
+// system loses trust.
+const KIND_WINDOW_MS = 15 * 60 * 1000;
+const MAX_PER_KIND_PER_WINDOW = Object.freeze({
+  // A burst of these means something systemic; one push plus a summary is
+  // strictly more useful than twenty.
+  urgent_unaccepted: 3,
+  refund_requested: 4,
+  payment_mismatch: 4,
+  doctor_application: 4,
+  doctor_auto_paused: 3,
+  assignment_failed: 3,
+  classifier_parked: 3,
+  sla_prebreach: 4,
+  payment_capture_failed: 5,   // money already taken — a higher ceiling is right
+  chat_reported: 4,
+  worker_down: 4,
+});
+const DEFAULT_KIND_BUDGET = 5;
+
+function budgetFor(kind) {
+  const v = MAX_PER_KIND_PER_WINDOW[kind];
+  return Number.isFinite(v) ? v : DEFAULT_KIND_BUDGET;
+}
+
 /**
  * Claim the right to send this event, atomically.
  *
@@ -86,6 +128,61 @@ async function _claim(eventKey, kind, title, body, orderId) {
 }
 
 /**
+ * Has this kind used up its budget for the current window?
+ *
+ * Counts rows already claimed for the kind, EXCLUDING the one this call just
+ * wrote — the claim happens first, so the event is recorded in the feed even
+ * when the push is suppressed.
+ *
+ * @returns {Promise<number|null>} null when under budget and the push should go
+ *   out; otherwise the count of events already suppressed in this window (0
+ *   means this is the first one over the line, so a summary is due).
+ */
+async function _kindBudgetExceeded(kind, currentLogId) {
+  try {
+    const windowMinutes = Math.max(1, Math.round(KIND_WINDOW_MS / 60000));
+    const row = await queryOne(
+      `SELECT COUNT(*)::int AS c
+         FROM ops_push_log
+        WHERE kind = $1
+          AND id <> $2
+          AND sent_at > NOW() - INTERVAL '${windowMinutes} minutes'`,
+      [kind, currentLogId]
+    );
+    const seen = (row && row.c) || 0;
+    const budget = budgetFor(kind);
+    if (seen < budget) return null;
+    return seen - budget;
+  } catch (err) {
+    // Fail OPEN here, unlike the claim. A budget check that cannot run must
+    // never silence an alert: the claim above has already proved this is not a
+    // duplicate, so the worst case is one extra push rather than a missed one.
+    logErrorToDb(err, { context: 'ops_push.kind_budget', category: 'push' });
+    return null;
+  }
+}
+
+// What the burst summary says. Reads as a sentence on a lock screen, because
+// that is the only place it will ever be read.
+function _burstTitle(kind, suppressed) {
+  const n = suppressed + 1;
+  const labels = {
+    urgent_unaccepted: 'urgent cases still unaccepted',
+    refund_requested: 'refund requests',
+    payment_mismatch: 'payment mismatches',
+    doctor_application: 'doctor applications',
+    doctor_auto_paused: 'doctors auto-paused',
+    assignment_failed: 'cases that could not be assigned',
+    classifier_parked: 'cases parked for manual triage',
+    sla_prebreach: 'cases approaching their SLA',
+    payment_capture_failed: 'payments captured but not processed',
+    chat_reported: 'chat reports',
+    worker_down: 'worker alerts',
+  };
+  return n + ' more ' + (labels[kind] || String(kind).replace(/_/g, ' '));
+}
+
+/**
  * Send a business-event push to every superadmin with a registered device.
  *
  * @param {Object} opts
@@ -107,6 +204,38 @@ async function pushOpsEvent(opts) {
     const eventKey = String(o.kind) + ':' + String(o.dedupeKey);
     const logId = await _claim(eventKey, o.kind, o.title, o.body, o.orderId);
     if (!logId) return { sent: false, skipped: 'throttled' };
+
+    // Per-kind ceiling, checked AFTER the per-event claim.
+    //
+    // The claim still does its own job (a repeat of the SAME event is throttled
+    // exactly as before) and the log row is still written. What the budget
+    // stops is the BUZZ, not the record — the Activity feed stays complete
+    // either way, which matters because the feed is what an operator scrolls
+    // back through to reconstruct a bad hour.
+    //
+    // `_summarySent` stops the summary push recursing into itself.
+    if (!o._summarySent) {
+      const suppressed = await _kindBudgetExceeded(o.kind, logId);
+      if (suppressed !== null) {
+        if (suppressed > 0) {
+          // One push for the whole burst, so the operator learns "14 more
+          // refund requests" instead of either fourteen buzzes or silence.
+          // Suppression that tells nobody is how an alerting system loses
+          // trust — and a muted channel is worse than a noisy one.
+          await pushOpsEvent({
+            kind: o.kind,
+            dedupeKey: 'burst:' + Math.floor(Date.now() / KIND_WINDOW_MS),
+            title: _burstTitle(o.kind, suppressed),
+            body: 'Individual alerts are paused for ' +
+                  Math.round(KIND_WINDOW_MS / 60000) +
+                  ' minutes. Open Activity to see them all.',
+            data: { kind: o.kind, burst: true },
+            _summarySent: true,
+          });
+        }
+        return { sent: false, skipped: 'kind_budget', logged: true };
+      }
+    }
 
     let recipients = 0;
     try {
@@ -144,6 +273,49 @@ async function pushOpsEvent(opts) {
   }
 }
 
+/**
+ * Record an ops event in the Activity feed WITHOUT claiming or throttling it.
+ *
+ * 2026-08-25. For callers that already own a better throttle than this module's.
+ *
+ * The worker watchdog is the case this exists for. It called notifySuperadmins
+ * DIRECTLY, bypassing pushOpsEvent, so worker_down and worker_recovered wrote
+ * no ops_push_log row: miss the push while the phone is locked and the most
+ * operationally severe alert on the platform was gone forever — precisely the
+ * failure mode the Activity feed was built to prevent.
+ *
+ * The obvious fix, routing it through pushOpsEvent, is the wrong one. The
+ * watchdog's throttle is STRONGER than this module's: a per-worker cooldown
+ * persisted in admin_settings (so it survives a restart and is shared across
+ * instances) plus a pg advisory lock, with the slot claimed BEFORE the send so
+ * a failing sink cannot become a per-tick retry storm. Layering our weaker
+ * claim on top would add nothing, and the per-kind budget could SUPPRESS a
+ * worker-down alert — exactly the alert that must never be suppressed.
+ *
+ * So the watchdog keeps its own claim and its own send, and calls this to make
+ * the event persist. Non-throwing: a feed row is not worth failing an alert
+ * over.
+ *
+ * @returns {Promise<string|null>} the log row id, or null if it could not be written
+ */
+async function recordOpsEvent({ kind, dedupeKey, title, body, orderId, recipients }) {
+  try {
+    if (!kind) return null;
+    const eventKey = String(kind) + ':' + String(dedupeKey || Date.now());
+    const row = await queryOne(
+      `INSERT INTO ops_push_log (event_key, kind, title, body, order_id, sent_count)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [eventKey, kind, String(title || '').slice(0, 200), String(body || '').slice(0, 500),
+       orderId || null, Number.isFinite(recipients) ? recipients : null]
+    );
+    return (row && row.id) || null;
+  } catch (err) {
+    logErrorToDb(err, { context: 'ops_push.record', category: 'push', kind: kind });
+    return null;
+  }
+}
+
 // Cairo business day, for the once-per-day dedupe keys. Deliberately the
 // operator's local day rather than UTC: "the first breach of the day" means the
 // first one in the day HE is having.
@@ -157,4 +329,11 @@ function cairoDayKey(now) {
   }).format(d);
 }
 
-module.exports = { pushOpsEvent, cairoDayKey, COOLDOWN_MS_BY_KIND };
+module.exports = {
+  pushOpsEvent,
+  recordOpsEvent,
+  cairoDayKey,
+  COOLDOWN_MS_BY_KIND,
+  MAX_PER_KIND_PER_WINDOW,
+  KIND_WINDOW_MS
+};
