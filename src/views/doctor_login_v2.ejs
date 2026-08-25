@@ -38,6 +38,7 @@
     <div class="v2-auth__form-wrap">
       <form class="v2-auth__form" method="post" action="/login">
         <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+        <input type="hidden" name="portal" value="doctor" />
         <% if (_next) { %><input type="hidden" name="next" value="<%= _next %>" /><% } %>
         <div>
           <div class="v2-auth__title"><%= tt('Welcome back', 'Welcome back', 'أهلاً بعودتك') %></div>
@@ -53,6 +54,10 @@
         <div class="v2-field">
           <label class="v2-field__label" for="auth-pw"><%= tt('Password', 'Password', 'كلمة المرور') %></label>
           <input class="v2-field__input" id="auth-pw" name="password" type="password" autocomplete="current-password" required />
+        </div>
+        <div style="font-size:12px;line-height:1.6;color:var(--v2-muted);background:var(--v2-surface-2, #FBFAF7);border:1px solid var(--v2-rule);border-radius:8px;padding:10px 12px;">
+          <strong style="color:var(--v2-brand-dk, #0b6b5f);"><%= tt('Just been invited?', 'Just been invited?', 'وصلتك دعوة للتو؟') %></strong>
+          <%= tt('You have not set a password yet — open the invitation email we sent you and use the link inside. If you cannot find it, enter your email above and press Sign in and we will send you a new one.', 'You have not set a password yet — open the invitation email we sent you and use the link inside. If you cannot find it, enter your email above and press Sign in and we will send you a new one.', 'لم تحدد كلمة مرور بعد — افتح رسالة الدعوة التي أرسلناها لك واستخدم الرابط بداخلها. إن لم تجدها، اكتب بريدك بالأعلى واضغط تسجيل الدخول وسنرسل لك رابطاً جديداً.') %>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:12px;align-items:center;">
           <span style="color:var(--v2-muted);"><%= tt('Use your registered email.', 'Use your registered email.', 'استخدم البريد المسجّل لديك.') %></span>

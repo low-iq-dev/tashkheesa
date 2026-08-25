@@ -51,6 +51,12 @@
       payout_processed:       { en: 'Payout processed',                ar: 'تمت معالجة الصرف' },
       profile_approved:       { en: 'Profile approved',                ar: 'تم اعتماد الملف' },
       profile_rejected:       { en: 'Profile needs changes',           ar: 'الملف يحتاج تعديل' },
+      // The welcome invite's in-app twin. Missing from this map, so both
+      // languages fell through to the slug-humaniser and showed the Latin
+      // string "Doctor Approved" — including on an RTL page.
+      doctor_approved:        { en: 'Welcome — your account is ready', ar: 'أهلاً بك — حسابك جاهز' },
+      welcome_doctor:         { en: 'Welcome — your account is ready', ar: 'أهلاً بك — حسابك جاهز' },
+      magic_login_link:       { en: 'Your sign-in link',               ar: 'رابط تسجيل الدخول' },
     };
     if (map[t]) return _isAr ? map[t].ar : map[t].en;
     var s = String(typeKey || '').replace(/_/g, ' ').trim();

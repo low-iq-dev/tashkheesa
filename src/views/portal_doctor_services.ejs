@@ -26,6 +26,37 @@
   topbarShowSearch: false
 }) %>
 
+<%# ── What this page is asking for (2026-08-25) ──────────────────────────
+  Every invited doctor lands here first (services/doctor_landing.js), and
+  until now the page gave them no framing at all: two separate forms, each
+  with its own Save, both pre-filled by migrations 089 and 092, and nothing
+  saying so. A doctor who does not know the boxes were filled in for them
+  reads a pre-ticked list as a claim someone else made about their practice,
+  which is the opposite of the confirmation we are asking for.
+
+  Shown only while something is still unconfirmed, so it disappears once the
+  doctor is done rather than nagging them on every later visit. %>
+<%# req.user is the JWT payload and carries no onboarding_complete, so this
+    comes from the route, which reads it alongside the tier state. %>
+<% var _svcUnconfirmed = (typeof servicesUnconfirmed !== 'undefined') ? !!servicesUnconfirmed : false;
+   var _tiersNeedConfirm = (typeof tiersUnconfirmed !== 'undefined' && tiersUnconfirmed); %>
+<% if (_svcUnconfirmed || _tiersNeedConfirm) { %>
+  <div class="v2-card" style="border-inline-start:3px solid var(--v2-brand);margin-block-end:12px;">
+    <div class="v2-card__body">
+      <div style="font:600 14px/1.5 inherit;margin-block-end:6px;color:var(--v2-brand-dk, #0b6b5f);">
+        <%= tt('We have filled this in for you — please check it', 'We have filled this in for you — please check it', 'جهزناها لك — كل المطلوب مراجعتها') %>
+      </div>
+      <div style="font-size:13px;line-height:1.7;color:var(--v2-muted);">
+        <%= tt(
+          'Your turnaround speeds and every service in your specialty are already ticked below, based on your specialty on file. Nothing is live until you confirm. There are two things to save on this page and each has its own button — the speeds at the top, your services at the bottom. Untick anything you would rather not take.',
+          'Your turnaround speeds and every service in your specialty are already ticked below, based on your specialty on file. Nothing is live until you confirm. There are two things to save on this page and each has its own button — the speeds at the top, your services at the bottom. Untick anything you would rather not take.',
+          'سرعات التسليم وكل خدمات تخصصك محددة لك بالفعل بالأسفل، حسب التخصص المسجل باسمك. لا شيء يبدأ قبل تأكيدك. في حاجتين محتاجين حفظ في الصفحة دي ولكل واحدة زرار خاص بها — السرعات في الأعلى، والخدمات في الأسفل. الغِ تحديد أي خدمة لا ترغب في استقبالها.'
+        ) %>
+      </div>
+    </div>
+  </div>
+<% } %>
+
 <% if (_error) { %>
   <div class="v2-card" style="border-color:#c0392b;margin-block-end:12px;"><div class="v2-card__body" style="color:#c0392b;"><%= _error %></div></div>
 <% } %>
@@ -88,7 +119,6 @@
     <div class="v2-card__body" style="border-block-start:1px solid var(--v2-rule);font-size:12px;color:var(--v2-muted);line-height:1.55;">
       <%= tt('Unticking a speed only stops new cases at that speed reaching you — it never affects a case you have already accepted. You can change this whenever you like.', 'Unticking a speed only stops new cases at that speed reaching you — it never affects a case you have already accepted. You can change this whenever you like.', 'إلغاء اختيار سرعة يمنع فقط وصول حالات جديدة بتلك السرعة إليك، ولا يؤثر إطلاقاً على حالة قبلتها بالفعل. يمكنك تغيير هذا في أي وقت.') %>
     </div>
-  </div>
     <div class="v2-card__body" style="border-block-start:1px solid var(--v2-rule);display:flex;justify-content:flex-end;">
       <button type="submit" class="v2-btn v2-btn--primary v2-btn--sm"><%= tt('Save turnaround speeds', 'Save turnaround speeds', 'حفظ سرعات التسليم') %></button>
     </div>
@@ -122,10 +152,13 @@
   <form method="post" action="/portal/doctor/services">
     <%- (typeof csrfField === 'function') ? csrfField() : '' %>
 
-    <% _groups.forEach(function(g){ %>
-      <div class="v2-card" style="margin-block-end:12px;">
+    <% _groups.forEach(function(g, _gi){ %>
+      <div class="v2-card" style="margin-block-end:12px;<% if (_gi === 0 && _svcUnconfirmed) { %>border-inline-start:3px solid var(--v2-brand);<% } %>">
         <div class="v2-card__header">
           <div class="v2-card__title"><%= _groupHeading(g) %></div>
+          <% if (_gi === 0 && _svcUnconfirmed) { %>
+            <span class="v2-pill v2-pill--teal"><%= tt('Needs your confirmation', 'Needs your confirmation', 'بحاجة لتأكيدك') %></span>
+          <% } %>
         </div>
         <div class="v2-card__body v2-card__body--flush">
           <% (g.services || []).forEach(function(s){ %>
@@ -157,7 +190,7 @@
     </div>
 
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-block-end:24px;">
-      <button type="submit" class="v2-btn v2-btn--primary"><%= tt('Save services and speeds', 'Save services and speeds', 'حفظ الخدمات والسرعات') %></button>
+      <button type="submit" class="v2-btn v2-btn--primary"><%= tt('Save services', 'Save services', 'حفظ الخدمات') %></button>
     </div>
   </form>
 <% } %>

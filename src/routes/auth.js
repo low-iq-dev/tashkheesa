@@ -94,6 +94,16 @@ function renderLogin(req, res, { error = null } = {}) {
   const lang = isAr ? 'ar' : 'en';
   setLangCookie(res, lang);
   const next = safeNextPath((req.body && req.body.next) || (req.query && req.query.next));
+  // /doctor/login posts here too. Without this a doctor who mistypes a password
+  // is answered on the patient-branded page, which reads as having been logged
+  // out of the wrong product. The hidden field is the only signal — Referer is
+  // not reliable enough to route a render on.
+  if (req.body && String(req.body.portal || '') === 'doctor') {
+    return res.render('doctor_login_v2', {
+      error, next, lang, _lang: lang, isAr, copy,
+      brand: process.env.BRAND_NAME || 'Tashkheesa'
+    });
+  }
   return res.render('login', { error, next, lang, isAr, copy, _lang: lang });
 }
 
@@ -293,8 +303,27 @@ router.post('/login', async (req, res) => {
       return renderLogin(req, res, { error: c.login_invalid });
     }
 
-    if (user.role === 'patient' && !user.password_hash) {
+    // A user with no password at all. Both roles get the same treatment: send a
+    // fresh sign-in link and return the SAME generic error as a wrong password,
+    // so the login page never confirms whether an address exists.
+    //
+    // 2026-08-25 — doctors were not in this branch, and 23 of the 30 active
+    // doctors are passwordless because operator-created accounts never get one.
+    // They fell through to check(password, null) → bcrypt.compare with a
+    // non-string second argument, which does not return false: it throws
+    // straight into the outer catch, so every one of the doctors we are about
+    // to invite would have been told "Unexpected error during login. Please
+    // try again." — a message that reads as a platform fault, offers no way
+    // forward, and would have had them emailing support instead of signing in.
+    // Now they get a working link in their inbox instead.
+    if (!user.password_hash && (user.role === 'patient' || user.role === 'doctor')) {
       await sendMagicLoginLink({ user, req });
+      const c = authCopy(req);
+      return renderLogin(req, res, { error: c.login_invalid });
+    }
+
+    // Belt and braces for every other role: never hand bcrypt a null hash.
+    if (!user.password_hash) {
       const c = authCopy(req);
       return renderLogin(req, res, { error: c.login_invalid });
     }
@@ -726,7 +755,9 @@ router.get('/set-password', welcomeTokenIpLimiter, async (req, res) => {
   if (!user) return res.redirect('/login');
   if (user.password_hash) return res.redirect(getHomeByRole(user.role));
 
-  return res.render('set_password', { error: null, success: null, lang, _lang: lang, isAr: c.isAr, copy: c });
+  // Send a doctor back to the doctor form, not the patient one, if they bail out.
+  const backTo = user.role === 'doctor' ? '/doctor/login' : '/login';
+  return res.render('set_password', { error: null, success: null, lang, _lang: lang, isAr: c.isAr, copy: c, backTo });
 });
 
 // ============================================
@@ -752,7 +783,8 @@ router.post('/set-password', welcomeTokenIpLimiter, async (req, res) => {
       lang,
       _lang: lang,
       isAr: c.isAr,
-      copy: c
+      copy: c,
+      backTo: user.role === 'doctor' ? '/doctor/login' : '/login'
     });
   }
 
