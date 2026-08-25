@@ -139,6 +139,39 @@ function _deriveAlertKey(alertKey, message) {
   return m ? m[1].toLowerCase() : 'generic';
 }
 
+// Second delivery route for a critical alert: Expo push to every registered
+// superadmin device (the Command app). Deliberately independent of the
+// WhatsApp path — see the call site for why.
+//
+// Never throws, never awaits into the caller's critical path, and never
+// reports success: notifySuperadmins swallows its own failures by design, so
+// treating a resolved promise as delivery would be a lie. The
+// critical_alert_log row continues to describe the WhatsApp attempt only.
+function _pushToCommandApp(key, message) {
+  try {
+    var notifySuperadmins = require('./middleware/push').notifySuperadmins;
+    if (typeof notifySuperadmins !== 'function') return;
+    var pool = require('./pg').pool;
+    if (!pool) return;
+
+    var body = String(message || 'Unknown error').slice(0, 300);
+    var p = notifySuperadmins(pool, {
+      title: 'Critical: ' + String(key || 'generic').replace(/_/g, ' '),
+      body: body,
+      // The Command app routes on `screen`; /ops is where the error log and
+      // the worker widget live, which is what an operator needs next.
+      data: { screen: 'ops', alertKey: String(key || 'generic'), severity: 'critical' }
+    });
+    if (p && typeof p.catch === 'function') {
+      p.catch(function (e) {
+        console.error('[critical-alert] push to Command app failed:', e && e.message ? e.message : e);
+      });
+    }
+  } catch (e) {
+    console.error('[critical-alert] push to Command app unavailable:', e && e.message ? e.message : e);
+  }
+}
+
 // Public API: sendCriticalAlert(message, alertKey?)
 //
 // `alertKey` defaults to 'generic' for back-compat — existing callers
@@ -163,6 +196,32 @@ async function sendCriticalAlert(message, alertKey) {
 
   var claimId = await _claimSend(key, text);
   if (claimId === null) return;  // throttled
+
+  // ── PUSH FIRST, AND UNCONDITIONALLY ────────────────────────────────────
+  //
+  // 2026-08-25. Every gate below this point is a WhatsApp gate, and on
+  // 2026-08-25 every one of them was failing: the Meta token had expired
+  // (OAuthException 190), OPENCLAW_BASE_URL/OPENCLAW_SEND_KEY were unset, and
+  // CRITICAL_ALERT_TEMPLATE_NAME had been empty for a stretch before that.
+  // Result: 128 critical alerts attempted in 30 days, ZERO delivered —
+  // including two unhandled_rejection pages for a production crash on 23
+  // August that nobody was told about.
+  //
+  // Expo push to the Command app is the one channel that was still working the
+  // whole time, and it was not wired to this function at all. So it fires here,
+  // ABOVE the adminPhone / templateName / transport checks, because those are
+  // precisely the conditions under which a page most needs a second route out.
+  //
+  // Placed AFTER the throttle claim on purpose — the 5-minute per-key bucket
+  // should govern both channels, or a flapping alarm becomes two streams of
+  // noise instead of one.
+  //
+  // Fire-and-forget, fully guarded, lazily required: notifySuperadmins already
+  // swallows per-recipient and lookup failures, and this module is loaded from
+  // server.js's boot path before much of the graph exists. A paging function
+  // that can throw is a paging function that stops the thing it was paging
+  // about.
+  _pushToCommandApp(key, message);
 
   if (!adminPhone) {
     _suppressed(claimId, 'env_missing_admin_phone', key);

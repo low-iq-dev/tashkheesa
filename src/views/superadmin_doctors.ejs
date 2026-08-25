@@ -7,6 +7,18 @@
   var _pending = (typeof pendingDoctorsCount !== 'undefined') ? Number(pendingDoctorsCount) || 0 : 0;
   var _paused = (typeof pausedDoctorsCount !== 'undefined') ? Number(pausedDoctorsCount) || 0 : 0;
 
+  // Bulk welcome. _bulkEligible is computed by the route with the SAME cohort
+  // query and cooldown the send itself uses, so the button's number and the
+  // result cannot disagree.
+  var _bulkEligible = (typeof bulkWelcomeEligible !== 'undefined') ? Number(bulkWelcomeEligible) || 0 : 0;
+  var _bulkCooling  = (typeof bulkWelcomeCooling  !== 'undefined') ? Number(bulkWelcomeCooling)  || 0 : 0;
+  var _bulkCooldown = (typeof bulkWelcomeCooldownHours !== 'undefined') ? Number(bulkWelcomeCooldownHours) || 24 : 24;
+  var _wSent    = (typeof welcomeSent    !== 'undefined' && welcomeSent    !== null) ? Number(welcomeSent)    : null;
+  var _wSkipped = (typeof welcomeSkipped !== 'undefined' && welcomeSkipped !== null) ? Number(welcomeSkipped) : null;
+  var _wFailed  = (typeof welcomeFailed  !== 'undefined' && welcomeFailed  !== null) ? Number(welcomeFailed)  : null;
+  var _wError   = (typeof welcomeError   !== 'undefined') ? !!welcomeError : false;
+  var _wBusy    = (typeof welcomeBusy    !== 'undefined') ? !!welcomeBusy  : false;
+
   function _docStatusChip(d) {
     if (d.pending_approval) return { label: 'Pending', tone: 'amber' };
     if (!d.is_active && d.rejection_reason) return { label: 'Rejected', tone: 'red' };
@@ -58,6 +70,73 @@
     }) %>
 
 <div class="page-body">
+
+  <%# ── Result of the last bulk send ──────────────────────────────────────
+      Shown once, from the redirect's query string. "Skipped" is not a failure:
+      it is the 24h cooldown refusing to re-blast someone invited yesterday. %>
+  <% if (_wBusy) { %>
+    <div style="margin-bottom:14px;padding:13px 16px;border-radius:8px;border:1px solid var(--line);
+                border-inline-start:3px solid var(--amber, #8a6100);background:var(--bg-2,#fff);font-size:13.5px;">
+      <strong><%= isAr ? 'إرسال جارٍ بالفعل' : 'A send is already running' %></strong> —
+      <%= isAr ? 'لم يتم إرسال أي شيء إضافي. انتظر حتى ينتهي ثم حدّث الصفحة.' : 'nothing extra was sent. Wait for it to finish, then refresh.' %>
+    </div>
+  <% } %>
+
+  <% if (_wSent !== null || _wError) { %>
+    <div style="margin-bottom:14px;padding:13px 16px;border-radius:8px;border:1px solid var(--line);
+                border-inline-start:3px solid <%= _wError || (_wFailed || 0) > 0 ? 'var(--red, #b3261e)' : 'var(--green, #0B6B5F)' %>;
+                background:var(--bg-2, #fff);font-size:13.5px;line-height:1.6;">
+      <% if (_wError) { %>
+        <strong style="color:var(--red, #b3261e);"><%= isAr ? 'فشل الإرسال الجماعي' : 'Bulk send failed' %></strong> —
+        <%= isAr ? 'لم يتم إرسال أي رسالة. راجع سجل الأخطاء.' : 'nothing was sent. Check the error log.' %>
+      <% } else { %>
+        <strong><%= isAr ? 'تم إنشاء وإرسال' : 'Queued' %>: <%= _wSent %></strong>
+        <% if ((_wSkipped || 0) > 0) { %>
+          · <%= _wSkipped %> <%= isAr ? 'تم تخطيها (أُرسلت خلال آخر ' + _bulkCooldown + ' ساعة)' : 'skipped (invited within the last ' + _bulkCooldown + 'h)' %>
+        <% } %>
+        <% if ((_wFailed || 0) > 0) { %>
+          · <span style="color:var(--red, #b3261e);"><%= _wFailed %> <%= isAr ? 'فشلت' : 'failed' %></span>
+        <% } %>
+      <% } %>
+    </div>
+  <% } %>
+
+  <%# ── Email all pending invites ─────────────────────────────────────────
+      One request, so the 10-per-15-minutes IP limiter that governs the
+      per-doctor button never bites. Plain form post, no inline JS, because the
+      CSP has no script nonce on this page. %>
+  <% if (_bulkEligible > 0 || _bulkCooling > 0) { %>
+    <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+      <div style="padding:14px 16px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:space-between;">
+        <div style="font-size:13.5px;line-height:1.6;">
+          <strong><%= isAr ? 'دعوات لم تُفعّل بعد' : 'Doctors who have not set a password' %></strong><br>
+          <span style="color:var(--fg-3);">
+            <% if (_bulkEligible > 0) { %>
+              <strong style="color:var(--fg);"><%= _bulkEligible %></strong>
+              <%= isAr ? 'جاهزون للإرسال الآن.' : (_bulkEligible === 1 ? 'doctor ready to send now.' : 'doctors ready to send now.') %>
+            <% } else { %>
+              <%= isAr ? 'لا أحد جاهز للإرسال الآن.' : 'None ready to send right now.' %>
+            <% } %>
+            <% if (_bulkCooling > 0) { %>
+              <%= _bulkCooling %> <%= isAr ? 'في فترة الانتظار (' + _bulkCooldown + ' ساعة).' : 'in the ' + _bulkCooldown + 'h cooldown.' %>
+            <% } %>
+            <%= isAr ? 'كل رسالة تحمل رابطاً جديداً صالحاً 7 أيام ويُلغي الرابط السابق.' : 'Each send mints a fresh 7-day link and invalidates that doctor\'s previous one.' %>
+          </span>
+        </div>
+        <%# A LINK, not a form with onsubmit="confirm(...)". The CSP has no
+            'unsafe-inline' in script-src and a nonce does not authorise inline
+            event-handler attributes, so that dialog never runs — one click
+            would have sent all 23 with no prompt. The review page shows the
+            actual names and owns the POST. %>
+        <% if (_bulkEligible > 0) { %>
+          <a class="btn primary" href="/superadmin/doctors/bulk-welcome"><%= isAr ? 'إرسال للكل (' + _bulkEligible + ')' : 'Email all (' + _bulkEligible + ')' %></a>
+        <% } else { %>
+          <span class="btn" aria-disabled="true" style="opacity:.55;pointer-events:none;"><%= isAr ? 'لا يوجد جاهز' : 'None ready' %></span>
+        <% } %>
+      </div>
+    <%- include('partials/superadmin/c_card_close') %>
+  <% } %>
+
   <%- include('partials/superadmin/c_card_open', { title: 'Filters', tight: true }) %>
     <div style="display:flex;gap:6px;flex-wrap:wrap;padding:12px 14px;">
       <% _filterTabs.forEach(function(t) {
