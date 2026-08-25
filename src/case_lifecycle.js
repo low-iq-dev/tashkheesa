@@ -484,6 +484,23 @@ async function dispatchSlaReminders(caseIdOrRow, opts = {}, client) {
         role: 'patient',
         secondsRemaining
       }));
+      // NOTIFICATIONS 2026-08-25 — internal channel, the one the app's list
+      // reads. Same reasoning as the payment reminders below: these appeared in
+      // the app only because the list had no channel filter, so the filter and
+      // this line have to ship together.
+      //
+      // Note these deliberately do NOT push (services/patient_push.js) — the
+      // patient cannot act on a deadline the DOCTOR owns, and three lock-screen
+      // alerts counting down to it is anxiety, not information. They belong in
+      // the list, where the patient looks when they choose to.
+      sent.push(await queueSlaReminder({
+        caseId,
+        level: t.level,
+        toUserId: toPatientId,
+        channel: 'internal',
+        role: 'patient',
+        secondsRemaining
+      }));
     }
   }
 
@@ -665,6 +682,13 @@ async function queuePaymentReminder({ caseId, level, toUserId, channel, paymentU
     return queueNotification({
       channel,
       toUserId: userId,
+      // NOTIFICATIONS 2026-08-25 — orderId was never passed, so every
+      // payment_reminder row on production carries order_id NULL (72 and 70
+      // rows for the 30m and 6h levels). The app synthesises its tap target
+      // from order_id, so the ONE notification whose entire purpose is to get
+      // the patient to the payment screen was the one that went nowhere when
+      // tapped. The SLA path already had this fix; this one was missed.
+      orderId: caseId,
       template: `payment_reminder_${level}`,
       dedupeKey,
       dedupe_key: dedupeKey,
@@ -880,6 +904,23 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
         level: t.level,
         toUserId: toPatientId,
         channel: 'email',
+        paymentUrl,
+        elapsedSeconds
+      }));
+      // NOTIFICATIONS 2026-08-25 — the internal channel, which is what the
+      // patient app's list reads.
+      //
+      // These went out on whatsapp and email only. They still SHOWED in the app
+      // because GET /api/v1/notifications had no channel filter and listed every
+      // row regardless of channel — so adding that filter (which stops the app
+      // listing your emails as if they were app notifications) would have
+      // silently deleted the payment nudges from the app. The two changes have
+      // to land together, and this is the other half.
+      sent.push(await queuePaymentReminder({
+        caseId,
+        level: t.level,
+        toUserId: toPatientId,
+        channel: 'internal',
         paymentUrl,
         elapsedSeconds
       }));

@@ -4,6 +4,25 @@
 
 const router = require('express').Router();
 
+// Which app screen a notification should open.
+//
+// NOTIFICATIONS 2026-08-25. Kept deliberately small: anything not listed lands
+// on the case, which is the right default for a platform where almost every
+// notification is about a case. The exceptions are the ones where the case page
+// offers nothing to do about what the notification just said.
+const PAYMENT_SCREEN_TEMPLATES = new Set([
+  'payment_reminder_30m',
+  'payment_reminder_6h',
+  'payment_reminder_24h',
+  'payment_failed_patient'
+]);
+
+function screenForTemplate(template) {
+  if (PAYMENT_SCREEN_TEMPLATES.has(String(template || ''))) return 'payment';
+  if (String(template || '') === 'new_message') return 'chat';
+  return 'case-detail';
+}
+
 module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
   // ─── GET /notifications ──────────────────────────────────
@@ -23,7 +42,19 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
              order_id as "orderId",
              data, at as "createdAt"
       FROM notifications
-      WHERE to_user_id = $1
+      -- NOTIFICATIONS 2026-08-25 — channel = 'internal'.
+      --
+      -- The notifications table holds ONE ROW PER CHANNEL. Without this
+      -- filter the app listed the patient's emails and WhatsApp messages as if
+      -- they were in-app notifications. On production one patient had 40 rows
+      -- of payment_reminder_30m and 38 of payment_reminder_6h in their bell --
+      -- all of them email/whatsapp deliveries of the same handful of events.
+      --
+      -- The SLA and payment reminder dispatchers (case_lifecycle.js) were sent
+      -- on whatsapp+email only and appeared here purely BECAUSE this filter was
+      -- missing; both now also queue an 'internal' row, in the same change, so
+      -- adding this does not silently delete them from the app.
+      WHERE to_user_id = $1 AND channel = 'internal'
       ORDER BY at DESC
       LIMIT $2 OFFSET $3
     `, [req.user.id, perPage, offset]);
@@ -37,7 +68,14 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       // stored `data` blob is absent (which is every row today). Keeps the
       // app's existing `notif.data?.caseId` contract working unchanged.
       if (!n.data && n.orderId) {
-        n.data = { screen: 'case-detail', caseId: n.orderId };
+        // NOTIFICATIONS 2026-08-25 — route by template, not always to the case.
+        //
+        // Every notification landed on case detail. For the payment nudges that
+        // is the wrong screen: the ONE notification whose entire purpose is to
+        // get the patient to pay dropped them on a page with no payment action.
+        // (Those rows also carried order_id NULL until today, so they did not
+        // even reach the case — see case_lifecycle.queuePaymentReminder.)
+        n.data = { screen: screenForTemplate(n.template || n.type), caseId: n.orderId };
       }
       n.read = !!n.read;
     });
@@ -56,7 +94,17 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         const t = getNotificationTitles(n.template || n.type);
         const localized = isAr ? (t && t.title_ar) : (t && t.title_en);
         if (localized) n.title = localized;
-        delete n.template;
+        // NOTIFICATIONS 2026-08-25 — `template` is no longer deleted.
+        //
+        // The app keys its icon, title and body maps on `type`, which
+        // notify.js writes as the raw template name. The app's map used a
+        // legacy vocabulary (case_update / report_ready / payment) whose
+        // intersection with the real template names was exactly ONE value:
+        // new_message. Everything else fell through to a generic bell, so a
+        // report-ready row and a refund-denied row looked identical.
+        //
+        // Deleting the one field that could have fixed it left the client with
+        // nothing to map on. It is small, stable, and now the documented key.
       });
     } catch (_) {
       // Never fail the list because a title could not be localised.
@@ -69,7 +117,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
   router.get('/unread-count', async (req, res) => {
     const row = await safeGet(
-      'SELECT COUNT(*)::int as count FROM notifications WHERE to_user_id = $1 AND is_read = false',
+      // Same channel filter as the list, or the badge counts emails the
+      // patient can never mark read from inside the app.
+      "SELECT COUNT(*)::int as count FROM notifications WHERE to_user_id = $1 AND channel = 'internal' AND is_read = false",
       [req.user.id]
     );
     return res.ok({ count: row?.count || 0 });

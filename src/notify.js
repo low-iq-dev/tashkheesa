@@ -379,6 +379,18 @@ function renderNotificationMessage(template, payload, lang) {
   // "لحالة ABC"). The neutral fallback "الحالة" carries the definite article,
   // so it is only ever used with a SEPARATE preposition ("على"، "بخصوص") —
   // "ل" + "الحالة" would produce the malformed "لالحالة".
+  // NOTIFICATIONS 2026-08-25 — payload fields the new money / refund / video
+  // branches below read. All optional: every branch has a variant that reads
+  // correctly without them, because a money sentence with a blank number in it
+  // is worse than one that omits the number.
+  const _amt = p.amount ?? p.amount_egp ?? p.approved_amount ?? p.requested_amount ?? null;
+  const _cur = p.currency || p.display_currency || 'EGP';
+  const money = (_amt != null && String(_amt).trim() !== '')
+    ? `${_cur} ${Number(_amt).toLocaleString()}`
+    : null;
+  const reason = (p.reason || p.denial_reason || p.cancellation_reason || null);
+  const when = (p.scheduled_at_label || p.slot_label || p.when || null);
+
   const arCase = ref ? `حالة ${ref}` : (p.case_id ? 'حالتك' : null);
   const arCaseN = ref ? `حالة ${ref}` : (p.case_id ? 'الحالة' : null);
 
@@ -601,6 +613,168 @@ function renderNotificationMessage(template, payload, lang) {
     case 'doctor_rejected':
       if (isAr) return 'لم يتم اعتماد طلب انضمامك كطبيب في الوقت الحالي.';
       return "Your doctor application was not approved at this time.";
+
+    // ── NOTIFICATIONS 2026-08-25: the 25 templates that had no body ─────────
+    //
+    // Everything below reached the switch, fell to `default`, returned null,
+    // and was inserted as a NULL message. On production that meant all 9
+    // payment_failed_patient rows, both patient_refund_approved rows and both
+    // patient_refund_paid rows rendered as a title with nothing under it — a
+    // patient told their refund was approved, or their payment failed, and
+    // given no other word about it.
+    //
+    // Amounts are interpolated only when the payload actually carries them; a
+    // money sentence with a blank number is worse than a sentence without one.
+
+    // ── Money ──
+    case 'payment_failed_patient':
+      if (isAr) return money
+        ? `لم تتم عملية الدفع بمبلغ ${money}. لم يتم خصم أي مبلغ — يمكنك المحاولة مرة أخرى.`
+        : 'لم تتم عملية الدفع. لم يتم خصم أي مبلغ — يمكنك المحاولة مرة أخرى.';
+      return money
+        ? `Your payment of ${money} did not go through. Nothing was charged — you can try again.`
+        : 'Your payment did not go through. Nothing was charged — you can try again.';
+
+    case 'addon_purchased_urgency':
+      if (isAr) return `تمت إضافة خدمة الأولوية إلى ${arCase || 'حالتك'}.`;
+      return `Priority turnaround has been added to ${caseLabel ? caseLabel.toLowerCase() : 'your case'}.`;
+
+    case 'addon_purchased_video':
+      if (isAr) return 'تم تأكيد استشارتك بالفيديو. سنرسل لك تفاصيل الموعد.';
+      return 'Your video consultation is confirmed. We will send you the appointment details.';
+
+    case 'addon_purchased_prescription':
+      if (isAr) return 'تمت إضافة خدمة الروشتة. سيصدرها الطبيب مع تقريرك.';
+      return 'The prescription service has been added. Your doctor will issue it with your report.';
+
+    // ── Refunds. The reason matters more than the decision. ──
+    case 'patient_refund_requested':
+      if (isAr) return money
+        ? `تلقينا طلب استرداد بمبلغ ${money}. سنراجعه ونوافيك بالرد.`
+        : 'تلقينا طلب الاسترداد الخاص بك. سنراجعه ونوافيك بالرد.';
+      return money
+        ? `We have received your refund request for ${money}. We will review it and come back to you.`
+        : 'We have received your refund request. We will review it and come back to you.';
+
+    case 'patient_refund_opened_by_operator':
+      if (isAr) return 'فتحنا طلب استرداد نيابة عنك. سنوافيك بالتحديثات.';
+      return 'We have opened a refund on your behalf. We will keep you updated.';
+
+    case 'patient_refund_approved':
+      if (isAr) return money
+        ? `تمت الموافقة على استرداد ${money}. سيصلك المبلغ خلال أيام العمل القليلة القادمة.`
+        : 'تمت الموافقة على طلب الاسترداد. سيصلك المبلغ خلال أيام العمل القليلة القادمة.';
+      return money
+        ? `Your refund of ${money} has been approved. It will reach you within the next few working days.`
+        : 'Your refund has been approved. It will reach you within the next few working days.';
+
+    case 'patient_refund_denied':
+      // The reason is the whole point of this notification. Until now it
+      // existed only on the email surface.
+      if (isAr) return reason
+        ? `لم تتم الموافقة على طلب الاسترداد. السبب: ${reason}`
+        : 'لم تتم الموافقة على طلب الاسترداد. تواصل معنا إذا كنت تريد مراجعة القرار.';
+      return reason
+        ? `Your refund request was not approved. Reason: ${reason}`
+        : 'Your refund request was not approved. Get in touch if you would like this looked at again.';
+
+    case 'patient_refund_paid':
+      if (isAr) return money
+        ? `تم إرسال مبلغ ${money}. قد يستغرق ظهوره في حسابك بضعة أيام عمل.`
+        : 'تم إرسال مبلغ الاسترداد. قد يستغرق ظهوره في حسابك بضعة أيام عمل.';
+      return money
+        ? `Your refund of ${money} has been sent. It can take a few working days to appear in your account.`
+        : 'Your refund has been sent. It can take a few working days to appear in your account.';
+
+    // ── Case state ──
+    case 'case_cancelled_patient':
+      if (isAr) return reason
+        ? `تم إلغاء ${arCase || 'حالتك'}. السبب: ${reason}`
+        : `تم إلغاء ${arCase || 'حالتك'}.`;
+      return reason
+        ? `${caseLabel || 'Your case'} has been cancelled. Reason: ${reason}`
+        : `${caseLabel || 'Your case'} has been cancelled.`;
+
+    case 'case_routing_updated':
+      if (isAr) return `تم تحديث توجيه ${arCase || 'حالتك'} إلى التخصص الأنسب.`;
+      return `${caseLabel || 'Your case'} has been routed to a more suitable specialty.`;
+
+    case 'prescription_recommended_patient':
+      if (isAr) return 'أوصى طبيبك بروشتة لحالتك. اطّلع على التفاصيل في حالتك.';
+      return 'Your doctor has recommended a prescription. Open your case to see the details.';
+
+    // ── Video consultation. Every one of these is a time-bound commitment the
+    //    patient can miss, so the WHEN belongs in the body. ──
+    case 'video_payment_confirmed':
+      if (isAr) return 'تم تأكيد دفع الاستشارة بالفيديو. الخطوة التالية هي اختيار الموعد.';
+      return 'Your video consultation payment is confirmed. Next, choose a time.';
+
+    case 'video_slot_proposed':
+      if (isAr) return when
+        ? `اقترح طبيبك موعدًا: ${when}. أكّد أو اطلب وقتًا آخر.`
+        : 'اقترح طبيبك موعدًا للاستشارة. أكّد أو اطلب وقتًا آخر.';
+      return when
+        ? `Your doctor has proposed ${when}. Confirm it or ask for another time.`
+        : 'Your doctor has proposed a time for your consultation. Confirm it or ask for another.';
+
+    case 'video_slot_accepted':
+    case 'video_slot_confirmed':
+      if (isAr) return when
+        ? `تم تأكيد استشارتك بالفيديو: ${when}.`
+        : 'تم تأكيد موعد استشارتك بالفيديو.';
+      return when
+        ? `Your video consultation is confirmed for ${when}.`
+        : 'Your video consultation is confirmed.';
+
+    case 'video_appointment_reminder':
+      if (isAr) return when
+        ? `تذكير: استشارتك بالفيديو ${when}.`
+        : 'تذكير: لديك استشارة بالفيديو قريبًا.';
+      return when
+        ? `Reminder: your video consultation is ${when}.`
+        : 'Reminder: your video consultation is coming up.';
+
+    case 'video_appointment_rescheduled':
+      if (isAr) return when
+        ? `تم تغيير موعد استشارتك بالفيديو إلى ${when}.`
+        : 'تم تغيير موعد استشارتك بالفيديو.';
+      return when
+        ? `Your video consultation has moved to ${when}.`
+        : 'Your video consultation has been rescheduled.';
+
+    case 'video_appointment_cancelled':
+    case 'video_slot_auto_cancelled_patient':
+      if (isAr) return 'تم إلغاء موعد الاستشارة بالفيديو. تواصل معنا لإعادة الحجز.';
+      return 'Your video consultation has been cancelled. Get in touch to rebook.';
+
+    case 'video_call_started':
+      if (isAr) return 'بدأ طبيبك المكالمة. انضم الآن.';
+      return 'Your doctor has started the call. Join now.';
+
+    case 'video_call_ended':
+      if (isAr) return 'انتهت الاستشارة بالفيديو.';
+      return 'Your video consultation has ended.';
+
+    case 'video_doctor_no_show_patient':
+      if (isAr) return 'لم يحضر الطبيب الموعد. نعتذر بشدة — سنعيد الحجز أو نرد المبلغ.';
+      return 'Your doctor did not join the call. We are sorry — we will rebook it or refund you.';
+
+    case 'video_no_show_patient':
+      if (isAr) return 'فاتك موعد الاستشارة بالفيديو. تواصل معنا لإعادة الحجز.';
+      return 'You missed your video consultation. Get in touch to rebook.';
+
+    // ── Other ──
+    case 'appointment_reminder':
+      if (isAr) return when ? `تذكير بموعدك: ${when}.` : 'تذكير بموعدك القادم.';
+      return when ? `Reminder: your appointment is ${when}.` : 'Reminder: you have an appointment coming up.';
+
+    case 'chat_conduct_warning':
+      if (isAr) return 'يرجى الالتزام بالتواصل المحترم في المحادثة.';
+      return 'Please keep the conversation respectful.';
+
+    case 'welcome_patient':
+      if (isAr) return 'مرحبًا بك في تشخيصة. ابدأ حالتك الأولى متى كنت مستعدًا.';
+      return 'Welcome to Tashkheesa. Start your first case whenever you are ready.';
 
     default:
       return null;
@@ -872,6 +1046,23 @@ async function queueNotification({
           WHERE id = $7`,
         [status, responseJson, orderId, template, inAppTitle, inAppMessage, requeueRowId]
       );
+      // A re-armed row is a FRESH lifecycle event — the comment above says as
+      // much, and `at` is bumped so the bell surfaces it as new. It therefore
+      // deserves the same push the insert path sends, or a retried
+      // "report ready" would silently be the one that never reaches the phone.
+      if (channel === 'internal') {
+        try {
+          const { pushForNotification } = require('./services/patient_push');
+          await pushForNotification({
+            userId: uid,
+            template: template,
+            title: inAppTitle,
+            body: inAppMessage,
+            orderId: orderId,
+            payload: parsedResponse
+          });
+        } catch (_) { /* push must never break the queue */ }
+      }
       return { ok: true, id: requeueRowId, requeued: true, dedupe_key: normalizedDedupeKey };
     } catch (err) {
       // Same contract as the insert path: never throw, always leave a trace.
@@ -921,6 +1112,39 @@ async function queueNotification({
     //
     // The notifications row still gets INSERTed above (status='queued')
     // and the worker polls for it in runNotificationWorker.
+
+    // ── PUSH 2026-08-25 ────────────────────────────────────────────────────
+    //
+    // The patient app registered a token on every launch and the server never
+    // sent it anything: two of the three patient push helpers had zero callers
+    // and the third was imported once and never invoked. "Your report is ready"
+    // did not reach a locked phone.
+    //
+    // It hooks HERE rather than at the ~50 call sites that change case state,
+    // because by this point the recipient's language is resolved and
+    // inAppTitle / inAppMessage are the exact strings the in-app row will show.
+    // One wiring point, bilingual for free, and the push can never disagree
+    // with the notification list about what happened.
+    //
+    // Only the 'internal' channel pushes — the email and whatsapp rows describe
+    // the SAME event, and pushing on each would send the patient three
+    // notifications for one thing.
+    //
+    // Awaited but non-throwing: services/patient_push.js swallows everything,
+    // so a dead Expo endpoint cannot cost the patient their in-app row.
+    if (channel === 'internal') {
+      try {
+        const { pushForNotification } = require('./services/patient_push');
+        await pushForNotification({
+          userId: uid,
+          template: template,
+          title: inAppTitle,
+          body: inAppMessage,
+          orderId: orderId,
+          payload: parsedResponse
+        });
+      } catch (_) { /* push must never break the queue */ }
+    }
 
     return { ok: true, id: notifId };
   } catch (err) {
@@ -1271,5 +1495,9 @@ module.exports = {
   // NOTIFICATION_DROPPED case_event on max-retries-exceeded (the
   // enqueue-side already emits for invalid recipient / no channel /
   // db_insert_failed via the same helper).
-  emitNotificationDropped
+  emitNotificationDropped,
+  // Exported 2026-08-25 so the notification COPY can be asserted directly.
+  // 25 templates silently returned null here and shipped as empty-bodied
+  // rows for months; a grep could not have caught that, but calling it can.
+  renderNotificationMessage
 };
