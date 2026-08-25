@@ -1,5 +1,11 @@
--- 092_pretick_specialty_services_for_reconfirmation.sql
+-- 093_pretick_specialty_services_for_reconfirmation.sql
 -- ============================================================================
+-- Renumbered from 092 on 2026-08-25: origin/main already had a
+-- 092_normalise_user_phones.sql that this branch (cut from 3a66298) never saw,
+-- and it ran in production at 10:43. Two files sharing a number is not a
+-- functional problem — the runner tracks whole filenames — but it is exactly
+-- the confusion that hid the fact this file had not run at all.
+--
 -- 2026-08-25 — pre-tick every service in a doctor's own specialty, so the
 -- welcome invite asks them to CONFIRM a filled-in form rather than build one.
 --
@@ -163,6 +169,6 @@ BEGIN
          );
   IF short > 0 THEN
     RAISE WARNING
-      '092: % doctor(s) still missing at least one visible service in their own specialty (1 expected: the excluded test account)', short;
+      '093: % doctor(s) still missing at least one visible service in their own specialty (1 expected: the excluded test account)', short;
   END IF;
 END $$;
