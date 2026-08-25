@@ -4232,6 +4232,23 @@ router.post('/superadmin/doctors/bulk-welcome-passwordless', requireSuperadmin, 
             dedupe_key: 'doctor_bulk_welcome:' + doctorId + ':' + Date.now(),
           });
         } catch (e) {
+          // 2026-08-25 — logged to error_logs, not just to stdout.
+          //
+          // This is the per-doctor failure path of a BULK invite: one bad
+          // recipient in a run of 23 leaves that doctor never welcomed, and a
+          // console line on Render is not somewhere anyone will look for it.
+          // /ops/errors is. (Also what tests/core/theme8-route-errlog-coverage
+          // enforces on this file.)
+          try {
+            logErrorToDb(e, {
+              context: 'superadmin.bulk_welcome_notify',
+              requestId: req.requestId,
+              userId: req.user && req.user.id,
+              url: req.originalUrl,
+              method: req.method,
+              category: 'superadmin_action'
+            });
+          } catch (_) {}
           console.error('[bulk-welcome] notify failed:', doctorId, e && e.message ? e.message : e);
         }
       },
