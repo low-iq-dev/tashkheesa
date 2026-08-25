@@ -25,6 +25,7 @@ const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, 
 const emailService = require('../services/emailService');
 const { logAdminAudit } = require('../services/admin_audit');
 const { bulkWelcomePasswordlessDoctors, DEFAULT_COOLDOWN_HOURS: BULK_WELCOME_COOLDOWN_HOURS } = require('../services/admin_doctor_bulk_invite');
+const { assertRenderableView } = require('../renderGuard');
 const { inviteDoctor } = require('../services/admin_doctor_invite');
 const { WELCOME_EXPIRY_HOURS, SERVICES_READY_SQL } = require('../services/doctor_welcome_payload');
 const rateLimit = require('express-rate-limit');
@@ -3469,7 +3470,8 @@ router.get('/superadmin/doctors', requireSuperadmin, async (req, res) => {
     welcomeSent:    req.query.welcome_sent    != null ? Number(req.query.welcome_sent)    || 0 : null,
     welcomeSkipped: req.query.welcome_skipped != null ? Number(req.query.welcome_skipped) || 0 : null,
     welcomeFailed:  req.query.welcome_failed  != null ? Number(req.query.welcome_failed)  || 0 : null,
-    welcomeError:   req.query.welcome_error === '1'
+    welcomeError:   req.query.welcome_error === '1',
+    welcomeBusy:    req.query.welcome_busy === '1'
   });
 });
 
@@ -4131,6 +4133,41 @@ router.post('/superadmin/doctors/:id/resend-welcome', requireSuperadmin, welcome
 // onboarding_complete=false doctor unassignable, so without a way to send invites
 // the whole roster is stranded. requireSuperadmin + welcomeSendIpLimiter (10/15min
 // per IP; ONE tick per bulk call — the 28-doctor loop is internal, never throttled).
+// GET the review page for the bulk invite.
+//
+// 2026-08-25 — the first version of this feature guarded a 23-recipient,
+// irreversible send with onsubmit="return confirm(...)". The CSP at
+// server.js:487 is `script-src 'self' 'unsafe-eval' 'nonce-...'` with NO
+// 'unsafe-inline', and a nonce does not authorise inline EVENT HANDLER
+// attributes — only 'unsafe-inline' or 'unsafe-hashes' does. So the browser
+// refused to run the handler, the submit default was never cancelled, and one
+// click sent all 23 with no prompt at all. (The two pre-existing confirms on
+// this page have never run either, for the same reason.)
+//
+// A page cannot be disabled by a content policy. This lists exactly who is
+// about to be emailed, and the POST lives here — so the operator sees the
+// names before the click, not a number.
+router.get('/superadmin/doctors/bulk-welcome', requireSuperadmin, async (req, res) => {
+  // Same cohort the send uses, but with names, so this is a review and not a
+  // restatement of the count.
+  const rows = await queryAll(
+    `SELECT id, name, email, lang, welcome_email_last_sent_at,
+            (welcome_email_last_sent_at IS NULL
+             OR welcome_email_last_sent_at < NOW() - ($1::int * interval '1 hour')) AS eligible
+       FROM users
+      WHERE role = 'doctor' AND is_active = true AND password_hash IS NULL
+      ORDER BY eligible DESC, name ASC`,
+    [BULK_WELCOME_COOLDOWN_HOURS]
+  );
+  assertRenderableView('superadmin_bulk_welcome');
+  return res.render('superadmin_bulk_welcome', {
+    user: req.user,
+    lang: (res.locals && res.locals.lang) || 'en',
+    doctors: rows || [],
+    cooldownHours: BULK_WELCOME_COOLDOWN_HOURS
+  });
+});
+
 router.post('/superadmin/doctors/bulk-welcome-passwordless', requireSuperadmin, welcomeSendIpLimiter, async (req, res) => {
   logAdminAudit({ req, action: 'bulk_welcome_passwordless_doctors', target: '/superadmin/doctors' });
 
@@ -4149,6 +4186,32 @@ router.post('/superadmin/doctors/bulk-welcome-passwordless', requireSuperadmin, 
 
   const client = await pool.connect();
   try {
+    // ONE batch at a time, process-wide and instance-wide.
+    //
+    // 2026-08-25 — there was no guard of any kind, and the request takes
+    // seconds (23 doctors x a transaction each) with no visible feedback. Two
+    // overlapping batches BOTH read the cohort before either stamps
+    // welcome_email_last_sent_at, so both see 23 eligible; inviteDoctor
+    // re-checks role and is_active but NOT the cooldown, so batch B re-mints
+    // for all 23 — and its remint-DELETE removes batch A's tokens. Batch A's
+    // emails are already queued. Result: every doctor gets two invites and the
+    // first link is dead.
+    //
+    // pg_try_advisory_xact_lock, not the blocking form: a queued second batch
+    // would just do the damage a moment later. Refuse it and say so.
+    // Transaction-scoped so it releases on COMMIT/ROLLBACK/disconnect and
+    // cannot leak on a crash. The key is an arbitrary constant, namespaced by
+    // the first arg to keep it clear of other advisory-lock users.
+    await client.query('BEGIN');
+    const lock = await client.query('SELECT pg_try_advisory_xact_lock(4242, 1) AS ok');
+    if (!lock.rows[0] || lock.rows[0].ok !== true) {
+      await client.query('ROLLBACK');
+      if (String((req.body && req.body.redirect) || '') === '1') {
+        return res.redirect('/superadmin/doctors?welcome_busy=1');
+      }
+      return res.status(409).json({ error: 'A bulk welcome send is already running' });
+    }
+
     // The bulk service reuses `client` only for the read-side SELECT; each
     // inviteDoctor runs on its own fresh pool client (own txn). Notifications
     // fire post-commit via onInvited — per-doctor dedupe_key with a timestamp so
@@ -4182,6 +4245,8 @@ router.post('/superadmin/doctors/bulk-welcome-passwordless', requireSuperadmin, 
     // The JSON response is kept for the Command app and for curl. A plain form
     // post (redirect=1) gets a redirect instead, which is what lets the button
     // exist at all without inline JS under the CSP.
+    await client.query('COMMIT');
+
     if (String((req.body && req.body.redirect) || '') === '1') {
       const q = new URLSearchParams({
         welcome_sent: String(result.sent),
@@ -4201,6 +4266,7 @@ router.post('/superadmin/doctors/bulk-welcome-passwordless', requireSuperadmin, 
       category: 'superadmin_auth',
     });
     console.error('[bulk-welcome] batch failed:', err && err.message ? err.message : err);
+    try { await client.query('ROLLBACK'); } catch (_) { /* already aborted */ }
     if (String((req.body && req.body.redirect) || '') === '1') {
       return res.redirect('/superadmin/doctors?welcome_error=1');
     }

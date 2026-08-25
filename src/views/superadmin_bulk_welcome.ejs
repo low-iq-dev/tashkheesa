@@ -1,0 +1,113 @@
+<%
+  // Review page for the bulk doctor invite.
+  //
+  // This exists because the CSP (server.js: script-src with a nonce but no
+  // 'unsafe-inline') refuses to run inline onsubmit handlers, so a
+  // confirm() dialog on the button silently does nothing and one click sends
+  // every invite. A page cannot be disabled by a content policy.
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var _all = (typeof doctors !== 'undefined' && doctors) ? doctors : [];
+  var _cool = (typeof cooldownHours !== 'undefined') ? Number(cooldownHours) || 24 : 24;
+  var _ready = _all.filter(function (d) { return d.eligible === true; });
+  var _held  = _all.filter(function (d) { return d.eligible !== true; });
+
+  function _when(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    var h = Math.round((Date.now() - d.getTime()) / 3600000);
+    if (h < 1) return isAr ? 'منذ أقل من ساعة' : 'under 1h ago';
+    if (h < 24) return h + (isAr ? ' ساعة' : 'h ago');
+    return Math.round(h / 24) + (isAr ? ' يوم' : 'd ago');
+  }
+%>
+<%- include('partials/superadmin/header', {
+      title: isAr ? 'إرسال الدعوات' : 'Send invites',
+      currentSection: 'doctors',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: (typeof cspNonce !== 'undefined') ? cspNonce : ''
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: isAr ? 'إرسال إيميل الترحيب' : 'Send welcome emails',
+      subtitle: isAr ? 'راجع القائمة قبل الإرسال. لا يمكن التراجع.' : 'Review the list before sending. This cannot be undone.',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: isAr ? 'الأطباء' : 'Doctors', href: '/superadmin/doctors' },
+        { label: isAr ? 'إرسال الدعوات' : 'Send invites' }
+      ]
+    }) %>
+
+<div class="page-body">
+
+  <div style="margin-bottom:14px;padding:13px 16px;border-radius:8px;border:1px solid var(--line);
+              border-inline-start:3px solid var(--amber, #8a6100);background:var(--bg-2,#fff);
+              font-size:13.5px;line-height:1.7;">
+    <%= isAr
+      ? 'كل إرسال يُنشئ رابطاً جديداً صالحاً 7 أيام ويُلغي رابط الطبيب السابق فوراً. لا ترسل مرة أخرى إلا إذا كنت تقصد إبطال الروابط الحالية.'
+      : 'Each send mints a fresh 7-day link and immediately invalidates that doctor\'s previous one. Do not send again unless you mean to kill the links already in their inbox.' %>
+  </div>
+
+  <% if (!_ready.length) { %>
+    <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+      <div style="padding:22px 16px;text-align:center;color:var(--fg-3);font-size:14px;">
+        <%= isAr ? 'لا يوجد طبيب جاهز للإرسال الآن.' : 'No doctor is ready to send to right now.' %>
+        <% if (_held.length) { %>
+          <br><%= _held.length %> <%= isAr ? 'في فترة الانتظار.' : 'still in the ' + _cool + 'h cooldown.' %>
+        <% } %>
+      </div>
+    <%- include('partials/superadmin/c_card_close') %>
+  <% } else { %>
+
+    <%- include('partials/superadmin/c_card_open', {
+          title: (isAr ? 'سيتم الإرسال إلى ' : 'Will send to ') + _ready.length,
+          tight: true }) %>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:420px;">
+          <thead><tr>
+            <th style="text-align:start;padding:9px 14px;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--fg-3);border-bottom:1px solid var(--line);"><%= isAr ? 'الطبيب' : 'Doctor' %></th>
+            <th style="text-align:start;padding:9px 14px;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--fg-3);border-bottom:1px solid var(--line);"><%= isAr ? 'البريد' : 'Email' %></th>
+            <th style="text-align:start;padding:9px 14px;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--fg-3);border-bottom:1px solid var(--line);"><%= isAr ? 'اللغة' : 'Lang' %></th>
+            <th style="text-align:start;padding:9px 14px;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--fg-3);border-bottom:1px solid var(--line);"><%= isAr ? 'آخر إرسال' : 'Last sent' %></th>
+          </tr></thead>
+          <tbody>
+          <% _ready.forEach(function (d) { %>
+            <tr>
+              <td style="padding:9px 14px;border-bottom:1px solid var(--line);"><%= d.name || '—' %></td>
+              <td style="padding:9px 14px;border-bottom:1px solid var(--line);font-family:ui-monospace,Menlo,monospace;font-size:12.5px;"><%= d.email || '—' %></td>
+              <td style="padding:9px 14px;border-bottom:1px solid var(--line);"><%= (d.lang === 'ar') ? 'AR' : 'EN' %></td>
+              <td style="padding:9px 14px;border-bottom:1px solid var(--line);color:var(--fg-3);"><%= _when(d.welcome_email_last_sent_at) %></td>
+            </tr>
+          <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <%- include('partials/superadmin/c_card_close') %>
+
+    <% if (_held.length) { %>
+      <div style="margin-top:12px;padding:11px 16px;font-size:13px;color:var(--fg-3);">
+        <%= _held.length %>
+        <%= isAr ? ('طبيب لن يُرسل إليه — أُرسلت الدعوة خلال آخر ' + _cool + ' ساعة: ') : ('will be skipped — invited within the last ' + _cool + 'h: ') %>
+        <%= _held.map(function (d) { return d.name || d.email; }).join(', ') %>
+      </div>
+    <% } %>
+
+    <form method="post" action="/superadmin/doctors/bulk-welcome-passwordless"
+          style="margin-top:18px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+      <input type="hidden" name="redirect" value="1" />
+      <button type="submit" class="btn primary">
+        <%= isAr ? ('أرسل الآن إلى ' + _ready.length + ' طبيب') : ('Send now to ' + _ready.length + ' doctor' + (_ready.length === 1 ? '' : 's')) %>
+      </button>
+      <a class="btn" href="/superadmin/doctors"><%= isAr ? 'إلغاء' : 'Cancel' %></a>
+      <span style="font-size:12.5px;color:var(--fg-3);">
+        <%= isAr ? 'قد يستغرق بضع ثوانٍ. لا تضغط مرتين.' : 'Takes a few seconds. A second send while one is running is refused, not queued.' %>
+      </span>
+    </form>
+  <% } %>
+</div>
+
+<%- include('partials/superadmin/footer') %>

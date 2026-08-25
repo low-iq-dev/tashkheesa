@@ -17,6 +17,7 @@
   var _wSkipped = (typeof welcomeSkipped !== 'undefined' && welcomeSkipped !== null) ? Number(welcomeSkipped) : null;
   var _wFailed  = (typeof welcomeFailed  !== 'undefined' && welcomeFailed  !== null) ? Number(welcomeFailed)  : null;
   var _wError   = (typeof welcomeError   !== 'undefined') ? !!welcomeError : false;
+  var _wBusy    = (typeof welcomeBusy    !== 'undefined') ? !!welcomeBusy  : false;
 
   function _docStatusChip(d) {
     if (d.pending_approval) return { label: 'Pending', tone: 'amber' };
@@ -73,6 +74,14 @@
   <%# ── Result of the last bulk send ──────────────────────────────────────
       Shown once, from the redirect's query string. "Skipped" is not a failure:
       it is the 24h cooldown refusing to re-blast someone invited yesterday. %>
+  <% if (_wBusy) { %>
+    <div style="margin-bottom:14px;padding:13px 16px;border-radius:8px;border:1px solid var(--line);
+                border-inline-start:3px solid var(--amber, #8a6100);background:var(--bg-2,#fff);font-size:13.5px;">
+      <strong><%= isAr ? 'إرسال جارٍ بالفعل' : 'A send is already running' %></strong> —
+      <%= isAr ? 'لم يتم إرسال أي شيء إضافي. انتظر حتى ينتهي ثم حدّث الصفحة.' : 'nothing extra was sent. Wait for it to finish, then refresh.' %>
+    </div>
+  <% } %>
+
   <% if (_wSent !== null || _wError) { %>
     <div style="margin-bottom:14px;padding:13px 16px;border-radius:8px;border:1px solid var(--line);
                 border-inline-start:3px solid <%= _wError || (_wFailed || 0) > 0 ? 'var(--red, #b3261e)' : 'var(--green, #0B6B5F)' %>;
@@ -81,7 +90,7 @@
         <strong style="color:var(--red, #b3261e);"><%= isAr ? 'فشل الإرسال الجماعي' : 'Bulk send failed' %></strong> —
         <%= isAr ? 'لم يتم إرسال أي رسالة. راجع سجل الأخطاء.' : 'nothing was sent. Check the error log.' %>
       <% } else { %>
-        <strong><%= isAr ? 'تم الإرسال' : 'Sent' %>: <%= _wSent %></strong>
+        <strong><%= isAr ? 'تم إنشاء وإرسال' : 'Queued' %>: <%= _wSent %></strong>
         <% if ((_wSkipped || 0) > 0) { %>
           · <%= _wSkipped %> <%= isAr ? 'تم تخطيها (أُرسلت خلال آخر ' + _bulkCooldown + ' ساعة)' : 'skipped (invited within the last ' + _bulkCooldown + 'h)' %>
         <% } %>
@@ -104,7 +113,7 @@
           <span style="color:var(--fg-3);">
             <% if (_bulkEligible > 0) { %>
               <strong style="color:var(--fg);"><%= _bulkEligible %></strong>
-              <%= isAr ? 'جاهزون للإرسال الآن.' : _bulkEligible === 1 ? 'ready to send now.' : 'ready to send now.' %>
+              <%= isAr ? 'جاهزون للإرسال الآن.' : (_bulkEligible === 1 ? 'doctor ready to send now.' : 'doctors ready to send now.') %>
             <% } else { %>
               <%= isAr ? 'لا أحد جاهز للإرسال الآن.' : 'None ready to send right now.' %>
             <% } %>
@@ -114,14 +123,16 @@
             <%= isAr ? 'كل رسالة تحمل رابطاً جديداً صالحاً 7 أيام ويُلغي الرابط السابق.' : 'Each send mints a fresh 7-day link and invalidates that doctor\'s previous one.' %>
           </span>
         </div>
-        <form method="post" action="/superadmin/doctors/bulk-welcome-passwordless" style="margin:0;"
-              onsubmit="return confirm('<%= isAr ? "إرسال إيميل الترحيب إلى " + _bulkEligible + " طبيب؟" : "Send the welcome email to " + _bulkEligible + " doctor(s)?" %>');">
-          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-          <input type="hidden" name="redirect" value="1" />
-          <button type="submit" class="btn primary" <%= _bulkEligible === 0 ? 'disabled aria-disabled="true"' : '' %>>
-            <%= isAr ? 'إرسال للكل (' + _bulkEligible + ')' : 'Email all (' + _bulkEligible + ')' %>
-          </button>
-        </form>
+        <%# A LINK, not a form with onsubmit="confirm(...)". The CSP has no
+            'unsafe-inline' in script-src and a nonce does not authorise inline
+            event-handler attributes, so that dialog never runs — one click
+            would have sent all 23 with no prompt. The review page shows the
+            actual names and owns the POST. %>
+        <% if (_bulkEligible > 0) { %>
+          <a class="btn primary" href="/superadmin/doctors/bulk-welcome"><%= isAr ? 'إرسال للكل (' + _bulkEligible + ')' : 'Email all (' + _bulkEligible + ')' %></a>
+        <% } else { %>
+          <span class="btn" aria-disabled="true" style="opacity:.55;pointer-events:none;"><%= isAr ? 'لا يوجد جاهز' : 'None ready' %></span>
+        <% } %>
       </div>
     <%- include('partials/superadmin/c_card_close') %>
   <% } %>
