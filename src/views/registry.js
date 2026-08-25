@@ -12,5 +12,6 @@ module.exports = {
 
   // Admin
   admin_dashboard: true,
-  superadmin_dashboard: true
+  superadmin_dashboard: true,
+  superadmin_bulk_welcome: true
 };
