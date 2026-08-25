@@ -1,58 +1,140 @@
 -- 094_pediatrics_service_catalogue.sql
 -- ============================================================================
--- 2026-08-25 — give Pediatrics a catalogue, so its three doctors can onboard.
+-- 2026-08-25 — give Pediatrics a catalogue so its three doctors can onboard,
+-- WITHOUT putting a sixth specialty on sale.
 --
--- Ahmed Hegazy, Reem Sabry and Yomna Mohsen are active Pediatrics doctors with
--- welcome invites pending. spec-pediatrics had ZERO service rows — not hidden
--- ones, none — so their catalogue union was empty, resolveDoctorLanding sent
--- them to the dashboard instead of the services page, and the services page
--- rendered "your services are being finalised" with no form. onboarding_complete
--- is only ever written by that form's POST, so all three were structurally
--- incapable of finishing onboarding, and no invite copy could fix it.
+-- spec-pediatrics had ZERO service rows. Not hidden ones — none. So Ahmed
+-- Hegazy, Reem Sabry and Yomna Mohsen had an empty catalogue union,
+-- resolveDoctorLanding sent them to the dashboard instead of the services page,
+-- and that page rendered "your services are being finalised" with no form.
+-- onboarding_complete is only ever written by that form's POST, so all three
+-- were structurally incapable of finishing onboarding and no invite copy could
+-- have fixed it. That is the ONLY problem this migration solves.
 --
--- ── PRICING: NO service_regional_prices ROWS, AND THAT IS THE PATTERN ───────
+-- ── DORMANT BY CONSTRUCTION: is_visible = false ────────────────────────────
 --
--- Of the six live specialties, only Cardiology (9 of 9) and Radiology (11 of
--- 11) carry EG rows. Internal Medicine, OB/GYN, Orthopedics and Urology — 35
--- visible services — carry none, and their Egyptian patients pay
--- services.base_price via the COALESCE in routes/patient.js.
+-- The first draft of this file left the services visible and relied on
+-- specialties.is_visible = false to keep them off the storefront. That does not
+-- hold. servicesBookableClause (routes/patient.js) is:
 --
--- The split is not arbitrary. Where an EG row exists, hospital_cost is the
--- price of the underlying investigation (Chest X-Ray 550, Brain MRI 3200,
--- Echo 1200) and the patient pays that x 1.15. That only means something for
--- IMAGING and TRACING reads, where a scan with its own price exists. Pediatrics
--- as catalogued here is consultative — growth charts, asthma management, whole
--- case review — with no underlying priced investigation to mark up, exactly
--- like Internal Medicine.
+--     COALESCE(sv.is_visible,true)=true AND COALESCE(sv.coming_soon,false)=false
 --
--- So: base_price only, on the platform's three standard bands, which carry the
--- international ladder already (1600 -> USD 120 / GBP 150 / AED-SAR-QAR 449 /
--- KWD 35 / BHD-OMR 45; 2400 -> 200 / 250 / 749 / 59 / 75; 3500 -> 350 / 400 /
--- 1199 / 95 / 119). Those come from the band, not from a per-service row, so
--- nothing further is needed for the eight non-EGP currencies.
+-- Specialty visibility is not in it, and is joined at only SOME call sites —
+-- the wizard's step-3 POST checks it; POST /patient/new-case, POST
+-- /api/v1/cases, GET /api/v1/services and the unauthenticated
+-- POST /api/help-me-choose do not. (Nephrology already sits in that gap with 8
+-- bookable services under a hidden specialty. Not this migration's bug, but
+-- not a gap to add twelve more services to either.)
 --
--- doctor_fee is 20% of base_price throughout, matching every other service.
--- Note doctor_commission_pct defaults to 80 and is NOT what pays the doctor:
--- earnings_writer.js reads the absolute services.doctor_fee, copied onto the
--- order at checkout. Setting it here only to keep the column uniform.
+-- coming_soon is no better as a gate: resyncComingSoon runs inside EVERY doctor
+-- Save, and it sets coming_soon = false for any service with an active mapped
+-- doctor. The first Pediatrics doctor to confirm their list would flip the
+-- whole specialty live.
 --
--- ── DELIBERATELY DOES NOT MAKE PEDIATRICS SELLABLE ─────────────────────────
+-- services.is_visible is the one flag nothing recomputes. So it is false here,
+-- and these twelve rows are unreachable from every patient path.
 --
--- specialties.is_visible stays FALSE for spec-pediatrics. This migration
--- unblocks the DOCTORS; opening a sixth specialty to patients is a commercial
--- decision with a date attached, and it is one UPDATE when Ziad wants it:
+-- The doctors still see them. loadDoctorServiceCatalog unions (a) visible
+-- services in the doctor's specialty with (b) EVERY service the doctor already
+-- holds a row for, ANY specialty, ANY visibility. The mapping below puts these
+-- in branch (b), so the form renders all fifteen — each with the "Coming Soon"
+-- chip portal_doctor_services.ejs already shows for is_visible === false — and
+-- Save sets onboarding_complete. Which is the entire point.
 --
+-- GO-LIVE is therefore one statement, when the platform is ready for it (see
+-- the safety note at the bottom — it is not ready today):
+--
+--     UPDATE services SET is_visible = true WHERE specialty_id = 'spec-pediatrics';
 --     UPDATE specialties SET is_visible = true WHERE id = 'spec-pediatrics';
 --
--- ── SERVICE IDS ────────────────────────────────────────────────────────────
+-- ── PRICING: BAND base_price + THE EIGHT INTERNATIONAL ROWS ────────────────
 --
--- Readable peds_* slugs, as Cardiology uses (card_echo, card_ctca). The newer
--- specialties use UUIDs, which are unreadable in exactly the migrations and
--- support queries where you most need to know what you are looking at.
+-- The first draft claimed the international ladder "comes from the band, not
+-- from a per-service row". That was wrong and would have cost real money.
+-- There is no band table anywhere in src/. The ladder IS per-service rows, and
+-- OB/GYN (9/9), Orthopedics (11/11) and Urology (9/9) all carry full eight-
+-- market ladders — they merely lack EG rows. With no row at all the resolver
+-- COALESCE(cp.tashkheesa_price, sv.base_price) hands a US patient 3500 EGP for
+-- a service meant to be USD 350: a ~80% undercharge, locked into orders.price
+-- at creation. (Internal Medicine's six services have no rows in any market and
+-- are undercharging internationally right now. Raised separately — copying it
+-- is not the same as it being the pattern.)
 --
--- IDEMPOTENT: untargeted ON CONFLICT DO NOTHING on the services insert (see
--- the note above it), anti-join + ON CONFLICT on the mapping. Re-running changes nothing and never reprices a
--- service someone has since edited in the admin UI.
+-- So this file writes the eight non-EG rows per service, generated from the
+-- band. Verified against production: the ladder is perfectly uniform, one price
+-- per currency per band, no per-service variation:
+--
+--     band   USD   GBP   AED/QAR/SAR   KWD   BHD/OMR
+--     1600   120   150       449        35      45
+--     2400   200   250       749        59      75
+--     3500   350   400      1199        95     119
+--     5500   550   600      1899       149     189
+--
+-- NO EG rows, deliberately, matching Internal Medicine, OB/GYN, Orthopedics and
+-- Urology. Where an EG row exists its hospital_cost is the price of the
+-- underlying investigation and the patient pays a markup on it — that only
+-- means something for imaging and tracing reads (Cardiology, Radiology).
+-- Pediatrics here is consultative, with no priced scan to mark up, so Egyptians
+-- pay base_price: 1600 / 2400 / 3500 / 5500.
+--
+-- (The first draft also said that markup is "exactly 1.1500 across all 57 rows".
+-- It is 1.15 on 30 of them; Chest X-Ray is 550 -> 1250, ECG 500 -> 1250. Only
+-- the conclusion survived, not the arithmetic.)
+--
+-- doctor_fee is 20% of base_price, matching all 168 existing services. Note it
+-- is NOT what pays the doctor: orders.doctor_fee is computed at checkout from
+-- fx.DOCTOR_SPLIT_PCT (0.20) against the EGP charge base, and earnings_writer
+-- reads that. Same number here by construction, not by mechanism.
+--
+-- ── THE LIST ────────────────────────────────────────────────────────────────
+--
+-- Fifteen lines, shaped to the three doctors on file (General Pediatrics x2,
+-- Neonatology, Metabolic & Genetics) and to a clinical safety review. Changes
+-- from the twelve first drafted:
+--
+--   DROPPED  "Neonatal Jaundice & Newborn Screening Review". Jaundice is
+--            managed against HOUR-specific bilirubin nomograms; a 48-hour
+--            written opinion is stale before it is sent and a 4-hour "urgent"
+--            tier actively sells delay to the families who must go in now. The
+--            safe half survives as Newborn Screening Result Review.
+--   DROPPED  standalone "Childhood Vaccination Schedule Review" at 1600 —
+--            minutes of consultant time, and the line most likely to attract a
+--            vaccine-refusal consult. Folded into the growth line.
+--   RESHAPED "Fever & Infection Workup" -> "Recurrent or Prolonged Fever".
+--            Fever under 28 days is a sepsis workup and under 90 days is a
+--            risk-stratified emergency; an async read of a currently febrile
+--            infant is a delay mechanism. This line is now a records question.
+--   RESHAPED "Asthma & Wheeze Management" -> "Asthma Control Plan Review".
+--            "Wheeze" pulls in the acute toddler and the under-1 with
+--            bronchiolitis; "Management" promises what §4.4 of the Specialist
+--            Code of Conduct forbids the doctor from doing.
+--   RESHAPED "Developmental Delay & Milestone Assessment" -> "Records Review".
+--            No assessment happens anywhere on this platform.
+--   REPRICED NICU 3500 -> 5500. A 28-weeker's admission is a discharge summary
+--            plus daily notes, serial cranial ultrasounds and ROP screening:
+--            hours of work. At 3500 the doctor got 700 and the only
+--            neonatologist on the platform would have declined it.
+--   RENAMED  the CBC line, which duplicated Internal Medicine's identically
+--            named, identically priced service.
+--   ADDED    Genetic Test Report Review, Consanguinity & Recurrence Risk
+--            Review, Pre-Surgical Second Opinion, Recurrent Infections.
+--            Hegazy is the rarest asset on the platform and had one saleable
+--            line; consanguinity risk in particular is high-value and, in this
+--            market, high-demand.
+--
+-- US spelling ("Pediatric") throughout, matching the specialty name. No
+-- existing service uses either spelling, so there is nothing else to match.
+--
+-- services.name_ar does not exist as a column, so these render in English on
+-- the Arabic form too. Platform-wide gap, noted not solved.
+--
+-- IDEMPOTENT: untargeted ON CONFLICT DO NOTHING on the services insert —
+-- services carries TWO unique constraints (services_pkey and
+-- services_specialty_name_unique on (specialty_id, name)) plus a redundant
+-- unique index on the same pair, and an inference target arbitrates only the
+-- one it names. A same-named row added through the admin UI would land with a
+-- UUID, ON CONFLICT (id) would miss it, and 23505 would reach migrate() and
+-- exit(1) on every boot.
 -- ============================================================================
 
 INSERT INTO services (
@@ -61,42 +143,67 @@ INSERT INTO services (
   urgent_multiplier, urgency_uplift_doctor_pct, sla_24hr_price, appointment_price
 )
 VALUES
-  -- Band 1600 (USD 120) — single-question reviews
-  ('peds_growth_development',   'spec-pediatrics', 'Growth Chart & Development Review',            1600,  320, 'EGP', 48, true, false, 80, 1.30, 1.60, 30, 100, 0),
-  ('peds_vaccination_schedule', 'spec-pediatrics', 'Childhood Vaccination Schedule Review',        1600,  320, 'EGP', 48, true, false, 80, 1.30, 1.60, 30, 100, 0),
-  ('peds_cbc_anaemia',          'spec-pediatrics', 'Paediatric CBC & Anaemia Panel Review',        1600,  320, 'EGP', 48, true, false, 80, 1.30, 1.60, 30, 100, 0),
+  -- 1600 — one artefact, one question
+  ('peds_growth_vaccination',   'spec-pediatrics', 'Pediatric Growth Chart & Vaccination Record Review', 1600,  320, 'EGP', 48, false, true, 80, 1.30, 1.60, 30, 100, 0),
+  ('peds_blood_count',          'spec-pediatrics', 'Pediatric Blood Count & Anaemia Review',             1600,  320, 'EGP', 48, false, true, 80, 1.30, 1.60, 30, 100, 0),
 
-  -- Band 2400 (USD 200) — focused workups
-  ('peds_fever_infection',      'spec-pediatrics', 'Paediatric Fever & Infection Workup Review',   2400,  480, 'EGP', 48, true, false, 80, 1.30, 1.60, 30, 100, 0),
-  ('peds_asthma_wheeze',        'spec-pediatrics', 'Childhood Asthma & Wheeze Management Review',  2400,  480, 'EGP', 48, true, false, 80, 1.30, 1.60, 30, 100, 0),
-  ('peds_allergy_eczema',       'spec-pediatrics', 'Paediatric Allergy & Eczema Review',           2400,  480, 'EGP', 48, true, false, 80, 1.30, 1.60, 30, 100, 0),
-  ('peds_neonatal_jaundice',    'spec-pediatrics', 'Neonatal Jaundice & Newborn Screening Review', 2400,  480, 'EGP', 48, true, false, 80, 1.30, 1.60, 30, 100, 0),
-  ('peds_feeding_nutrition',    'spec-pediatrics', 'Paediatric Feeding & Nutrition Review',        2400,  480, 'EGP', 48, true, false, 80, 1.30, 1.60, 30, 100, 0),
+  -- 2400 — focused records questions
+  ('peds_recurrent_fever',      'spec-pediatrics', 'Recurrent or Prolonged Fever Records Review',        2400,  480, 'EGP', 48, false, true, 80, 1.30, 1.60, 30, 100, 0),
+  ('peds_asthma_control',       'spec-pediatrics', 'Childhood Asthma Control Plan Review',               2400,  480, 'EGP', 48, false, true, 80, 1.30, 1.60, 30, 100, 0),
+  ('peds_allergy_eczema',       'spec-pediatrics', 'Pediatric Allergy & Eczema Review',                  2400,  480, 'EGP', 48, false, true, 80, 1.30, 1.60, 30, 100, 0),
+  ('peds_newborn_screening',    'spec-pediatrics', 'Newborn Screening Result Review',                    2400,  480, 'EGP', 48, false, true, 80, 1.30, 1.60, 30, 100, 0),
+  ('peds_feeding_nutrition',    'spec-pediatrics', 'Pediatric Feeding & Nutrition Review',               2400,  480, 'EGP', 48, false, true, 80, 1.30, 1.60, 30, 100, 0),
+  ('peds_recurrent_infections', 'spec-pediatrics', 'Recurrent Infections & Antibiotic Use Review',       2400,  480, 'EGP', 48, false, true, 80, 1.30, 1.60, 30, 100, 0),
 
-  -- Band 3500 (USD 350) — whole-case and sub-specialty
-  ('peds_general_case',         'spec-pediatrics', 'General Paediatric Case Review',               3500,  700, 'EGP', 48, true, false, 80, 1.30, 1.60, 30, 100, 0),
-  ('peds_developmental_delay',  'spec-pediatrics', 'Developmental Delay & Milestone Assessment',   3500,  700, 'EGP', 48, true, false, 80, 1.30, 1.60, 30, 100, 0),
-  ('peds_nicu_course',          'spec-pediatrics', 'Neonatal Intensive Care Course Review',        3500,  700, 'EGP', 48, true, false, 80, 1.30, 1.60, 30, 100, 0),
-  ('peds_metabolic_inherited',  'spec-pediatrics', 'Inherited Metabolic Disorder Review',          3500,  700, 'EGP', 48, true, false, 80, 1.30, 1.60, 30, 100, 0)
--- Bare ON CONFLICT, NOT ON CONFLICT (id). services carries TWO unique
--- constraints — services_pkey (id) and services_specialty_name_unique
--- (specialty_id, name) — and an inference target only arbitrates the one it
--- names. If anyone adds a Pediatrics service by one of these names through the
--- admin UI before this deploys, it lands with a UUID, ON CONFLICT (id) would
--- not see it, and the insert would raise 23505 -> migrate() rejects ->
--- server.js exit(1) -> permanent boot loop. Untargeted DO NOTHING covers both.
+  -- 3500 — whole file, open question
+  ('peds_general_case',         'spec-pediatrics', 'General Pediatric Case Review',                      3500,  700, 'EGP', 48, false, true, 80, 1.30, 1.60, 30, 100, 0),
+  ('peds_developmental',        'spec-pediatrics', 'Developmental Milestones Records Review',            3500,  700, 'EGP', 48, false, true, 80, 1.30, 1.60, 30, 100, 0),
+  ('peds_presurgical',          'spec-pediatrics', 'Pediatric Pre-Surgical Second Opinion',              3500,  700, 'EGP', 48, false, true, 80, 1.30, 1.60, 30, 100, 0),
+  ('peds_genetic_report',       'spec-pediatrics', 'Genetic Test Report Review',                         3500,  700, 'EGP', 48, false, true, 80, 1.30, 1.60, 30, 100, 0),
+  ('peds_consanguinity_risk',   'spec-pediatrics', 'Consanguinity & Recurrence Risk Review',             3500,  700, 'EGP', 48, false, true, 80, 1.30, 1.60, 30, 100, 0),
+  ('peds_metabolic_inherited',  'spec-pediatrics', 'Inherited Metabolic Disorder Review',                3500,  700, 'EGP', 48, false, true, 80, 1.30, 1.60, 30, 100, 0),
+
+  -- 5500 — multi-week record sets
+  ('peds_nicu_stay',            'spec-pediatrics', 'NICU Stay & Discharge Summary Review',               5500, 1100, 'EGP', 48, false, true, 80, 1.30, 1.60, 30, 100, 0)
 ON CONFLICT DO NOTHING;
 
--- Pre-tick all twelve for the three Pediatrics doctors, same reasoning as 093:
--- they are about to be invited, and a filled-in form gets confirmed where an
--- empty one gets postponed. Still does NOT set onboarding_complete — pressing
--- Save is the thing we are asking them to do.
+-- The eight international rows per service, generated from the band so they
+-- cannot drift from the ladder. doctor_commission is 20% of the local price,
+-- as every existing row is.
+--
+-- id is text NOT NULL with NO DEFAULT on this table — omitting it raises 23502,
+-- which is what nearly boot-looped the platform in 091. gen_random_uuid() is
+-- built in on PG 13+; production is 17.6.
+INSERT INTO service_regional_prices
+  (id, service_id, country_code, currency, hospital_cost, tashkheesa_price, doctor_commission, status, created_at, updated_at)
+SELECT gen_random_uuid()::text, sv.id, m.country_code, m.currency, NULL,
+       m.price, ROUND((m.price * 0.20)::numeric, 2), 'active', NOW(), NOW()
+  FROM services sv
+  JOIN (VALUES
+      (1600,'US','USD',120.0), (1600,'GB','GBP',150.0), (1600,'AE','AED',449.0), (1600,'SA','SAR',449.0),
+      (1600,'QA','QAR',449.0), (1600,'KW','KWD', 35.0), (1600,'BH','BHD', 45.0), (1600,'OM','OMR', 45.0),
+      (2400,'US','USD',200.0), (2400,'GB','GBP',250.0), (2400,'AE','AED',749.0), (2400,'SA','SAR',749.0),
+      (2400,'QA','QAR',749.0), (2400,'KW','KWD', 59.0), (2400,'BH','BHD', 75.0), (2400,'OM','OMR', 75.0),
+      (3500,'US','USD',350.0), (3500,'GB','GBP',400.0), (3500,'AE','AED',1199.0), (3500,'SA','SAR',1199.0),
+      (3500,'QA','QAR',1199.0),(3500,'KW','KWD', 95.0), (3500,'BH','BHD',119.0), (3500,'OM','OMR',119.0),
+      (5500,'US','USD',550.0), (5500,'GB','GBP',600.0), (5500,'AE','AED',1899.0), (5500,'SA','SAR',1899.0),
+      (5500,'QA','QAR',1899.0),(5500,'KW','KWD',149.0), (5500,'BH','BHD',189.0), (5500,'OM','OMR',189.0)
+    ) AS m(band, country_code, currency, price)
+    ON m.band = sv.base_price
+ WHERE sv.specialty_id = 'spec-pediatrics'
+ON CONFLICT (service_id, country_code) DO NOTHING;
+
+-- Pre-tick all of them for the three Pediatrics doctors — same reasoning as
+-- 093: a filled-in form gets confirmed, an empty one gets postponed. This is
+-- also what puts the rows in branch (b) of the catalogue union, which is the
+-- only reason an is_visible = false service appears on their form at all.
+--
+-- Still does NOT set onboarding_complete. Pressing Save is the thing we are
+-- asking them to do.
 INSERT INTO doctor_services (doctor_id, service_id)
 SELECT u.id, sv.id
   FROM users u
-  JOIN services sv
-    ON sv.specialty_id = u.specialty_id
-   AND COALESCE(sv.is_visible, true) = true
+  JOIN services sv ON sv.specialty_id = u.specialty_id
  WHERE u.role = 'doctor'
    AND u.specialty_id = 'spec-pediatrics'
    AND COALESCE(u.is_active, true)  = true
@@ -107,54 +214,64 @@ SELECT u.id, sv.id
        )
 ON CONFLICT DO NOTHING;
 
--- coming_soon is set to false in the INSERT above because these services will
--- have three active doctors mapped by the time this statement finishes, which
--- is what services_coming_soon_sync.js computes. Recompute for just these rows
--- rather than trusting the literal, so a doctor deactivated between now and
--- deploy cannot leave the flag lying.
-UPDATE services sv
-   SET coming_soon = NOT EXISTS (
-         SELECT 1 FROM doctor_services ds
-           JOIN users u ON u.id = ds.doctor_id
-          WHERE ds.service_id = sv.id
-            AND u.role = 'doctor' AND u.is_active = true
-       )
- WHERE sv.specialty_id = 'spec-pediatrics';
-
 -- Visibility only — WARNING, never EXCEPTION. db.js wraps this file in a
 -- transaction, so a raise would roll back the migration AND its
--- schema_migrations row, and the next boot would fail identically: a permanent
--- boot loop over a catalogue that is merely incomplete.
+-- schema_migrations row, and every subsequent boot would fail identically.
+--
+-- Note these RAISEs are not read by anything: node-postgres delivers them as
+-- 'notice' events and src/ registers no handler. They are here for someone
+-- running the file by hand. The real check is the SELECTs in the deploy notes.
 DO $$
-DECLARE svc integer; mapped integer; docs integer;
+DECLARE svc integer; prices integer; short integer; docs integer;
 BEGIN
-  SELECT count(*) INTO svc
-    FROM services WHERE specialty_id = 'spec-pediatrics' AND COALESCE(is_visible, true) = true;
+  SELECT count(*) INTO svc FROM services WHERE specialty_id = 'spec-pediatrics';
+
+  SELECT count(*) INTO prices
+    FROM service_regional_prices rp
+    JOIN services sv ON sv.id = rp.service_id
+   WHERE sv.specialty_id = 'spec-pediatrics' AND rp.country_code <> 'EG';
 
   SELECT count(*) INTO docs
     FROM users WHERE role = 'doctor' AND specialty_id = 'spec-pediatrics'
      AND COALESCE(is_active, true) = true AND COALESCE(is_paused, false) = false;
 
-  SELECT count(*) INTO mapped
+  SELECT count(*) INTO short
     FROM users u
    WHERE u.role = 'doctor' AND u.specialty_id = 'spec-pediatrics'
      AND COALESCE(u.is_active, true) = true AND COALESCE(u.is_paused, false) = false
-     AND NOT EXISTS (
+     AND EXISTS (
            SELECT 1 FROM services sv
             WHERE sv.specialty_id = 'spec-pediatrics'
-              AND COALESCE(sv.is_visible, true) = true
               AND NOT EXISTS (
                     SELECT 1 FROM doctor_services ds
                      WHERE ds.doctor_id = u.id AND ds.service_id = sv.id
                   )
          );
 
-  RAISE NOTICE '094: Pediatrics now has % visible service(s); % of % active doctor(s) hold all of them', svc, mapped, docs;
+  RAISE NOTICE '094: % Pediatrics services, % international price rows, % of % doctor(s) hold the full list',
+    svc, prices, docs - short, docs;
 
-  IF svc < 12 THEN
-    RAISE WARNING '094: expected 12 visible Pediatrics services, found %', svc;
-  END IF;
-  IF mapped < docs THEN
-    RAISE WARNING '094: % of % Pediatrics doctor(s) are still short a service', docs - mapped, docs;
-  END IF;
+  IF svc  < 15 THEN RAISE WARNING '094: expected 15 Pediatrics services, found %', svc; END IF;
+  IF prices < 120 THEN RAISE WARNING '094: expected 120 international price rows (15 x 8), found %', prices; END IF;
+  IF short > 0 THEN RAISE WARNING '094: % Pediatrics doctor(s) still short a service', short; END IF;
 END $$;
+
+-- ── NOT A GO-LIVE ───────────────────────────────────────────────────────────
+--
+-- Do not flip is_visible until the platform can safely sell paediatrics. A
+-- clinical review of this catalogue raised three things SQL cannot fix, and
+-- they are all in the existing issue register:
+--
+--   * The child's age is not captured, and cases_intake.js writes an AGE into
+--    date_of_birth ("3" becomes the year 2003). Every safety rule below depends
+--    on knowing whether the patient is three weeks or thirteen years old.
+--   * There is no guardian-consent step and no record of who the account holder
+--    is to the child. That is a PDPL 151/2020 exposure on a minor's health data
+--    and a safeguarding one.
+--   * There is no way to escalate an urgent finding faster than the SLA clock.
+--    A pediatric CBC is how leukaemia presents.
+--
+-- Before go-live this specialty also needs a pre-payment red-flag screen
+-- (under 3 months / fever now / laboured breathing / not feeding / drowsy /
+-- seizure), the Urgent 4-hour tier disabled for infants, and a standing
+-- paediatric footer on every report. See the readiness doc.
