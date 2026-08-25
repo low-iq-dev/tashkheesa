@@ -8,16 +8,18 @@
 const router = require('express').Router();
 const { randomUUID } = require('crypto');
 const { coerceCountry } = require('../../launch-market');
-const { egpChargeFromLocal } = require('../../fx');
 // Lazy-load express-validator — top-level require takes ~120s and starves DB pool on boot.
 let _ev;
 function ev() { if (!_ev) _ev = require('express-validator'); return _ev; }
 function body(...a) { return ev().body(...a); }
 function validationResult(...a) { return ev().validationResult(...a); }
 function query(...a) { return ev().query(...a); }
-const { validateImageFromUrl, isImageExtension } = require('../../ai_image_check');
-// DST-aware Cairo urgent-window gate (single source of truth; Egypt has DST since 2023).
-const { isUrgentWindowOpen } = require('../../services/urgency_window');
+const { isImageExtension } = require('../../ai_image_check');
+// CASE-FLOW REBUILD 2026-08-25 — intake validation + pricing, the image
+// quality worker and reference generation are shared with the draft flow.
+const { IntakeError, resolveAndPriceIntake } = require('../../services/case_intake_pricing');
+const { scheduleImageQualityChecks } = require('../../services/case_image_quality');
+const { generateReferenceId } = require('../../utils/reference');
 // Theme 13 Sub-issue D + I: signed-URL generation for the AI image-quality
 // worker when the file was uploaded directly to R2 (instead of the legacy
 // Uploadcare CDN path). See POST /cases handler below.
@@ -260,108 +262,64 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       }
     }
 
-    // Map urgency: prefer explicit urgency_tier, fall back to boolean urgent.
-    // Canonical names per docs/PAYOUT_AND_URGENCY_POLICY.md §2: standard / vip
-    // / urgent.  Legacy 'fast_track' from older mobile clients is normalized
-    // to 'vip' on intake (migration 031 handles existing rows).
-    let tier = rawTier || (urgent ? 'vip' : 'standard');
-    if (tier === 'fast_track') tier = 'vip';
-    // SLA hours per §2 — AUDIT-P0-8: use the canonical map in case_lifecycle
-    // instead of an inline copy, so this can never drift from the web funnel
-    // or from the doctor acceptance-window calculation again.
-    const slaHours = require('../../case_lifecycle').slaHoursForTier(tier);
-    const urgencyFlag = tier !== 'standard';
-    const urgencyTier = tier;
-
-    // Validate service exists AND is bookable. The mobile path historically
-    // checked NEITHER is_visible NOR coming_soon (spec §4.5) — a stale app
-    // screen or a direct POST could mint an order for a service with no active
-    // doctor. coming_soon is NOT NULL DEFAULT false in prod; COALESCE keeps the
-    // guard safe on any older clone lacking the column defaults.
-    const service = await safeGet('SELECT * FROM services WHERE id = $1', [serviceId]);
-    if (!service) {
-      return res.fail('Invalid service', 400, 'INVALID_SERVICE');
-    }
-    const isVisible = service.is_visible == null ? true : !!service.is_visible;
-    const isComingSoon = service.coming_soon == null ? false : !!service.coming_soon;
-    if (!isVisible || isComingSoon) {
-      return res.fail('This service is not available for booking', 400, 'SERVICE_NOT_BOOKABLE');
-    }
-
-    // ALWAYS-CHARGE-EGP: look up the patient's LOCAL market price (real country,
-    // NOT clamped), then convert to the EGP charge base. The card is charged in
-    // EGP (currency pinned 'EGP' below); display_* hold the local figures for show.
-    const displayCountry = String(country || 'EG').trim().toUpperCase() || 'EG';
-    const regionalPrice = await safeGet(
-      "SELECT tashkheesa_price, currency FROM service_regional_prices WHERE service_id = $1 AND country_code = $2 AND COALESCE(status, 'active') = 'active'",
-      [serviceId, displayCountry]
-    );
-    const localBase = regionalPrice?.tashkheesa_price != null ? regionalPrice.tashkheesa_price : service.base_price;
-    const localCurrency = regionalPrice?.currency || service.currency || 'EGP';
-    let charge;
+    // ── CASE-FLOW REBUILD 2026-08-25 ────────────────────────────────────
+    //
+    // Everything between the request body and a priced case now lives in
+    // services/case_intake_pricing.js: urgency-tier normalisation, service
+    // lookup and bookability, the specialty/service reconciliation, the Cairo
+    // urgent-window gate, the local-market lookup, the EGP conversion and the
+    // uplift computation.
+    //
+    // It moved because a THIRD way to create a case now exists
+    // (POST /cases/draft/:id/submit), and three hand-synchronised copies of a
+    // money calculation is how AUDIT-APP-H1 happened in the first place — this
+    // path silently collected no urgency premium for months while showing the
+    // patient the uplifted total and honouring the 18h/4h SLA.
+    //
+    // The full rationale for each guard, and the warning about display_price
+    // being written UN-multiplied, is in that module. Read it before changing
+    // anything here.
+    //
+    // One behaviour change: the service and price reads used `safeGet`, which
+    // swallows a database error and returns null — so a transient pool timeout
+    // reported "Invalid service" (400) to the patient, permanently and
+    // unretryably. The module lets a real fault throw, and it is mapped to a
+    // 500 below. A genuinely bad service id still gets its 400.
+    let intake;
     try {
-      charge = egpChargeFromLocal(localBase, localCurrency);
-    } catch (fxErr) {
-      return res.fail('Unsupported currency for this market', 400, 'UNSUPPORTED_CURRENCY');
+      intake = await resolveAndPriceIntake({
+        specialtyId, serviceId, country, urgencyTier: rawTier, urgent
+      });
+    } catch (err) {
+      if (err instanceof IntakeError) {
+        return res.fail(err.message, err.status, err.code);
+      }
+      logErrorToDb(err, {
+        context: 'api.cases.intake_pricing',
+        requestId: req.requestId,
+        userId: req.user && req.user.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'patient_case'
+      });
+      return res.fail('Something went wrong. Please try again.', 500, 'INTERNAL_ERROR');
     }
 
-    // ── AUDIT-APP-H1: APPLY THE URGENCY UPLIFT ─────────────────────────────
-    //
-    // This route priced every order at the flat base and NEVER applied the tier
-    // multiplier, while the app displayed basePrice x 1.3 (vip) / 1.6 (urgent)
-    // as the checkout total. Two consequences: the patient saw one number on
-    // the review screen and a smaller one on the confirmation, and Tashkheesa
-    // collected NO urgency premium on any app order while still honouring the
-    // 18h/4h SLA — and earnings_writer had no uplift to split with the doctor.
-    //
-    // computeOrderPricing is the same helper the web wizard uses
-    // (routes/patient.js), so app and web now price identically, including any
-    // per-service vip_multiplier / urgent_multiplier override.
-    const { computeOrderPricing } = require('../../services/urgency_pricing');
-    const pricing = computeOrderPricing({
-      basePrice: charge.egpBase,
-      urgencyTier: urgencyTier,
-      servicesRow: service
-    });
-    // AUDIT (2026-08-17) — display_price is written UN-MULTIPLIED, deliberately.
-    //
-    // A `displayPricing = computeOrderPricing({ basePrice: charge.displayPrice,
-    // urgencyTier })` block used to sit here and its totalPrice was stored in
-    // display_price. That breaks the column's contract. Both readers assert the
-    // opposite invariant — display_price is the LOCAL BASE, and the tier
-    // multiplier is re-derived as (price / base_price) and applied at RENDER
-    // time:
-    //   * routes/patient.js:3087-3095 (pay page / order review)
-    //   * src/notification_worker.js:216-223 (payment-success receipt)
-    // Pre-multiplying here therefore made an app-created VIP order render at
-    // base × 1.3 × 1.3 — a 69% overstatement of what the patient is told they
-    // paid, against an EGP charge that is correctly base × 1.3. The web wizard
-    // (routes/patient.js persistTierPricing) stores charge.displayPrice raw;
-    // this path now matches it, so app and web agree.
-
-    // AUDIT-APP-M2: derive specialty_id from the service row rather than
-    // trusting the client. orders.specialty_id has no FK, so a stale client
-    // build can write a dangling id that LOOKS populated — which defeats the
-    // `no_specialty` guard in auto_assign entirely.
-    const resolvedSpecialtyId = service.specialty_id || specialtyId || null;
-    if (specialtyId && service.specialty_id && String(specialtyId) !== String(service.specialty_id)) {
-      return res.fail('Selected specialty does not match the chosen service.', 400, 'SPECIALTY_SERVICE_MISMATCH');
-    }
+    const service = intake.service;
+    const resolvedSpecialtyId = intake.resolvedSpecialtyId;
+    const displayCountry = intake.displayCountry;
+    const charge = intake.charge;
+    const pricing = intake.pricing;
+    const slaHours = intake.slaHours;
+    const urgencyFlag = intake.urgencyFlag;
+    const urgencyTier = intake.urgencyTier;
 
     // Generate case
     const orderId = randomUUID();
-    const refNumber = generateReferenceId();
+    const refNumber = await generateReferenceId();
     const slaDeadline = new Date(Date.now() + slaHours * 60 * 60 * 1000).toISOString();
 
-    // Urgent order cutoff: only 07:00–18:59 Cairo wall-clock time.
-    // DST-aware via services/urgency_window (Egypt has DST again since April 2023).
-    if (urgencyTier === 'urgent' && !isUrgentWindowOpen()) {
-      return res.fail(
-        'Urgent orders are only available between 7:00am and 7:00pm Cairo time. Please select standard or fast-track.',
-        400,
-        'URGENT_UNAVAILABLE'
-      );
-    }
+    // (Urgent-window gate now runs inside resolveAndPriceIntake, above.)
 
     await safeRun(`
       -- AUDIT-P1-3: specialty_id was validated as REQUIRED at the top of this
@@ -415,70 +373,24 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       insertedFiles.push({ id: fileId, r2Key: r2Key, uploadcareUuid: ucUuid, isImage, filename: file.filename });
     }
 
-    // Fire-and-forget AI image quality check. The HTTP response must NOT wait —
-    // patient gets case-submitted immediately; mobile polls GET /cases/:id for results.
+    // Fire-and-forget AI image quality check — see
+    // services/case_image_quality.js. The HTTP response must NOT wait: the
+    // patient reaches case-submitted immediately and the app polls
+    // GET /cases/:id for the results.
     //
-    // Theme 13 Sub-issue I (bundled with D): branch on r2Key vs uploadcareUuid
-    // to source the image bytes. Legacy uploadcareUuid → public CDN URL.
-    // R2 key → 1h signed URL via getSignedDownloadUrl(). The signed URL is
-    // generated inside the setImmediate worker (which fires within ms of the
-    // INSERT), so the 1h expiry is comfortably long. Signing failure is
-    // recorded as ai_quality_status='error' so the case still submits.
-    setImmediate(() => {
-      (async () => {
-        for (const f of insertedFiles) {
-          if (!f.isImage) continue;
-          try {
-            let imageUrl = null;
-            if (f.uploadcareUuid) {
-              imageUrl = `https://ucarecdn.com/${f.uploadcareUuid}/`;
-            } else if (f.r2Key) {
-              try {
-                imageUrl = await getSignedDownloadUrl(f.r2Key, 3600);
-              } catch (signErr) {
-                await safeRun(
-                  `UPDATE order_files SET ai_quality_status = $1, ai_quality_note = $2 WHERE id = $3`,
-                  ['error', ('signed-url-failed: ' + String((signErr && signErr.message) || signErr)).slice(0, 500), f.id]
-                );
-                continue;
-              }
-            }
-            if (!imageUrl) continue;
-
-            const result = await validateImageFromUrl(
-              imageUrl,
-              service?.name || null
-            );
-
-            let status;
-            if (result && result.skipped) status = 'skipped';
-            else if (result && result.is_medical_image === false) status = 'not_medical';
-            else if (result && result.image_quality === 'poor') status = 'poor_quality';
-            else if (result && result.image_quality === 'acceptable') status = 'acceptable';
-            else if (result && result.matches_expected === false) status = 'wrong_type';
-            else status = 'ok';
-
-            const note =
-              (result && result.skipped && result.reason) ||
-              (result && result.recommendation) ||
-              (result && Array.isArray(result.quality_issues) && result.quality_issues.join('; ')) ||
-              null;
-
-            await safeRun(
-              `UPDATE order_files SET ai_quality_status = $1, ai_quality_note = $2 WHERE id = $3`,
-              [status, note, f.id]
-            );
-          } catch (err) {
-            try {
-              await safeRun(
-                `UPDATE order_files SET ai_quality_status = $1, ai_quality_note = $2 WHERE id = $3`,
-                ['error', String((err && err.message) || err).slice(0, 500), f.id]
-              );
-            } catch (_) { /* swallow — best effort */ }
-          }
-        }
-      })().catch(() => { /* swallow — fire-and-forget */ });
-    });
+    // CASE-FLOW REBUILD 2026-08-25: the ~60-line worker that used to sit inline
+    // here is shared with POST /cases/draft/:id/submit. Mapped to order_files
+    // column names because that is the shape the draft path reads straight out
+    // of the table.
+    scheduleImageQualityChecks(
+      insertedFiles.map(f => ({
+        id: f.id,
+        filename: f.filename,
+        url: f.r2Key,
+        uploadcare_uuid: f.uploadcareUuid
+      })),
+      service
+    );
 
     // Add timeline event
     await safeRun(`
@@ -703,8 +615,14 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
 // ─── Helpers ───────────────────────────────────────────────
 
-function generateReferenceId() {
-  const year = new Date().getFullYear();
-  const num = String(Math.floor(Math.random() * 999999)).padStart(6, '0');
-  return `TSH-${year}-${num}`;
-}
+// CASE-FLOW REBUILD 2026-08-25 — generateReferenceId moved to
+// utils/reference.js and is now SEQUENCE-backed.
+//
+// It used to live here as `Math.floor(Math.random() * 999999)`, a 1-in-a-million
+// draw with no uniqueness check behind it. orders.reference_id carries a plain
+// index (migration 043), not a UNIQUE constraint, so a collision never raised —
+// it quietly minted two cases wearing the same patient-facing reference. At
+// ~1,000 app cases a year that is roughly a 40% chance of at least one
+// collision per year, surfacing as a support call where two patients quote the
+// same number. The website intake path had used a sequence all along; the app
+// path now shares it. Format (TSH-YYYY-NNNNNN) is unchanged.

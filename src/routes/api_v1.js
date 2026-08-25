@@ -117,7 +117,18 @@ module.exports = function (db, helpers, deploy) {
   const servicesRoutes = require('./api/services')(db, helpers);
   router.use(servicesRoutes); // Mounts /specialties and /services
 
-  // Cases
+  // Cases — server-backed draft first.
+  //
+  // CASE-FLOW REBUILD 2026-08-25. Mount order is load-bearing: cases.js owns
+  // GET '/:id', so mounting it first would let '/cases/draft' match as a case
+  // id and answer every draft request with "case not found". Anything the
+  // draft router does not handle falls through to cases.js unchanged.
+  //
+  // This is the router that gives the app the SAME orders row the web wizard
+  // uses for a half-finished case, which is what makes a case started on the
+  // portal resumable on the phone and vice versa.
+  router.use('/cases/draft', require('./api/cases_draft'));
+
   const casesRoutes = require('./api/cases')(db, helpers);
   router.use('/cases', casesRoutes);
 
