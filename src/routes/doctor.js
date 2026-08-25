@@ -973,14 +973,18 @@ router.get('/portal/doctor/services', requireDoctor, async (req, res) => {
   // drives both the banner and the highlight on the card.
   let slaTiers = ['standard'];
   let tiersUnconfirmed = false;
+  // Default false, not true: if the query below fails we would rather omit the
+  // "please confirm" framing than show it to a doctor who is already done.
+  let servicesUnconfirmed = false;
   try {
     const t = await queryOne(
-      'SELECT sla_tiers_supported, sla_tiers_confirmed_at FROM users WHERE id = $1',
+      'SELECT sla_tiers_supported, sla_tiers_confirmed_at, onboarding_complete FROM users WHERE id = $1',
       [doctorId]
     );
     if (t) {
       slaTiers = readDoctorTiers(t.sla_tiers_supported);
       tiersUnconfirmed = !t.sla_tiers_confirmed_at;
+      servicesUnconfirmed = !t.onboarding_complete;
     }
   } catch (_) { /* best-effort: the page still renders with Standard ticked */ }
 
@@ -1006,6 +1010,7 @@ router.get('/portal/doctor/services', requireDoctor, async (req, res) => {
     confirmEmpty: false,
     slaTiers,
     tiersUnconfirmed,
+    servicesUnconfirmed,
     success: req.query.success || null
   });
 });
@@ -1115,14 +1120,16 @@ router.post('/portal/doctor/services', requireDoctor, async (req, res) => {
     // sites to remember to pass it.
     let _rrTiers = ['standard'];
     let _rrUnconfirmed = false;
+    let _rrSvcUnconfirmed = false;
     try {
       const t = await queryOne(
-        'SELECT sla_tiers_supported, sla_tiers_confirmed_at FROM users WHERE id = $1',
+        'SELECT sla_tiers_supported, sla_tiers_confirmed_at, onboarding_complete FROM users WHERE id = $1',
         [doctorId]
       );
       if (t) {
         _rrTiers = readDoctorTiers(t.sla_tiers_supported);
         _rrUnconfirmed = !t.sla_tiers_confirmed_at;
+        _rrSvcUnconfirmed = !t.onboarding_complete;
       }
     } catch (_) { /* best-effort; the services error is what matters here */ }
 
@@ -1155,7 +1162,8 @@ router.post('/portal/doctor/services', requireDoctor, async (req, res) => {
       groups: cat.groups, isEmpty: !!cat.isEmpty, subSpecialties, specialtyName, specialtyNameAr,
       error: opts.error || null, warning: opts.warning || null, confirmEmpty,
       slaTiers: _rrTiers,
-      tiersUnconfirmed: _rrUnconfirmed
+      tiersUnconfirmed: _rrUnconfirmed,
+      servicesUnconfirmed: _rrSvcUnconfirmed
     });
   }
 

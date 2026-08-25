@@ -12,7 +12,7 @@ const rateLimit = require('express-rate-limit');
 const { sendOtpViaTwilio, verifyOtpCode } = require('../services/twilio_verify');
 const { validatePhoneE164 } = require('../validators/phone');
 const { resolveDoctorLanding } = require('../services/doctor_landing');
-const { buildDoctorWelcomePayload, WELCOME_EXPIRY_HOURS } = require('../services/doctor_welcome_payload');
+const { buildDoctorWelcomePayload, WELCOME_EXPIRY_HOURS, SERVICES_READY_SQL } = require('../services/doctor_welcome_payload');
 require('dotenv').config();
 
 const NODE_ENV = String(process.env.NODE_ENV || '').toLowerCase();
@@ -94,6 +94,16 @@ function renderLogin(req, res, { error = null } = {}) {
   const lang = isAr ? 'ar' : 'en';
   setLangCookie(res, lang);
   const next = safeNextPath((req.body && req.body.next) || (req.query && req.query.next));
+  // /doctor/login posts here too. Without this a doctor who mistypes a password
+  // is answered on the patient-branded page, which reads as having been logged
+  // out of the wrong product. The hidden field is the only signal — Referer is
+  // not reliable enough to route a render on.
+  if (req.body && String(req.body.portal || '') === 'doctor') {
+    return res.render('doctor_login_v2', {
+      error, next, lang, _lang: lang, isAr, copy,
+      brand: process.env.BRAND_NAME || 'Tashkheesa'
+    });
+  }
   return res.render('login', { error, next, lang, isAr, copy, _lang: lang });
 }
 
@@ -295,6 +305,38 @@ router.post('/login', async (req, res) => {
 
     if (user.role === 'patient' && !user.password_hash) {
       await sendMagicLoginLink({ user, req });
+      const c = authCopy(req);
+      return renderLogin(req, res, { error: c.login_invalid });
+    }
+
+    // No password at all, and not the patient case above. Return the SAME
+    // generic error as a wrong password so the page never confirms an address
+    // exists, and — deliberately — send NOTHING.
+    //
+    // 2026-08-25. Two reasons this branch has to exist and has to be silent.
+    //
+    // It has to exist because 23 of the 30 active doctors are passwordless
+    // (operator-created accounts never get a hash) and they fell straight
+    // through to check(password, null). bcrypt.compare with a non-string hash
+    // does not return false — it throws, into the outer catch, which renders
+    // "Unexpected error during login. Please try again." Every doctor we are
+    // about to invite who guessed at a password would have been told the
+    // platform was broken, with no way forward.
+    //
+    // It has to be silent because reminting here would do real damage.
+    // createMagicLoginToken DELETEs the user's unused tokens before inserting,
+    // and mints at MAGIC_LINK_EXPIRY_MINUTES (60) against the welcome link's
+    // WELCOME_EXPIRY_HOURS (168). So one unauthenticated POST — anyone with the
+    // doctor's email address and any junk password — would swap their live
+    // 7-day invite for a 60-minute link they never asked for. authLimiter is
+    // per-IP, not per-account, so nothing bounds that. A doctor who simply
+    // tries the form before finding the email would destroy their own invite.
+    //
+    // Recovery already exists and is better: POST /forgot-password detects a
+    // doctor with no password_hash and re-sends the WELCOME email on the SAME
+    // 7-day window (see that handler). The doctor login form now points at it
+    // by name.
+    if (!user.password_hash) {
       const c = authCopy(req);
       return renderLogin(req, res, { error: c.login_invalid });
     }
@@ -585,10 +627,28 @@ router.post('/forgot-password', welcomeTokenIpLimiter, async (req, res) => {
           spec = null;
         }
       }
+      // Same best-effort treatment for the services flag: `user` here is a
+      // SELECT * off users, which has no services_ready column, so without this
+      // the template's {{#if servicesReady}} would take the else branch and
+      // tell a doctor with a full list that their specialty is still being set
+      // up. Failure leaves it undefined → false → the conservative branch,
+      // which is the right way round: understating is recoverable, promising a
+      // list that is not there is not.
+      let servicesReady;
+      try {
+        const sr = await queryOne(
+          `SELECT ${SERVICES_READY_SQL} FROM users u WHERE u.id = $1`,
+          [user.id]
+        );
+        servicesReady = sr ? sr.services_ready === true : undefined;
+      } catch (e) {
+        servicesReady = undefined;
+      }
       const welcomePayload = buildDoctorWelcomePayload({
         doctor: Object.assign({}, user, {
           specialty_name: spec ? spec.name : null,
-          specialty_name_ar: spec ? spec.name_ar : null
+          specialty_name_ar: spec ? spec.name_ar : null,
+          services_ready: servicesReady
         }),
         token,
         baseUrl: baseUrl || null
@@ -726,7 +786,9 @@ router.get('/set-password', welcomeTokenIpLimiter, async (req, res) => {
   if (!user) return res.redirect('/login');
   if (user.password_hash) return res.redirect(getHomeByRole(user.role));
 
-  return res.render('set_password', { error: null, success: null, lang, _lang: lang, isAr: c.isAr, copy: c });
+  // Send a doctor back to the doctor form, not the patient one, if they bail out.
+  const backTo = user.role === 'doctor' ? '/doctor/login' : '/login';
+  return res.render('set_password', { error: null, success: null, lang, _lang: lang, isAr: c.isAr, copy: c, backTo });
 });
 
 // ============================================
@@ -752,7 +814,8 @@ router.post('/set-password', welcomeTokenIpLimiter, async (req, res) => {
       lang,
       _lang: lang,
       isAr: c.isAr,
-      copy: c
+      copy: c,
+      backTo: user.role === 'doctor' ? '/doctor/login' : '/login'
     });
   }
 
