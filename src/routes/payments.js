@@ -1338,6 +1338,24 @@ router.post('/callback', async (req, res, next) => {
           'markcasepaid_failed'
         );
       } catch (_) {}
+      // NOTIFICATIONS 2026-08-25 — and onto the phone.
+      //
+      // This is the single worst state the platform can reach: the patient HAS
+      // been charged and the case may never have entered the assignment queue.
+      // Until now the only alert was sendCriticalAlert, which is a WhatsApp
+      // message to one admin number — no push, no Activity row, nothing an
+      // operator could find later. For this event, of all of them.
+      try {
+        const { pushOpsEvent } = require('../services/ops_push');
+        await pushOpsEvent({
+          kind: 'payment_capture_failed',
+          dedupeKey: orderId,
+          title: 'PAID but not queued',
+          body: 'Payment was captured and the case may not have entered the assignment queue. Check it now.',
+          orderId: orderId,
+          data: { screen: 'case-detail', caseId: orderId }
+        });
+      } catch (_) { /* the webhook must still return 200 to Paymob */ }
     }
   }
 

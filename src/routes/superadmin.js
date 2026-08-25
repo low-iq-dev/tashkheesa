@@ -3724,6 +3724,47 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
   return res.redirect('/superadmin/doctors');
 });
 
+// ROUTE ORDER MATTERS: this literal path MUST stay above
+// /superadmin/doctors/:id (and /:id/edit). Express matches in registration
+// order, so when this sat below them '/superadmin/doctors/bulk-welcome' bound
+// :id='bulk-welcome', found no such doctor, and redirected back to the list —
+// the button looked like it did nothing. /superadmin/doctors/new is above them
+// for exactly this reason; this one was not, and should have been.
+// GET the review page for the bulk invite.
+//
+// 2026-08-25 — the first version of this feature guarded a 23-recipient,
+// irreversible send with onsubmit="return confirm(...)". The CSP at
+// server.js:487 is `script-src 'self' 'unsafe-eval' 'nonce-...'` with NO
+// 'unsafe-inline', and a nonce does not authorise inline EVENT HANDLER
+// attributes — only 'unsafe-inline' or 'unsafe-hashes' does. So the browser
+// refused to run the handler, the submit default was never cancelled, and one
+// click sent all 23 with no prompt at all. (The two pre-existing confirms on
+// this page have never run either, for the same reason.)
+//
+// A page cannot be disabled by a content policy. This lists exactly who is
+// about to be emailed, and the POST lives here — so the operator sees the
+// names before the click, not a number.
+router.get('/superadmin/doctors/bulk-welcome', requireSuperadmin, async (req, res) => {
+  // Same cohort the send uses, but with names, so this is a review and not a
+  // restatement of the count.
+  const rows = await queryAll(
+    `SELECT id, name, email, lang, welcome_email_last_sent_at,
+            (welcome_email_last_sent_at IS NULL
+             OR welcome_email_last_sent_at < NOW() - ($1::int * interval '1 hour')) AS eligible
+       FROM users
+      WHERE role = 'doctor' AND is_active = true AND password_hash IS NULL
+      ORDER BY eligible DESC, name ASC`,
+    [BULK_WELCOME_COOLDOWN_HOURS]
+  );
+  assertRenderableView('superadmin_bulk_welcome');
+  return res.render('superadmin_bulk_welcome', {
+    user: req.user,
+    lang: (res.locals && res.locals.lang) || 'en',
+    doctors: rows || [],
+    cooldownHours: BULK_WELCOME_COOLDOWN_HOURS
+  });
+});
+
 router.get('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) => {
   const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [req.params.id]);
   if (!doctor) return res.redirect('/superadmin/doctors');
@@ -4133,41 +4174,6 @@ router.post('/superadmin/doctors/:id/resend-welcome', requireSuperadmin, welcome
 // onboarding_complete=false doctor unassignable, so without a way to send invites
 // the whole roster is stranded. requireSuperadmin + welcomeSendIpLimiter (10/15min
 // per IP; ONE tick per bulk call — the 28-doctor loop is internal, never throttled).
-// GET the review page for the bulk invite.
-//
-// 2026-08-25 — the first version of this feature guarded a 23-recipient,
-// irreversible send with onsubmit="return confirm(...)". The CSP at
-// server.js:487 is `script-src 'self' 'unsafe-eval' 'nonce-...'` with NO
-// 'unsafe-inline', and a nonce does not authorise inline EVENT HANDLER
-// attributes — only 'unsafe-inline' or 'unsafe-hashes' does. So the browser
-// refused to run the handler, the submit default was never cancelled, and one
-// click sent all 23 with no prompt at all. (The two pre-existing confirms on
-// this page have never run either, for the same reason.)
-//
-// A page cannot be disabled by a content policy. This lists exactly who is
-// about to be emailed, and the POST lives here — so the operator sees the
-// names before the click, not a number.
-router.get('/superadmin/doctors/bulk-welcome', requireSuperadmin, async (req, res) => {
-  // Same cohort the send uses, but with names, so this is a review and not a
-  // restatement of the count.
-  const rows = await queryAll(
-    `SELECT id, name, email, lang, welcome_email_last_sent_at,
-            (welcome_email_last_sent_at IS NULL
-             OR welcome_email_last_sent_at < NOW() - ($1::int * interval '1 hour')) AS eligible
-       FROM users
-      WHERE role = 'doctor' AND is_active = true AND password_hash IS NULL
-      ORDER BY eligible DESC, name ASC`,
-    [BULK_WELCOME_COOLDOWN_HOURS]
-  );
-  assertRenderableView('superadmin_bulk_welcome');
-  return res.render('superadmin_bulk_welcome', {
-    user: req.user,
-    lang: (res.locals && res.locals.lang) || 'en',
-    doctors: rows || [],
-    cooldownHours: BULK_WELCOME_COOLDOWN_HOURS
-  });
-});
-
 router.post('/superadmin/doctors/bulk-welcome-passwordless', requireSuperadmin, welcomeSendIpLimiter, async (req, res) => {
   logAdminAudit({ req, action: 'bulk_welcome_passwordless_doctors', target: '/superadmin/doctors' });
 
@@ -4232,6 +4238,23 @@ router.post('/superadmin/doctors/bulk-welcome-passwordless', requireSuperadmin, 
             dedupe_key: 'doctor_bulk_welcome:' + doctorId + ':' + Date.now(),
           });
         } catch (e) {
+          // 2026-08-25 — logged to error_logs, not just to stdout.
+          //
+          // This is the per-doctor failure path of a BULK invite: one bad
+          // recipient in a run of 23 leaves that doctor never welcomed, and a
+          // console line on Render is not somewhere anyone will look for it.
+          // /ops/errors is. (Also what tests/core/theme8-route-errlog-coverage
+          // enforces on this file.)
+          try {
+            logErrorToDb(e, {
+              context: 'superadmin.bulk_welcome_notify',
+              requestId: req.requestId,
+              userId: req.user && req.user.id,
+              url: req.originalUrl,
+              method: req.method,
+              category: 'superadmin_action'
+            });
+          } catch (_) {}
           console.error('[bulk-welcome] notify failed:', doctorId, e && e.message ? e.message : e);
         }
       },

@@ -238,6 +238,24 @@ async function autoAssignDoctor(orderId) {
         [new Date().toISOString(), orderId]
       );
     } catch (_) { /* non-fatal */ }
+    // NOTIFICATIONS 2026-08-25 — tell the operator.
+    //
+    // This was silent. A PAID case with no eligible doctor was parked in
+    // manual_pending, logged to stdout, and nobody was told — and until the
+    // fix in this same change the Command app's manual queue filtered on
+    // 'manual_queue' only, so it did not even appear there. A patient had paid
+    // and their case was sitting in a state no screen surfaced.
+    try {
+      const { pushOpsEvent } = require('./services/ops_push');
+      await pushOpsEvent({
+        kind: 'assignment_failed',
+        dedupeKey: orderId,
+        title: 'Case needs manual assignment',
+        body: 'No eligible doctor for this case. It is paid and waiting.',
+        orderId: orderId,
+        data: { screen: 'manual-queue', caseId: orderId }
+      });
+    } catch (_) { /* an alert must never fail an assignment path */ }
     return { assigned: false, reason: 'no_doctors_available' };
   }
 
@@ -338,6 +356,19 @@ async function autoAssignDoctor(orderId) {
                '(row moved past PAID or was reclaimed) — doctor_id left in place deliberately');
     }
     logMajor('[auto-assign] assignDoctor rejected order ' + orderId + ': ' + (e && e.message));
+    // Same reasoning as the no-doctor branch above: this drops a paid case back
+    // to manual_pending and told nobody.
+    try {
+      const { pushOpsEvent } = require('./services/ops_push');
+      await pushOpsEvent({
+        kind: 'assignment_failed',
+        dedupeKey: orderId,
+        title: 'Case assignment failed',
+        body: 'Assignment was rejected and the case is back in the manual queue.',
+        orderId: orderId,
+        data: { screen: 'manual-queue', caseId: orderId }
+      });
+    } catch (_) { /* never fail the assignment path over an alert */ }
     return { assigned: false, reason: 'lifecycle_rejected', error: e && e.message };
   }
 

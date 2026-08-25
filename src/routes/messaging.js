@@ -489,6 +489,24 @@ router.post('/portal/messages/report', requireRole('patient', 'doctor'), async f
       logOrderEvent({ orderId: convo.order_id || conversation_id, label: 'Chat message reported: ' + reason, actorUserId: userId });
     } catch (_) {}
 
+    // NOTIFICATIONS 2026-08-25 — a report reached nobody.
+    //
+    // The row was written, one audit line was logged, and that was the end of
+    // it: no email, no notifyAdmins, no push. A patient reporting a doctor —
+    // or a doctor reporting a patient — was discoverable only if a human
+    // happened to open the moderation page on a desktop.
+    try {
+      var { pushOpsEvent } = require('../services/ops_push');
+      await pushOpsEvent({
+        kind: 'chat_reported',
+        dedupeKey: reportId,
+        title: 'Chat message reported',
+        body: 'Reported by a ' + String(req.user.role || 'user') + ': ' + String(reason || 'no reason given'),
+        orderId: convo.order_id || null,
+        data: { screen: 'moderation', reportId: reportId }
+      });
+    } catch (_) { /* the report is already saved; the alert is best effort */ }
+
     res.redirect('/portal/messages/' + conversation_id);
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });

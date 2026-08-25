@@ -2867,7 +2867,23 @@ module.exports = function (db, helpers, deploy, deps) {
            LEFT JOIN specialties sp_pred ON sp_pred.id = sc.specialty_id
            LEFT JOIN services   sv_pred  ON sv_pred.id  = sc.service_id
           WHERE o.completed_at IS NULL
-            AND o.assignment_status = 'manual_queue'
+            -- 2026-08-25 — manual_pending added.
+            --
+            -- This filtered 'manual_queue' alone, while the web readiness count
+            -- (superadmin.js:655) covers both. The two states have different
+            -- causes and the SAME consequence:
+            --   manual_queue   — the classifier was not confident enough
+            --   manual_pending — auto-assign found no eligible doctor, or
+            --                    assignDoctor rejected the claim
+            -- A paid case in manual_pending is exactly the thing this screen
+            -- exists to surface, and it appeared on the phone only inside the
+            -- undifferentiated "Pending assign" tile on /pulse.
+            --
+            -- This does NOT reopen the noise the note below closes: that was
+            -- about UNPAID rows, and the status filter underneath still
+            -- excludes drafts and expired carts regardless of which manual
+            -- state they are in.
+            AND o.assignment_status IN ('manual_queue', 'manual_pending')
             -- AUDIT — narrower than the web list, deliberately.
             --
             -- The web console shows everything with assignment_status =
