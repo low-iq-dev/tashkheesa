@@ -24,7 +24,7 @@ const caseLifecycle = require('../case_lifecycle');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
 const emailService = require('../services/emailService');
 const { logAdminAudit } = require('../services/admin_audit');
-const { bulkWelcomePasswordlessDoctors } = require('../services/admin_doctor_bulk_invite');
+const { bulkWelcomePasswordlessDoctors, DEFAULT_COOLDOWN_HOURS: BULK_WELCOME_COOLDOWN_HOURS } = require('../services/admin_doctor_bulk_invite');
 const { inviteDoctor } = require('../services/admin_doctor_invite');
 const { WELCOME_EXPIRY_HOURS, SERVICES_READY_SQL } = require('../services/doctor_welcome_payload');
 const rateLimit = require('express-rate-limit');
@@ -3440,7 +3440,37 @@ router.get('/superadmin/doctors', requireSuperadmin, async (req, res) => {
   );
   const pendingDoctorsCount = pendingDoctorsRow ? pendingDoctorsRow.c : 0;
   const pausedDoctorsCount = pausedDoctorsRow ? pausedDoctorsRow.c : 0;
-  res.render('superadmin_doctors', { user: req.user, doctors, specialties, statusFilter, pendingDoctorsCount, pausedDoctorsCount });
+
+  // How many the "Email all" button would actually send to right now. Mirrors
+  // bulkWelcomePasswordlessDoctors' cohort EXACTLY — same predicate, same
+  // DEFAULT_COOLDOWN_HOURS, computed in SQL so it is TZ-safe — because a button
+  // that says "23" and then sends 4 is worse than no button.
+  let bulkWelcomeEligible = 0;
+  let bulkWelcomeCooling = 0;
+  try {
+    const cohort = await queryOne(
+      `SELECT COUNT(*) FILTER (WHERE welcome_email_last_sent_at IS NULL
+                                  OR welcome_email_last_sent_at < NOW() - ($1::int * interval '1 hour'))::int AS eligible,
+              COUNT(*) FILTER (WHERE welcome_email_last_sent_at IS NOT NULL
+                                 AND welcome_email_last_sent_at >= NOW() - ($1::int * interval '1 hour'))::int AS cooling
+         FROM users
+        WHERE role = 'doctor' AND is_active = true AND password_hash IS NULL`,
+      [BULK_WELCOME_COOLDOWN_HOURS]
+    );
+    bulkWelcomeEligible = cohort ? Number(cohort.eligible) || 0 : 0;
+    bulkWelcomeCooling  = cohort ? Number(cohort.cooling)  || 0 : 0;
+  } catch (_) { /* best-effort: the page renders, the button just says nothing */ }
+
+  res.render('superadmin_doctors', {
+    user: req.user, doctors, specialties, statusFilter,
+    pendingDoctorsCount, pausedDoctorsCount,
+    bulkWelcomeEligible, bulkWelcomeCooling,
+    bulkWelcomeCooldownHours: BULK_WELCOME_COOLDOWN_HOURS,
+    welcomeSent:    req.query.welcome_sent    != null ? Number(req.query.welcome_sent)    || 0 : null,
+    welcomeSkipped: req.query.welcome_skipped != null ? Number(req.query.welcome_skipped) || 0 : null,
+    welcomeFailed:  req.query.welcome_failed  != null ? Number(req.query.welcome_failed)  || 0 : null,
+    welcomeError:   req.query.welcome_error === '1'
+  });
 });
 
 router.get('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
@@ -4143,6 +4173,23 @@ router.post('/superadmin/doctors/bulk-welcome-passwordless', requireSuperadmin, 
         }
       },
     });
+    // 2026-08-25 — this route has existed since it was written and NOTHING in
+    // the UI posted to it, so 23 doctors were being invited one button-click at
+    // a time against a 10-per-15-minutes IP limiter: three passes and about
+    // 35 minutes, with clicks 11-20 in each window failing silently. The bulk
+    // path is ONE request, so the limiter never bites.
+    //
+    // The JSON response is kept for the Command app and for curl. A plain form
+    // post (redirect=1) gets a redirect instead, which is what lets the button
+    // exist at all without inline JS under the CSP.
+    if (String((req.body && req.body.redirect) || '') === '1') {
+      const q = new URLSearchParams({
+        welcome_sent: String(result.sent),
+        welcome_skipped: String(result.skipped),
+        welcome_failed: String(result.failed)
+      });
+      return res.redirect('/superadmin/doctors?' + q.toString());
+    }
     return res.json({ sent: result.sent, skipped: result.skipped, failed: result.failed });
   } catch (err) {
     logErrorToDb(err, {
@@ -4154,6 +4201,9 @@ router.post('/superadmin/doctors/bulk-welcome-passwordless', requireSuperadmin, 
       category: 'superadmin_auth',
     });
     console.error('[bulk-welcome] batch failed:', err && err.message ? err.message : err);
+    if (String((req.body && req.body.redirect) || '') === '1') {
+      return res.redirect('/superadmin/doctors?welcome_error=1');
+    }
     return res.status(500).json({ error: 'Bulk welcome failed' });
   } finally {
     client.release();
