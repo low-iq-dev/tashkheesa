@@ -40,11 +40,11 @@
 </p>
 
 <p style="margin:0 0 18px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
-  Your account is ready and we have set it up for you{{#if specialtyEn}} using your {{specialtyEn}} registration{{/if}} — every service in your specialty is already selected, and you are listed for all three turnaround speeds. Nothing is active until you say so.
+  Your account is ready, and we have filled it in for you{{#if specialtyEn}} from your {{specialtyEn}} registration{{/if}}{{#if servicesReady}} — every service in your specialty is already selected, and you are listed for all three turnaround speeds{{else}} — you are listed for all three turnaround speeds{{/if}}. None of it counts until you confirm it.
 </p>
 
 <p style="margin:0 0 26px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
-  Set your password and you will land straight on that list. Look it over, untick anything you would rather not receive, and press Save. It takes a minute, and until you do, no cases can reach you.
+  Set your password and you will land straight on {{#if servicesReady}}that list{{else}}your account{{/if}}. {{#if servicesReady}}Look it over, untick anything you would rather not receive, and press Save. It takes a minute.{{/if}} Until you confirm, we cannot send you work — cases are not routed to unconfirmed accounts, and our team cannot assign one to you by hand either.
 </p>
 
 {{#if password_setup_link}}<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 12px;">

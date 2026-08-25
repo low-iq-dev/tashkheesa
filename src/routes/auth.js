@@ -303,26 +303,39 @@ router.post('/login', async (req, res) => {
       return renderLogin(req, res, { error: c.login_invalid });
     }
 
-    // A user with no password at all. Both roles get the same treatment: send a
-    // fresh sign-in link and return the SAME generic error as a wrong password,
-    // so the login page never confirms whether an address exists.
-    //
-    // 2026-08-25 — doctors were not in this branch, and 23 of the 30 active
-    // doctors are passwordless because operator-created accounts never get one.
-    // They fell through to check(password, null) → bcrypt.compare with a
-    // non-string second argument, which does not return false: it throws
-    // straight into the outer catch, so every one of the doctors we are about
-    // to invite would have been told "Unexpected error during login. Please
-    // try again." — a message that reads as a platform fault, offers no way
-    // forward, and would have had them emailing support instead of signing in.
-    // Now they get a working link in their inbox instead.
-    if (!user.password_hash && (user.role === 'patient' || user.role === 'doctor')) {
+    if (user.role === 'patient' && !user.password_hash) {
       await sendMagicLoginLink({ user, req });
       const c = authCopy(req);
       return renderLogin(req, res, { error: c.login_invalid });
     }
 
-    // Belt and braces for every other role: never hand bcrypt a null hash.
+    // No password at all, and not the patient case above. Return the SAME
+    // generic error as a wrong password so the page never confirms an address
+    // exists, and — deliberately — send NOTHING.
+    //
+    // 2026-08-25. Two reasons this branch has to exist and has to be silent.
+    //
+    // It has to exist because 23 of the 30 active doctors are passwordless
+    // (operator-created accounts never get a hash) and they fell straight
+    // through to check(password, null). bcrypt.compare with a non-string hash
+    // does not return false — it throws, into the outer catch, which renders
+    // "Unexpected error during login. Please try again." Every doctor we are
+    // about to invite who guessed at a password would have been told the
+    // platform was broken, with no way forward.
+    //
+    // It has to be silent because reminting here would do real damage.
+    // createMagicLoginToken DELETEs the user's unused tokens before inserting,
+    // and mints at MAGIC_LINK_EXPIRY_MINUTES (60) against the welcome link's
+    // WELCOME_EXPIRY_HOURS (168). So one unauthenticated POST — anyone with the
+    // doctor's email address and any junk password — would swap their live
+    // 7-day invite for a 60-minute link they never asked for. authLimiter is
+    // per-IP, not per-account, so nothing bounds that. A doctor who simply
+    // tries the form before finding the email would destroy their own invite.
+    //
+    // Recovery already exists and is better: POST /forgot-password detects a
+    // doctor with no password_hash and re-sends the WELCOME email on the SAME
+    // 7-day window (see that handler). The doctor login form now points at it
+    // by name.
     if (!user.password_hash) {
       const c = authCopy(req);
       return renderLogin(req, res, { error: c.login_invalid });

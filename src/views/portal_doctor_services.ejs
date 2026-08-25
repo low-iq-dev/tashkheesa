@@ -40,7 +40,11 @@
     comes from the route, which reads it alongside the tier state. %>
 <% var _svcUnconfirmed = (typeof servicesUnconfirmed !== 'undefined') ? !!servicesUnconfirmed : false;
    var _tiersNeedConfirm = (typeof tiersUnconfirmed !== 'undefined' && tiersUnconfirmed); %>
-<% if (_svcUnconfirmed || _tiersNeedConfirm) { %>
+<%# Gated on !_isEmpty as well: the empty-catalogue branch below has no service
+    list and no second Save button, so on that page this would promise a list
+    that is not there and point at a button that does not exist. That is the
+    three Pediatrics doctors, whose specialty has no service rows at all. %>
+<% if (!_isEmpty && (_svcUnconfirmed || _tiersNeedConfirm)) { %>
   <div class="v2-card" style="border-inline-start:3px solid var(--v2-brand);margin-block-end:12px;">
     <div class="v2-card__body">
       <div style="font:600 14px/1.5 inherit;margin-block-end:6px;color:var(--v2-brand-dk, #0b6b5f);">
@@ -48,9 +52,9 @@
       </div>
       <div style="font-size:13px;line-height:1.7;color:var(--v2-muted);">
         <%= tt(
-          'Your turnaround speeds and every service in your specialty are already ticked below, based on your specialty on file. Nothing is live until you confirm. There are two things to save on this page and each has its own button — the speeds at the top, your services at the bottom. Untick anything you would rather not take.',
-          'Your turnaround speeds and every service in your specialty are already ticked below, based on your specialty on file. Nothing is live until you confirm. There are two things to save on this page and each has its own button — the speeds at the top, your services at the bottom. Untick anything you would rather not take.',
-          'سرعات التسليم وكل خدمات تخصصك محددة لك بالفعل بالأسفل، حسب التخصص المسجل باسمك. لا شيء يبدأ قبل تأكيدك. في حاجتين محتاجين حفظ في الصفحة دي ولكل واحدة زرار خاص بها — السرعات في الأعلى، والخدمات في الأسفل. الغِ تحديد أي خدمة لا ترغب في استقبالها.'
+          'Your turnaround speeds and every service in your specialty are already ticked below, from your specialty on file. Until you confirm them, cases cannot be routed to you and our team cannot assign you one by hand. There are two things to save on this page and each has its own button — the speeds at the top, your services at the bottom. Untick anything you would rather not take.',
+          'Your turnaround speeds and every service in your specialty are already ticked below, from your specialty on file. Until you confirm them, cases cannot be routed to you and our team cannot assign you one by hand. There are two things to save on this page and each has its own button — the speeds at the top, your services at the bottom. Untick anything you would rather not take.',
+          'سرعات التسليم وكل خدمات تخصصك محددة لك بالفعل بالأسفل، حسب التخصص المسجل باسمك. وحتى تؤكدها، لا يمكن توجيه الحالات إليك ولا يستطيع فريقنا إسنادها إليك يدوياً. في حاجتين محتاجين حفظ في الصفحة دي ولكل واحدة زرار خاص بها — السرعات في الأعلى، والخدمات في الأسفل. الغِ تحديد أي خدمة لا ترغب في استقبالها.'
         ) %>
       </div>
     </div>

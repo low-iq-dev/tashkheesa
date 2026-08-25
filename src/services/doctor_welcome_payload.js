@@ -74,12 +74,21 @@ function buildDoctorWelcomePayload({ doctor, token, baseUrl } = {}) {
   const specialtyAr = specNameAr || specName;
   const specialtyEn = specName || specNameAr;
 
+  // Whether the doctor has a services list waiting to be confirmed. Supplied by
+  // the caller (admin_doctor_invite.js computes it in SQL); undefined from the
+  // superadmin mirror, which is fine — the template gates on it and falls back
+  // to copy that is true either way. Never invent a value: promising a list to
+  // a doctor whose specialty has no services is the failure this exists to
+  // prevent.
+  const servicesReady = d.services_ready === true;
+
   return {
     doctorName: d.name || (lang === 'ar' ? 'الطبيب' : 'Doctor'),
     firstName,
     nameAr,
     specialtyAr,
     specialtyEn,
+    servicesReady,
     magicLinkUrl,
     // Ziad-locked bilingual welcome copy references {{password_setup_link}};
     // expose it as an alias of magicLinkUrl so the template renders with no

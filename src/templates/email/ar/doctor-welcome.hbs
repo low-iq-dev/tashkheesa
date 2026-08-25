@@ -35,11 +35,11 @@
 </p>
 
 <p style="margin:0 0 18px;font:400 15px/1.95 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#2E2B26;">
-  حسابك جاهز وجهزناه لك{{#if specialtyAr}} حسب تسجيلك في {{specialtyAr}}{{/if}} — كل خدمات تخصصك محددة بالفعل، وأنت مُدرج على سرعات التسليم الثلاث. لا شيء يبدأ قبل موافقتك.
+  حسابك جاهز وجهزناه لك{{#if specialtyAr}} حسب تسجيلك في {{specialtyAr}}{{/if}}{{#if servicesReady}} — كل خدمات تخصصك محددة بالفعل، وأنت مُدرج على سرعات التسليم الثلاث{{else}} — وأنت مُدرج على سرعات التسليم الثلاث{{/if}}. لا شيء منها يُعتمد قبل تأكيدك.
 </p>
 
 <p style="margin:0 0 26px;font:400 15px/1.95 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#2E2B26;">
-  حدد كلمة السر وستصل مباشرة إلى هذه القائمة. راجعها، وألغِ تحديد أي خدمة لا ترغب في استقبالها، ثم اضغط حفظ. الأمر لا يستغرق دقيقة، وحتى تفعل ذلك لن تصلك أي حالة.
+  حدد كلمة السر وستصل مباشرة إلى {{#if servicesReady}}هذه القائمة{{else}}حسابك{{/if}}. {{#if servicesReady}}راجعها، وألغِ تحديد أي خدمة لا ترغب في استقبالها، ثم اضغط حفظ. الأمر لا يستغرق دقيقة.{{/if}} وحتى تؤكد، لا يمكننا إرسال عمل إليك — الحالات لا تُوجَّه إلى حساب غير مؤكد، ولا يستطيع فريقنا إسنادها إليك يدوياً كذلك.
 </p>
 
 {{#if password_setup_link}}<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 12px;">

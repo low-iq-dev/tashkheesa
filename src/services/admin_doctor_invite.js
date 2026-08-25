@@ -59,7 +59,24 @@ async function inviteDoctor(client, opts) {
       `SELECT u.id, u.role, u.is_active, u.name, u.name_ar, u.lang,
               u.welcome_email_last_sent_at,
               sp.name    AS specialty_name,
-              sp.name_ar AS specialty_name_ar
+              sp.name_ar AS specialty_name_ar,
+              -- Does this doctor actually have a services list to confirm?
+              -- Mirrors loadDoctorServiceCatalog's union exactly: visible
+              -- services in their own specialty, OR any service they already
+              -- hold. The welcome email promises "your services are already
+              -- selected — sign in and confirm them", and for the three
+              -- Pediatrics doctors that is a lie: their specialty has no
+              -- service rows at all, so they land on the dashboard and see
+              -- "your services are being finalised" instead. This flag gates
+              -- that sentence. Absent (the superadmin mirror does not set it)
+              -- is falsy in Handlebars, so the clause is simply omitted there.
+              (
+                EXISTS (SELECT 1 FROM services sv
+                         WHERE sv.specialty_id = u.specialty_id
+                           AND COALESCE(sv.is_visible, true) = true)
+                OR EXISTS (SELECT 1 FROM doctor_services ds
+                            WHERE ds.doctor_id = u.id)
+              ) AS services_ready
          FROM users u
          LEFT JOIN specialties sp ON sp.id = u.specialty_id
         WHERE u.id = $1
