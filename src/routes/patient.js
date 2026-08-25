@@ -1971,8 +1971,8 @@ router.post('/patient/new-case/step3', requireRole('patient'), async (req, res) 
         `INSERT INTO specialty_classification_overrides
            (id, case_id,
             ai_specialty_id, ai_service_id, ai_confidence,
-            patient_specialty_id, patient_service_id, override_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            patient_specialty_id, patient_service_id, override_at, actor_role)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'patient')`,
         [randomUUID(), orderId,
          classRow ? classRow.specialty_id : null,
          classRow ? classRow.service_id   : null,

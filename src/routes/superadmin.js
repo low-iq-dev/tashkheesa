@@ -431,6 +431,125 @@ const CLASSIFIER_THRESHOLD_KEYS = Object.freeze([
   'classifier_threshold_minimum'
 ]);
 
+// ─── Classifier learning ────────────────────────────────────────────────────
+//
+// 2026-08-25. specialty_classification_overrides has recorded, for every case,
+// what the AI picked against what a human actually picked — since migration
+// 056/058, written from the patient wizard, admin triage and here. Nothing had
+// ever read it back.
+//
+// This screen is where that data becomes a decision. The nightly job
+// (job_queue: classifier-learning) only ever produces CANDIDATES. Nothing is
+// put in front of the model until a superadmin accepts one here, and accepted
+// corrections are shown to it as observed history rather than as rules.
+//
+// Deliberately a review queue and not an automatic pipeline: a system silently
+// rewriting how patients' cases route is not something anyone should have to
+// discover from a support ticket.
+router.get('/superadmin/classifier', requireSuperadmin, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+
+  let candidates = [];
+  let accepted = [];
+  let accuracy = null;
+  try {
+    const learning = require('../services/classifier_learning');
+    candidates = await queryAll(
+      `SELECT c.*, fs.name AS from_specialty_name, ts.name AS to_specialty_name,
+              fsv.name AS from_service_name, tsv.name AS to_service_name
+         FROM classifier_corrections c
+         LEFT JOIN specialties fs  ON fs.id  = c.from_specialty_id
+         LEFT JOIN specialties ts  ON ts.id  = c.to_specialty_id
+         LEFT JOIN services    fsv ON fsv.id = c.from_service_id
+         LEFT JOIN services    tsv ON tsv.id = c.to_service_id
+        WHERE c.status = 'candidate'
+        ORDER BY c.weighted_score DESC
+        LIMIT 50`
+    );
+    accepted = await queryAll(
+      `SELECT c.*, fs.name AS from_specialty_name, ts.name AS to_specialty_name,
+              fsv.name AS from_service_name, tsv.name AS to_service_name
+         FROM classifier_corrections c
+         LEFT JOIN specialties fs  ON fs.id  = c.from_specialty_id
+         LEFT JOIN specialties ts  ON ts.id  = c.to_specialty_id
+         LEFT JOIN services    fsv ON fsv.id = c.from_service_id
+         LEFT JOIN services    tsv ON tsv.id = c.to_service_id
+        WHERE c.status = 'accepted'
+        ORDER BY c.weighted_score DESC
+        LIMIT 50`
+    );
+    accuracy = await learning.getAccuracyStats();
+  } catch (err) {
+    // The table may not exist yet on a clone that has not run migration 095.
+    // An empty screen is the right degradation — this page steers nothing on
+    // its own, so failing to render it costs a review, not a patient.
+    logErrorToDb(err, {
+      context: 'superadmin.classifier_get',
+      requestId: req.requestId,
+      userId: req.user && req.user.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_action'
+    });
+  }
+
+  return res.render('superadmin_classifier', {
+    brand: 'Tashkheesa',
+    aiHealth: await getAiHealth(),
+    user: req.user,
+    lang,
+    dir: isAr ? 'rtl' : 'ltr',
+    isAr,
+    activeTab: 'settings',
+    nextPath: '/superadmin/classifier',
+    candidates,
+    accepted,
+    accuracy,
+    saved: req.query && req.query.saved ? String(req.query.saved) : null
+  });
+});
+
+// Accept or reject one candidate. This is the only thing that can put a
+// correction in front of the classifier, or take one away.
+router.post('/superadmin/classifier/review', requireSuperadmin, async (req, res) => {
+  const id = req.body && req.body.id ? String(req.body.id).trim() : '';
+  const decision = req.body && req.body.decision === 'accept' ? 'accept' : 'reject';
+  if (!id) return res.redirect('/superadmin/classifier');
+
+  try {
+    const learning = require('../services/classifier_learning');
+    await learning.reviewCorrection(id, decision, req.user && req.user.id, null);
+    // Audited like any other superadmin action that changes platform behaviour
+    // — accepting a correction changes how every subsequent case is routed.
+    try {
+      logAdminAudit({
+        req,
+        action: 'classifier_correction_' + (decision === 'accept' ? 'accepted' : 'rejected'),
+        target: id,
+        // Explicit message: the helper's default is the hardcoded string
+        // "viewed payout data: <target>", which would file a change to how
+        // every future case is routed as a page view. An audit line that
+        // misdescribes what happened is worse than none, because it is believed.
+        message: 'classifier correction ' + (decision === 'accept'
+          ? 'ACCEPTED — now shown to the classifier on every case'
+          : 'REJECTED — removed from the classifier prompt')
+      });
+    } catch (_) { /* audit failure must not block the decision */ }
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.classifier_review',
+      requestId: req.requestId,
+      userId: req.user && req.user.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_action'
+    });
+    return res.redirect('/superadmin/classifier');
+  }
+  return res.redirect('/superadmin/classifier?saved=1');
+});
+
 router.get('/superadmin/settings', requireSuperadmin, async (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
@@ -2654,8 +2773,9 @@ router.post('/superadmin/manual-queue/:id/approve', requireSuperadmin, async (re
     await execute(
       `INSERT INTO specialty_classification_overrides
          (id, case_id, ai_specialty_id, ai_service_id, ai_confidence,
-          patient_specialty_id, patient_service_id, override_at, override_reason)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          patient_specialty_id, patient_service_id, override_at, override_reason,
+          actor_role)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'superadmin')`,
       [randomUUID(), orderId,
        aiRow ? aiRow.specialty_id : null,
        aiRow ? aiRow.service_id   : null,

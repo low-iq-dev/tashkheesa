@@ -92,7 +92,7 @@ function _setClientForTests(client) {
   _client = client;
 }
 
-function _buildUserPrompt(caseText, fileMetadata, specialtiesWithServices) {
+function _buildUserPrompt(caseText, fileMetadata, specialtiesWithServices, correctionsBlock) {
   // Render the nested enum as compact JSON. Each specialty entry carries
   // its services array; the model picks one specialty + one service from
   // within that specialty's services[].
@@ -135,12 +135,19 @@ function _buildUserPrompt(caseText, fileMetadata, specialtiesWithServices) {
     '  Patient gender: ' + (patientInfo.gender || 'not specified'),
     '  Document inventory: ' + docSummary,
     '  Lab abnormalities: ' + labSummary,
+    // LEARNING LOOP 2026-08-25 — accepted corrections from this platform's own
+    // history, injected here and NOT into SYSTEM_PROMPT. The system prompt
+    // carries the routing-not-diagnosing guardrails and has a snapshot test
+    // pinning them; appending operator-reviewed text to it would let a
+    // correction quietly weaken a clinical safety rail. Empty string when there
+    // are none, which is the default state and a no-op.
+    correctionsBlock || '',
     '',
     'Return the JSON object now.'
   ].join('\n');
 }
 
-async function classifyCase(caseText, fileMetadata, specialtiesWithServices) {
+async function classifyCase(caseText, fileMetadata, specialtiesWithServices, correctionsBlock) {
   if (!Array.isArray(specialtiesWithServices) || specialtiesWithServices.length === 0) {
     throw new Error('classifyCase: specialtiesWithServices must be a non-empty array');
   }
@@ -165,7 +172,7 @@ async function classifyCase(caseText, fileMetadata, specialtiesWithServices) {
     servicesBySpecialty[s.id] = new Set(s.services.map(function (sv) { return sv.id; }));
   }
 
-  const userPrompt = _buildUserPrompt(caseText, fileMetadata, specialtiesWithServices);
+  const userPrompt = _buildUserPrompt(caseText, fileMetadata, specialtiesWithServices, correctionsBlock);
 
   const response = await getClient().messages.create({
     model: modelHaiku(),

@@ -1,0 +1,182 @@
+<%
+  // Classifier learning — the review queue for the learning loop.
+  //
+  // 2026-08-25. specialty_classification_overrides has recorded, for every
+  // case, what the AI picked against what a human actually picked. Nothing had
+  // ever read it back. This screen is where that data becomes a decision.
+  //
+  // NOTHING ON THIS PAGE IS AUTOMATIC. The nightly job produces candidates; a
+  // human accepts or rejects each one. Only accepted rows are put in front of
+  // the model, and only as observed history, never as a rule.
+  const isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  const _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
+  const cands  = (typeof candidates !== 'undefined' && candidates) ? candidates : [];
+  const active = (typeof accepted !== 'undefined' && accepted) ? accepted : [];
+  const stats  = (typeof accuracy !== 'undefined' && accuracy) ? accuracy : null;
+  const savedFlag = (typeof saved !== 'undefined') ? saved : null;
+
+  function pct(v) { return v == null ? '—' : (Math.round(Number(v) * 1000) / 10) + '%'; }
+  function pair(r) {
+    const from = r.from_service_name
+      ? r.from_specialty_name + ' / ' + r.from_service_name
+      : (r.from_specialty_name || r.from_specialty_id);
+    const to = r.to_service_name
+      ? r.to_specialty_name + ' / ' + r.to_service_name
+      : (r.to_specialty_name || r.to_specialty_id);
+    return { from: from, to: to };
+  }
+%>
+<%- include('partials/superadmin/header', {
+      title: isAr ? 'تعلّم المصنِّف' : 'Classifier learning',
+      currentSection: 'settings',
+      user: user,
+      lang: (typeof lang !== 'undefined' && lang) ? lang : 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: _nonce
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: isAr ? 'تعلّم المصنِّف' : 'Classifier learning',
+      subtitle: isAr
+        ? 'أنماط التصحيح المستخرجة من قرارات البشر. لا شيء يؤثر على المصنِّف حتى توافق عليه.'
+        : 'Correction patterns drawn from what humans actually chose. Nothing reaches the classifier until you accept it.',
+      breadcrumb: [
+        { label: isAr ? 'لوحة التحكم' : 'Dashboard', href: '/superadmin' },
+        { label: isAr ? 'تعلّم المصنِّف' : 'Classifier learning' }
+      ]
+    }) %>
+
+<div class="page-body">
+
+  <%- include('partials/ai_health_banner') %>
+
+  <% if (savedFlag) { %>
+    <div class="c-note c-note--ok"><%= isAr ? 'تم الحفظ.' : 'Saved.' %></div>
+  <% } %>
+
+  <!-- ── Accuracy ─────────────────────────────────────────────────────── -->
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <h3 style="margin:0 0 4px;font-size:15px;">
+      <%= isAr ? 'دقة المصنِّف' : 'Classifier accuracy' %>
+    </h3>
+    <% if (stats) { %>
+      <p style="margin:0 0 12px;font-size:13px;opacity:.75;">
+        <%= isAr
+             ? 'آخر ' + stats.windowDays + ' يومًا. "الاتفاق" هو نسبة الحالات التي لم يغيّرها أي إنسان.'
+             : 'Last ' + stats.windowDays + ' days. "Agreement" is the share of classifications no human subsequently changed.' %>
+      </p>
+      <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:8px;">
+        <div>
+          <div style="font-size:22px;font-weight:700;"><%= pct(stats.agreementRate) %></div>
+          <div style="font-size:12px;opacity:.7;"><%= isAr ? 'الاتفاق' : 'Agreement' %></div>
+        </div>
+        <div>
+          <div style="font-size:22px;font-weight:700;"><%= stats.classified %></div>
+          <div style="font-size:12px;opacity:.7;"><%= isAr ? 'تم تصنيفها' : 'Classified' %></div>
+        </div>
+        <div>
+          <div style="font-size:22px;font-weight:700;"><%= stats.overridden %></div>
+          <div style="font-size:12px;opacity:.7;"><%= isAr ? 'تم تغييرها' : 'Changed by a human' %></div>
+        </div>
+      </div>
+      <p style="margin:8px 0 0;font-size:12px;opacity:.65;line-height:1.6;">
+        <%= isAr
+             ? 'هذا مؤشر تقريبي وليس حقيقة مطلقة: الحالة التي لم يصححها أحد قد تكون وُجِّهت خطأً دون أن يلاحظ أحد. تابع الاتجاه، لا الرقم.'
+             : 'A proxy, not truth: a case nobody corrected might still have been routed wrongly and never noticed. Watch the trend rather than the number.' %>
+      </p>
+    <% } else { %>
+      <%- include('partials/superadmin/c_empty', { title: isAr ? 'لا توجد بيانات بعد.' : 'No data yet.' }) %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+
+  <!-- ── Candidates awaiting review ───────────────────────────────────── -->
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <h3 style="margin:0 0 4px;font-size:15px;">
+      <%= isAr ? 'مرشّحات بانتظار المراجعة' : 'Awaiting your review' %>
+    </h3>
+    <p style="margin:0 0 12px;font-size:13px;opacity:.75;line-height:1.6;">
+      <%= isAr
+           ? 'أنماط تكررت بما يكفي لتستحق قرارًا. الوزن يعطي تصحيح الطبيب أو المشغّل ثقلًا كاملًا، وتصحيح المريض نصف ثقل — وفقط إذا اكتملت الحالة على التخصص الذي اختاره.'
+           : 'Patterns that recurred often enough to deserve a decision. Scoring gives an operator or doctor reassignment full weight, and a patient override half — and only if the case then completed on the specialty they chose. Patients who override are often the ones least sure what they need.' %>
+    </p>
+
+    <% if (!cands.length) { %>
+      <%- include('partials/superadmin/c_empty', {
+            title: isAr ? 'لا توجد مرشّحات حاليًا.' : 'Nothing to review right now.' }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: [
+            isAr ? 'المصنِّف قال' : 'AI said',
+            isAr ? 'البشر اختاروا' : 'Humans chose',
+            isAr ? 'مرات' : 'Times',
+            isAr ? 'الوزن' : 'Score',
+            isAr ? 'الاتساق' : 'Consistency',
+            ''
+          ] }) %>
+        <% cands.forEach(function (r) { var p = pair(r); %>
+          <tr>
+            <td><%= p.from %></td>
+            <td><strong><%= p.to %></strong></td>
+            <td><%= r.occurrences %></td>
+            <td><%= Number(r.weighted_score).toFixed(1) %></td>
+            <td><%= pct(r.consistency) %></td>
+            <td style="white-space:nowrap;">
+              <form method="POST" action="/superadmin/classifier/review" style="display:inline;">
+                <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
+                <input type="hidden" name="id" value="<%= r.id %>">
+                <button type="submit" name="decision" value="accept" class="c-btn c-btn--sm">
+                  <%= isAr ? 'قبول' : 'Accept' %>
+                </button>
+                <button type="submit" name="decision" value="reject" class="c-btn c-btn--sm c-btn--ghost">
+                  <%= isAr ? 'رفض' : 'Reject' %>
+                </button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+
+  <!-- ── Active corrections ───────────────────────────────────────────── -->
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <h3 style="margin:0 0 4px;font-size:15px;">
+      <%= isAr ? 'التصحيحات الفعّالة' : 'Active corrections' %>
+    </h3>
+    <p style="margin:0 0 12px;font-size:13px;opacity:.75;line-height:1.6;">
+      <%= isAr
+           ? 'هذه تُعرض على المصنِّف كملاحظات من تاريخ المنصة، وليست قواعد ملزمة — إذا كانت الحالة تنتمي فعلًا للتخصص الأول فسيوجّهها إليه.'
+           : 'These are shown to the classifier as observations from this platform\'s history, not as binding rules — if a case genuinely belongs in the first specialty it will still be routed there. Reject one to remove it immediately.' %>
+    </p>
+    <% if (!active.length) { %>
+      <%- include('partials/superadmin/c_empty', {
+            title: isAr ? 'لا توجد تصحيحات فعّالة — يعمل المصنِّف بدونها.' : 'None active — the classifier runs exactly as it did before.' }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: [
+            isAr ? 'من' : 'From', isAr ? 'إلى' : 'To',
+            isAr ? 'مرات' : 'Times', isAr ? 'وافق' : 'Accepted by', ''
+          ] }) %>
+        <% active.forEach(function (r) { var p = pair(r); %>
+          <tr>
+            <td><%= p.from %></td>
+            <td><strong><%= p.to %></strong></td>
+            <td><%= r.occurrences %></td>
+            <td style="font-size:12px;opacity:.75;"><%= r.reviewed_by || '—' %></td>
+            <td style="white-space:nowrap;">
+              <form method="POST" action="/superadmin/classifier/review" style="display:inline;">
+                <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
+                <input type="hidden" name="id" value="<%= r.id %>">
+                <button type="submit" name="decision" value="reject" class="c-btn c-btn--sm c-btn--ghost">
+                  <%= isAr ? 'إيقاف' : 'Turn off' %>
+                </button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+
+</div>
+
+<%- include('partials/superadmin/footer') %>

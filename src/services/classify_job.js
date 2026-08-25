@@ -102,7 +102,22 @@ async function runClassification(orderId) {
     // Additive: time the call + capture model name for the audit row.
     const model = modelHaiku();
     const startedAt = Date.now();
-    const result = await classifyCase(caseText, fileMetadata, specialtiesWithServices);
+    // LEARNING LOOP 2026-08-25 — accepted corrections from this platform's own
+    // history, rendered into the user message. Best-effort by design: if the
+    // read fails, the block is empty and the classifier behaves exactly as it
+    // did before the learner existed. Nothing about routing a patient's case
+    // should depend on the training loop being reachable.
+    let correctionsBlock = '';
+    try {
+      const learning = require('./classifier_learning');
+      correctionsBlock = learning.renderCorrectionsBlock(
+        await learning.getAcceptedCorrections()
+      );
+    } catch (_) { /* no corrections; classify as before */ }
+
+    const result = await classifyCase(
+      caseText, fileMetadata, specialtiesWithServices, correctionsBlock
+    );
     const latencyMs = Date.now() - startedAt;
     await recordAiHealth(true); // live Anthropic call succeeded → clear any AI-billing flag
 

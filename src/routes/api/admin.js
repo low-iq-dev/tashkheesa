@@ -3054,8 +3054,9 @@ module.exports = function (db, helpers, deploy, deps) {
       await client.query(
         `INSERT INTO specialty_classification_overrides
            (id, case_id, ai_specialty_id, ai_service_id, ai_confidence,
-            patient_specialty_id, patient_service_id, override_at, override_reason)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)`,
+            patient_specialty_id, patient_service_id, override_at, override_reason,
+            actor_role)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, 'admin')`,
         [randomUUID(), id,
           ai ? ai.specialty_id : null,
           ai ? ai.service_id : null,

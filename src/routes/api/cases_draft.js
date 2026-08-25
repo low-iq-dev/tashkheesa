@@ -649,8 +649,8 @@ router.post('/:id/submit', async (req, res) => {
           await execute(
             `INSERT INTO specialty_classification_overrides
                (id, case_id, ai_specialty_id, ai_service_id, ai_confidence,
-                patient_specialty_id, patient_service_id, override_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                patient_specialty_id, patient_service_id, override_at, actor_role)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'patient')`,
             [randomUUID(), draft.id,
              classRow.specialty_id, classRow.service_id,
              classRow.confidence == null ? null : Number(classRow.confidence),

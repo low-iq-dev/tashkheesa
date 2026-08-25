@@ -1372,7 +1372,7 @@ async function runSlaEnforcementSweep(source) {
   }
 }
 
-var { startJobQueue, stopJobQueue, scheduleSlaSweep, scheduleAiCanary } = require('./job_queue');
+var { startJobQueue, stopJobQueue, scheduleSlaSweep, scheduleAiCanary, scheduleClassifierLearning } = require('./job_queue');
 
 // Boot: wait for DB migration before starting workers
 _dbReady.then(async function() {
@@ -1387,6 +1387,14 @@ _dbReady.then(async function() {
   // staleness heartbeat fresh before any patient hits a dead AI call.
   try { await scheduleAiCanary(); } catch (e) {
     logMajor('AI canary schedule failed: ' + e.message);
+  }
+  // LEARNING LOOP 2026-08-25 — nightly aggregation of
+  // specialty_classification_overrides into candidate corrections. Produces a
+  // review queue only; nothing steers the classifier until a superadmin accepts
+  // a candidate at /superadmin/classifier. Failure to schedule costs a night of
+  // training data and nothing else, so it is logged rather than fatal.
+  try { await scheduleClassifierLearning(); } catch (e) {
+    logMajor('Classifier learning schedule failed: ' + e.message);
   }
   // Worker dead-man's-switch — UNGATED on purpose. Mounted OUTSIDE the
   // SLA_MODE==='primary' block below so it survives the exact failure mode it

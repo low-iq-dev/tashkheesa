@@ -311,6 +311,50 @@ async function scheduleAiCanary() {
   return true;
 }
 
+/**
+ * Nightly handler for the classifier learning loop.
+ *
+ * Aggregates specialty_classification_overrides into candidate corrections. It
+ * only ever produces CANDIDATES — a human accepts or rejects each one from
+ * /superadmin/classifier before anything steers the model. Same reason the
+ * suggestion itself never auto-selects: an automated pipeline silently
+ * rewriting how cases route is not something anyone should discover from a
+ * support ticket.
+ *
+ * Non-throwing. A learner that cannot run is a missed night of training data;
+ * a learner that throws inside pg-boss is a retry storm on a queue that also
+ * carries case classification.
+ */
+async function handleClassifierLearning() {
+  try {
+    var learning = require('./services/classifier_learning');
+    var result = await learning.aggregateCorrections();
+    logMajor('[job-queue] classifier-learning: scanned ' + result.scanned +
+             ' override(s), ' + result.pairs + ' pair(s), ' +
+             result.candidates + ' candidate(s) for review');
+  } catch (e) {
+    logMajor('[job-queue] classifier-learning failed: ' + (e && e.message ? e.message : e));
+  }
+}
+
+/**
+ * Schedule the classifier learning aggregation. Mirrors scheduleAiCanary.
+ *
+ * Nightly by default — the corpus moves on the scale of days, and running it
+ * hourly would burn queries to re-derive the same numbers. Override with
+ * CLASSIFIER_LEARNING_CRON.
+ *
+ * @returns {boolean} true if scheduled via pg-boss, false if boss unavailable
+ */
+async function scheduleClassifierLearning() {
+  if (!boss) return false;
+  await boss.work('classifier-learning', { teamSize: 1, teamConcurrency: 1 }, handleClassifierLearning);
+  var cron = process.env.CLASSIFIER_LEARNING_CRON || '30 3 * * *';
+  await boss.schedule('classifier-learning', cron, {}, { singletonKey: 'classifier-learning' });
+  logMajor('[job-queue] classifier learning scheduled via pg-boss (' + cron + ', singleton)');
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Graceful shutdown
 // ---------------------------------------------------------------------------
@@ -330,6 +374,7 @@ module.exports = {
   stopJobQueue: stopJobQueue,
   scheduleSlaSweep: scheduleSlaSweep,
   scheduleAiCanary: scheduleAiCanary,
+  scheduleClassifierLearning: scheduleClassifierLearning,
   enqueueCaseIntelligence: enqueueCaseIntelligence,
   enqueueCaseReprocess: enqueueCaseReprocess,
   enqueueAutoAssign: enqueueAutoAssign,
