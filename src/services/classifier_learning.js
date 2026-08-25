@@ -169,10 +169,15 @@ async function loadWeightedOverrides(windowDays) {
  * return as a fresh candidate, or "no" comes to mean "not yet" and the queue
  * never converges.
  */
-async function aggregateCorrections() {
+async function aggregateCorrections(deps) {
   const cfg = config();
+  // Seams for tests. The weighting rule is the load-bearing decision in this
+  // module and it is arithmetic, so it has to be assertable by CALLING it with
+  // known rows — not by grepping the SQL that fetches them.
+  const load = (deps && deps.load) || loadWeightedOverrides;
+  const write = (deps && deps.write) || execute;
   try {
-    const rows = await loadWeightedOverrides(cfg.windowDays);
+    const rows = await load(cfg.windowDays);
     if (rows.length === 0) return { scanned: 0, pairs: 0, candidates: 0 };
 
     // Bucket by (from, to) pair, and separately total each from-specialty's
@@ -226,7 +231,7 @@ async function aggregateCorrections() {
       const status = qualifies ? 'candidate' : 'below_threshold';
       if (qualifies) candidates += 1;
 
-      await execute(
+      await write(
         `INSERT INTO classifier_corrections
            (id, from_specialty_id, to_specialty_id, from_service_id, to_service_id,
             occurrences, weighted_score, consistency, sample_case_ids,

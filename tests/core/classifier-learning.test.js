@@ -168,3 +168,65 @@ try {
   }
   t.pass('all four override writers stamp actor_role (patient / patient / admin / superadmin)');
 } catch (e) { t.fail('actor_role writers', e); }
+
+// ── 9. The arithmetic, run for real ─────────────────────────────────────────
+//
+// Everything above this point is a grep. This section CALLS the aggregation
+// with known rows and checks the numbers, because the rule this module exists
+// for is a numeric one and asserting it by grep would be theatre.
+//
+// The scenario is the one that actually matters: a specialty being corrected in
+// two directions at once, where most of the disagreement is unconfirmed patient
+// noise. A naive counter sees "8 people said Pulmonology" and makes a rule. The
+// weighting should see through it.
+(async function () {
+  try {
+    const captured = [];
+    const at = (daysAgo) => new Date(Date.now() - daysAgo * 86400000);
+
+    const rows = [
+      // Two clinicians agree: Cardiology -> Pulmonology. Weight 1.0 each.
+      { case_id: 'c1', ai_specialty_id: 'cardio', patient_specialty_id: 'pulmo',
+        actor_role: 'doctor', confirmed: false, override_at: at(5) },
+      { case_id: 'c2', ai_specialty_id: 'cardio', patient_specialty_id: 'pulmo',
+        actor_role: 'admin', confirmed: false, override_at: at(4) },
+      // Four patients agree, and their cases completed on that specialty. 0.5 each.
+      ...['c3', 'c4', 'c5', 'c6'].map((id, i) => ({
+        case_id: id, ai_specialty_id: 'cardio', patient_specialty_id: 'pulmo',
+        actor_role: 'patient', confirmed: true, override_at: at(3 - i * 0.1)
+      })),
+      // Eight patients went to Nephrology and NONE of those cases held up.
+      // Loud, and worth exactly nothing.
+      ...Array.from({ length: 8 }, (_, i) => ({
+        case_id: 'n' + i, ai_specialty_id: 'cardio', patient_specialty_id: 'nephro',
+        actor_role: 'patient', confirmed: false, override_at: at(2)
+      })),
+    ];
+
+    const result = await learning.aggregateCorrections({
+      load: async () => rows,
+      write: async (sql, params) => { captured.push(params); return { rowCount: 1 }; }
+    });
+
+    expect(result.scanned === rows.length, 'every row must be scanned');
+
+    const byTo = {};
+    for (const p of captured) byTo[p[2]] = { score: p[6], consistency: p[7], status: p[9], occurrences: p[5] };
+
+    // Pulmonology: 1.0 + 1.0 + (4 x 0.5) = 4.0
+    expect(byTo.pulmo, 'the pulmonology pair must be written');
+    expect(byTo.pulmo.score === 4, 'pulmonology score must be 4.0 (2 clinicians + 4 confirmed patients), got ' + byTo.pulmo.score);
+    // Denominator is the specialty's TOTAL weight, which the 8 unconfirmed
+    // patient rows contribute 0 to — so consistency is 4.0/4.0, not 4.0/12.
+    expect(byTo.pulmo.consistency === 1, 'unconfirmed rows must count for 0 in the numerator AND the denominator, so consistency is 1.0, got ' + byTo.pulmo.consistency);
+    expect(byTo.pulmo.status === 'candidate', 'pulmonology must qualify for review');
+
+    // Nephrology: eight loud patient overrides, none of which held. Zero weight,
+    // so it is never even written as a pair.
+    expect(!byTo.nephro,
+      'the nephrology pair must NOT be written — 8 unconfirmed patient overrides is exactly ' +
+      'the noise this weighting exists to reject, and a naive counter would have made it a rule');
+
+    t.pass('arithmetic: 2 clinicians + 4 confirmed patients = 4.0 and qualifies; 8 unconfirmed patient overrides score 0 and are rejected outright');
+  } catch (e) { t.fail('aggregation arithmetic', e); }
+})();
