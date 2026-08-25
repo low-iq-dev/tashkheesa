@@ -26,6 +26,7 @@ const { classifyCase } = require('./specialty_classifier');
 const { getThresholds } = require('./admin_settings');
 const { modelHaiku } = require('../config/anthropic');
 const { recordAiHealth } = require('./ai_health');
+const { serviceBookableClause } = require('./service_bookable');
 
 async function runClassification(orderId) {
   if (!orderId) return;
@@ -48,10 +49,23 @@ async function runClassification(orderId) {
        ORDER BY name ASC`,
       []
     );
+    // 2026-08-25: gated on is_visible alone. coming_soon was NOT filtered, and
+    // that is worse here than anywhere else on the platform: when the
+    // classifier returns a confident pick the wizard LOCKS the patient to it
+    // (patient_new_case.ejs renders the locked callout with no override grid),
+    // but the step-3 catalogue and its POST both use the bookable rule. So a
+    // coming_soon recommendation produced a card the patient could not see and
+    // a submission the server rejected with err=invalid_service — an
+    // unrecoverable loop with no way out of the wizard.
+    //
+    // Zero such rows exist today, but resyncComingSoon recomputes coming_soon
+    // on every doctor save, approve and pause: one deactivated Cardiology
+    // doctor creates it.
     const servicesRaw = await queryAll(
-      `SELECT id, specialty_id, name, base_price, currency FROM services
-       WHERE COALESCE(is_visible, true) = true
-       ORDER BY specialty_id ASC, name ASC`,
+      `SELECT sv.id, sv.specialty_id, sv.name, sv.base_price, sv.currency
+         FROM services sv
+        WHERE ${serviceBookableClause('sv')}
+        ORDER BY sv.specialty_id ASC, sv.name ASC`,
       []
     );
     const specMap = {};

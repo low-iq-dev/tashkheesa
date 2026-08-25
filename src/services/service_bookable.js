@@ -57,38 +57,57 @@
  * @returns {string} SQL boolean expression, safe to concatenate (no user input)
  */
 function serviceBookableClause(alias) {
-  const sv   = alias ? `${alias}.` : '';
+  const sv = alias ? `${alias}.` : '';
+  // Parenthesised as a whole. Every caller today concatenates with AND, where
+  // it would be fine bare — but one future `WHERE ${BOOKABLE} OR ...` would
+  // silently bind only the last conjunct and lose the rule, which is the exact
+  // class of failure this module exists to end.
   return (
-    `COALESCE(${sv}is_visible,true)=true` +
+    `(COALESCE(${sv}is_visible,true)=true` +
     ` AND COALESCE(${sv}coming_soon,false)=false` +
     ` AND EXISTS (SELECT 1 FROM specialties sp_bookable_` +
     ` WHERE sp_bookable_.id = ${sv}specialty_id` +
-    ` AND COALESCE(sp_bookable_.is_visible, true) = true)`
+    ` AND COALESCE(sp_bookable_.is_visible, true) = true))`
   );
 }
 
 /**
- * The same rule applied to rows already in hand.
+ * NEARLY the same rule, applied to rows already in hand.
  *
- * For callers that have fetched `SELECT *` and want the decision in JS —
- * case_intake_pricing.js does this so it can throw a typed error naming which
- * half failed. `specialtyIsVisible` must come from the specialties row; pass
- * undefined only when the caller has genuinely already proven it.
+ * For callers that have fetched the row and want the decision in JS —
+ * case_intake_pricing.js does this so it can distinguish which half failed.
  *
- * @param {{is_visible?: any, coming_soon?: any}} service
- * @param {boolean|null|undefined} specialtyIsVisible
+ * IT IS NOT IDENTICAL TO THE SQL, and the difference matters. The SQL EXISTS
+ * fails a service whose specialty_id is NULL or dangling; this function cannot
+ * see that, because a LEFT JOIN that misses hands it `null`, which COALESCE
+ * semantics read as visible. A caller using this MUST test for a missing
+ * specialty row itself — case_intake_pricing.js does, via specialty_exists.
+ *
+ * `specialtyIsVisible` is REQUIRED. Passing undefined throws rather than
+ * quietly skipping the specialty rule: the entire point of this module is that
+ * the rule cannot be left behind, and an optional argument is precisely how it
+ * would be. Pass the value from the specialties row, or null if the row is
+ * genuinely absent — and handle absence yourself before calling.
+ *
+ * @param {{is_visible?: any, coming_soon?: any}|null} service
+ * @param {boolean|null} specialtyIsVisible
  * @returns {{bookable: boolean, reason: string|null}}
+ * @throws {TypeError} when specialtyIsVisible is omitted
  */
 function isServiceBookable(service, specialtyIsVisible) {
+  if (arguments.length < 2 || specialtyIsVisible === undefined) {
+    throw new TypeError(
+      'isServiceBookable(service, specialtyIsVisible): specialtyIsVisible is ' +
+      'required — pass the specialties row value, or null if there is no row'
+    );
+  }
   if (!service) return { bookable: false, reason: 'missing' };
   const visible = service.is_visible == null ? true : !!service.is_visible;
   if (!visible) return { bookable: false, reason: 'service_hidden' };
   const comingSoon = service.coming_soon == null ? false : !!service.coming_soon;
   if (comingSoon) return { bookable: false, reason: 'coming_soon' };
-  if (specialtyIsVisible !== undefined) {
-    const specVisible = specialtyIsVisible == null ? true : !!specialtyIsVisible;
-    if (!specVisible) return { bookable: false, reason: 'specialty_hidden' };
-  }
+  const specVisible = specialtyIsVisible == null ? true : !!specialtyIsVisible;
+  if (!specVisible) return { bookable: false, reason: 'specialty_hidden' };
   return { bookable: true, reason: null };
 }
 

@@ -21,13 +21,20 @@ module.exports = function (db, { safeGet, safeAll }) {
     const specialties = await safeAll(`
       SELECT
         sp.id, sp.name, sp.name_ar as "nameAr",
-        -- Count what /specialties/:id/services will actually return. It used
-        -- to count is_visible alone, so a specialty could advertise a service
-        -- count the list endpoint then failed to match.
+        -- Count what /specialties/:id/services will actually return. The old
+        -- count and the old list used the same predicate, so they agreed —
+        -- this is prophylactic, not a bug fix: the two are now pinned to one
+        -- rule so they cannot drift when it next changes. The specialty half
+        -- of the clause is redundant against the outer WHERE, and kept anyway
+        -- so this line is correct on its own terms.
         COUNT(DISTINCT CASE WHEN ${BOOKABLE} THEN s.id END)::int as "serviceCount"
       FROM specialties sp
       LEFT JOIN services s ON s.specialty_id = sp.id
-      WHERE sp.is_visible = true
+      -- COALESCE to match serviceBookableClause, which treats an unset flag
+      -- as visible. Strict equality here would drop a NULL-visibility
+      -- specialty from this list while its services stayed orderable through
+      -- /services. Zero such rows today; the two should still agree.
+      WHERE COALESCE(sp.is_visible, true) = true
       GROUP BY sp.id, sp.name, sp.name_ar
       ORDER BY sp.name ASC
     `, []);

@@ -4,6 +4,7 @@ const { randomUUID } = require('crypto');
 const { queryOne, execute, withTransaction } = require('../pg');
 const { queueNotification, notifyAdmins } = require('../notify');
 const { logOrderEvent } = require('../audit');
+const { serviceBookableClause } = require('../services/service_bookable');
 
 const router = express.Router();
 
@@ -79,8 +80,20 @@ router.post('/api/public/orders', async (req, res) => {
     lang
   });
 
-  const service = await queryOne('SELECT * FROM services WHERE code = $1', [service_code]);
+  // 2026-08-25: this was the FOURTH writer that can mint a paid order, and the
+  // only one with no bookability check of any kind — not is_visible, not
+  // coming_soon, not the specialty. It is API-key gated and has never been
+  // used in production (zero web-order-% rows), but 63 services carry a
+  // non-null `code`, so it is reachable, and an integration partner posting a
+  // stale code could create an order for a service nobody can deliver.
+  const service = await queryOne(
+    `SELECT sv.* FROM services sv WHERE sv.code = $1 AND ${serviceBookableClause('sv')}`,
+    [service_code]
+  );
   if (!service) {
+    // Deliberately one error for "no such code" and "not orderable": this
+    // endpoint is a partner integration, and which of the two it is should not
+    // be inferable from outside.
     return res.status(400).json({ success: false, error: 'unknown_service_code' });
   }
 

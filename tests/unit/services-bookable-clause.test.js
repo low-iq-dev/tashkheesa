@@ -70,5 +70,26 @@ test('isServiceBookable treats unset flags as permissive, matching COALESCE', ()
   // Older rows predate these columns; an unset flag means "visible", which is
   // what the SQL COALESCEs do. Only an explicit false withdraws a service.
   assert.equal(isServiceBookable({}, null).bookable, true);
-  assert.equal(isServiceBookable({ is_visible: null, coming_soon: null }, undefined).bookable, true);
+  assert.equal(isServiceBookable({ is_visible: null, coming_soon: null }, null).bookable, true);
+});
+
+test('isServiceBookable will not let a caller skip the specialty rule', () => {
+  // An earlier draft made the second argument optional and treated `undefined`
+  // as "already proven elsewhere". That is the same optionality that let the
+  // specialty JOIN go missing from six call sites in the first place — an
+  // argument you can forget is a rule you can forget. Pass null for "no
+  // specialty row" and handle absence explicitly; omitting it throws.
+  assert.throws(() => isServiceBookable({ is_visible: true, coming_soon: false }),
+    /specialtyIsVisible is required/);
+  assert.throws(() => isServiceBookable({ is_visible: true, coming_soon: false }, undefined),
+    /specialtyIsVisible is required/);
+});
+
+test('the JS twin is NOT identical to the SQL, and says so', () => {
+  // The SQL EXISTS fails a null or dangling specialty_id. This function cannot
+  // see that — a LEFT JOIN that misses yields null, which reads as visible. A
+  // caller must test for a missing specialty row itself; case_intake_pricing.js
+  // does, via specialty_exists. Pinned so nobody "simplifies" that guard away.
+  assert.equal(isServiceBookable({ is_visible: true, coming_soon: false }, null).bookable, true,
+    'a null specialty reads as visible here — the caller owns that check');
 });
