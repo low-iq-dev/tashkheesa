@@ -1,82 +1,53 @@
 <!DOCTYPE html>
 <html lang="{{lang}}" dir="{{dir}}">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{appName}}</title>
-  <!--[if mso]>
-  <style>table,td{font-family:Arial,sans-serif!important}</style>
-  <![endif]-->
-  <!-- P1-NOTIF-4: mobile breakpoint. Apple Mail iOS, Gmail iOS, Outlook iOS,
-       Yahoo Mail honor <style> + @media. Outlook desktop ignores <style> but
-       renders fluid on desktop anyway, so no regression. -->
-  <style>
-    @media only screen and (max-width: 600px) {
-      .email-container { width: 100% !important; max-width: 100% !important; }
-      .email-card-pad { padding: 24px 20px !important; }
-      .email-outer-pad { padding: 16px 8px !important; }
-    }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{appName}}</title>
+<!--[if mso]><style>table,td,h1,p,a{font-family:Georgia,serif!important}</style><![endif]-->
+<style>
+@media only screen and (max-width:600px){
+  .email-container{width:100%!important;max-width:100%!important}
+  .email-card-pad{padding:30px 24px!important}
+  .email-outer-pad{padding:18px 10px!important}
+}
+</style>
 </head>
-<body style="margin:0;padding:0;background-color:#f0f4f8;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;direction:{{dir}};">
-  <!-- Outer wrapper -->
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f4f8;">
-    <tr>
-      <td align="center" class="email-outer-pad" style="padding:32px 16px;">
+<body style="margin:0;padding:0;background-color:#F2EFE8;direction:{{dir}};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;color:#2E2B26;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F2EFE8;">
+<tr><td align="center" class="email-outer-pad" style="padding:36px 16px;">
 
-        <!-- Header -->
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" class="email-container" style="max-width:600px;width:100%;">
-          <tr>
-            <td align="center" style="padding:24px 0 16px 0;">
-              <table role="presentation" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="background:linear-gradient(135deg,#1a365d 0%,#2b6cb0 100%);border-radius:12px;padding:12px 28px;">
-                    <span style="font-size:24px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">
-                      {{#if (eq lang 'ar')}}تشخيصة{{else}}Tashkheesa{{/if}}
-                    </span>
-                  </td>
-                </tr>
-              </table>
-              <p style="margin:8px 0 0 0;font-size:13px;color:#718096;">
-                {{#if (eq lang 'ar')}}خدمة الرأي الطبي الثاني{{else}}Medical Second Opinion Service{{/if}}
-              </p>
-            </td>
-          </tr>
-        </table>
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" class="email-container" style="max-width:600px;width:100%;">
+<tr><td align="center" style="padding:6px 0 24px;">
+  <div style="font:400 30px/1.2 Georgia,'Times New Roman',serif;color:#0B6B5F;letter-spacing:1px;">{{#if (eq lang 'ar')}}تشخيصة{{else}}Tashkheesa{{/if}}</div>
+  {{#if (eq lang 'ar')}}<div style="font:400 15px/1.4 Georgia,'Times New Roman',serif;color:#0B6B5F;letter-spacing:3px;padding-top:6px;">TASHKHEESA</div>{{else}}<div style="font:400 19px/1.5 'Geeza Pro',Georgia,serif;color:#0B6B5F;padding-top:4px;">تشخيصة</div>{{/if}}
+  <table role="presentation" cellpadding="0" cellspacing="0" style="margin:14px auto 0;"><tr>
+    <td style="width:54px;height:2px;background:#B38B3E;font-size:0;line-height:0;">&nbsp;</td>
+  </tr></table>
+  <div style="font:400 13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#7A736A;padding-top:12px;">
+    {{#if (eq lang 'ar')}}بدعم من مجموعة مستشفيات شفا{{else}}Backed by Shifa Hospital Group{{/if}}
+  </div>
+</td></tr>
+</table>
 
-        <!-- Main content card -->
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" class="email-container" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);overflow:hidden;">
-          <tr>
-            <!-- Top accent bar -->
-            <td style="height:4px;background:linear-gradient(90deg,#1a365d 0%,#2b6cb0 50%,#38b2ac 100%);font-size:0;line-height:0;">&nbsp;</td>
-          </tr>
-          <tr>
-            <td class="email-card-pad" style="padding:32px 40px;">
-              {{{body}}}
-            </td>
-          </tr>
-        </table>
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" class="email-container" style="max-width:600px;width:100%;background-color:#FFFFFF;border:1px solid #E3DED2;border-radius:12px;">
+<tr><td class="email-card-pad" style="padding:40px 44px;">
+{{{body}}}
+</td></tr>
+</table>
 
-        <!-- Footer -->
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" class="email-container" style="max-width:600px;width:100%;">
-          <tr>
-            <td align="center" style="padding:24px 0;">
-              <p style="margin:0 0 8px 0;font-size:13px;color:#a0aec0;">
-                {{#if (eq lang 'ar')}}
-                  © {{year}} تشخيصة. جميع الحقوق محفوظة.
-                {{else}}
-                  © {{year}} Tashkheesa. All rights reserved.
-                {{/if}}
-              </p>
-              <p style="margin:0;font-size:12px;color:#cbd5e0;">
-                <a href="{{appUrl}}" style="color:#2b6cb0;text-decoration:none;">{{appUrl}}</a>
-              </p>
-            </td>
-          </tr>
-        </table>
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" class="email-container" style="max-width:600px;width:100%;">
+<tr><td align="center" style="padding:26px 0;">
+  <p style="margin:0 0 7px;font:400 12px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#9A9287;">
+    {{#if (eq lang 'ar')}}تشخيصة &nbsp;·&nbsp; مجموعة مستشفيات شفا &nbsp;·&nbsp; القاهرة{{else}}Tashkheesa &nbsp;·&nbsp; Shifa Hospital Group &nbsp;·&nbsp; Cairo{{/if}}
+  </p>
+  <p style="margin:0;font:400 12px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#9A9287;">
+    <a href="{{appUrl}}" style="color:#0B6B5F;text-decoration:none;">tashkheesa.com</a>
+  </p>
+</td></tr>
+</table>
 
-      </td>
-    </tr>
-  </table>
+</td></tr>
+</table>
 </body>
 </html>

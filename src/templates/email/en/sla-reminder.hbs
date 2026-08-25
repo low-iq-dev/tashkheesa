@@ -3,16 +3,16 @@
      src/notification_worker.js). Branches on isDoctorRecipient /
      isPatientRecipient because dispatchSlaReminders queues the SAME
      template to both audiences, who need very different copy. -->
-<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#1a365d;">
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#0B6B5F;">
   {{#if isDoctorRecipient}}Review deadline approaching{{else}}An update on your case{{/if}}
 </h2>
 
 {{#if isDoctorRecipient}}
-<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4A4640;">
   Hi Dr. {{doctorName}},
 </p>
 
-<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4A4640;">
   {{#if (eq level "1h")}}
     This case is due within the hour. Please complete and submit your review now so the patient receives it on time.
   {{else if (eq level "6h")}}
@@ -22,11 +22,11 @@
   {{/if}}
 </p>
 {{else}}
-<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4A4640;">
   Hi {{patientName}},
 </p>
 
-<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4A4640;">
   {{#if (eq level "1h")}}
     Your second opinion is due shortly. Your specialist is finishing the review and we'll let you know the moment the report is ready.
   {{else if (eq level "6h")}}
@@ -43,8 +43,8 @@
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
         {{#if caseReference}}
         <tr>
-          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Case Reference:</td>
-          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#2d3748;">{{caseReference}}</td>
+          <td style="padding:6px 0;font-size:14px;color:#7A736A;width:140px;">Case Reference:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#2E2B26;">{{caseReference}}</td>
         </tr>
         {{/if}}
         {{! `timeRemaining` is a pre-rendered, already-localised phrase from
@@ -54,7 +54,7 @@
             used to read "Time Left: 0 hours" on the 1h reminder. }}
         {{#if timeRemaining}}
         <tr>
-          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Time Left:</td>
+          <td style="padding:6px 0;font-size:14px;color:#7A736A;width:140px;">Time Left:</td>
           <td style="padding:6px 0;font-size:14px;font-weight:600;color:#c05621;">{{timeRemaining}}</td>
         </tr>
         {{/if}}
@@ -75,7 +75,7 @@
   </tr>
 </table>
 {{/if}}
-<p style="margin:24px 0 0 0;font-size:13px;color:#718096;line-height:1.5;">
+<p style="margin:24px 0 0 0;font-size:13px;color:#7A736A;line-height:1.5;">
   If something is blocking your review — missing files, or you need more time — reply to this email and our team will help.
 </p>
 {{else}}
@@ -90,7 +90,7 @@
   </tr>
 </table>
 {{/if}}
-<p style="margin:24px 0 0 0;font-size:13px;color:#718096;line-height:1.5;">
+<p style="margin:24px 0 0 0;font-size:13px;color:#7A736A;line-height:1.5;">
   There's nothing you need to do right now — this is just a status update. If you have a question about your case, reply to this email and our team will help.
 </p>
 {{/if}}

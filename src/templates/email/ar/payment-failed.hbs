@@ -3,11 +3,11 @@
   تعذر معالجة الدفع
 </h2>
 
-<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4A4640;">
   مرحباً {{patientName}}،
 </p>
 
-<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4A4640;">
   لم نتمكن من معالجة دفعتك. قد يكون ذلك بسبب رصيد غير كافٍ أو بطاقة منتهية الصلاحية أو مشكلة مؤقتة مع مزود الدفع.
 </p>
 
@@ -18,13 +18,13 @@
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
         {{#if caseReference}}
         <tr>
-          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">رقم المرجع:</td>
-          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#2d3748;">{{caseReference}}</td>
+          <td style="padding:6px 0;font-size:14px;color:#7A736A;width:140px;">رقم المرجع:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#2E2B26;">{{caseReference}}</td>
         </tr>
         {{/if}}
         {{#if errorReason}}
         <tr>
-          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">السبب:</td>
+          <td style="padding:6px 0;font-size:14px;color:#7A736A;width:140px;">السبب:</td>
           <td style="padding:6px 0;font-size:14px;color:#c53030;">{{errorReason}}</td>
         </tr>
         {{/if}}
@@ -33,14 +33,14 @@
   </tr>
 </table>
 
-<p style="margin:0 0 24px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+<p style="margin:0 0 24px 0;font-size:15px;line-height:1.8;color:#4A4640;">
   يرجى المحاولة مرة أخرى أو استخدام طريقة دفع مختلفة. تم حفظ ملفات حالتك ولن تحتاج إلى إعادة رفعها.
 </p>
 
 {{#if paymentUrl}}
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
   <tr>
-    <td align="center" style="background-color:#2b6cb0;border-radius:8px;">
+    <td align="center" style="background-color:#0B6B5F;border-radius:8px;">
       <a href="{{paymentUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
         إعادة محاولة الدفع
       </a>
@@ -49,6 +49,6 @@
 </table>
 {{/if}}
 
-<p style="margin:24px 0 0 0;font-size:13px;color:#a0aec0;line-height:1.6;">
+<p style="margin:24px 0 0 0;font-size:13px;color:#9A9287;line-height:1.6;">
   إذا استمرت المشكلة، يرجى التواصل مع فريق الدعم للمساعدة.
 </p>
