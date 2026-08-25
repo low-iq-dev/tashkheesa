@@ -43,6 +43,15 @@
       <a href="/portal/appointments" class="<%= pActive('appointments') %>">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         <%= _isAr ? 'المواعيد' : 'Appointments' %>
+        <%# Coming soon (2026-08-25) - the entry stays so video consultation is
+            visibly on the roadmap rather than missing, and the page behind it
+            says the same thing. Matches the prescriptions treatment from
+            2026-08-24. See src/services/video_flag.js. %>
+        <% if (typeof videoComingSoon === 'undefined' || videoComingSoon) { %>
+          <span class="v2-nav-soon" style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px;background:#E8E5DD;color:#5b5b53;text-transform:uppercase;letter-spacing:0.3px;margin-inline-start:6px;">
+            <%= _isAr ? 'قريباً' : 'Soon' %>
+          </span>
+        <% } %>
       </a>
     </li>
     <li>

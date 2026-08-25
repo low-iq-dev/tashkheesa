@@ -614,6 +614,15 @@ app.use(function(req, res, next) {
     // feature as not ready rather than exposing an unaudited money path.
     res.locals.prescriptionsComingSoon = true;
   }
+  // Video consultation, same shape and the same reasoning — see
+  // src/services/video_flag.js. Set once here so no template can disagree with
+  // another about whether the feature is live.
+  try {
+    var vidFlag = require('./services/video_flag');
+    res.locals.videoComingSoon = vidFlag.videoComingSoon();
+  } catch (_) {
+    res.locals.videoComingSoon = true;
+  }
   next();
 });
 

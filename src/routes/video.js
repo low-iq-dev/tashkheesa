@@ -2053,11 +2053,27 @@ router.post('/portal/video/appointment/:id/confirm-slot', requireRole('patient')
 router.get('/portal/video/appointments', requireRole('patient', 'doctor'), async (req, res) => {
   const lang = getLang(req);
   const isDoctor = req.user.role === 'doctor';
-  const col = isDoctor ? 'doctor_id' : 'patient_id';
-  const joinCol = isDoctor ? 'a.patient_id' : 'a.doctor_id';
+
+  // COMING SOON 2026-08-25 — see src/services/video_flag.js.
+  //
+  // Both nav entries that lead here now carry a "Soon" badge, and this page has
+  // to agree with them. Left ungated it renders an EMPTY appointments list,
+  // which reads as "you have no appointments" rather than "this is not open
+  // yet" — the difference between a feature that looks broken and one that
+  // looks planned.
+  //
+  // The flag is passed to the view rather than rendering a different template:
+  // the appointments pages are the right pages, they just need to say the right
+  // thing. Same treatment prescriptions got on 2026-08-24.
+  //
+  // Zero rows exist platform-wide (0 appointments, 0 video_calls), so nothing
+  // is hidden from anyone by short-circuiting the query.
+  const _videoComingSoon = !isVideoEnabled();
 
   let appointments = [];
-  try {
+  // Skipped entirely while the feature is held back — there is nothing to load,
+  // and a query whose only possible answer is "none" is not worth a round trip.
+  if (!_videoComingSoon) try {
     appointments = await queryAll(`
       SELECT a.*, u.name AS other_name
       FROM appointments a
@@ -2087,6 +2103,7 @@ router.get('/portal/video/appointments', requireRole('patient', 'doctor'), async
       });
     }
     return res.render('patient_appointments_list', {
+      videoComingSoon: _videoComingSoon,
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       lang: lang,
       isAr: String(lang).toLowerCase() === 'ar',
@@ -2258,6 +2275,7 @@ router.get('/portal/doctor/appointments', requireRole('doctor'), async (req, res
   });
 
   res.render('doctor_appointments', {
+    videoComingSoon: _videoComingSoon,
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     layout: 'portal',
     title: isAr ? 'مواعيد الاستشارات' : 'Video Consultations',

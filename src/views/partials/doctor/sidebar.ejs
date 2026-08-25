@@ -111,6 +111,11 @@
           <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polygon points="10,14 15,17 10,20"/>
         </svg>
         <span><%= _isAr ? 'المواعيد' : 'Appointments' %></span>
+        <%# Coming soon (2026-08-25) - video consultation. Same treatment as
+            Prescriptions above. See src/services/video_flag.js. %>
+        <% if (typeof videoComingSoon === 'undefined' || videoComingSoon) { %>
+          <span class="v2-nav-soon"><%= _isAr ? 'قريباً' : 'Soon' %></span>
+        <% } %>
         <%# AUDIT-P0-5: "Soon" badge removed — /portal/doctor/appointments is a
             fully implemented page (routes/video.js -> doctor_appointments.ejs).
             The badge stopped doctors clicking a working feature. %>

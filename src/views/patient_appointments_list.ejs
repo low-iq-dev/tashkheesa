@@ -79,8 +79,22 @@
         <line x1="3" y1="10" x2="21" y2="10"/>
       </svg>
     </div>
-    <h3 style="color:var(--ink-2);margin:0 0 0.25rem;"><%= tt('No Appointments', 'No Appointments', 'لا توجد مواعيد') %></h3>
-    <p style="color:var(--muted);margin:0;font-size:0.85rem;"><%= tt('You have no scheduled appointments yet.', 'You have no scheduled appointments yet.', 'لا توجد مواعيد محجوزة حالياً.') %></p>
+    <%# COMING SOON 2026-08-25 - the empty state has to say WHICH kind of empty
+        it is. "You have no scheduled appointments yet" reads as a feature that
+        works and simply has nothing in it; while video consultation is held
+        back that is misleading. The nav entry that leads here carries a Soon
+        badge and this page now agrees with it.
+        See src/services/video_flag.js. %>
+    <% if (typeof videoComingSoon !== 'undefined' && videoComingSoon) { %>
+      <span style="display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:#E8E5DD;color:#5b5b53;text-transform:uppercase;letter-spacing:0.3px;margin-bottom:10px;">
+        <%= tt('Coming soon', 'Coming soon', 'قريباً') %>
+      </span>
+      <h3 style="color:var(--ink-2);margin:0 0 0.25rem;"><%= tt('Video consultations', 'Video consultations', 'استشارات الفيديو') %></h3>
+      <p style="color:var(--muted);margin:0;font-size:0.85rem;"><%= tt('Speaking to your doctor face to face is not open yet. We will let you know the moment it is.', 'Speaking to your doctor face to face is not open yet. We will let you know the moment it is.', 'التحدث مع طبيبك وجهاً لوجه غير متاح بعد. سنخبرك فور توفره.') %></p>
+    <% } else { %>
+      <h3 style="color:var(--ink-2);margin:0 0 0.25rem;"><%= tt('No Appointments', 'No Appointments', 'لا توجد مواعيد') %></h3>
+      <p style="color:var(--muted);margin:0;font-size:0.85rem;"><%= tt('You have no scheduled appointments yet.', 'You have no scheduled appointments yet.', 'لا توجد مواعيد محجوزة حالياً.') %></p>
+    <% } %>
   </div>
 <% } else { %>
   <div style="display:grid;gap:0.75rem;">

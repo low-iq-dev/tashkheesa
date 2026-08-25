@@ -249,8 +249,16 @@
             <tr>
               <td colspan="7">
                 <div class="dap-empty">
-                  <div class="dap-empty-k"><%= isAr ? 'لا توجد مواعيد' : 'No appointments' %></div>
-                  <div class="dap-empty-v"><%= isAr ? 'لا توجد مواعيد مطابقة للفلاتر المحددة.' : 'No appointments match the selected filters.' %></div>
+                  <%# COMING SOON 2026-08-25 - see src/services/video_flag.js.
+                      A doctor told "no appointments match your filters" will go
+                      looking for the filter that is wrong. Say the real reason. %>
+                  <% if (typeof videoComingSoon !== 'undefined' && videoComingSoon) { %>
+                    <div class="dap-empty-k"><%= isAr ? 'استشارات الفيديو — قريباً' : 'Video consultations — coming soon' %></div>
+                    <div class="dap-empty-v"><%= isAr ? 'لم يتم تفعيل استشارات الفيديو بعد. لا حاجة لضبط أوقاتك الآن.' : 'Video consultations are not switched on yet. There is nothing to set your availability for.' %></div>
+                  <% } else { %>
+                    <div class="dap-empty-k"><%= isAr ? 'لا توجد مواعيد' : 'No appointments' %></div>
+                    <div class="dap-empty-v"><%= isAr ? 'لا توجد مواعيد مطابقة للفلاتر المحددة.' : 'No appointments match the selected filters.' %></div>
+                  <% } %>
                 </div>
               </td>
             </tr>
