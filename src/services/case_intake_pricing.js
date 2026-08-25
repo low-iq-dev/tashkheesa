@@ -35,6 +35,7 @@ const { queryOne } = require('../pg');
 const { egpChargeFromLocal } = require('../fx');
 const { isUrgentWindowOpen } = require('./urgency_window');
 const { computeOrderPricing } = require('./urgency_pricing');
+const { isServiceBookable } = require('./service_bookable');
 
 /**
  * A refusal the caller should surface to the patient, as opposed to a fault.
@@ -69,19 +70,47 @@ function normalizeTier(rawTier, urgentFlag) {
  *
  * The mobile path historically checked NEITHER is_visible NOR coming_soon
  * (spec §4.5), so a stale app screen or a direct POST could mint an order for a
- * service with no active doctor behind it. COALESCE keeps the guard correct on
- * an older clone that predates the column defaults.
+ * service with no active doctor behind it.
+ *
+ * 2026-08-25 — it also never checked the SPECIALTY's visibility, which is the
+ * same hole one level up. 24 services sat under a hidden specialty and were
+ * orderable through this exact function; 8 were Nephrology, hidden in migration
+ * 087 BECAUSE it has no doctor. A patient could pay for a case that could never
+ * reach anyone. The web wizard's step-3 POST had the check; this did not, so
+ * hiding a specialty worked on one of the three paths that can create an order.
+ *
+ * The decision now comes from services/service_bookable.js so the three paths
+ * cannot drift again. Joined rather than sub-queried here because the row is
+ * fetched with SELECT * and the caller wants the reason, not just a boolean.
  *
  * @throws {IntakeError} INVALID_SERVICE | SERVICE_NOT_BOOKABLE
  */
 async function resolveServiceForBooking(serviceId) {
-  const service = await queryOne('SELECT * FROM services WHERE id = $1', [serviceId]);
+  const service = await queryOne(
+    `SELECT sv.*,
+            sp.is_visible          AS specialty_is_visible,
+            (sp.id IS NOT NULL)    AS specialty_exists
+       FROM services sv
+       LEFT JOIN specialties sp ON sp.id = sv.specialty_id
+      WHERE sv.id = $1`,
+    [serviceId]
+  );
   if (!service) {
     throw new IntakeError('INVALID_SERVICE', 400, 'Invalid service');
   }
-  const isVisible = service.is_visible == null ? true : !!service.is_visible;
-  const isComingSoon = service.coming_soon == null ? false : !!service.coming_soon;
-  if (!isVisible || isComingSoon) {
+  // No specialty, or a specialty_id pointing at a row that does not exist
+  // (orders.specialty_id has no FK — see resolveSpecialtyId below). Either way
+  // auto_assign matches on specialty_id, so such a case could be paid for and
+  // never routed. A missing join row leaves specialty_is_visible null, which
+  // isServiceBookable reads as visible, so this has to be tested separately
+  // rather than left to the verdict.
+  if (!service.specialty_id || service.specialty_exists !== true) {
+    throw new IntakeError(
+      'SERVICE_NOT_BOOKABLE', 400, 'This service is not available for booking'
+    );
+  }
+  const verdict = isServiceBookable(service, service.specialty_is_visible);
+  if (!verdict.bookable) {
     throw new IntakeError(
       'SERVICE_NOT_BOOKABLE', 400, 'This service is not available for booking'
     );

@@ -16,6 +16,7 @@ const { buildWizardPricing, buildStep4Persistence } = require('../services/wizar
 // invariant across every order-creation write site. See src/fx.js.
 const { egpChargeFromLocal } = require('../fx');
 const { isUrgentWindowOpen, nextSevenAmCairoUtc } = require('../services/urgency_window');
+const { serviceBookableClause } = require('../services/service_bookable');
 const { modelHaiku } = require('../config/anthropic');
 const { getThresholds } = require('../services/admin_settings');
 
@@ -919,15 +920,19 @@ async function servicesVisibleClause(alias) {
   return `COALESCE(${col}, true) = true`;
 }
 
-// Bookable = visible AND not coming_soon. Unlike servicesVisibleClause (async,
-// tolerates a missing is_visible column), this is a pure synchronous string
-// builder per the shared contract — the coming_soon column is NOT NULL DEFAULT
-// false in prod (migration 078), so COALESCE keeps it safe on any older clone.
-// Callers inline it in a WHERE clause alongside their own predicates.
+// Bookable = visible AND not coming_soon AND under a visible specialty.
+//
+// 2026-08-25: the third condition used to be a JOIN each caller remembered on
+// its own, and only ONE of them did — the step-3 POST. 24 services sat under a
+// deliberately hidden specialty and were orderable anyway, 8 of them Nephrology,
+// which was hidden precisely because it has no doctor. It now lives inside the
+// predicate as a correlated EXISTS, so it travels with the fragment and cannot
+// be left behind. Single source: services/service_bookable.js.
+//
+// Still a pure synchronous string builder per the shared contract, unlike
+// servicesVisibleClause (async, tolerates a missing is_visible column).
 function servicesBookableClause(alias) {
-  const vis  = alias ? `${alias}.is_visible`  : 'is_visible';
-  const soon = alias ? `${alias}.coming_soon` : 'coming_soon';
-  return `COALESCE(${vis},true)=true AND COALESCE(${soon},false)=false`;
+  return serviceBookableClause(alias);
 }
 
 // --- safe schema helpers ---
@@ -2581,7 +2586,15 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
     [countryCode, service_id]
   );
 
-  const validSpecialty = specialty_id && await queryOne('SELECT 1 FROM specialties WHERE id = $1', [specialty_id]);
+  // 2026-08-25: was `SELECT 1 FROM specialties WHERE id = $1` — any specialty,
+  // hidden or not. The service lookup above now carries the visibility rule
+  // inside servicesBookableClause, so this is belt and braces; without it a
+  // request naming a hidden specialty would fail on the mismatch check below
+  // rather than on the thing that is actually wrong.
+  const validSpecialty = specialty_id && await queryOne(
+    'SELECT 1 FROM specialties WHERE id = $1 AND COALESCE(is_visible, true) = true',
+    [specialty_id]
+  );
   const serviceMatchesSpecialty = service && String(service.specialty_id) === String(specialty_id);
 
   let fileList = [];

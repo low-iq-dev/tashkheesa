@@ -7,6 +7,11 @@
 
 const router = require('express').Router();
 const { coerceCountry } = require('../../launch-market');
+const { serviceBookableClause } = require('../../services/service_bookable');
+
+// One definition of "a patient may order this", shared with the web wizard and
+// the case-intake path. Aliased `s` to match every query in this file.
+const BOOKABLE = serviceBookableClause('s');
 
 module.exports = function (db, { safeGet, safeAll }) {
 
@@ -16,7 +21,10 @@ module.exports = function (db, { safeGet, safeAll }) {
     const specialties = await safeAll(`
       SELECT
         sp.id, sp.name, sp.name_ar as "nameAr",
-        COUNT(DISTINCT CASE WHEN s.is_visible = true THEN s.id END)::int as "serviceCount"
+        -- Count what /specialties/:id/services will actually return. It used
+        -- to count is_visible alone, so a specialty could advertise a service
+        -- count the list endpoint then failed to match.
+        COUNT(DISTINCT CASE WHEN ${BOOKABLE} THEN s.id END)::int as "serviceCount"
       FROM specialties sp
       LEFT JOIN services s ON s.specialty_id = sp.id
       WHERE sp.is_visible = true
@@ -35,7 +43,10 @@ module.exports = function (db, { safeGet, safeAll }) {
         s.id, s.name, s.base_price as "basePrice", s.currency,
         s.sla_hours as "slaHours", s.specialty_id as "specialtyId"
       FROM services s
-      WHERE s.specialty_id = $1 AND s.is_visible = true
+      -- 2026-08-25: was s.is_visible = true alone, so this happily listed
+      -- services under a specialty an operator had hidden — 24 of them, 8
+      -- Nephrology. Same rule as the web wizard now, from one place.
+      WHERE s.specialty_id = $1 AND ${BOOKABLE}
       ORDER BY s.id
     `, [req.params.id]);
 
@@ -72,7 +83,7 @@ module.exports = function (db, { safeGet, safeAll }) {
           ON rp.service_id = s.id
           AND rp.country_code = $1
           AND COALESCE(rp.status, 'active') = 'active'
-        WHERE s.is_visible = true${whereExtra}
+        WHERE ${BOOKABLE}${whereExtra}
         ORDER BY s.id, rp.tashkheesa_price DESC NULLS LAST
       ) svc
       ORDER BY "specialtyName" ASC NULLS LAST, name ASC
@@ -88,7 +99,15 @@ module.exports = function (db, { safeGet, safeAll }) {
     const { country } = req.query;
     const serviceId = req.params.id;
 
-    const service = await safeGet('SELECT * FROM services WHERE id = $1', [serviceId]);
+    // 2026-08-25: had no filter at all, so it returned a live quote for any
+    // service id — hidden, coming_soon, or under a hidden specialty. A client
+    // could price a Nephrology review nobody can deliver. 404 rather than a
+    // distinct status: an unbookable service should look absent to the API,
+    // which is what every other endpoint here now reports.
+    const service = await safeGet(
+      `SELECT s.* FROM services s WHERE s.id = $1 AND ${BOOKABLE}`,
+      [serviceId]
+    );
     if (!service) return res.fail('Service not found', 404);
 
     const regional = await safeGet(`

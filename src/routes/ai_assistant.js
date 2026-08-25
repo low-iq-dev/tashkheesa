@@ -4,6 +4,7 @@ const { queryAll } = require('../pg');
 const Anthropic = require('@anthropic-ai/sdk');
 const rateLimit = require('express-rate-limit');
 const { modelSonnet } = require('../config/anthropic');
+const { serviceBookableClause } = require('../services/service_bookable');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -18,11 +19,21 @@ async function buildCatalog() {
     return _catalogCache.text;
   }
 
+  // 2026-08-25: gated on sv.is_visible alone, so the assistant recommended
+  // services — by name, price and id — from specialties an operator had
+  // hidden. This route is mounted UNAUTHENTICATED (server.js), so those were
+  // being named to anonymous visitors, and the ids it returns are what the
+  // client then submits. Nephrology was 8 of the 24 affected: hidden in
+  // migration 087 because it has no doctor at all.
+  //
+  // NOTE the 5-minute in-memory cache above: after a deploy, or after an
+  // operator flips a specialty's visibility, the old catalogue can still be
+  // served for up to CATALOG_TTL_MS.
   const services = await queryAll(`
     SELECT sv.id, sv.name, sv.base_price, sv.currency, sv.sla_hours, sp.name AS specialty
     FROM services sv
     JOIN specialties sp ON sv.specialty_id = sp.id
-    WHERE sv.is_visible = true AND sv.base_price > 0
+    WHERE ${serviceBookableClause('sv')} AND sv.base_price > 0
     ORDER BY sp.name, sv.base_price ASC
   `, []);
 
