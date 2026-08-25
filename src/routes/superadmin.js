@@ -457,6 +457,59 @@ router.get('/superadmin/settings', requireSuperadmin, async (req, res) => {
   const byKey = {};
   for (const r of (rows || [])) byKey[r.key] = r;
 
+  // 2026-08-25 — auto-assign. This flag has existed since June and has been
+  // 'false' the whole time, with NO route or view anywhere that writes it: the
+  // only way to turn automatic case assignment on was a hand-written SQL
+  // UPDATE against production. A switch that decides whether paid cases reach
+  // a doctor should not live in a psql session.
+  let autoAssign = null;
+  try {
+    autoAssign = await queryOne(
+      `SELECT key, value, updated_by, updated_at FROM admin_settings
+        WHERE key = 'auto_assign_enabled'`
+    );
+  } catch (_) { autoAssign = null; }
+  const autoAssignOn = (function () {
+    const v = String((autoAssign && autoAssign.value) || '').toLowerCase().trim();
+    // Mirrors isAutoAssignEnabled() in src/auto_assign.js exactly — if the two
+    // ever disagree the page would show a state the engine does not act on.
+    return v === 'true' || v === '1' || v === 'yes';
+  })();
+
+  // Readiness context, so the toggle is not a switch in the dark. Turning
+  // auto-assign on when nothing downstream works produces silent failures that
+  // look exactly like it being off; the operator should see that first.
+  let autoAssignReadiness = null;
+  try {
+    const r = await queryOne(
+      `SELECT
+         (SELECT count(*) FROM users u
+           WHERE u.role = 'doctor'
+             AND COALESCE(u.is_active, true) = true
+             AND COALESCE(u.is_paused, false) = false
+             AND COALESCE(u.pending_approval, false) = false
+             AND COALESCE(u.onboarding_complete, false) = true
+             AND EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = u.id)
+         ) AS assignable_doctors,
+         (SELECT count(*) FROM specialties sp
+           WHERE COALESCE(sp.is_visible, true) = true
+             AND NOT EXISTS (
+                   SELECT 1 FROM users u
+                    WHERE u.specialty_id = sp.id AND u.role = 'doctor'
+                      AND COALESCE(u.is_active, true) = true
+                      AND COALESCE(u.is_paused, false) = false
+                      AND COALESCE(u.pending_approval, false) = false
+                      AND COALESCE(u.onboarding_complete, false) = true
+                      AND EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = u.id)
+                 )
+         ) AS unstaffed_visible_specialties,
+         (SELECT count(*) FROM orders_active o
+           WHERE o.assignment_status IN ('manual_queue', 'manual_pending')
+         ) AS awaiting_manual`
+    );
+    autoAssignReadiness = r || null;
+  } catch (_) { autoAssignReadiness = null; }
+
   return res.render('superadmin_settings', {
     brand: 'Tashkheesa',
     user: req.user,
@@ -470,6 +523,12 @@ router.get('/superadmin/settings', requireSuperadmin, async (req, res) => {
       minimum: byKey.classifier_threshold_minimum || null
     },
     defaults: adminSettings.DEFAULTS,
+    autoAssign,
+    autoAssignOn,
+    autoAssignReadiness,
+    autoAssignSaved: !!(req.query && req.query.autoassign),
+    autoAssignSavedTo: (req.query && req.query.autoassign === 'on') ? 'on'
+                      : (req.query && req.query.autoassign === 'off') ? 'off' : null,
     saved: !!(req.query && req.query.saved === '1'),
     queryErr: (req.query && typeof req.query.err === 'string') ? req.query.err : ''
   });
@@ -531,6 +590,71 @@ router.post('/superadmin/settings', requireSuperadmin, async (req, res) => {
   }
 
   return res.redirect('/superadmin/settings?saved=1');
+});
+
+// POST /superadmin/settings/auto-assign — turn automatic case assignment on or off.
+//
+// 2026-08-25. admin_settings.auto_assign_enabled has been 'false' since
+// 2026-06-01 and NOTHING in the codebase wrote it — the only way to change it
+// was a manual SQL UPDATE against production. That is the switch deciding
+// whether a paid case is routed to a doctor automatically or sits waiting for
+// somebody to notice, so it belongs on a page with an audit trail.
+//
+// Separate route from POST /superadmin/settings on purpose: that handler
+// requires all three classifier thresholds to be present and rejects the whole
+// submission if any is missing, so folding a checkbox into the same form would
+// couple two unrelated settings and make each one able to block the other.
+//
+// Checkbox semantics: an unchecked box submits NOTHING, so absence means off.
+// The explicit intent field distinguishes "the operator submitted this form and
+// left it unchecked" from "something posted here with no body at all" — without
+// it, a malformed request would read as a deliberate disable.
+router.post('/superadmin/settings/auto-assign', requireSuperadmin, async (req, res) => {
+  const body = req.body || {};
+  if (String(body.intent || '') !== 'set_auto_assign') {
+    return res.redirect('/superadmin/settings?err=auto_assign_bad_request');
+  }
+
+  const enable = String(body.auto_assign_enabled || '') === 'on';
+  const userId = req.user && req.user.id ? String(req.user.id) : null;
+
+  try {
+    // Written as the literal 'true' / 'false' text isAutoAssignEnabled() parses
+    // (src/auto_assign.js also accepts '1' and 'yes', but one canonical spelling
+    // in the table beats three).
+    await execute(
+      `INSERT INTO admin_settings (key, value, updated_by, updated_at)
+            VALUES ('auto_assign_enabled', $1, $2, NOW())
+       ON CONFLICT (key) DO UPDATE
+            SET value = EXCLUDED.value,
+                updated_by = EXCLUDED.updated_by,
+                updated_at = EXCLUDED.updated_at`,
+      [enable ? 'true' : 'false', userId]
+    );
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.auto_assign_toggle',
+      requestId: req.requestId,
+      userId: userId,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_action'
+    });
+    return res.redirect('/superadmin/settings?err=auto_assign_write_failed');
+  }
+
+  // Audit separately from the row's own updated_by: that column holds only the
+  // LAST writer, so a flag flipped on and off again leaves no trace of the
+  // first change. This is a routing-behaviour switch — the history matters.
+  try {
+    logAdminAudit({
+      req,
+      action: enable ? 'auto_assign_enabled' : 'auto_assign_disabled',
+      target: 'admin_settings.auto_assign_enabled'
+    });
+  } catch (_) {}
+
+  return res.redirect('/superadmin/settings?autoassign=' + (enable ? 'on' : 'off'));
 });
 
 // ---- Superadmin services visibility toggles (hide/unhide) ----
