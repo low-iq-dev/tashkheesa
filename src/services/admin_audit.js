@@ -28,16 +28,20 @@ const { execute } = require('../pg');
  * @param {Object} args.req     The Express request (used for user_id, request_id, url, method)
  * @param {string} args.action  Snake-case action verb, e.g. 'viewed_payout_data'
  * @param {string} args.target  The route or surface name being audited, e.g. '/admin' or 'admin_dashboard_financials_tile'
+ * @param {string} [args.message] Human-readable line for the log. Defaults to
+ *                                the historical "viewed payout data: <target>".
  * @returns {Promise<void>}     Never throws — failures are swallowed and console-warned.
  */
-async function logAdminAudit({ req, action, target }) {
+async function logAdminAudit({ req, action, target, message: messageOverride }) {
   try {
     const userId = (req && req.user && req.user.id) || null;
     const requestId = (req && req.requestId) || null;
     const url = (req && req.originalUrl) || null;
     const method = (req && req.method) || null;
 
-    const message = 'viewed payout data: ' + (target || url || 'unknown');
+    const message = messageOverride
+      ? String(messageOverride)
+      : ('viewed payout data: ' + (target || url || 'unknown'));
 
     await execute(
       `INSERT INTO error_logs

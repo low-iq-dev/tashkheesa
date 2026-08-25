@@ -479,32 +479,65 @@ router.get('/superadmin/settings', requireSuperadmin, async (req, res) => {
   // Readiness context, so the toggle is not a switch in the dark. Turning
   // auto-assign on when nothing downstream works produces silent failures that
   // look exactly like it being off; the operator should see that first.
+  //
+  // Counted at SERVICE level, not specialty level — a correction from review.
+  // The first version asked "does this specialty have any eligible doctor with
+  // any doctor_services row", but eligibleDoctorsFor gates on the ORDER'S
+  // service (auto_assign.js: ds.service_id = $3). Cardiology has three eligible
+  // doctors mapped to 9 of its 11 services, so the specialty-level question
+  // answered "staffed" while an order on Event Monitor Review or Pre-Op Cardiac
+  // Clearance still had nobody and fell straight into the manual queue. A
+  // readiness panel that misses exactly the cases it exists to warn about is
+  // worse than no panel.
   let autoAssignReadiness = null;
   try {
     const r = await queryOne(
-      `SELECT
-         (SELECT count(*) FROM users u
-           WHERE u.role = 'doctor'
-             AND COALESCE(u.is_active, true) = true
-             AND COALESCE(u.is_paused, false) = false
-             AND COALESCE(u.pending_approval, false) = false
-             AND COALESCE(u.onboarding_complete, false) = true
-             AND EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = u.id)
+      `WITH eligible AS (
+         SELECT u.id, u.specialty_id
+           FROM users u
+          WHERE u.role = 'doctor'
+            AND COALESCE(u.is_active, true) = true
+            AND COALESCE(u.is_paused, false) = false
+            AND COALESCE(u.pending_approval, false) = false
+            AND COALESCE(u.onboarding_complete, false) = true
+            AND u.specialty_id IS NOT NULL
+       ),
+       bookable AS (
+         SELECT sv.id, sv.specialty_id
+           FROM services sv
+           JOIN specialties sp ON sp.id = sv.specialty_id
+          WHERE COALESCE(sv.is_visible, true) = true
+            AND COALESCE(sv.coming_soon, false) = false
+            AND COALESCE(sp.is_visible, true) = true
+       ),
+       covered AS (
+         SELECT b.id, b.specialty_id,
+                EXISTS (
+                  SELECT 1 FROM doctor_services ds
+                    JOIN eligible e ON e.id = ds.doctor_id
+                   WHERE ds.service_id = b.id
+                     AND e.specialty_id = b.specialty_id
+                ) AS has_doctor
+           FROM bookable b
+       )
+       SELECT
+         (SELECT count(*) FROM eligible e
+           WHERE EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = e.id)
          ) AS assignable_doctors,
-         (SELECT count(*) FROM specialties sp
-           WHERE COALESCE(sp.is_visible, true) = true
-             AND NOT EXISTS (
-                   SELECT 1 FROM users u
-                    WHERE u.specialty_id = sp.id AND u.role = 'doctor'
-                      AND COALESCE(u.is_active, true) = true
-                      AND COALESCE(u.is_paused, false) = false
-                      AND COALESCE(u.pending_approval, false) = false
-                      AND COALESCE(u.onboarding_complete, false) = true
-                      AND EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = u.id)
-                 )
-         ) AS unstaffed_visible_specialties,
+         (SELECT count(*) FROM covered) AS bookable_services,
+         (SELECT count(*) FROM covered WHERE NOT has_doctor) AS uncovered_services,
+         (SELECT count(DISTINCT specialty_id) FROM covered WHERE NOT has_doctor) AS specialties_with_gaps,
+         -- Only orders that are genuinely still waiting. orders_active is just
+         -- "not soft-deleted" — no status and no payment filter — so the first
+         -- version's count included an expired_unpaid order and would have
+         -- permanently counted every cancelled or refunded case that ever
+         -- passed through the queue.
          (SELECT count(*) FROM orders_active o
            WHERE o.assignment_status IN ('manual_queue', 'manual_pending')
+             AND o.doctor_id IS NULL
+             AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured')
+             AND LOWER(COALESCE(o.status, '')) NOT IN
+                 ('completed', 'cancelled', 'canceled', 'refunded', 'expired_unpaid', 'rejected')
          ) AS awaiting_manual`
     );
     autoAssignReadiness = r || null;
@@ -526,9 +559,16 @@ router.get('/superadmin/settings', requireSuperadmin, async (req, res) => {
     autoAssign,
     autoAssignOn,
     autoAssignReadiness,
-    autoAssignSaved: !!(req.query && req.query.autoassign),
-    autoAssignSavedTo: (req.query && req.query.autoassign === 'on') ? 'on'
-                      : (req.query && req.query.autoassign === 'off') ? 'off' : null,
+    // The confirmation banner is shown only when the query string AND the
+    // stored value agree. Review round 2: deriving it from the query string
+    // alone meant GET /superadmin/settings?autoassign=on rendered a green
+    // "Automatic assignment is on" directly above a status pill reading OFF —
+    // reachable by bookmarking the post-save URL, re-sharing it, or reloading
+    // it after someone else switched the flag back. A banner that contradicts
+    // the state one line below it is worse than no banner.
+    autoAssignSavedTo: (req.query && req.query.autoassign === 'on'  && autoAssignOn)  ? 'on'
+                     : (req.query && req.query.autoassign === 'off' && !autoAssignOn) ? 'off'
+                     : null,
     saved: !!(req.query && req.query.saved === '1'),
     queryErr: (req.query && typeof req.query.err === 'string') ? req.query.err : ''
   });
@@ -650,7 +690,12 @@ router.post('/superadmin/settings/auto-assign', requireSuperadmin, async (req, r
     logAdminAudit({
       req,
       action: enable ? 'auto_assign_enabled' : 'auto_assign_disabled',
-      target: 'admin_settings.auto_assign_enabled'
+      target: 'admin_settings.auto_assign_enabled',
+      // Explicit message: the helper's default is the hardcoded string
+      // "viewed payout data: <target>", which would have filed this flag flip
+      // as a page view. An audit line that misdescribes what happened is worse
+      // than none, because it gets believed.
+      message: 'automatic case assignment turned ' + (enable ? 'ON' : 'OFF')
     });
   } catch (_) {}
 

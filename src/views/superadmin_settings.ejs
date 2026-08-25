@@ -17,9 +17,11 @@
   const aaRow       = (typeof autoAssign !== 'undefined' && autoAssign) ? autoAssign : null;
   const aaReady     = (typeof autoAssignReadiness !== 'undefined' && autoAssignReadiness) ? autoAssignReadiness : null;
   const aaSavedTo   = (typeof autoAssignSavedTo !== 'undefined') ? autoAssignSavedTo : null;
-  const aaDoctors   = aaReady ? Number(aaReady.assignable_doctors) || 0 : null;
-  const aaUnstaffed = aaReady ? Number(aaReady.unstaffed_visible_specialties) || 0 : null;
-  const aaWaiting   = aaReady ? Number(aaReady.awaiting_manual) || 0 : null;
+  const aaDoctors    = aaReady ? Number(aaReady.assignable_doctors) || 0 : null;
+  const aaBookable   = aaReady ? Number(aaReady.bookable_services)  || 0 : null;
+  const aaUncovered  = aaReady ? Number(aaReady.uncovered_services) || 0 : null;
+  const aaGapSpecs   = aaReady ? Number(aaReady.specialties_with_gaps) || 0 : null;
+  const aaWaiting    = aaReady ? Number(aaReady.awaiting_manual)    || 0 : null;
   const errStr = (typeof queryErr === 'string') ? queryErr : '';
   const _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
 
@@ -200,8 +202,8 @@
   <%- include('partials/superadmin/c_card_open', {
         title: isArSafe ? 'الإسناد التلقائي للحالات' : 'Automatic case assignment',
         sub: isArSafe
-          ? 'عند التفعيل، تُسند الحالة المدفوعة إلى استشاري مؤهل تلقائياً. عند الإيقاف تنتظر كل حالة إسناداً يدوياً.'
-          : 'When on, a paid case is routed to an eligible consultant automatically. When off, every case waits for someone to assign it by hand.'
+          ? 'يتحكم في الإسناد التلقائي فور الدفع. لا يوقف الإسناد التلقائي بعد انتهاء مهلة القبول — ذلك يعمل دائماً.'
+          : 'Controls automatic routing at the moment of payment. It does NOT stop the acceptance-window sweep, which assigns a doctor either way.'
       }) %>
 
     <% if (aaSavedTo) { %>
@@ -210,8 +212,8 @@
           ? (isArSafe ? 'تم تفعيل الإسناد التلقائي.' : 'Automatic assignment is on.')
           : (isArSafe ? 'تم إيقاف الإسناد التلقائي.' : 'Automatic assignment is off.') %></strong>
         <%= aaSavedTo === 'on'
-          ? (isArSafe ? 'ستُسند الحالات الجديدة المدفوعة فور استلامها.' : 'New paid cases will be routed as soon as they are paid.')
-          : (isArSafe ? 'ستحتاج كل حالة جديدة إلى إسناد يدوي.' : 'Every new case will need assigning by hand.') %>
+          ? (isArSafe ? 'ستُسند الحالات الجديدة المدفوعة فور استلامها.' : 'New paid cases will be routed the moment they are paid.')
+          : (isArSafe ? 'لن تُسند الحالات الجديدة عند الدفع، لكن كنس مهلة القبول سيظل يسندها لاحقاً.' : 'New cases will not be routed at payment — but the acceptance-window sweep still assigns them afterwards.') %>
       </div>
     <% } %>
 
@@ -235,12 +237,15 @@
           <div style="font-size:10.5px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#6b7280;"><%= isArSafe ? 'أطباء قابلون للإسناد' : 'Assignable doctors' %></div>
           <div style="font-size:19px;font-weight:600;margin-top:2px;color:<%= aaDoctors > 0 ? '#111827' : '#991b1b' %>;font-variant-numeric:tabular-nums;"><%= aaDoctors %></div>
         </div>
+        <%# Service level, not specialty level — the engine matches the ORDER'S
+            service, so a specialty that looks staffed can still have services
+            with nobody behind them. %>
         <div style="background:#fff;padding:11px 14px;">
-          <div style="font-size:10.5px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#6b7280;"><%= isArSafe ? 'تخصصات ظاهرة بلا طبيب' : 'Visible specialties with none' %></div>
-          <div style="font-size:19px;font-weight:600;margin-top:2px;color:<%= aaUnstaffed > 0 ? '#92400e' : '#111827' %>;font-variant-numeric:tabular-nums;"><%= aaUnstaffed %></div>
+          <div style="font-size:10.5px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#6b7280;"><%= isArSafe ? 'خدمات بلا طبيب مؤهل' : 'Bookable services with no doctor' %></div>
+          <div style="font-size:19px;font-weight:600;margin-top:2px;color:<%= aaUncovered > 0 ? '#92400e' : '#111827' %>;font-variant-numeric:tabular-nums;"><%= aaUncovered %><span style="font-size:13px;color:#9ca3af;font-weight:500;"> / <%= aaBookable %></span></div>
         </div>
         <div style="background:#fff;padding:11px 14px;">
-          <div style="font-size:10.5px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#6b7280;"><%= isArSafe ? 'بانتظار إسناد يدوي' : 'Awaiting manual assignment' %></div>
+          <div style="font-size:10.5px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#6b7280;"><%= isArSafe ? 'حالات مدفوعة تنتظر إسناداً' : 'Paid cases awaiting assignment' %></div>
           <div style="font-size:19px;font-weight:600;margin-top:2px;color:#111827;font-variant-numeric:tabular-nums;"><%= aaWaiting %></div>
         </div>
       </div>
@@ -252,12 +257,12 @@
             ? 'تفعيل الإسناد التلقائي الآن لن يغيّر شيئاً: كل حالة ستفشل في الإسناد وتذهب للطابور اليدوي. يحتاج الطبيب إلى إكمال التسجيل واختيار خدماته.'
             : 'Turning this on changes nothing yet — every case will fail to assign and fall into the manual queue. A doctor needs to finish onboarding and pick their services before automatic routing can do anything.' %>
         </div>
-      <% } else if (aaUnstaffed > 0) { %>
+      <% } else if (aaUncovered > 0) { %>
         <div role="status" style="margin-top:12px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e;">
-          <strong><%= aaUnstaffed %> <%= isArSafe ? 'تخصص ظاهر بلا طبيب مؤهل.' : (aaUnstaffed === 1 ? 'visible specialty has no eligible doctor.' : 'visible specialties have no eligible doctor.') %></strong>
+          <strong><%= aaUncovered %> <%= isArSafe ? 'خدمة قابلة للحجز بلا طبيب مؤهل' : (aaUncovered === 1 ? 'bookable service has no eligible doctor' : 'bookable services have no eligible doctor') %><% if (aaGapSpecs) { %><%= isArSafe ? '، عبر ' : ', across ' %><%= aaGapSpecs %> <%= isArSafe ? 'تخصص.' : (aaGapSpecs === 1 ? 'specialty.' : 'specialties.') %><% } else { %>.<% } %></strong>
           <%= isArSafe
-            ? 'الحالات في هذه التخصصات ستذهب للطابور اليدوي حتى مع تفعيل الإسناد التلقائي.'
-            : 'Cases in those will still land in the manual queue, with or without this on.' %>
+            ? 'الحالات على هذه الخدمات ستذهب للطابور اليدوي سواء كان الإسناد التلقائي مفعَّلاً أو لا. لاحظ أن التخصص قد يبدو مغطّى بينما بعض خدماته ليست كذلك.'
+            : 'Cases on those go to the manual queue whether this is on or off. Note a specialty can look covered while some of its services are not — the engine matches the case\'s service, not just its specialty.' %>
         </div>
       <% } %>
     <% } %>
@@ -273,8 +278,20 @@
           <span style="font-size:14px;font-weight:600;color:#111827;"><%= isArSafe ? 'إسناد الحالات المدفوعة تلقائياً' : 'Route paid cases automatically' %></span>
           <span style="display:block;font-size:12.5px;color:#6b7280;line-height:1.55;margin-top:3px;">
             <%= isArSafe
-              ? 'يُطبَّق على الحالات الجديدة فقط. الحالات الموجودة في الطابور اليدوي تبقى كما هي.'
-              : 'Applies to new cases only. Anything already in the manual queue stays there.' %>
+              ? 'يُطبَّق على الحالات الجديدة فقط عند لحظة الدفع. الحالات الموجودة في الطابور اليدوي تبقى كما هي.'
+              : 'Applies to new cases at the moment of payment. Anything already in the manual queue stays there.' %>
+          </span>
+          <%# Scope, stated plainly. This flag gates ONE path — the enqueue in
+              job_queue.handleAutoAssign. workers/acceptance_watcher.js sweeps
+              every two minutes for paid cases whose acceptance window lapsed
+              and assigns a doctor outright, and case_sla_worker's alternate-
+              doctor path does the same; neither consults this setting. Leaving
+              that unsaid would let an operator believe switching this off means
+              no case is ever assigned without a human. %>
+          <span style="display:block;font-size:12px;color:#9ca3af;line-height:1.5;margin-top:6px;">
+            <%= isArSafe
+              ? 'لا يشمل: كنس مهلة القبول واستبدال الطبيب عند اقتراب المهلة — كلاهما يُسند تلقائياً بغض النظر عن هذا الإعداد.'
+              : 'Does not cover: the acceptance-window sweep, or SLA reassignment to an alternate doctor. Both assign automatically regardless of this setting.' %>
           </span>
         </span>
       </label>
