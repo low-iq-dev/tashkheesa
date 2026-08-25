@@ -3745,24 +3745,52 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
 // about to be emailed, and the POST lives here — so the operator sees the
 // names before the click, not a number.
 router.get('/superadmin/doctors/bulk-welcome', requireSuperadmin, async (req, res) => {
-  // Same cohort the send uses, but with names, so this is a review and not a
-  // restatement of the count.
-  const rows = await queryAll(
-    `SELECT id, name, email, lang, welcome_email_last_sent_at,
-            (welcome_email_last_sent_at IS NULL
-             OR welcome_email_last_sent_at < NOW() - ($1::int * interval '1 hour')) AS eligible
-       FROM users
-      WHERE role = 'doctor' AND is_active = true AND password_hash IS NULL
-      ORDER BY eligible DESC, name ASC`,
-    [BULK_WELCOME_COOLDOWN_HOURS]
-  );
-  assertRenderableView('superadmin_bulk_welcome');
-  return res.render('superadmin_bulk_welcome', {
-    user: req.user,
-    lang: (res.locals && res.locals.lang) || 'en',
-    doctors: rows || [],
-    cooldownHours: BULK_WELCOME_COOLDOWN_HOURS
-  });
+  // 2026-08-25 — this handler took production down in a restart loop, and the
+  // mechanism is worth writing out because it is not obvious.
+  //
+  // assertRenderableView THROWS when a view is absent from views/registry.js.
+  // I added superadmin_bulk_welcome.ejs and never registered it. Express 4
+  // does not catch a rejection from an async handler, so the throw became an
+  // unhandledRejection, and server.js turns those into process.exit(1). Every
+  // click on "Email all" therefore killed the process: 502, Render restarts,
+  // click again, 502.
+  //
+  // The registry entry is the actual fix. This try/catch is the second lock:
+  // a page that lists doctors must not be able to take the platform down, and
+  // ANY throw in here — a schema drift on the SELECT, a missing partial, a
+  // template typo — had exactly the same reach.
+  try {
+    // Same cohort the send uses, but with names, so this is a review and not a
+    // restatement of the count.
+    const rows = await queryAll(
+      `SELECT id, name, email, lang, welcome_email_last_sent_at,
+              (welcome_email_last_sent_at IS NULL
+               OR welcome_email_last_sent_at < NOW() - ($1::int * interval '1 hour')) AS eligible
+         FROM users
+        WHERE role = 'doctor' AND is_active = true AND password_hash IS NULL
+        ORDER BY eligible DESC, name ASC`,
+      [BULK_WELCOME_COOLDOWN_HOURS]
+    );
+    assertRenderableView('superadmin_bulk_welcome');
+    return res.render('superadmin_bulk_welcome', {
+      user: req.user,
+      lang: (res.locals && res.locals.lang) || 'en',
+      doctors: rows || [],
+      cooldownHours: BULK_WELCOME_COOLDOWN_HOURS
+    });
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.doctors_bulk_welcome_review',
+      requestId: req.requestId,
+      userId: req.user && req.user.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_action'
+    });
+    console.error('[bulk-welcome] review page failed:', err && err.message ? err.message : err);
+    // Send the operator somewhere real with a reason, rather than a 502.
+    return res.redirect('/superadmin/doctors?welcome_error=1');
+  }
 });
 
 router.get('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) => {
