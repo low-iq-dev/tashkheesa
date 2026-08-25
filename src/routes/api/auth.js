@@ -9,6 +9,8 @@ const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { randomUUID, randomInt } = require('crypto');
 const { coerceCountry, marketFromDialCode } = require('../../launch-market');
+const { logErrorToDb } = require('../../logger');
+const { normalizePhone } = require('../../validators/phone_identity');
 // Lazy-load express-validator — top-level require takes ~120s (validator.js regex compilation)
 // and starves the DB connection pool timeout during boot.
 let _ev;
@@ -107,7 +109,18 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       // Concatenate first, exactly as /otp/verify does.
       const fullPhone = `${String(countryCode || '').trim()}${String(phone || '').trim()}`.replace(/\s/g, '');
       const { validatePhoneE164 } = require('../../validators/phone');
-      const phoneCheck = validatePhoneE164(fullPhone, lang === 'ar' ? 'ar' : 'en');
+      // AUDIT 2026-08-25 — country-aware normalisation.
+      //
+      // This concatenated the dial code onto whatever the user typed and ran a
+      // context-free validator. An Egyptian entering their number the ordinary
+      // way ('01098729248') produced '+2001098729248' — dial code plus the
+      // national trunk '0' — which is a different string from the same person's
+      // '+201098729248', so it created a second account. Production held one of
+      // these ('+2001149055838').
+      //
+      // normalizePhone knows the dial code is a COUNTRY, not a prefix to glue
+      // on, so it drops the trunk digit and rebuilds the number correctly.
+      const phoneCheck = normalizePhone(phone, countryCode, lang === 'ar' ? 'ar' : 'en');
       if (!phoneCheck.ok) {
         return res.fail(phoneCheck.error, 422, 'PHONE_INVALID');
       }
@@ -347,7 +360,18 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       // (e.g. "+2010") rows we audited yesterday. Look up + store
       // `fullPhone` post-normalization so every patient row is E.164.
       const { validatePhoneE164 } = require('../../validators/phone');
-      const phoneCheck = validatePhoneE164(fullPhone, 'en');
+      // AUDIT 2026-08-25 — country-aware normalisation.
+      //
+      // This concatenated the dial code onto whatever the user typed and ran a
+      // context-free validator. An Egyptian entering their number the ordinary
+      // way ('01098729248') produced '+2001098729248' — dial code plus the
+      // national trunk '0' — which is a different string from the same person's
+      // '+201098729248', so it created a second account. Production held one of
+      // these ('+2001149055838').
+      //
+      // normalizePhone knows the dial code is a COUNTRY, not a prefix to glue
+      // on, so it drops the trunk digit and rebuilds the number correctly.
+      const phoneCheck = normalizePhone(phone, countryCode, 'en');
       if (!phoneCheck.ok) {
         // OTP succeeded but the format is bad — defense in depth, near-zero
         // in practice (an OTP wouldn't have arrived for an unparseable number).
@@ -359,17 +383,70 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       // race/constraint-safe under the users(phone) WHERE phone IS NOT NULL
       // partial unique index (migration 069): if our insert no-ops on a concurrent
       // create, the re-SELECT returns the existing row (which has a different id).
+      // AUDIT 2026-08-25 — resolve against EVERY spelling before creating.
       //
-      // SECURITY: role-gated to ('patient','doctor'), mirroring the web twin in
-      // src/routes/auth.js POST /login/otp/verify and the existing hardening on
-      // /magic-login + /forgot-password. generateTokens() below mints a Bearer
-      // JWT carrying the row's role — unfiltered, an SMS code sent to a staff
-      // number produced a token that satisfies requireRole('superadmin') on the
-      // whole admin API. Admin/superadmin sign in with a password only.
-      let user = await safeGet(
-        "SELECT * FROM users WHERE phone = $1 AND role IN ('patient', 'doctor')",
-        [normalizedPhone]
-      );
+      // This was an exact-match SELECT on the normalised string. Any account
+      // whose stored phone did not normalise to a byte-identical value fell
+      // through to the INSERT below, and the patient got a SECOND, EMPTY
+      // account — the reported symptom: "my portal order does not show up in
+      // the app". The case list was never at fault; the identity was.
+      //
+      // Production on 2026-08-25 held four spellings that could not match:
+      //   '1277399043'     the founder's own number, normalising to '+1…' (US)
+      //                    while his real account was '+201277399043'
+      //   '01098729248'    the ordinary Egyptian local form, rejected outright
+      //   '0 110 200 9886' spaces
+      //   '+2001149055838' a dial code concatenated onto a local number without
+      //                    dropping the national trunk '0'
+      //
+      // findUserByPhone tries the normalised form, then the raw input, then a
+      // UNIQUE match on the last 9 significant digits — and deliberately
+      // returns nothing when a suffix matches more than one row, because
+      // silently attaching a patient to the wrong medical record is far worse
+      // than asking them to sign in another way.
+      //
+      // SECURITY (preserved from the anonymous-superadmin-takeover fix): the
+      // lookup stays role-gated to ('patient','doctor'). generateTokens() below
+      // mints a Bearer JWT carrying the row's role, so unfiltered, an SMS code
+      // sent to a staff number would produce a token satisfying
+      // requireRole('superadmin') across the whole admin API. Admin and
+      // superadmin sign in with a password only. The suffix fallback is gated
+      // by the same roles, so it cannot widen that hole.
+      const { findUserByPhone } = require('../../validators/phone_identity');
+      const OTP_ROLES = ['patient', 'doctor'];
+      const resolution = await findUserByPhone(safeAll, normalizedPhone, fullPhone, OTP_ROLES);
+      let user = resolution.user;
+
+      if (resolution.ambiguous) {
+        logErrorToDb(new Error('OTP phone matched multiple accounts'), {
+          context: 'api.auth.otp_verify.ambiguous_phone',
+          category: 'auth',
+          matchedBy: resolution.matchedBy,
+        });
+        return res.fail(
+          'We found more than one account for this number. Please contact support.',
+          409,
+          'PHONE_AMBIGUOUS'
+        );
+      }
+
+      // Heal the stored value so the next sign-in takes the fast exact path and
+      // the row stops being a duplicate risk for every other lookup.
+      if (user && user.phone !== normalizedPhone) {
+        try {
+          await safeRun('UPDATE users SET phone = $1 WHERE id = $2', [normalizedPhone, user.id]);
+          user.phone = normalizedPhone;
+        } catch (e) {
+          // The partial unique index can legitimately refuse this if another row
+          // already holds the normalised form. Leave the legacy value — the
+          // suffix match keeps finding this account — and record it.
+          logErrorToDb(e, {
+            context: 'api.auth.otp_verify.phone_heal_failed',
+            category: 'auth',
+            userId: user.id,
+          });
+        }
+      }
 
       if (!user) {
         // The number may belong to an admin/superadmin row. Never auto-create a
