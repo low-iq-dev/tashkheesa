@@ -52,22 +52,42 @@ try {
   }
   // STALE-TEST FIX (2026-08-16) — READ THIS BEFORE "FIXING" IT BACK.
   //
-  // This used to demand a filter on context->>'statusCode'. That key is one
-  // the WhatsApp senders never write: notify/whatsapp.js and
-  // lib/openclaw_client.js both record the HTTP status under 'status'. The
-  // ONLY module that writes 'statusCode' is critical-alert.js — so a detector
-  // filtering on 'statusCode' could see nothing but its own alerting failures.
-  // When WHATSAPP_ACCESS_TOKEN expired, every send 401'd, this cron counted 0,
-  // no alert fired, and WhatsApp was silently dead. That was the actual
-  // outage-invisibility bug (AUDIT-P1-4), and this assertion was pinning it.
+  // HISTORY, because this assertion has now been wrong in both directions.
   //
-  // Restoring 'statusCode' here would reintroduce it. Assert the correct key,
-  // and fail loudly if the wrong one ever comes back.
-  if (!/'status'\s*=\s*'401'/.test(src)) {
-    throw new Error("whatsapp_health_check.js does not filter on context->>'status' = '401' — the key the WhatsApp senders actually write.");
+  // Originally it demanded ONLY context->>'statusCode'. The WhatsApp senders
+  // (notify/whatsapp.js, lib/openclaw_client.js) write 'status'; only
+  // critical-alert.js writes 'statusCode'. So the detector could see nothing
+  // but its own alerting failures, and when WHATSAPP_ACCESS_TOKEN expired it
+  // counted 0 and WhatsApp died silently (AUDIT-P1-4).
+  //
+  // The fix flipped it to ONLY 'status' — and pinned that here with a guard
+  // forbidding 'statusCode'. That swapped which half was blind rather than
+  // covering both. Measured against production 2026-08-25: all 19 live
+  // whatsapp_send rows were critical-alert failures carrying 'statusCode', so
+  // the 'status'-only query matched 0 of 19 while the token had been expired
+  // for weeks. Same outage, same invisibility, opposite key.
+  //
+  // The rule is BOTH keys, plus one exclusion. Reading 'statusCode' without
+  // excluding this cron's OWN alertKey creates a closed loop — the alert fails
+  // to deliver, critical-alert logs a statusCode:401 row, the next run counts
+  // it and fires again, forever, with no external input. Every OTHER alertKey
+  // must still count: a worker_down page failing to deliver is real evidence
+  // that WhatsApp is down.
+  const code = src.replace(/\/\/[^\n]*/g, '');
+  if (!/'status'/.test(code)) {
+    throw new Error("whatsapp_health_check.js no longer reads context->>'status' — the key notify/whatsapp.js and openclaw_client.js write.");
   }
-  if (/'statusCode'/.test(src.replace(/\/\/[^\n]*/g, ''))) {
-    throw new Error("whatsapp_health_check.js filters on 'statusCode' again — no WhatsApp sender writes that key, so the detector would only ever see critical-alert.js's own failures (AUDIT-P1-4).");
+  if (!/'statusCode'/.test(code)) {
+    throw new Error("whatsapp_health_check.js no longer reads context->>'statusCode' — the key critical-alert.js writes. Reading only 'status' matched 0 of 19 real failures in production (2026-08-25).");
+  }
+  if (!/COALESCE/i.test(code)) {
+    throw new Error('whatsapp_health_check.js must COALESCE both status keys, not pick one — each has been the blind half once.');
+  }
+  if (!/whatsapp_401_detected/.test(code) || !/NOT\s*\(/i.test(code)) {
+    throw new Error("whatsapp_health_check.js reads 'statusCode' without excluding its own alertKey — that is a self-sustaining alarm loop: the alert fails, logs a statusCode:401 row, and re-triggers itself every 15 minutes forever.");
+  }
+  if (!/401/.test(code)) {
+    throw new Error('whatsapp_health_check.js no longer looks for a 401.');
   }
   if (!/sendCriticalAlert\s*\(/.test(src)) {
     throw new Error('whatsapp_health_check.js does not call sendCriticalAlert — alert path is broken.');

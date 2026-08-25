@@ -52,15 +52,27 @@ async function checkWhatsAppHealth() {
       "       COUNT(*) FILTER (WHERE" +
       "         COALESCE((context::jsonb)->>'status'," +
       "                  (context::jsonb)->>'statusCode') = '401')::int AS unauthorised," +
-      "       COUNT(*) FILTER (WHERE message ILIKE '%oc_env_misconfigured%')::int AS misconfigured" +
+      "       COUNT(*) FILTER (WHERE message ILIKE '%oc_env_misconfigured%'" +
+      "                            OR message ILIKE '%env_missing_openclaw_and_meta%')::int AS misconfigured" +
       " FROM error_logs" +
       " WHERE category = 'whatsapp_send'" +
       "   AND created_at > NOW() - INTERVAL '15 minutes'" +
       "   AND context ~ '^\\s*\\{'" +
+      // Do not let THIS alert's own delivery failure re-trigger it.
+      //
+      // critical-alert.js writes a whatsapp_send row carrying statusCode
+      // whenever a page fails to deliver — including a page sent BY this cron.
+      // Reading statusCode without this exclusion makes a closed loop: cron
+      // fires, alert 401s, that failure lands inside the next 15-minute
+      // window, cron fires again. Forever, 96 times a day, with no external
+      // input and no way to self-clear. Every other alertKey still counts:
+      // a worker_down page failing to deliver IS evidence WhatsApp is down.
+      "   AND NOT ((context::jsonb)->>'alertKey' = 'whatsapp_401_detected')" +
       "   AND (" +
       "     COALESCE((context::jsonb)->>'status'," +
       "              (context::jsonb)->>'statusCode') = '401'" +
       "     OR message ILIKE '%oc_env_misconfigured%'" +
+      "     OR message ILIKE '%env_missing_openclaw_and_meta%'" +
       "   )"
     );
     var count = row && row.c ? Number(row.c) : 0;

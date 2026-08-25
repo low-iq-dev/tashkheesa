@@ -96,7 +96,16 @@ async function recordAiHealth(ok, err, ctx) {
 
     if (ok) {
       if (current.ok === false) {
-        await _writeFlag({ ok: true, lastOkAt: _nowIso() });
+        // 2026-08-25: this dropped lastCanaryOkAt, which is the converse of
+        // the bug fixed on the failure path below. recordAiHealth(true) runs
+        // on EVERY ordinary successful AI call — far more often than the
+        // 3-hourly canary — so one success wiped the canary history and
+        // disarmed the staleness backstop again on the next failure.
+        await _writeFlag({
+          ok: true,
+          lastOkAt: _nowIso(),
+          lastCanaryOkAt: current.lastCanaryOkAt || null
+        });
         _deps.logMajor('[ai-health] Anthropic AI layer recovered — billing OK; classifier + case-intelligence restored.');
       }
       return;

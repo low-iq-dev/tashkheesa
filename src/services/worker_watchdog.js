@@ -174,32 +174,47 @@ async function runWorkerWatchdogSweep(pool, opts) {
   try {
     var names = WORKER_SPECS.map(function (s) { return s.key; });
 
-    // Reuse the EXACT read GET /api/v1/admin/health + the /ops widget use.
+    // Let POSTGRES compute the age. Nothing about the clock then crosses the
+    // wire, which removes two separate hazards at once:
     //
-    // 2026-08-25: `now` is captured above and this SELECT runs a round-trip
-    // later, so a heartbeat committed in that window reads as being in the
-    // future. Take the database's clock from the SAME statement instead, which
-    // removes the window and puts both sides of the comparison on one clock —
-    // pinged_at is written with the DB's NOW() too. workerLiveness now also
-    // treats a negative age as fresh, so this is the second of two locks on
-    // the same door.
+    //   1. The round-trip race. `now` used to be captured in JS before this
+    //      query ran, so a heartbeat committed in the intervening milliseconds
+    //      read as being in the future. Every worker_down alert in production
+    //      (123 of them, 30 days) carried ageSec -1. Not one was real.
+    //   2. The timezone mismatch. pinged_at is `timestamp WITHOUT time zone`
+    //      and node-postgres parses a naive timestamp in the NODE process's
+    //      local zone, while NOW() is timestamptz. Those agree only while both
+    //      are UTC, and routes/health.js:AUDIT-TZ-1 records that the session
+    //      TZ has regressed to Africa/Cairo before — silently, because the
+    //      pinning is fire-and-forget. A 3-hour phantom offset would have made
+    //      every worker permanently "down", or, with an unbounded negative
+    //      tolerance, permanently "alive".
+    //
+    // Subtracting inside one statement sidesteps both: Postgres compares the
+    // column against its own clock, and only a duration comes back. Deliberately
+    // NOT `NOW()::timestamp` — tests/lint/audit-2026-08-regressions.test.js
+    // bans that shape because migration 081 removed exactly that bug against
+    // timestamptz columns, and the guard cannot tell which column is meant.
     var hb = await pool.query(
       'SELECT agent_name, MAX(pinged_at) AS last_run,' +
-      ' EXTRACT(EPOCH FROM NOW()) * 1000 AS db_now_ms' +
+      ' EXTRACT(EPOCH FROM (LOCALTIMESTAMP - MAX(pinged_at))) AS age_sec' +
       ' FROM agent_heartbeats' +
       ' WHERE agent_name = ANY($1::text[]) GROUP BY agent_name',
       [names]
     );
-    // Any row carries it; if there are no rows at all keep the JS clock.
-    if (hb.rows && hb.rows.length && hb.rows[0].db_now_ms != null) {
-      var dbNow = Number(hb.rows[0].db_now_ms);
-      if (Number.isFinite(dbNow) && dbNow > 0) {
-        now = dbNow;
-        nowIso = new Date(dbNow).toISOString();
-      }
-    }
+    // Rebase each heartbeat onto the JS clock using the DB-computed age, so
+    // workerLiveness's `now - last` arithmetic reproduces the SQL answer
+    // exactly. lastRunAt in the output is therefore accurate to within the
+    // query's own latency, which is a display field, not a decision input.
+    // A null/NaN age (no rows, or a driver surprise) falls back to the raw
+    // timestamp rather than inventing one.
     var byName = {};
-    (hb.rows || []).forEach(function (row) { byName[row.agent_name] = row.last_run; });
+    (hb.rows || []).forEach(function (row) {
+      var ageSec = Number(row.age_sec);
+      byName[row.agent_name] = Number.isFinite(ageSec)
+        ? new Date(now - Math.round(ageSec * 1000))
+        : row.last_run;
+    });
 
     // Classify with the SHARED helper — do NOT reimplement.
     var liveness = WORKER_SPECS.map(function (spec) {
