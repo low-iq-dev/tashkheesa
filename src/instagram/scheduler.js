@@ -74,6 +74,15 @@ class InstagramScheduler {
       [now]
     );
 
+    // 2026-08-25: heartbeat BEFORE the empty-queue return. pingOps was only
+    // reached at the bottom of the loop, so a scheduler with nothing to publish
+    // — its normal state — never wrote one. agent_heartbeats has zero rows for
+    // this agent, ever, and /ops has shown it permanently "Down" since it was
+    // added. A dashboard with a red light that is always red is a dashboard
+    // people stop reading. Same fix notification_worker.js already made for
+    // itself; it was not carried across.
+    pingOps('instagram_scheduler', 'Instagram scheduler checked — ' + duePosts.length + ' due');
+
     if (duePosts.length === 0) return;
 
     console.log(`[IG Scheduler] Found ${duePosts.length} posts to publish`);
@@ -131,7 +140,6 @@ class InstagramScheduler {
       // Pause between posts
       await new Promise(r => setTimeout(r, 3000));
     }
-    pingOps('instagram_scheduler', 'Instagram scheduler checked — ' + duePosts.length + ' due');
   }
 
   /**

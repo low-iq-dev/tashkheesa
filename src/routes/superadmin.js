@@ -4486,6 +4486,60 @@ router.post('/superadmin/orders/:id/payment', requireSuperadmin, async (req, res
     });
   }
 
+  // 2026-08-25 — this route set payment_status='paid' and stopped there.
+  //
+  // "Paid" is not a column, it is a transition. Its two sibling routes
+  // (/mark-paid here, and routes/admin.js) both call markCasePaid, which locks
+  // sla_hours, writes PAYMENT_CONFIRMED and CASE_READY_FOR_ASSIGNMENT, handles
+  // the urgent-window deferral, and post-commit fires enqueueAutoAssign +
+  // broadcastOrderToSpecialty. Without it the order is paid, out of the unpaid
+  // sweep, invisible to the assignment pipeline and silently unroutable — a
+  // patient's money taken for a case no doctor will ever be offered. Nothing in
+  // the UI posts here today, but it is a live authenticated route and that is
+  // not a safety property.
+  //
+  // Same failure handling as the sibling: money is recorded as taken, so
+  // anything that is not a benign re-entry is logged and pages on-call.
+  if (status === 'paid' && order.payment_status !== 'paid') {
+    try {
+      await caseLifecycle.markCasePaid(orderId);
+    } catch (e) {
+      const msg = String(e && e.message ? e.message : e);
+      const benign = /already\s+(paid|assigned|processed)|idempotent|no[-\s]?op/i.test(msg);
+
+      logOrderEvent({
+        orderId,
+        label: benign
+          ? 'Payment lifecycle transition skipped (idempotent)'
+          : 'Payment lifecycle transition FAILED — case may not have entered the pipeline',
+        meta: JSON.stringify({ error: msg, benign, source: 'superadmin_unified_payment' }),
+        actorUserId: req.user && req.user.id ? String(req.user.id) : null,
+        actorRole: 'superadmin'
+      });
+
+      if (!benign) {
+        try {
+          logErrorToDb(e, {
+            context: 'superadmin.payment.markCasePaid',
+            orderId,
+            userId: req.user && req.user.id,
+            url: req.originalUrl,
+            method: req.method,
+            category: 'payment'
+          });
+        } catch (_) { /* logging must not mask the original */ }
+        try {
+          const { sendCriticalAlert } = require('../critical-alert');
+          sendCriticalAlert(
+            'markCasePaid FAILED for order ' + orderId + ' after a SUPERADMIN marked it paid ' +
+            'via the unified payment form: ' + msg + ' — the case is PAID but may not be assignable.',
+            'mark_paid_lifecycle_failed'
+          );
+        } catch (_) { /* alerting is best-effort */ }
+      }
+    }
+  }
+
   // Optional notify patient on paid
   if (order.patient_id && order.payment_status !== 'paid' && status === 'paid') {
     queueNotification({

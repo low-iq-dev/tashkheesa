@@ -175,11 +175,29 @@ async function runWorkerWatchdogSweep(pool, opts) {
     var names = WORKER_SPECS.map(function (s) { return s.key; });
 
     // Reuse the EXACT read GET /api/v1/admin/health + the /ops widget use.
+    //
+    // 2026-08-25: `now` is captured above and this SELECT runs a round-trip
+    // later, so a heartbeat committed in that window reads as being in the
+    // future. Take the database's clock from the SAME statement instead, which
+    // removes the window and puts both sides of the comparison on one clock —
+    // pinged_at is written with the DB's NOW() too. workerLiveness now also
+    // treats a negative age as fresh, so this is the second of two locks on
+    // the same door.
     var hb = await pool.query(
-      'SELECT agent_name, MAX(pinged_at) AS last_run FROM agent_heartbeats' +
+      'SELECT agent_name, MAX(pinged_at) AS last_run,' +
+      ' EXTRACT(EPOCH FROM NOW()) * 1000 AS db_now_ms' +
+      ' FROM agent_heartbeats' +
       ' WHERE agent_name = ANY($1::text[]) GROUP BY agent_name',
       [names]
     );
+    // Any row carries it; if there are no rows at all keep the JS clock.
+    if (hb.rows && hb.rows.length && hb.rows[0].db_now_ms != null) {
+      var dbNow = Number(hb.rows[0].db_now_ms);
+      if (Number.isFinite(dbNow) && dbNow > 0) {
+        now = dbNow;
+        nowIso = new Date(dbNow).toISOString();
+      }
+    }
     var byName = {};
     (hb.rows || []).forEach(function (row) { byName[row.agent_name] = row.last_run; });
 
