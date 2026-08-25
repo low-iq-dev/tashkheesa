@@ -3,12 +3,17 @@
   // a pair: open + close. Two patterns supported:
   //
   // 1. Pre-rendered body (simple):
-  //    <%- include('partials/superadmin/c_card', { title: 'X', bodyHtml: '<p>…</p>' }) %>
+  //    include partials/superadmin/c_card with { title, bodyHtml }
   //
   // 2. Block-style (for views with EJS inside the body):
-  //    <%- include('partials/superadmin/c_card_open', { title: 'X' }) %>
-  //      <p>arbitrary <%= ejs %> content</p>
-  //    <%- include('partials/superadmin/c_card_close') %>
+  //    include partials/superadmin/c_card_open with { title }
+  //      arbitrary EJS content in between
+  //    include partials/superadmin/c_card_close
+//
+// 2026-08-25: the three lines above used to spell out real EJS include
+// tags as examples. EJS executed them, and this partial could not
+// compile. It has no call sites, so nothing broke — but it would have
+// failed the moment anyone used it.
   //
   // c_card.ejs is pattern #1.
   var _title    = (typeof title !== 'undefined' && title) ? title : '';

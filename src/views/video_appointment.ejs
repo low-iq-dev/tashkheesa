@@ -66,6 +66,17 @@
       </div>
     </section>
     <% } %>
+    <%# 2026-08-25 - this guard was MISSING. The Upcoming section had a
+        closing brace scriptlet below it but no opening if, so that brace
+        closed the mode === 'list' block instead, and the template failed
+        to compile at the next else-if with "Unexpected token 'else'".
+        The whole video-consultation page returned 500 for every patient
+        and every doctor. `upcoming` was also dereferenced unguarded,
+        which would have thrown separately once the parse was fixed.
+        NOTE: no EJS closing delimiter may appear inside this comment -
+        it would end the comment early. That is the same class of bug
+        that took down superadmin_manual_queue_detail today. %>
+    <% if (typeof upcoming !== 'undefined' && upcoming && upcoming.length) { %>
     <section class="portal-section">
       <h2 class="portal-section-title"><%= tt('Upcoming', 'Upcoming', 'القادمة') %></h2>
       <div class="portal-card-grid">

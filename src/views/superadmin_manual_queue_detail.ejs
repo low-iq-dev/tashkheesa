@@ -255,8 +255,10 @@
   // Cascade: specialty → services. Server pre-renders the full visible
   // services set; this filter reduces it to the picked specialty.
   // STORED XSS FIX. These two arrays carry `users.name` and `services.name` —
-  // doctor-controlled free text — into an inline <script>. `<%- JSON.stringify(v) %>`
-  // is not safe here: JSON.stringify escapes for JSON, not for HTML, and leaves
+  // doctor-controlled free text — into an inline <script>. The raw-output EJS
+  // tag wrapped around a bare JSON.stringify (the delimiter is deliberately not
+  // written out here — see the note at the bottom of this comment)
+  // is not safe: JSON.stringify escapes for JSON, not for HTML, and leaves
   // '<' untouched. A doctor who set their display name to
   //   </script><script src="https://cdn.jsdelivr.net/npm/…"></script>
   // closed this script element from inside a string literal; the HTML tokenizer
@@ -270,6 +272,17 @@
   // escapes < > & and U+2028/U+2029 to \uXXXX. The parsed JS value is byte-for-byte
   // identical; the HTML tokenizer simply never sees a tag. Same defence as the
   // inline .replace(/</g,'\\u003c') already used in src/views/apply.ejs:236.
+  //
+  // DO NOT write a literal EJS output delimiter anywhere in this comment.
+  //
+  // 2026-08-25: this comment previously spelled out the unsafe tag as an
+  // example. EJS does not know it is inside a JavaScript comment — it scans the
+  // raw file for delimiters and EXECUTES what it finds. So the example
+  // evaluated `JSON.stringify(v)`, `v` was not defined, and this page threw
+  // "v is not defined" and returned a 500. The operator's triage page for a
+  // stuck case was taken down by the comment explaining how it had been
+  // secured. If an example is genuinely needed, escape the opening delimiter by
+  // doubling its percent sign, which EJS renders as a literal.
   var allServices = <%- _json(_services.map(function(s){ return { id: s.id, specialty_id: s.specialty_id, name: s.name }; })) %>;
   var allDoctors  = <%- _json(_doctors.map(function(d){ return { id: d.id, name: d.name, specialty_id: d.specialty_id }; })) %>;
   var initialServiceId = <%- _cls && _cls.service_id ? _json(String(_cls.service_id)) : 'null' %>;
