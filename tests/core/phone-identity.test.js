@@ -23,6 +23,7 @@ const t = global._testRunner || {
 
 console.log('\n📱 Phone identity — portal/app account parity\n');
 
+
 // The four production spellings that split accounts.
 const REAL_CASES = [
   // [input, countryHint, expected, why it mattered]
@@ -94,3 +95,81 @@ try {
   );
   t.pass('suffix key distinguishes numbers differing in the last digit');
 } catch (e) { t.fail('suffix key discrimination', e); }
+
+// ── findUserByPhone: the SQL it actually builds ────────────────────────────
+//
+// AUDIT 2026-08-25 — this section exists because of a real defect that shipped.
+//
+// The OTP route was hardened (separately) to gate sign-in to
+// ('patient','doctor'), so it passes an ARRAY of roles. findUserByPhone was
+// written for a single role and bound whatever it got to `role = $2`. Passing an
+// array to a scalar comparison makes Postgres reject the query; safeAll swallows
+// it, the lookup returns nothing, and the caller creates a NEW account — the
+// exact duplicate-account bug this module exists to prevent, in a new disguise.
+//
+// Every test above passed while that was broken, because they only exercise
+// normalisation. These assert the query SHAPE, using a stub that records what
+// was sent.
+
+const { findUserByPhone } = require('../../src/validators/phone_identity');
+
+function stubQuery(rowsByCall) {
+  const calls = [];
+  const fn = async function (sql, params) {
+    calls.push({ sql: sql, params: params });
+    return rowsByCall.shift() || [];
+  };
+  fn.calls = calls;
+  return fn;
+}
+
+module.exports = (async function () {
+  // A single role must still work.
+  try {
+    const q = stubQuery([[{ id: 'u1' }]]);
+    const r = await findUserByPhone(q, '+201277399043', '01277399043', 'patient');
+    assert.strictEqual(r.user.id, 'u1');
+    assert.ok(/role = ANY\(\$2\)|role = \$2/.test(q.calls[0].sql),
+      'expected a role filter, got: ' + q.calls[0].sql);
+    t.pass('single role: filters by role and returns the match');
+  } catch (e) { t.fail('single role lookup', e); }
+
+  // AN ARRAY of roles — the OTP case — must produce SQL that can accept one.
+  try {
+    const q = stubQuery([[{ id: 'u2' }]]);
+    const r = await findUserByPhone(q, '+201277399043', '01277399043', ['patient', 'doctor']);
+    assert.strictEqual(r.user.id, 'u2');
+    const sql = q.calls[0].sql;
+    const params = q.calls[0].params;
+    assert.ok(/= ANY\(\$2\)/.test(sql),
+      'an array of roles MUST bind through `= ANY($2)`. Binding it to a scalar `role = $2` makes ' +
+      'Postgres reject the query, the lookup return nothing, and the caller create a duplicate ' +
+      'account. Got: ' + sql);
+    assert.ok(Array.isArray(params[1]),
+      'the role parameter must be passed as an array, got: ' + typeof params[1]);
+    t.pass('array of roles: binds through = ANY($n), so the query is valid');
+  } catch (e) { t.fail('array role lookup', e); }
+
+  // The suffix fallback must carry the SAME role gate, or the recovery path is a
+  // hole straight through the security fix it sits behind.
+  try {
+    const q = stubQuery([[], [], [{ id: 'u3', role: 'patient' }]]);
+    const r = await findUserByPhone(q, '+201277399043', '01277399043', ['patient', 'doctor']);
+    assert.strictEqual(r.matchedBy, 'suffix');
+    const suffixSql = q.calls[q.calls.length - 1].sql;
+    assert.ok(/RIGHT\(/.test(suffixSql), 'expected the suffix query, got: ' + suffixSql);
+    assert.ok(/role = ANY\(\$3\)/.test(suffixSql),
+      'the suffix fallback must apply the same role gate as the exact lookup, or it becomes a way ' +
+      'around it. Got: ' + suffixSql);
+    t.pass('suffix fallback carries the same role gate');
+  } catch (e) { t.fail('suffix fallback role gate', e); }
+
+  // Two accounts sharing a suffix must resolve to NOTHING, never to a guess.
+  try {
+    const q = stubQuery([[], [], [{ id: 'a' }, { id: 'b' }]]);
+    const r = await findUserByPhone(q, '+201277399043', '01277399043', ['patient', 'doctor']);
+    assert.strictEqual(r.user, null);
+    assert.strictEqual(r.ambiguous, true);
+    t.pass('an ambiguous suffix returns nothing rather than guessing a medical record');
+  } catch (e) { t.fail('ambiguous suffix', e); }
+})();

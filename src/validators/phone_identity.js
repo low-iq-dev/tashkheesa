@@ -196,8 +196,12 @@ function significantDigits(input, n) {
  * @returns {Promise<{user: object|null, matchedBy: string, ambiguous?: boolean}>}
  */
 async function findUserByPhone(queryFn, normalized, rawInput, role) {
-  const roleClause = role ? ' AND role = $2' : '';
-  const roleParams = role ? [role] : [];
+  // `role` accepts a single role or an array. An array is the OTP case: sign-in
+  // is gated to ('patient','doctor') so that an SMS code sent to a staff number
+  // can never mint a token that satisfies requireRole('superadmin').
+  const roles = role == null ? null : (Array.isArray(role) ? role : [role]);
+  const roleClause = roles ? ' AND role = ANY($2)' : '';
+  const roleParams = roles ? [roles] : [];
 
   if (normalized) {
     const exact = await queryFn(
@@ -223,9 +227,9 @@ async function findUserByPhone(queryFn, normalized, rawInput, role) {
     const bySuffix = await queryFn(
       `SELECT * FROM users
         WHERE phone IS NOT NULL
-          AND RIGHT(regexp_replace(phone, '[^0-9]', '', 'g'), $1) = $2${role ? ' AND role = $3' : ''}
+          AND RIGHT(regexp_replace(phone, '[^0-9]', '', 'g'), $1) = $2${roles ? ' AND role = ANY($3)' : ''}
         LIMIT 2`,
-      [suffix.length, suffix].concat(role ? [role] : [])
+      [suffix.length, suffix].concat(roles ? [roles] : [])
     );
     if (bySuffix && bySuffix.length === 1) return { user: bySuffix[0], matchedBy: 'suffix' };
     if (bySuffix && bySuffix.length > 1) return { user: null, matchedBy: 'suffix', ambiguous: true };
