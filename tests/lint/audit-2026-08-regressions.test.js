@@ -500,6 +500,15 @@ try {
     {
       encoding: 'utf8',
       maxBuffer: 1e8,
+      // AUDIT 2026-08-25 — a module that HANGS on require used to hang this
+      // guard, and because the runner awaits each test file, it hung the whole
+      // suite: `npm test` never printed a summary. src/create_test_doctor.js
+      // did exactly that — it called main() at module scope, so requiring it
+      // opened a Postgres pool and waited on a connection.
+      //
+      // That file is fixed, but the guard must not be hangable by the next one.
+      // A timeout converts "one module blocks forever" into a named failure.
+      timeout: 90000,
       env: Object.assign({}, process.env, {
         MODE: 'development',
         JWT_SECRET: process.env.JWT_SECRET || 'test',

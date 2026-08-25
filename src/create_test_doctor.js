@@ -71,4 +71,16 @@ async function main() {
   }
 }
 
-main().catch(err => { console.error('ERROR:', err.message); process.exit(1); });
+// AUDIT 2026-08-25 — only run when invoked directly.
+//
+// This called main() at module scope, so merely REQUIRING the file opened a
+// Postgres pool and tried to connect. tests/lint/audit-2026-08-regressions.js
+// requires every module under src/ to prove none of them crash on load, so this
+// one file hung that guard — and, because the runner awaits each test file, it
+// hung the ENTIRE suite. `npm test` on main never reached its summary.
+//
+// require.main === module is the standard idiom for a script that also lives in
+// a required tree. Running it directly is unchanged.
+if (require.main === module) {
+  main().catch(err => { console.error('ERROR:', err.message); process.exit(1); });
+}
