@@ -1044,16 +1044,61 @@ router.post('/api/analyze-case-type', requireRole('patient'), async (req, res) =
     const safeDesc = description.trim().replace(/['"]/g, '');
     const promptText = 'You are a medical triage assistant for Tashkheesa. Patient case: ' + safeDesc + '. Classify into 1-2 types from: imaging, labs, treatment, general. Respond ONLY with JSON: {"types":["imaging"],"reasoning":"One sentence.","confidence":"high"}';
     const body = JSON.stringify({ model: modelHaiku(), max_tokens: 150, messages: [{ role: 'user', content: promptText }] });
+    // 2026-08-25 — three faults in five lines, all reachable from an upstream
+    // hiccup rather than anything a patient does.
+    //
+    // 1. JSON.parse sat directly inside the 'end' listener. A throw there is
+    //    NOT caught by the surrounding try/catch and does NOT reject the
+    //    Promise — it escapes as an uncaughtException, and server.js:394 turns
+    //    that into process.exit(1). One HTML error page from a proxy in front
+    //    of api.anthropic.com restarts production, taking the SLA sweep, the
+    //    acceptance watcher and every in-flight job with it. Parse inside the
+    //    executor and reject instead.
+    // 2. No timeout, unlike the sibling call in ai_image_check.js. A hung
+    //    socket held the patient's request open indefinitely.
+    // 3. A non-2xx reply is still valid JSON, so the billing 400 we have been
+    //    serving since June parsed cleanly to {} and fell through to the
+    //    `parsed.types || ['general']` default below — returning success:true
+    //    with "General Medical Question" as though the AI had chosen it. A
+    //    confident wrong answer, where the catch block already had an honest
+    //    "please select manually" ready. Check the status.
     const aiResponse = await new Promise((resolve, reject) => {
-      const r = https.request({ hostname: 'api.anthropic.com', path: '/v1/messages', method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Length': Buffer.byteLength(body) } }, (res2) => {
-        var d = ''; res2.on('data', function(c) { d += c; }); res2.on('end', function() { resolve(JSON.parse(d)); });
+      const r = https.request({
+        hostname: 'api.anthropic.com',
+        path: '/v1/messages',
+        method: 'POST',
+        timeout: 15000,
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Length': Buffer.byteLength(body) }
+      }, (res2) => {
+        var d = '';
+        res2.on('data', function (c) { d += c; });
+        res2.on('end', function () {
+          if (res2.statusCode < 200 || res2.statusCode >= 300) {
+            return reject(new Error('anthropic_http_' + res2.statusCode + ': ' + d.slice(0, 300)));
+          }
+          try {
+            resolve(JSON.parse(d));
+          } catch (parseErr) {
+            reject(new Error('anthropic_malformed_response: ' + d.slice(0, 200)));
+          }
+        });
+        res2.on('error', reject);
       });
-      r.on('error', reject); r.write(body); r.end();
+      r.on('error', reject);
+      r.on('timeout', function () { r.destroy(new Error('anthropic_timeout')); });
+      r.write(body);
+      r.end();
     });
-    var text = (aiResponse.content && aiResponse.content[0] && aiResponse.content[0].text) || '{}';
+    var text = (aiResponse.content && aiResponse.content[0] && aiResponse.content[0].text) || '';
+    if (!text.trim()) throw new Error('anthropic_empty_completion');
     var parsed = JSON.parse(text.trim());
+    if (!parsed || !Array.isArray(parsed.types) || !parsed.types.length) {
+      // Do not silently substitute "general" for an answer the model did not
+      // give — fall to the catch, which tells the patient to choose.
+      throw new Error('anthropic_no_types_returned');
+    }
     var typeLabels = { imaging: 'Diagnostic Imaging', labs: 'Laboratory Tests', treatment: 'Treatment Review', general: 'General Medical Question' };
-    var suggestedTypes = (parsed.types || ['general']).slice(0, 2).map(function(v) { return { value: v, label: typeLabels[v] || v }; });
+    var suggestedTypes = parsed.types.slice(0, 2).map(function(v) { return { value: v, label: typeLabels[v] || v }; });
     return res.json({ success: true, suggestedTypes: suggestedTypes, reasoning: parsed.reasoning || 'Based on your description, we suggest a case type below.', confidence: parsed.confidence || 'medium' });
   } catch (error) {
     logErrorToDb(error, {

@@ -96,7 +96,16 @@ async function recordAiHealth(ok, err, ctx) {
 
     if (ok) {
       if (current.ok === false) {
-        await _writeFlag({ ok: true, lastOkAt: _nowIso() });
+        // 2026-08-25: this dropped lastCanaryOkAt, which is the converse of
+        // the bug fixed on the failure path below. recordAiHealth(true) runs
+        // on EVERY ordinary successful AI call — far more often than the
+        // 3-hourly canary — so one success wiped the canary history and
+        // disarmed the staleness backstop again on the next failure.
+        await _writeFlag({
+          ok: true,
+          lastOkAt: _nowIso(),
+          lastCanaryOkAt: current.lastCanaryOkAt || null
+        });
         _deps.logMajor('[ai-health] Anthropic AI layer recovered — billing OK; classifier + case-intelligence restored.');
       }
       return;
@@ -110,7 +119,14 @@ async function recordAiHealth(ok, err, ctx) {
       ok: false,
       lastFailAt: _nowIso(),
       lastError: msg,
-      context: (ctx && ctx.context) || null
+      context: (ctx && ctx.context) || null,
+      // 2026-08-25: lastCanaryOkAt was DROPPED here, and _isStale returns false
+      // when it is null. So the first billing failure permanently disabled the
+      // "AI has gone quiet for any other reason" backstop — a revoked key or a
+      // network partition after this point would never be reported as stale.
+      // Carry the last known-good timestamp through; it is a historical fact
+      // and a failure does not unmake it.
+      lastCanaryOkAt: current.lastCanaryOkAt || null
     });
 
     if (current.ok !== false) {
@@ -128,6 +144,26 @@ async function recordAiHealth(ok, err, ctx) {
         '[ai-health] Anthropic BILLING failure — ALL AI features degraded (classifier, case-intelligence). ' + msg,
         (err instanceof Error) ? err : new Error(msg)
       );
+
+      // 2026-08-25: and PAGE someone. This wrote a flag and a log line and
+      // nothing else, so the balance sat at zero from 13 June to 25 August —
+      // 73 days — with the canary failing eight times a day and the only
+      // symptom a banner on a dashboard nobody had reason to open. An outage
+      // that has to be discovered by browsing is not monitored.
+      //
+      // Fire-and-forget and individually try/caught: alerting must never be
+      // able to break the AI call site this is reporting on.
+      try {
+        var alert = require('../critical-alert');
+        if (typeof alert.sendCriticalAlert === 'function') {
+          alert.sendCriticalAlert(
+            'Anthropic billing failure — every AI feature is degraded ' +
+            '(specialty classifier, case intelligence, image checks). ' +
+            'Top up at console.anthropic.com → Plans & Billing. ' + msg,
+            'ai_billing_failed'
+          );
+        }
+      } catch (_) { /* alerting is best-effort */ }
     }
   } catch (_) {
     // Health recording must never break or block the AI call site.

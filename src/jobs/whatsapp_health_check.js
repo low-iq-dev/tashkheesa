@@ -34,27 +34,64 @@ var { major: logMajor } = require('../logger');
 // 'statusCode', so the detector could only ever see its own alerting
 // failures. When WHATSAPP_ACCESS_TOKEN expired, every send 401'd, this cron
 // reported 0, no alert fired, and WhatsApp was silently dead.
+//
+// 2026-08-25: that fix swapped which half was blind rather than covering
+// both. Production proved it — all 19 live whatsapp_send rows are
+// critical-alert failures carrying {"statusCode": 401}, and this query asks
+// for 'status', so it has been returning 0 while the token has been expired
+// for weeks. Read BOTH keys. Also treat OpenClaw's misconfiguration as a
+// signal: it writes status null with an oc_env_misconfigured message, which
+// is not a 401 but is exactly as fatal to delivery, and was equally silent.
 // The context ~ '^\\s*\\{' guard prevents a truncated JSON row (whatsapp.js
 // slices context to 4000 chars) from making the ::jsonb cast raise, which
 // would abort the whole query and be caught into a 0 result.
 async function checkWhatsAppHealth() {
   try {
     var row = await queryOne(
-      "SELECT COUNT(*)::int AS c" +
+      "SELECT COUNT(*)::int AS c," +
+      "       COUNT(*) FILTER (WHERE" +
+      "         COALESCE((context::jsonb)->>'status'," +
+      "                  (context::jsonb)->>'statusCode') = '401')::int AS unauthorised," +
+      "       COUNT(*) FILTER (WHERE message ILIKE '%oc_env_misconfigured%'" +
+      "                            OR message ILIKE '%env_missing_openclaw_and_meta%')::int AS misconfigured" +
       " FROM error_logs" +
       " WHERE category = 'whatsapp_send'" +
       "   AND created_at > NOW() - INTERVAL '15 minutes'" +
       "   AND context ~ '^\\s*\\{'" +
-      "   AND (context::jsonb)->>'status' = '401'"
+      // Do not let THIS alert's own delivery failure re-trigger it.
+      //
+      // critical-alert.js writes a whatsapp_send row carrying statusCode
+      // whenever a page fails to deliver — including a page sent BY this cron.
+      // Reading statusCode without this exclusion makes a closed loop: cron
+      // fires, alert 401s, that failure lands inside the next 15-minute
+      // window, cron fires again. Forever, 96 times a day, with no external
+      // input and no way to self-clear. Every other alertKey still counts:
+      // a worker_down page failing to deliver IS evidence WhatsApp is down.
+      "   AND NOT ((context::jsonb)->>'alertKey' = 'whatsapp_401_detected')" +
+      "   AND (" +
+      "     COALESCE((context::jsonb)->>'status'," +
+      "              (context::jsonb)->>'statusCode') = '401'" +
+      "     OR message ILIKE '%oc_env_misconfigured%'" +
+      "     OR message ILIKE '%env_missing_openclaw_and_meta%'" +
+      "   )"
     );
     var count = row && row.c ? Number(row.c) : 0;
     if (count > 0) {
+      var unauthorised = row && row.unauthorised ? Number(row.unauthorised) : 0;
+      var misconfigured = row && row.misconfigured ? Number(row.misconfigured) : 0;
+      var detail = unauthorised
+        ? unauthorised + ' x 401 (token expired — check Render WHATSAPP_ACCESS_TOKEN)'
+        : '';
+      if (misconfigured) {
+        detail += (detail ? ' and ' : '') + misconfigured +
+          ' x oc_env_misconfigured (check OPENCLAW_BASE_URL / OPENCLAW_SEND_KEY)';
+      }
       sendCriticalAlert(
-        'WhatsApp 401 detected: ' + count + ' send failure(s) in last 15min. ' +
-        'Token may have expired — check Render env WHATSAPP_ACCESS_TOKEN.',
+        'WhatsApp delivery is failing: ' + count + ' send failure(s) in last 15min — ' + detail,
         'whatsapp_401_detected'
       );
-      logMajor('[whatsapp-health] 401 detected, count=' + count);
+      logMajor('[whatsapp-health] delivery failing, count=' + count +
+               ' unauthorised=' + unauthorised + ' misconfigured=' + misconfigured);
     }
     return count;
   } catch (e) {

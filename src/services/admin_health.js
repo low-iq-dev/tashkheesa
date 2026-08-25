@@ -54,7 +54,45 @@ function workerLiveness(name, lastPingedAt, now, staleSeconds, uptimeSec) {
 
   const last = lastPingedAt instanceof Date ? lastPingedAt : new Date(lastPingedAt);
   const ageSec = Math.floor((now - last.getTime()) / 1000);
-  const fresh = ageSec >= 0 && ageSec <= staleSeconds;
+
+  // A SMALL negative age means the heartbeat is newer than our reference clock,
+  // which is the freshest a worker can possibly be — never "down".
+  //
+  // 2026-08-25: `ageSec >= 0` was in this condition, so a negative age failed
+  // the freshness test and the worker was classified down. It fired 123 times
+  // in 30 days. EVERY single worker_down row in production carries
+  // "ageSec": -1 — there has not been one true positive.
+  //
+  // The cause is a one-round-trip race, not clock skew between machines.
+  // runWorkerWatchdogSweep captures `now` and THEN issues its SELECT; the
+  // heartbeat is written by acceptance_watcher with the DATABASE's NOW(). Both
+  // run on a 2-minute setInterval in the same process, so they drift slowly
+  // through each other, and roughly once a day the watcher's ping commits
+  // inside the few milliseconds between `now` and the read returning. Hence
+  // the clustering: three alerts in an hour, then nothing for a day.
+  //
+  // The damage was not a missed outage — acceptance_watcher has 5,166 pings in
+  // 7 days and no gap over 5 minutes. The damage is that these 123 false
+  // alarms are 48% of the production error log and every one of them fired a
+  // critical alert, which is where 15 of the 19 WhatsApp 401s came from. An
+  // alarm that cries wolf daily is an alarm nobody reads on launch night.
+  //
+  // BOUNDED, not unbounded. Review caught that `ageSec <= staleSeconds` alone
+  // turns a loud false positive into a SILENT false negative, which is far
+  // worse. agent_heartbeats.pinged_at is `timestamp WITHOUT time zone`, and
+  // node-postgres parses a naive timestamp in the Node process's local zone —
+  // so if the database session TZ ever regresses to Africa/Cairo (AUDIT-TZ-1
+  // in routes/health.js records that this HAS happened, and that the pinning
+  // is fire-and-forget and silent) every heartbeat reads +10800s in the
+  // future. Unbounded tolerance would then report every worker alive forever,
+  // including on /healthz, disarming the dead-man's switch on all three
+  // surfaces at once.
+  //
+  // The race this forgives is one database round-trip: milliseconds. Two
+  // minutes is generous by three orders of magnitude and still catches a whole
+  // timezone offset, which is what a real clock fault looks like.
+  const CLOCK_SKEW_TOLERANCE_SEC = 120;
+  const fresh = ageSec >= -CLOCK_SKEW_TOLERANCE_SEC && ageSec <= staleSeconds;
 
   return {
     name,
