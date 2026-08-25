@@ -5,8 +5,13 @@
       divider. Kept bilingual rather than split: users.lang was hardcoded
       'en' at creation until this change, so for 27 of 30 doctors it is an
       untouched default, not a stated preference. Dropping a language on
-      that value would guess wrong for anyone who never chose. Edit BOTH
-      files when changing copy.
+      that value would guess wrong for anyone who never chose.
+
+      2026-08-25: EDIT ALL FOUR BLOCKS. Two files x two language blocks.
+      Editing only the block at the top of each file is exactly the
+      mistake that shipped an email naming the 18-hour tier "VIP" in one
+      half and "fast track" in the other — caught in review, not in
+      testing. Grep the old string across BOTH files before committing.
 
       This is a BODY PARTIAL — renderEmail() wraps it in
       _layout-doctor-welcome.hbs (registered in TEMPLATE_LAYOUTS,
@@ -14,7 +19,7 @@
       masthead and footer. Do NOT reintroduce those tags here.
 
       Variables: nameAr, firstName, specialtyAr, specialtyEn,
-                 password_setup_link, expiryDays.
+                 servicesReady, password_setup_link, expiryDays.
       Both CTAs deliberately share ONE password_setup_link —
       per-language activation URLs are a separate task.
 
@@ -113,11 +118,11 @@
 </p>
 
 <p style="margin:0 0 18px;font:400 15px/1.95 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#2E2B26;">
-  حسابك جاهز وجهزناه لك{{#if specialtyAr}} حسب تسجيلك في {{specialtyAr}}{{/if}}{{#if servicesReady}} — كل خدمات تخصصك محددة بالفعل، وأنت مُدرج على سرعات التسليم الثلاث{{else}} — أنت مُدرج على سرعات التسليم الثلاث{{/if}}. لا شيء منها يُعتمد قبل تأكيدك.
+  حسابك جاهز، وقد أعددناه لك{{#if specialtyAr}} حسب تسجيلك في {{specialtyAr}}{{/if}}{{#if servicesReady}} — كل خدمات تخصصك محددة بالفعل، وأنت مُدرج ضمن سرعات التسليم الثلاث{{else}} — أنت مُدرج ضمن سرعات التسليم الثلاث{{/if}}. لا شيء منها يُعتمد قبل تأكيدك.
 </p>
 
 <p style="margin:0 0 26px;font:400 15px/1.95 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#2E2B26;">
-{{#if servicesReady}}  حدد كلمة السر وستصل مباشرة إلى هذه القائمة. راجعها، وألغِ تحديد أي خدمة لا ترغب في استقبالها، ثم اضغط حفظ — الأمر لا يستغرق دقيقة. وحتى تؤكد، لا يمكننا إرسال عمل إليك: الحالات لا تُوجَّه إلى حساب غير مؤكد.{{else}}  حدد كلمة السر ويصبح حسابك جاهزاً. قائمة خدمات تخصصك ما زالت قيد الإعداد — سنكاتبك فور جاهزيتها، ولن يتبقى سوى تأكيدها.{{/if}}
+{{#if servicesReady}}  حدد كلمة السر وستصل مباشرة إلى هذه القائمة. راجعها، وألغِ تحديد أي خدمة لا ترغب في استقبالها، ثم اضغط حفظ — الأمر لا يستغرق دقيقة. وحتى تؤكد، لا يمكننا إرسال عمل إليك: الحالات لا تُوجَّه إلى حساب غير مؤكد.{{else}}  حدد كلمة السر ليصبح حسابك مُفعّلاً. قائمة خدمات تخصصك ما زالت قيد الإعداد — سنراسلك فور اكتمالها، ولن يتبقى سوى تأكيدها.{{/if}}
 </p>
 
 {{#if password_setup_link}}<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 12px;">
@@ -131,12 +136,12 @@
 
 <p style="margin:0 0 10px;font:400 18px/1.5 Georgia,'Times New Roman',serif;color:#0B6B5F;">طريقة العمل</p>
 <p style="margin:0 0 24px;font:400 15px/1.95 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#2E2B26;">
-  الحالة بتوصلك بملف المريض كامل — تقارير، أشعة، تحاليل. تراجعها وتكتب رأيك على المنصة، والمريض يستلم التقرير بالعربية والإنجليزية. وانت اللي تختار الحالات اللي تقبلها.
+  الحالة بتوصلك بملف المريض كامل — تقارير، أشعة، تحاليل. تراجعها وتكتب رأيك على المنصة، والمريض يستلم التقرير بالعربية والإنجليزية. وأنت اللي تختار الحالات اللي تقبلها.
 </p>
 
 <p style="margin:0 0 10px;font:400 18px/1.5 Georgia,'Times New Roman',serif;color:#0B6B5F;">مواعيد التسليم</p>
 <p style="margin:0 0 24px;font:400 15px/1.95 -apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,Arial,sans-serif;color:#2E2B26;">
-  ٤٨ ساعة (عادي) &nbsp;·&nbsp; ١٨ ساعة (VIP) &nbsp;·&nbsp; ٤ ساعات (عاجل). أنت مُدرج حالياً على السرعات الثلاث. إذا كانت مدة الأربع ساعات لا تناسب جدولك، ألغِ تحديدها عند تسجيل الدخول — يؤثر ذلك على الحالات الجديدة فقط، ولا يمس أي حالة قبلتها بالفعل.
+  ٤٨ ساعة (عادي) &nbsp;·&nbsp; ١٨ ساعة (VIP) &nbsp;·&nbsp; ٤ ساعات (عاجل). أنت مُدرج حالياً ضمن السرعات الثلاث. إذا كانت الساعات الأربع لا تناسب جدولك، ألغِ تحديدها عند تسجيل الدخول — يؤثر ذلك على الحالات الجديدة فقط، ولا يمس أي حالة قبلتها بالفعل.
 </p>
 
 <p style="margin:0 0 12px;font:400 18px/1.5 Georgia,'Times New Roman',serif;color:#0B6B5F;">الأتعاب</p>

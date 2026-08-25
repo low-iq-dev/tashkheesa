@@ -26,7 +26,7 @@ const emailService = require('../services/emailService');
 const { logAdminAudit } = require('../services/admin_audit');
 const { bulkWelcomePasswordlessDoctors } = require('../services/admin_doctor_bulk_invite');
 const { inviteDoctor } = require('../services/admin_doctor_invite');
-const { WELCOME_EXPIRY_HOURS } = require('../services/doctor_welcome_payload');
+const { WELCOME_EXPIRY_HOURS, SERVICES_READY_SQL } = require('../services/doctor_welcome_payload');
 const rateLimit = require('express-rate-limit');
 const adminSettings = require('../services/admin_settings');
 const superadminDashboard = require('../services/superadmin_dashboard');
@@ -3753,7 +3753,14 @@ router.get('/superadmin/doctors/:id', requireSuperadmin, async (req, res) => {
 // LEFT (not INNER) JOIN: users.specialty_id is nullable and one doctor has none
 // — an inner join would silently drop them from approve/resend entirely.
 const DOCTOR_WITH_SPECIALTY_SQL = `
-  SELECT u.*, sp.name AS specialty_name, sp.name_ar AS specialty_name_ar
+  SELECT u.*, sp.name AS specialty_name, sp.name_ar AS specialty_name_ar,
+         -- 2026-08-25: gates the welcome email's "your services are already
+         -- selected" clause. This query feeds /approve AND the Resend welcome
+         -- button, and without the column {{#if servicesReady}} silently took
+         -- the else branch — telling a doctor with a full service list that
+         -- their specialty was still being set up. Shared fragment so the
+         -- three send paths cannot drift apart.
+         ${SERVICES_READY_SQL}
     FROM users u
     LEFT JOIN specialties sp ON sp.id = u.specialty_id
    WHERE u.id = $1 AND u.role = 'doctor'`;
@@ -3840,6 +3847,10 @@ async function _issueDoctorWelcomePayload(doctor, req) {
     nameAr,
     specialtyAr: specNameAr || specName,
     specialtyEn: specName || specNameAr,
+    // Supplied by DOCTOR_WITH_SPECIALTY_SQL's SERVICES_READY_SQL column. Same
+    // strict === true as the pure builder: an absent column must read false,
+    // never truthy-by-accident.
+    servicesReady: doctor.services_ready === true,
     magicLinkUrl,
     // #66/Ziad-locked: Ziad's bilingual welcome copy references
     // {{password_setup_link}}; expose as an alias of magicLinkUrl so the

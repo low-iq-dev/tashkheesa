@@ -12,7 +12,7 @@ const rateLimit = require('express-rate-limit');
 const { sendOtpViaTwilio, verifyOtpCode } = require('../services/twilio_verify');
 const { validatePhoneE164 } = require('../validators/phone');
 const { resolveDoctorLanding } = require('../services/doctor_landing');
-const { buildDoctorWelcomePayload, WELCOME_EXPIRY_HOURS } = require('../services/doctor_welcome_payload');
+const { buildDoctorWelcomePayload, WELCOME_EXPIRY_HOURS, SERVICES_READY_SQL } = require('../services/doctor_welcome_payload');
 require('dotenv').config();
 
 const NODE_ENV = String(process.env.NODE_ENV || '').toLowerCase();
@@ -627,10 +627,28 @@ router.post('/forgot-password', welcomeTokenIpLimiter, async (req, res) => {
           spec = null;
         }
       }
+      // Same best-effort treatment for the services flag: `user` here is a
+      // SELECT * off users, which has no services_ready column, so without this
+      // the template's {{#if servicesReady}} would take the else branch and
+      // tell a doctor with a full list that their specialty is still being set
+      // up. Failure leaves it undefined → false → the conservative branch,
+      // which is the right way round: understating is recoverable, promising a
+      // list that is not there is not.
+      let servicesReady;
+      try {
+        const sr = await queryOne(
+          `SELECT ${SERVICES_READY_SQL} FROM users u WHERE u.id = $1`,
+          [user.id]
+        );
+        servicesReady = sr ? sr.services_ready === true : undefined;
+      } catch (e) {
+        servicesReady = undefined;
+      }
       const welcomePayload = buildDoctorWelcomePayload({
         doctor: Object.assign({}, user, {
           specialty_name: spec ? spec.name : null,
-          specialty_name_ar: spec ? spec.name_ar : null
+          specialty_name_ar: spec ? spec.name_ar : null,
+          services_ready: servicesReady
         }),
         token,
         baseUrl: baseUrl || null
