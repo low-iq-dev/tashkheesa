@@ -43,19 +43,47 @@
 <%# Gated on !_isEmpty as well: the empty-catalogue branch below has no service
     list and no second Save button, so on that page this would promise a list
     that is not there and point at a button that does not exist. That is the
-    three Pediatrics doctors, whose specialty has no service rows at all. %>
+    three Pediatrics doctors, whose specialty has no service rows at all.
+
+    Composed per outstanding half rather than printed whole. 8 doctors are
+    already onboarding_complete but have never confirmed their tiers (089
+    cleared the stamp for everyone), and they ARE assignable today — telling
+    them "cases cannot be routed to you" would be false, and telling them we
+    filled in a service list they picked themselves would be insulting. %>
 <% if (!_isEmpty && (_svcUnconfirmed || _tiersNeedConfirm)) { %>
   <div class="v2-card" style="border-inline-start:3px solid var(--v2-brand);margin-block-end:12px;">
     <div class="v2-card__body">
       <div style="font:600 14px/1.5 inherit;margin-block-end:6px;color:var(--v2-brand-dk, #0b6b5f);">
-        <%= tt('We have filled this in for you — please check it', 'We have filled this in for you — please check it', 'جهزناها لك — كل المطلوب مراجعتها') %>
+        <% if (_svcUnconfirmed && _tiersNeedConfirm) { %>
+          <%= tt('We have filled this in for you — please check it', 'We have filled this in for you — please check it', 'جهزناها لك — كل المطلوب مراجعتها') %>
+        <% } else if (_svcUnconfirmed) { %>
+          <%= tt('Please confirm your services', 'Please confirm your services', 'من فضلك أكد خدماتك') %>
+        <% } else { %>
+          <%= tt('One thing left — your turnaround speeds', 'One thing left — your turnaround speeds', 'باقي حاجة واحدة — سرعات التسليم') %>
+        <% } %>
       </div>
       <div style="font-size:13px;line-height:1.7;color:var(--v2-muted);">
-        <%= tt(
-          'Your turnaround speeds and every service in your specialty are already ticked below, from your specialty on file. Until you confirm them, cases cannot be routed to you and our team cannot assign you one by hand. There are two things to save on this page and each has its own button — the speeds at the top, your services at the bottom. Untick anything you would rather not take.',
-          'Your turnaround speeds and every service in your specialty are already ticked below, from your specialty on file. Until you confirm them, cases cannot be routed to you and our team cannot assign you one by hand. There are two things to save on this page and each has its own button — the speeds at the top, your services at the bottom. Untick anything you would rather not take.',
-          'سرعات التسليم وكل خدمات تخصصك محددة لك بالفعل بالأسفل، حسب التخصص المسجل باسمك. وحتى تؤكدها، لا يمكن توجيه الحالات إليك ولا يستطيع فريقنا إسنادها إليك يدوياً. في حاجتين محتاجين حفظ في الصفحة دي ولكل واحدة زرار خاص بها — السرعات في الأعلى، والخدمات في الأسفل. الغِ تحديد أي خدمة لا ترغب في استقبالها.'
-        ) %>
+        <% if (_svcUnconfirmed) { %>
+          <%= tt(
+            'Every service in your specialty is already ticked below, from your specialty on file. Until you confirm them, cases cannot be routed to you.',
+            'Every service in your specialty is already ticked below, from your specialty on file. Until you confirm them, cases cannot be routed to you.',
+            'كل خدمات تخصصك محددة لك بالفعل بالأسفل، حسب التخصص المسجل باسمك. وحتى تؤكدها، لا يمكن توجيه الحالات إليك.'
+          ) %>
+        <% } %>
+        <% if (_tiersNeedConfirm) { %>
+          <%= tt(
+            'You are currently listed for all three turnaround speeds. Untick any you would rather not take — it only affects new cases.',
+            'You are currently listed for all three turnaround speeds. Untick any you would rather not take — it only affects new cases.',
+            'أنت مُدرج حالياً على سرعات التسليم الثلاث. ألغِ تحديد أي سرعة لا ترغب فيها — يؤثر ذلك على الحالات الجديدة فقط.'
+          ) %>
+        <% } %>
+        <% if (_svcUnconfirmed && _tiersNeedConfirm) { %>
+          <%= tt(
+            'There are two things to save on this page and each has its own button — the speeds at the top, your services at the bottom.',
+            'There are two things to save on this page and each has its own button — the speeds at the top, your services at the bottom.',
+            'في حاجتين محتاجين حفظ في الصفحة دي ولكل واحدة زرار خاص بها — السرعات في الأعلى، والخدمات في الأسفل.'
+          ) %>
+        <% } %>
       </div>
     </div>
   </div>
