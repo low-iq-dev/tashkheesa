@@ -1,0 +1,152 @@
+<%
+  // Patient account deletion — confirmation interstitial.
+  //
+  // WHY THIS IS A PAGE AND NOT A DIALOG. The obvious build is a button on the
+  // profile with onsubmit="return confirm(...)". That does not work here: the
+  // CSP is script-src 'self' 'unsafe-eval' 'nonce-...' with no 'unsafe-inline',
+  // and a nonce does not authorise inline event-handler attributes. The
+  // confirm() never fires, the form posts on the first click, and the user has
+  // erased their medical history without being asked. That exact bug shipped on
+  // the superadmin bulk-welcome button in August. So the confirmation is a real
+  // server-rendered page with no JavaScript in it at all.
+  //
+  // Locals from src/routes/patient.js:
+  //   profileUser  — the user record
+  //   hasPassword  — boolean; false for phone/OTP signups (14 of 25 patients)
+  //   maskedPhone  — e.g. '+20 •• ••• 9886', shown when hasPassword is false
+  //   codeSent     — boolean; an OTP has been dispatched this session
+  //   error        — string | null
+
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __lang = (typeof lang === 'string' && lang) ? lang : (__isAr ? 'ar' : 'en');
+  const __user = (typeof profileUser !== 'undefined' && profileUser) ? profileUser : {};
+  const __error = (typeof error !== 'undefined' && error) ? String(error) : '';
+  const __hasPassword = !!(typeof hasPassword !== 'undefined' && hasPassword);
+  const __maskedPhone = (typeof maskedPhone !== 'undefined' && maskedPhone) ? String(maskedPhone) : '';
+  const __codeSent = !!(typeof codeSent !== 'undefined' && codeSent);
+  const CONFIRM_WORD = __isAr ? 'حذف' : 'DELETE';
+%>
+<%- include('partials/patient/head', {
+  active: 'profile',
+  title: tt('Delete account', 'Delete account', 'حذف الحساب'),
+  user: (typeof user !== 'undefined' ? user : __user),
+  lang: __lang,
+  bodyClass: 'p-page-profile',
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
+}) %>
+
+<%- include('partials/patient/topbar', {
+  title: tt('Delete account', 'Delete account', 'حذف الحساب'),
+  sub: tt('This cannot be undone. Please read what happens first.', 'This cannot be undone. Please read what happens first.', 'لا يمكن التراجع عن هذا. من فضلك اقرأ ما سيحدث أولاً.'),
+  serif: false,
+  isAr: __isAr
+}) %>
+
+<% if (__error) { %>
+  <%- include('partials/patient/whats-happening-card', {
+    icon: 'alert',
+    eyebrow: tt('WE DID NOT DELETE ANYTHING', 'WE DID NOT DELETE ANYTHING', 'لم نحذف أي شيء'),
+    title: __error,
+    body: ''
+  }) %>
+<% } %>
+
+<div style="max-width:680px;">
+
+  <div class="p-card" style="border-inline-start:4px solid #B91C1C;">
+    <div class="p-card__header">
+      <div class="p-card__title"><%= tt('What gets deleted', 'What gets deleted', 'ما الذي سيُحذف') %></div>
+    </div>
+    <div class="p-card__body" style="font-size:13.5px;color:var(--ink-2);line-height:1.7;">
+      <ul style="margin:0;padding-inline-start:18px;">
+        <li><%= tt('Your profile, contact details and medical history fields.', 'Your profile, contact details and medical history fields.', 'ملفك الشخصي وبيانات التواصل وحقول التاريخ الطبي.') %></li>
+        <li><%= tt('Every file you uploaded, deleted from our storage as well as from our records.', 'Every file you uploaded, deleted from our storage as well as from our records.', 'كل ملف رفعته، سيُحذف من مساحة التخزين ومن سجلاتنا.') %></li>
+        <li><%= tt('Your messages with specialists, on both sides of the conversation.', 'Your messages with specialists, on both sides of the conversation.', 'رسائلك مع الأطباء، من الجانبين.') %></li>
+        <li><%= tt('Your reports, prescriptions, appointments and reviews.', 'Your reports, prescriptions, appointments and reviews.', 'تقاريرك ووصفاتك ومواعيدك وتقييماتك.') %></li>
+        <li><%= tt('All notifications we have sent you.', 'All notifications we have sent you.', 'كل الإشعارات التي أرسلناها لك.') %></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="p-card" style="margin-top:14px;">
+    <div class="p-card__header">
+      <div class="p-card__title"><%= tt('What we keep, and why', 'What we keep, and why', 'ما الذي نحتفظ به، ولماذا') %></div>
+    </div>
+    <div class="p-card__body" style="font-size:13px;color:var(--ink-2);line-height:1.7;">
+      <p style="margin:0 0 10px;">
+        <%= tt('We keep an anonymous financial record of each payment and refund — the amount, the currency, the date and the transaction reference. Your name is removed from it and it can no longer be linked back to you.', 'We keep an anonymous financial record of each payment and refund — the amount, the currency, the date and the transaction reference. Your name is removed from it and it can no longer be linked back to you.', 'نحتفظ بسجل مالي مجهول لكل عملية دفع أو استرداد — المبلغ والعملة والتاريخ ورقم العملية. يُزال اسمك منه ولا يمكن ربطه بك بعد ذلك.') %>
+      </p>
+      <p style="margin:0;">
+        <%= tt('Egyptian accounting rules require this, and it is what our Privacy Policy already says we do.', 'Egyptian accounting rules require this, and it is what our Privacy Policy already says we do.', 'القوانين المحاسبية المصرية تتطلب ذلك، وهو ما تنص عليه سياسة الخصوصية بالفعل.') %>
+        <a href="/privacy" style="color:var(--primary-dark);"><%= tt('Read the Privacy Policy', 'Read the Privacy Policy', 'اقرأ سياسة الخصوصية') %></a>
+      </p>
+    </div>
+  </div>
+
+  <div class="p-card" style="margin-top:14px;background:#FBF9F4;">
+    <div class="p-card__body" style="font-size:13px;color:var(--ink-2);line-height:1.7;">
+      <strong style="color:var(--ink);"><%= tt('Want a copy first?', 'Want a copy first?', 'تحب تاخد نسخة الأول؟') %></strong>
+      <%= tt('You can download everything we hold about you before you delete it. Once the account is gone we cannot recover it for you.', 'You can download everything we hold about you before you delete it. Once the account is gone we cannot recover it for you.', 'يمكنك تحميل كل ما لدينا عنك قبل الحذف. بعد حذف الحساب لن نتمكن من استرجاعه.') %>
+      <form method="POST" action="/patient/data-export" style="margin-top:12px;">
+        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+        <button type="submit" class="p-btn p-btn--ghost"><%= tt('Download my data', 'Download my data', 'تحميل بياناتي') %></button>
+      </form>
+    </div>
+  </div>
+
+  <div class="p-card" style="margin-top:14px;border:1px solid #FCA5A5;">
+    <div class="p-card__header">
+      <div class="p-card__title" style="color:#B91C1C;"><%= tt('Confirm deletion', 'Confirm deletion', 'تأكيد الحذف') %></div>
+    </div>
+    <div class="p-card__body">
+
+      <% if (!__hasPassword && !__codeSent) { %>
+        <p style="font-size:13px;color:var(--ink-2);line-height:1.65;margin:0 0 14px;">
+          <%= tt('You sign in with your phone, so we will text you a code to confirm it is really you.', 'You sign in with your phone, so we will text you a code to confirm it is really you.', 'أنت تسجل الدخول برقم هاتفك، لذا سنرسل لك كوداً للتأكد أنك أنت فعلاً.') %>
+          <% if (__maskedPhone) { %>
+            <strong style="color:var(--ink);"><%= __maskedPhone %></strong>
+          <% } %>
+        </p>
+        <form method="POST" action="/patient/delete-account/code">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <button type="submit" class="p-btn"><%= tt('Send me a code', 'Send me a code', 'أرسل لي كود') %></button>
+        </form>
+      <% } else { %>
+
+        <form method="POST" action="/patient/delete-account" autocomplete="off" novalidate>
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+
+          <% if (__hasPassword) { %>
+            <label style="display:block;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">
+              <%= tt('Your password', 'Your password', 'كلمة المرور') %>
+            </label>
+            <input type="password" name="password" autocomplete="current-password" required
+                   style="width:100%;padding:10px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;margin-bottom:16px;" dir="ltr">
+          <% } else { %>
+            <label style="display:block;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">
+              <%= tt('6-digit code', '6-digit code', 'الكود المكوّن من ٦ أرقام') %>
+            </label>
+            <input type="text" name="otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required
+                   style="width:100%;padding:10px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;margin-bottom:16px;letter-spacing:0.3em;" dir="ltr">
+          <% } %>
+
+          <label style="display:block;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">
+            <%= tt('Type', 'Type', 'اكتب') %> <span style="color:#B91C1C;"><%= CONFIRM_WORD %></span> <%= tt('to confirm', 'to confirm', 'للتأكيد') %>
+          </label>
+          <input type="text" name="confirm" autocomplete="off" required
+                 style="width:100%;padding:10px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;margin-bottom:18px;">
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button type="submit" class="p-btn" style="background:#B91C1C;border-color:#B91C1C;color:#fff;">
+              <%= tt('Permanently delete my account', 'Permanently delete my account', 'احذف حسابي نهائياً') %>
+            </button>
+            <a href="/patient/profile" class="p-btn p-btn--ghost"><%= tt('Cancel', 'Cancel', 'إلغاء') %></a>
+          </div>
+        </form>
+      <% } %>
+
+    </div>
+  </div>
+</div>
+
+<%- include('partials/patient/foot', { active: 'profile', isAr: __isAr, cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : '' }) %>

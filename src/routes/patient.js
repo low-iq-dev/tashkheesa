@@ -169,6 +169,243 @@ router.get('/patient/profile', requireRole('patient'), function(req, res) {
   renderPatientProfile(req, res);
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// YOUR DATA — export and deletion (PDPL Articles 2(d) and 2(e))
+//
+// privacy.ejs §5 has promised both since the policy went live. Export existed
+// nowhere. Deletion existed only as DELETE /api/v1/profile/account, i.e. only
+// for someone using the mobile app — a web-only patient had no route at all,
+// which is what the policy sentence "or you can contact us" was papering over.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DATA_RIGHTS_IS_PROD = String(process.env.MODE || process.env.NODE_ENV || 'development').toLowerCase() === 'production';
+// Kept byte-identical to middleware.js:13 and routes/auth.js:25. There is no
+// shared export for it today; tests/lint/session-cookie-name-single-value.test.js
+// fails if the three ever drift.
+const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || 'tashkheesa_portal';
+
+// An export walks ~20 tables for one user. Cheap for a person exercising a
+// right once; a usable amplification lever if left unbounded.
+const dataExportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  validate: false,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user && req.user.id) ? 'user:' + String(req.user.id) : 'ip:' + req.ip,
+  skip: () => !DATA_RIGHTS_IS_PROD && String(process.env.RATE_LIMIT_DISABLED || '').toLowerCase() === 'true',
+  message: 'Too many export requests. Please wait an hour and try again.'
+});
+
+// POST, not GET, and behind CSRF. A GET download URL is one <iframe src> away
+// from being fetched by another origin on a logged-in patient's behalf; the
+// response would be opaque to the attacker, but it would still be generated,
+// and this is the one route that assembles a person's entire medical history
+// into a single document. There is no reason to make it drive-by reachable.
+router.post('/patient/data-export', requireRole('patient'), dataExportLimiter, async function(req, res) {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  try {
+    const { buildPatientExport, exportFilename } = require('../services/patient_data_export');
+    const payload = await buildPatientExport(req.user.id);
+    if (!payload) {
+      return renderPatientProfile(req, res, { error: isAr ? 'تعذر إنشاء الملف' : 'Could not build the export' });
+    }
+    const filename = exportFilename(req.user.id);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
+    // Never let a proxy or the browser keep a copy of somebody's whole file.
+    res.setHeader('Cache-Control', 'no-store, private');
+    return res.send(JSON.stringify(payload, null, 2));
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'patient.data_export',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_action'
+    });
+    return renderPatientProfile(req, res, {
+      error: isAr ? 'حدث خطأ أثناء إنشاء الملف. حاول مرة أخرى.' : 'Something went wrong building your export. Please try again.'
+    });
+  }
+});
+
+// ── Deletion ─────────────────────────────────────────────────────────────────
+//
+// RE-AUTHENTICATION. The mobile endpoint asked for nothing at all: a stolen
+// JWT erased a medical history. This route re-authenticates, and it has to
+// handle two populations, because 14 of the 25 patients in production have no
+// password at all — they signed up by phone and Twilio Verify is their only
+// factor. Demanding a password would have silently denied more than half of
+// our patients a right the Privacy Policy grants them.
+//
+//   has a password  → the password
+//   phone/OTP only  → a fresh 6-digit code to the number they log in with
+//
+// Both then require the word DELETE typed out. That last one is not security;
+// it is the thing that stops a misclick, which is the failure mode that
+// actually happens.
+
+const deleteAccountLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  validate: false,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user && req.user.id) ? 'user:' + String(req.user.id) : 'ip:' + req.ip,
+  skip: () => !DATA_RIGHTS_IS_PROD && String(process.env.RATE_LIMIT_DISABLED || '').toLowerCase() === 'true',
+  message: 'Too many attempts. Please wait an hour and try again.'
+});
+
+// Per-phone send cooldown, mirroring the login OTP door so a delete-code button
+// cannot be used as a free SMS pump.
+const deleteCodeSendLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 3,
+  validate: false,
+  standardHeaders: false,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user && req.user.id) ? 'user:' + String(req.user.id) : 'ip:' + req.ip,
+  skip: () => !DATA_RIGHTS_IS_PROD && String(process.env.RATE_LIMIT_DISABLED || '').toLowerCase() === 'true',
+  message: 'Too many codes requested. Please wait ten minutes.'
+});
+
+function maskPhone(phone) {
+  const s = String(phone || '').trim();
+  if (s.length < 5) return '';
+  return s.slice(0, 4) + ' ' + '•'.repeat(Math.max(0, s.length - 8)) + ' ' + s.slice(-3);
+}
+
+async function renderDeleteAccount(req, res, extra) {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const u = req.user || {};
+  let hasPassword = false;
+  try {
+    const row = await queryOne('SELECT password_hash, phone FROM users WHERE id = $1', [u.id]);
+    hasPassword = !!(row && row.password_hash);
+    if (row && row.phone) u.phone = row.phone;
+  } catch (_) { /* fall through to the OTP branch, which fails closed */ }
+
+  return res.render('patient_delete_account', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+    profileUser: u,
+    lang: lang,
+    isAr: isAr,
+    hasPassword: hasPassword,
+    maskedPhone: maskPhone(u.phone),
+    codeSent: !!(extra && extra.codeSent),
+    error: (extra && extra.error) || null
+  });
+}
+
+router.get('/patient/delete-account', requireRole('patient'), async function(req, res) {
+  try {
+    return await renderDeleteAccount(req, res);
+  } catch (err) {
+    logErrorToDb(err, { context: 'patient.delete_account_page', requestId: req.requestId, userId: req.user?.id, url: req.originalUrl, method: req.method, category: 'patient_action' });
+    return res.redirect('/patient/profile');
+  }
+});
+
+// Dispatch the confirmation code for password-less accounts.
+router.post('/patient/delete-account/code', requireRole('patient'), deleteCodeSendLimiter, async function(req, res) {
+  const isAr = getLang(req, res) === 'ar';
+  try {
+    const row = await queryOne('SELECT phone FROM users WHERE id = $1', [req.user.id]);
+    const phone = row && row.phone ? String(row.phone).trim() : '';
+    if (!phone) {
+      return renderDeleteAccount(req, res, {
+        error: isAr ? 'لا يوجد رقم هاتف على حسابك. تواصل معنا لحذف الحساب.' : 'There is no phone number on your account. Please contact us to delete it.'
+      });
+    }
+    const { sendOtpViaTwilio } = require('../services/twilio_verify');
+    await sendOtpViaTwilio(phone);
+    return renderDeleteAccount(req, res, { codeSent: true });
+  } catch (err) {
+    logErrorToDb(err, { context: 'patient.delete_account_code', requestId: req.requestId, userId: req.user?.id, url: req.originalUrl, method: req.method, category: 'patient_action' });
+    // Fail CLOSED. If we cannot prove who is asking, we do not offer the form.
+    return renderDeleteAccount(req, res, {
+      error: isAr ? 'تعذر إرسال الكود الآن. حاول لاحقاً أو تواصل معنا.' : 'We could not send the code right now. Please try again shortly, or contact us.'
+    });
+  }
+});
+
+router.post('/patient/delete-account', requireRole('patient'), deleteAccountLimiter, async function(req, res) {
+  const isAr = getLang(req, res) === 'ar';
+  const userId = req.user.id;
+  const fail = (msg, extra) => renderDeleteAccount(req, res, Object.assign({ error: msg }, extra || {}));
+
+  try {
+    const typed = String(req.body.confirm || '').trim().toUpperCase();
+    if (typed !== 'DELETE' && typed !== 'حذف') {
+      return fail(isAr ? 'اكتب كلمة "حذف" بالضبط للتأكيد.' : 'Please type DELETE exactly to confirm.', { codeSent: true });
+    }
+
+    const row = await queryOne('SELECT password_hash, phone, role FROM users WHERE id = $1', [userId]);
+    if (!row) return res.redirect('/logout');
+    if (String(row.role || '').toLowerCase() !== 'patient') {
+      return fail(isAr ? 'لا يمكن حذف هذا النوع من الحسابات من هنا.' : 'This kind of account cannot be deleted here. Please contact us.');
+    }
+
+    if (row.password_hash) {
+      const bcrypt = require('bcryptjs');
+      const ok = await bcrypt.compare(String(req.body.password || ''), row.password_hash);
+      if (!ok) return fail(isAr ? 'كلمة المرور غير صحيحة.' : 'That password is not correct.');
+    } else {
+      const otp = String(req.body.otp || '').trim();
+      if (!/^\d{6}$/.test(otp) || !row.phone) {
+        return fail(isAr ? 'الكود غير صحيح.' : 'That code is not valid.', { codeSent: true });
+      }
+      const { verifyOtpCode } = require('../services/twilio_verify');
+      const result = await verifyOtpCode(String(row.phone).trim(), otp);
+      if (!result || !result.valid) {
+        return fail(isAr ? 'الكود غير صحيح أو انتهت صلاحيته.' : 'That code is not valid or has expired.', { codeSent: true });
+      }
+    }
+
+    const { deleteAccount, purgeStorageKeys } = require('../services/account_deletion');
+    const outcome = await deleteAccount(userId);
+
+    // Storage cleanup runs AFTER commit and never throws. The erasure is
+    // already durable; a Cloudflare timeout must not turn a completed deletion
+    // into an error page that invites the patient to press the button again on
+    // an account that no longer exists.
+    purgeStorageKeys(outcome.storageKeys, { userId: userId }).catch(() => {});
+
+    // Drop the session before responding — the row behind it is gone, and
+    // requireRole() would otherwise bounce the next request off a user lookup
+    // that returns nothing. The cookie NAME matters: it is 'tashkheesa_portal'
+    // (SESSION_COOKIE_NAME), not 'session'. Clearing the wrong name is a silent
+    // no-op that leaves a signed cookie for a user who no longer exists.
+    res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
+    return res.redirect('/account-deleted');
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'patient.delete_account',
+      requestId: req.requestId,
+      userId: userId,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_action'
+    });
+    return fail(isAr ? 'حدث خطأ ولم نحذف أي شيء. حاول مرة أخرى أو تواصل معنا.' : 'Something went wrong and nothing was deleted. Please try again, or contact us.');
+  }
+});
+
+// Public: the patient no longer has a session when they land here.
+router.get('/account-deleted', function(req, res) {
+  const isAr = !!(res.locals && res.locals.isAr);
+  return res.render('account_deleted', {
+    title: isAr ? 'تم حذف الحساب — تشخيصة' : 'Account deleted — Tashkheesa',
+    isAr: isAr,
+    description: 'Your Tashkheesa account has been deleted.',
+    canonical: '/account-deleted'
+  });
+});
+
 // POST /patient/profile — Update patient profile
 router.post('/patient/profile', requireRole('patient'), async function(req, res) {
   const lang = getLang(req, res);

@@ -1,0 +1,24 @@
+<%- include('partials/header', { title: title, layout: "public", showNav: true }) %>
+<% const __isAr = !!(typeof isAr !== 'undefined' && isAr); %>
+
+<main class="page-shell">
+  <div class="page-inner">
+    <section class="content-card legal-page">
+<% if (__isAr) { %>
+      <h1>تم حذف حسابك</h1>
+      <p>حذفنا ملفك الشخصي وملفاتك ورسائلك وتقاريرك ومواعيدك وإشعاراتك — من سجلاتنا ومن مساحة التخزين لدينا.</p>
+      <p>احتفظنا فقط بسجل مالي مجهول لكل عملية دفع أو استرداد، بدون اسمك، كما تتطلب القوانين المحاسبية المصرية وكما توضح <a href="/privacy">سياسة الخصوصية</a>.</p>
+      <p>شكراً لثقتك في تشخيصة. لو احتجتنا مرة أخرى، يمكنك إنشاء حساب جديد في أي وقت.</p>
+      <p><a class="btn btn-primary" href="/">العودة للصفحة الرئيسية</a></p>
+<% } else { %>
+      <h1>Your account has been deleted</h1>
+      <p>We have removed your profile, your files, your messages, your reports, your appointments and your notifications — from our records and from our storage.</p>
+      <p>The only thing we kept is an anonymous financial record of each payment and refund, with your name removed. Egyptian accounting rules require it, and our <a href="/privacy">Privacy Policy</a> says so.</p>
+      <p>Thank you for trusting Tashkheesa. If you ever need us again, you are welcome to create a new account.</p>
+      <p><a class="btn btn-primary" href="/">Back to the homepage</a></p>
+<% } %>
+    </section>
+  </div>
+</main>
+
+<%- include('partials/footer') %>

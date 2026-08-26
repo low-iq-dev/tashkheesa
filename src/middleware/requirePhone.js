@@ -22,6 +22,13 @@
 var EXEMPT_PREFIXES = [
   '/portal/patient/onboarding',  // gate destination — gating it would loop
   '/patient/profile',            // phone-edit surface (must be reachable)
+  // A PDPL right must not sit behind a profile-completion nag. Without these
+  // two, a patient who signed up before the phone field existed is redirected
+  // to onboarding when they try to download or delete their own data — i.e.
+  // told to hand us MORE personal information before we will let them take
+  // any of it back.
+  '/patient/data-export',
+  '/patient/delete-account',
   '/lang/',                      // language switching
   '/logout'
 ];

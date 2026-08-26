@@ -184,6 +184,30 @@
         </div>
       </div>
     <% } %>
+    <div class="p-card" style="margin-top:18px;">
+      <div class="p-card__header">
+        <div class="p-card__title"><%= tt('Your data', 'Your data', 'بياناتك') %></div>
+      </div>
+      <div class="p-card__body" style="font-size:13px;color:var(--ink-2);line-height:1.65;">
+        <p style="margin:0 0 12px;">
+          <%= tt('Download everything we hold about you — your profile, cases, files, messages and reports — as a single file.', 'Download everything we hold about you — your profile, cases, files, messages and reports — as a single file.', 'حمّل كل ما لدينا عنك — ملفك الشخصي وحالاتك وملفاتك ورسائلك وتقاريرك — في ملف واحد.') %>
+        </p>
+        <form method="POST" action="/patient/data-export">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <button type="submit" class="p-btn p-btn--ghost"><%= tt('Download my data', 'Download my data', 'تحميل بياناتي') %></button>
+        </form>
+        <hr style="border:0;border-top:1px solid #EEE;margin:16px 0;">
+        <p style="margin:0 0 12px;">
+          <%= tt('You can also delete your account permanently. We will show you exactly what happens before anything is removed.', 'You can also delete your account permanently. We will show you exactly what happens before anything is removed.', 'يمكنك أيضاً حذف حسابك نهائياً. سنوضح لك بالضبط ما سيحدث قبل حذف أي شيء.') %>
+        </p>
+        <%# A LINK to an interstitial, not a submit button. The CSP has no %>
+        <%# 'unsafe-inline', so an onsubmit="return confirm()" guard would %>
+        <%# never fire and the first click would be the last one. %>
+        <a href="/patient/delete-account" style="font-size:13px;color:#B91C1C;font-weight:600;text-decoration:underline;">
+          <%= tt('Delete my account', 'Delete my account', 'حذف حسابي') %>
+        </a>
+      </div>
+    </div>
   </div>
 
   <div class="stack">

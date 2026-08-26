@@ -192,49 +192,104 @@ module.exports = function (db, { safeGet, safeRun }) {
     return res.ok({ message: 'Password updated successfully' });
   });
 
+  // ─── GET /profile/export ─────────────────────────────────
+  // PDPL portability. privacy.ejs §5 promises "a portable copy of your data";
+  // until now the only export in the codebase was superadmin-only and carried
+  // no PII at all. Safe as a GET: this API is bearer-token authenticated, so
+  // there is no ambient cookie for another origin to ride.
+
+  router.get('/export', async (req, res) => {
+    try {
+      const { buildPatientExport } = require('../../services/patient_data_export');
+      const payload = await buildPatientExport(req.user.id);
+      if (!payload) return res.fail('User not found', 404);
+      res.set('Cache-Control', 'no-store, private');
+      return res.ok(payload);
+    } catch (err) {
+      console.error('[profile/export] failed:', err && err.message);
+      return res.fail('Could not build your export. Please try again.', 500, 'EXPORT_FAILED');
+    }
+  });
+
   // ─── DELETE /profile/account ─────────────────────────────
-  // GDPR: Full account deletion
+  // PDPL Article 2(e) erasure.
+  //
+  // WHAT THIS USED TO DO, AND WHY IT HAD TO CHANGE. The previous handler
+  // looped eight tables with `safeRun` — a bare pool.query, so every statement
+  // autocommitted independently — caught every error as "table might not
+  // exist", and returned "Account and all data permanently deleted." whether
+  // or not it had. It required NO credential of any kind: possession of a JWT
+  // was sufficient to destroy someone's medical history. It missed
+  // medical_records, appointments, video_calls, order_events and six other
+  // tables, left every uploaded file orphaned in R2, and its DELETE FROM
+  // orders CASCADEd through refunds and order_addons into addon_earnings —
+  // taking the financial records the privacy policy promises to keep, and the
+  // doctor's earnings rows, with it.
+  //
+  // The work now lives in services/account_deletion.js, in one transaction.
+  //
+  // BREAKING CHANGE FOR THE APP. This route now demands re-authentication. An
+  // app build that calls it with an empty body gets 401 REAUTH_REQUIRED and
+  // NOTHING IS DELETED — the failure mode is a button that does not work, not
+  // a medical history erased by a stolen token. The app should collect the
+  // password (or a Twilio Verify code, for phone-signup accounts) and send it
+  // here; until it does, /patient/delete-account on the web covers the right.
 
   router.delete('/account', async (req, res) => {
     const userId = req.user.id;
-
-    // Delete in order to respect foreign keys
-    const tables = [
-      { table: 'messages', column: 'sender_id' },
-      { table: 'reviews', column: 'patient_id' },
-      { table: 'notifications', column: 'to_user_id' },
-      { table: 'order_files', column: 'order_id', subquery: true },
-      { table: 'order_timeline', column: 'order_id', subquery: true },
-      { table: 'conversations', column: 'patient_id' },
-      { table: 'prescriptions', column: 'patient_id' },
-      // `payments` was dropped by migration 042. The DELETE call would
-      // succeed on environments where the deleted boot script
-      // src/migrate_mobile_api.js had re-created the (empty) table,
-      // and silently no-op once the table is genuinely gone. Removed
-      // to keep the FK enumeration honest.
-      { table: 'orders', column: 'patient_id' },
-    ];
-
-    for (const { table, column, subquery } of tables) {
-      try {
-        if (subquery) {
-          // include-deleted-ok: GDPR right-to-erasure must clean child rows
-          // for ALL of the user's orders, including soft-deleted ones (their
-          // children — files, timeline, etc. — must also be erased).
-          await safeRun(`DELETE FROM ${table} WHERE ${column} IN (SELECT id FROM orders WHERE patient_id = $1)`, [userId]);
-        } else {
-          await safeRun(`DELETE FROM ${table} WHERE ${column} = $1`, [userId]);
-        }
-      } catch (err) {
-        // Table might not exist, skip
-        console.warn(`[delete-account] Skipping ${table}: ${err.message}`);
+    try {
+      const row = await safeGet('SELECT password_hash, phone, role FROM users WHERE id = $1', [userId]);
+      if (!row) return res.fail('User not found', 404);
+      if (String(row.role || '').toLowerCase() !== 'patient') {
+        return res.fail('Only patient accounts can be deleted here.', 403, 'ROLE_NOT_ERASABLE');
       }
+
+      const password = String((req.body && req.body.password) || '');
+      const otp = String((req.body && req.body.otp) || '').trim();
+
+      if (row.password_hash) {
+        if (!password) {
+          return res.fail('Please confirm your password to delete your account.', 401, 'REAUTH_REQUIRED');
+        }
+        const valid = await bcrypt.compare(password, row.password_hash);
+        if (!valid) return res.fail('Current password is incorrect', 401, 'WRONG_PASSWORD');
+      } else {
+        // Phone-signup account: the verification code is their login factor,
+        // so it is also their deletion factor.
+        if (!otp) {
+          return res.fail('Please confirm the code we sent you to delete your account.', 401, 'REAUTH_REQUIRED');
+        }
+        if (!/^\d{6}$/.test(otp) || !row.phone) {
+          return res.fail('That code is not valid.', 401, 'WRONG_CODE');
+        }
+        const { verifyOtpCode } = require('../../services/twilio_verify');
+        const result = await verifyOtpCode(String(row.phone).trim(), otp);
+        if (!result || !result.valid) {
+          return res.fail('That code is not valid or has expired.', 401, 'WRONG_CODE');
+        }
+      }
+
+      const { deleteAccount, purgeStorageKeys } = require('../../services/account_deletion');
+      const outcome = await deleteAccount(userId);
+
+      // After commit, never inside it: an R2 timeout must not roll back a
+      // durable erasure, and a rolled-back erasure must not have already
+      // destroyed the files.
+      purgeStorageKeys(outcome.storageKeys, { userId: userId }).catch(() => {});
+
+      return res.ok({
+        message: 'Your account has been deleted. An anonymous record of each payment and refund is kept for accounting, with your name removed.',
+      });
+    } catch (err) {
+      console.error('[profile/delete-account] failed:', err && err.message);
+      if (err && err.code === 'ROLE_NOT_ERASABLE') {
+        return res.fail('Only patient accounts can be deleted here.', 403, 'ROLE_NOT_ERASABLE');
+      }
+      if (err && err.code === 'NOT_FOUND') return res.fail('User not found', 404);
+      // Say nothing was deleted only because nothing was: the whole operation
+      // is one transaction, so a throw means a rollback.
+      return res.fail('Something went wrong and nothing was deleted. Please try again.', 500, 'DELETE_FAILED');
     }
-
-    // Finally delete the user
-    await safeRun('DELETE FROM users WHERE id = $1', [userId]);
-
-    return res.ok({ message: 'Account and all data permanently deleted.' });
   });
 
   return router;
