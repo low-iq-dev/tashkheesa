@@ -891,7 +891,16 @@ module.exports = function (db, helpers, deploy, deps) {
       if (q.assigned === 'unassigned') cond.push('o.doctor_id IS NULL');
       else if (q.assigned === 'assigned') cond.push('o.doctor_id IS NOT NULL');
       if (q.breached === '1' || q.breached === 'true') {
-        cond.push("o.completed_at IS NULL AND o.deadline_at IS NOT NULL AND o.deadline_at::timestamptz < NOW()");
+        // 2026-08-25 — ACTIVE_STATUSES added, to match the dashboard tile.
+        //
+        // "SLA breached" meant three different things on three screens. The
+        // tile counts active cases past deadline; this drill-down counted ANY
+        // case past deadline; the facet below counted the same over everything
+        // including drafts. A breached case later cancelled or refunded keeps
+        // completed_at NULL (manual-queue/:id/unsuitable sets status='cancelled'
+        // and nothing else), so it dropped out of the tile and stayed in both
+        // lists. Tapping "SLA breached · 7" landed on a header reading 12.
+        cond.push(`o.completed_at IS NULL AND ${ST} IN ${ACTIVE_STATUSES} AND o.deadline_at IS NOT NULL AND o.deadline_at::timestamptz < NOW()`);
       }
       // Active = the pulse "Active cases" KPI set (the ACTIVE_STATUSES constant),
       // not yet completed. This ANDs with assigned=unassigned to yield the EXACT
@@ -942,7 +951,8 @@ module.exports = function (db, helpers, deploy, deps) {
                   -- with doctor_id NULL; it is unassigned in every sense that
                   -- matters and was missing from this count entirely.
                   COUNT(*) FILTER (WHERE o.doctor_id IS NULL AND o.completed_at IS NULL AND LOWER(o.status) IN ('paid','reassigned')) AS unassigned,
-                  COUNT(*) FILTER (WHERE o.completed_at IS NULL AND o.deadline_at IS NOT NULL AND o.deadline_at::timestamptz < NOW()) AS breached
+                  -- Same predicate as the tile and the drill-down (2026-08-25).
+                  COUNT(*) FILTER (WHERE o.completed_at IS NULL AND LOWER(o.status) IN ('paid','assigned','in_progress','in_review','reassigned') AND o.deadline_at IS NOT NULL AND o.deadline_at::timestamptz < NOW()) AS breached
              FROM orders_active o GROUP BY LOWER(o.status)`,
           []
         ),
@@ -1004,7 +1014,13 @@ module.exports = function (db, helpers, deploy, deps) {
       const [row, orderFiles, addlFiles, ai, events, doctor, refund] = await Promise.all([
         safeGet(
           `SELECT o.id, o.reference_id, o.status, o.urgency_tier, o.payment_status, o.paid_at, o.payment_method,
-                  o.price, o.created_at, o.completed_at, o.accepted_at, o.deadline_at, o.sla_hours,
+                  o.price,
+                  -- 2026-08-25: the detail response now exposes grandTotal, which the
+                  -- refund sheet caps on. Without this column it would silently be
+                  -- price alone again and the cap would be wrong on any case with
+                  -- add-ons.
+                  o.total_price_with_addons,
+                  o.created_at, o.completed_at, o.accepted_at, o.deadline_at, o.sla_hours,
                   o.doctor_id, o.specialty_id, o.service_id,
                   o.diagnosis_text, o.impression_text, o.recommendation_text, o.clinical_question, o.report_url,
                   COALESCE(p.name,'—') AS patient_name, p.gender, p.date_of_birth,
@@ -1083,6 +1099,17 @@ module.exports = function (db, helpers, deploy, deps) {
         payment: {
           state: String(row.payment_status || 'unpaid').toLowerCase(),
           price: row.price == null ? null : Number(row.price),
+          // 2026-08-25 — grandTotal added.
+          //
+          // This returned orders.price alone while the queue row, /revenue and
+          // /breach-cost all use COALESCE(total_price_with_addons, price), and
+          // the refund guard allows up to price + add-ons. So on any case with
+          // add-ons the list said EGP 550, the detail said "Case fee EGP 400",
+          // and the refund sheet — which caps on this number — REFUSED to
+          // refund what the patient actually paid.
+          grandTotal: row.total_price_with_addons == null
+            ? (row.price == null ? null : Number(row.price))
+            : Number(row.total_price_with_addons),
           paidAt: toIso(row.paid_at),
           method: row.payment_method || null,
           createdAt: toIso(row.created_at),
