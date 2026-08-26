@@ -37,8 +37,12 @@ function setupStaticPages(opts) {
     phone: '+20 110 200 9886',
     address: 'Cairo, Egypt',
     address_ar: 'القاهرة، مصر',
-    businessHours: 'Sunday – Thursday: 9:00 AM – 5:00 PM (Cairo Time)',
-    businessHours_ar: 'الأحد – الخميس: 9:00 صباحاً – 5:00 مساءً (بتوقيت القاهرة)',
+    // LAUNCH-2026-09 — the platform accepts and processes cases 24/7. The only
+    // time-boxed promise is the Urgent 4-hour tier, which runs 7am–7pm Cairo
+    // (see src/services/urgency.js and patient_new_case.ejs §3). The old
+    // 'Sunday – Thursday 9–5' string contradicted every SLA we actually sell.
+    businessHours: '24/7 — cases accepted any time. Urgent 4-hour reviews run 7:00 AM – 7:00 PM (Cairo Time).',
+    businessHours_ar: 'متاح ٢٤/٧ — نستقبل الحالات في أي وقت. المراجعات العاجلة خلال ٤ ساعات تعمل من ٧:٠٠ صباحاً حتى ٧:٠٠ مساءً (بتوقيت القاهرة).',
     instagram: 'https://instagram.com/tashkheesa',
   };
 

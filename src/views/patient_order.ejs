@@ -143,7 +143,7 @@
           </div>
           <div class="p-card__body" style="display:flex;flex-direction:column;gap:14px;">
             <p style="font-size:14px;color:var(--ink-2);line-height:1.6;margin:0;">
-              <%= tt('Usually within a few hours during business hours, sometimes longer overnight or on weekends.', 'Usually within a few hours during business hours, sometimes longer overnight or on weekends.', 'عادة خلال ساعات قليلة في أوقات العمل، وأحياناً أطول في الليل أو عطلات نهاية الأسبوع.') %>
+              <%= tt('Usually within a few hours. Cases are picked up around the clock — your delivery deadline is the one shown above.', 'Usually within a few hours. Cases are picked up around the clock — your delivery deadline is the one shown above.', 'عادة خلال ساعات قليلة. نستقبل الحالات على مدار الساعة — الموعد النهائي لتسليمك هو المعروض أعلاه.') %>
             </p>
             <div style="font-size:12.5px;color:var(--muted);line-height:1.55;background:#FBF9F4;padding:14px;border-radius:10px;">
               <strong style="color:var(--ink);"><%= tt('A real person, not an algorithm.', 'A real person, not an algorithm.', 'إنسان حقيقي، وليس خوارزمية.') %></strong>
@@ -498,20 +498,12 @@
       if (isNaN(dt.getTime())) return '';
       return dt.toLocaleTimeString(__isAr ? 'ar-EG' : 'en-GB', { hour: '2-digit', minute: '2-digit' });
     }
-    // Doctor-side response-time hint. No schema field today; use the global
-    // default per Phase 5 spec: 2h business hours / longer overnight or weekends.
-    function nowInCairoBusinessHours() {
-      try {
-        const cairo = new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
-        const day = cairo.getDay(); // 0=Sun, 6=Sat
-        const hour = cairo.getHours();
-        // Egypt working week is Sun–Thu, business hours 9–18 Cairo time.
-        return day !== 5 && day !== 6 && hour >= 9 && hour < 18;
-      } catch (_) { return true; }
-    }
-    const respondsCopy = nowInCairoBusinessHours()
-      ? tt('Typically responds within 2 hours', 'Typically responds within 2 hours', 'يرد عادة خلال ساعتين')
-      : tt('Typically responds in the morning — slower overnight and on weekends', 'Typically responds in the morning — slower overnight and on weekends', 'يرد عادة في الصباح — أبطأ في الليل وعطلات نهاية الأسبوع');
+    // LAUNCH-2026-09 — this used to branch on a Sun-Thu 09:00-18:00 Cairo window
+    // and tell the patient replies were "slower overnight and on weekends".
+    // The platform runs 24/7; the only time-boxed promise we make is the Urgent
+    // 4-hour tier. A weekend visitor was being told the opposite of the policy
+    // they had just paid against, so the branch is gone rather than retuned.
+    const respondsCopy = tt('Typically responds within a few hours', 'Typically responds within a few hours', 'يرد عادة خلال ساعات قليلة');
   %>
   <% if (!__doctorAssigned) { %>
     <%# No doctor yet — show the limbo-aware empty state (Phase 4 copy). %>

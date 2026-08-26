@@ -49,8 +49,8 @@
       <% if (_cState === 'sent') { %>
         <div class="contact-banner contact-banner--success" role="status">
           <%= tt('contact.form.success',
-            'Thanks — your message is on its way. We reply within 24 hours on business days.',
-            'شكراً — رسالتك وصلت. بنرد في خلال 24 ساعة في أيام الشغل.') %>
+            'Thanks — your message is on its way. We reply within 24 hours.',
+            'شكراً — رسالتك وصلت. بنرد في خلال 24 ساعة.') %>
         </div>
       <% } else if (_cState === 'error') { %>
         <div class="contact-banner contact-banner--error" role="alert">
@@ -110,16 +110,13 @@
       </form>
 
       <div class="contact-hours">
-        <h3><%= tt('contact.hours.title', 'Business Hours', 'مواعيد العمل') %></h3>
+        <h3><%= tt('contact.hours.title', 'Availability', 'مواعيد التوفر') %></h3>
         <p><%= tt('contact.hours.weekdays_value',
-          biz.businessHours || 'Sunday – Thursday: 9:00 AM – 5:00 PM (Cairo Time)',
-          biz.businessHours_ar || 'الأحد – الخميس: 9:00 صباحاً – 5:00 مساءً (بتوقيت القاهرة)') %></p>
-        <p><%= tt('contact.hours.weekend',
-          'Friday – Saturday: Closed',
-          'الجمعة – السبت: مقفول') %></p>
+          biz.businessHours || '24/7 — cases accepted any time. Urgent 4-hour reviews run 7:00 AM – 7:00 PM (Cairo Time).',
+          biz.businessHours_ar || 'متاح ٢٤/٧ — نستقبل الحالات في أي وقت. المراجعات العاجلة خلال ٤ ساعات تعمل من ٧:٠٠ صباحاً حتى ٧:٠٠ مساءً (بتوقيت القاهرة).') %></p>
         <p class="contact-response-note"><%= tt('contact.hours.response',
-          'We typically respond within 24 hours during business days.',
-          'بنرد في العادة في خلال 24 ساعة في أيام الشغل.') %></p>
+          'We typically respond to messages within 24 hours, any day of the week.',
+          'بنرد على الرسائل في العادة في خلال 24 ساعة، أي يوم في الأسبوع.') %></p>
       </div>
 
       <% if (biz.instagram) { %>
