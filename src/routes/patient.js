@@ -18,6 +18,7 @@ const { egpChargeFromLocal } = require('../fx');
 const { isUrgentWindowOpen, nextSevenAmCairoUtc } = require('../services/urgency_window');
 const { serviceBookableClause } = require('../services/service_bookable');
 const { modelHaiku } = require('../config/anthropic');
+const { recordAiUsage } = require('../services/ai_usage');
 const { getThresholds } = require('../services/admin_settings');
 
 const caseLifecycle = require('../case_lifecycle');
@@ -1382,6 +1383,11 @@ router.post('/api/analyze-case-type', requireRole('patient'), async (req, res) =
       r.write(body);
       r.end();
     });
+    // Credit accounting. This site talks to the HTTP API directly rather than
+    // through the SDK, so `usage` is just a field on the parsed JSON body —
+    // same shape, no wrapper object.
+    recordAiUsage({ purpose: 'intake_triage', model: modelHaiku(), usage: aiResponse && aiResponse.usage });
+
     var text = (aiResponse.content && aiResponse.content[0] && aiResponse.content[0].text) || '';
     if (!text.trim()) throw new Error('anthropic_empty_completion');
     var parsed = JSON.parse(text.trim());

@@ -5,6 +5,7 @@ var fs = require('fs');
 var https = require('https');
 var http = require('http');
 var { modelVision } = require('./config/anthropic');
+var { recordAiUsage } = require('./services/ai_usage');
 
 var ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
@@ -72,6 +73,11 @@ async function validateMedicalImage(imageBuffer, mimeType, expectedScanType) {
         try {
           var body = Buffer.concat(chunks).toString();
           var parsed = JSON.parse(body);
+          // Credit accounting. Vision calls carry a base64 image in the input,
+          // so this purpose's token count is dominated by image tokens rather
+          // than by the prompt — a large scan costs many times what the text
+          // suggests, which is precisely what the spend screen should show.
+          recordAiUsage({ purpose: 'document_check', model: modelVision(), usage: parsed && parsed.usage });
           if (parsed.content && parsed.content[0] && parsed.content[0].text) {
             var text = parsed.content[0].text;
             var clean = text.replace(/```json\n?|```\n?/g, '').trim();

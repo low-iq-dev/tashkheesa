@@ -4,6 +4,7 @@ const { queryAll } = require('../pg');
 const Anthropic = require('@anthropic-ai/sdk');
 const rateLimit = require('express-rate-limit');
 const { modelSonnet } = require('../config/anthropic');
+const { recordAiUsage } = require('../services/ai_usage');
 const { serviceBookableClause } = require('../services/service_bookable');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -128,8 +129,9 @@ router.post('/api/help-me-choose', assistantLimiter, async (req, res) => {
     // and is identical across every turn of a chat session. Wrap with
     // ephemeral cache_control so re-uses within the 5-min cache window pay
     // ~10% of the prefix-token cost. Theme 9 Sub-issue D.
+    const _model = modelSonnet();
     const response = await client.messages.create({
-      model: modelSonnet(),
+      model: _model,
       max_tokens: 400,
       system: [
         { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }
@@ -137,6 +139,12 @@ router.post('/api/help-me-choose', assistantLimiter, async (req, res) => {
       messages: validMessages,
       timeout: 30000,
     });
+
+    // Credit accounting. Every turn of a chat is its own call, so a single
+    // long conversation shows up as many rows — which is the point: the
+    // assistant is the one feature whose cost scales with how chatty a visitor
+    // is rather than with how many cases are booked.
+    recordAiUsage({ purpose: 'assistant', model: _model, usage: response && response.usage });
 
     const text = response.content?.[0]?.text || '';
 

@@ -29,16 +29,24 @@
  * (≥0.95) therefore requires the model to be ≥0.95 on BOTH dimensions —
  * the prompt enforces this explicitly.
  *
- * No DB writes inside this module — the audit insert into
+ * No CLINICAL DB writes inside this module — the audit insert into
  * `specialty_classifications` (now including service_id post-058) is a
  * call-site concern. Keeping the helper pure-function-shaped makes it
  * trivially testable with mocked Anthropic responses.
+ *
+ * The one write that IS here is the credit-accounting row (services/ai_usage),
+ * added 2026-08-26. It has to live at the call itself — the token counts exist
+ * only on the response object, and pushing them out to every call site is how
+ * the table stayed empty for a year. It is fire-and-forget and non-throwing, so
+ * the function's observable behaviour is unchanged and the mocked-client tests
+ * still pass without a database.
  */
 
 'use strict';
 
 const Anthropic = require('@anthropic-ai/sdk');
 const { modelHaiku } = require('../config/anthropic');
+const { recordAiUsage } = require('./ai_usage');
 
 const REASONING_MAX_CHARS = 140;
 const AMBIGUITY_SPREAD_THRESHOLD = 0.10;
@@ -174,12 +182,19 @@ async function classifyCase(caseText, fileMetadata, specialtiesWithServices, cor
 
   const userPrompt = _buildUserPrompt(caseText, fileMetadata, specialtiesWithServices, correctionsBlock);
 
+  const _model = modelHaiku();
   const response = await getClient().messages.create({
-    model: modelHaiku(),
+    model: _model,
     max_tokens: MAX_OUTPUT_TOKENS,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userPrompt }]
   });
+
+  // Credit accounting. Deliberately BEFORE the parse guards below: the tokens
+  // were spent whether or not the model returned usable JSON, and a purpose
+  // whose cost is high while its case count is low is exactly the signal the
+  // spend screen exists to surface. recordAiUsage never throws.
+  recordAiUsage({ purpose: 'order_wizard', model: _model, usage: response && response.usage });
 
   const first = (response && response.content && response.content[0]) || {};
   const raw = typeof first.text === 'string' ? first.text.trim() : '';

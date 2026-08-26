@@ -24,6 +24,7 @@
 var { queryOne, execute } = require('../pg');
 var { fatal: logFatal, major: logMajor } = require('../logger');
 var { isAnthropicBillingError, modelHaiku } = require('../config/anthropic');
+var { recordAiUsage } = require('./ai_usage');
 
 var FLAG_KEY = 'ai_billing_status';
 
@@ -195,11 +196,16 @@ async function recordCanaryHealthy() {
 // failure trips the flag; other failures are left for the staleness check.
 async function runCanary(client) {
   try {
-    await client.messages.create({
+    const _resp = await client.messages.create({
       model: modelHaiku(),
       max_tokens: 1,
       messages: [{ role: 'user', content: 'ping' }]
     });
+    // Credit accounting. The canary costs a rounding error, but it runs on a
+    // schedule forever, and "why is there spend on a day nothing happened" has
+    // an answer only if the scheduled probe is on the same ledger as the
+    // features. Its own purpose so it never inflates a real one.
+    recordAiUsage({ purpose: 'health_canary', model: modelHaiku(), usage: _resp && _resp.usage });
     await recordCanaryHealthy();
     return true;
   } catch (err) {

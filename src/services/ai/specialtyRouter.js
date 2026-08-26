@@ -24,6 +24,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 // Adjust this path to point at your db.js. CC confirmed it lives at src/db.js,
 // so if this file ships at src/services/ai/specialtyRouter.js, use '../../db'.
 const { pool } = require('../../db');
+const { recordAiUsage } = require('../ai_usage');
 
 const FEATURE = 'specialty_routing';
 const PROMPT_VERSION = 'v1-2026-05-19';
@@ -94,6 +95,12 @@ async function suggestSpecialty(input) {
       }),
       timeoutMs
     );
+
+    // Credit accounting. This router is the second-generation replacement for
+    // the classifier and shares its purpose deliberately: `order_wizard` is the
+    // BUSINESS line, and splitting it by which implementation happened to run
+    // would make the spend look like it moved when only the code did.
+    recordAiUsage({ purpose: 'order_wizard', model, usage: response && response.usage });
 
     const text = response.content
       .filter((b) => b.type === 'text')

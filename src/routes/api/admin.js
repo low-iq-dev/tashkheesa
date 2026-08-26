@@ -852,6 +852,73 @@ module.exports = function (db, helpers, deploy, deps) {
     }
   });
 
+  // ─── GET /ai-usage?days=30 (where the Anthropic credits went) ─
+  //
+  // Ziad, 2026-08-26: "a section to see where my API credits are going (like
+  // for example order wizard, marketing etc)".
+  //
+  // THE HONEST FRAMING, which the app repeats verbatim and must keep repeating:
+  //
+  //  * Token counts are EXACT — they are what Anthropic reported on each
+  //    response.
+  //  * Dollar figures are ESTIMATES from a local price table
+  //    (services/ai_usage.js). They will drift from the console on batch
+  //    pricing, on a model we have not listed, and whenever prices change.
+  //  * This ledger covers the PLATFORM's own API key only. Content written by
+  //    hand in Claude — marketing copy, this codebase — is billed to the same
+  //    account and will never appear here. That is why `marketing` can read
+  //    zero while real marketing spend exists, and the app says so rather than
+  //    letting a zero imply "free".
+  //  * Nothing before 2026-08-26 is here at all. The table existed but no call
+  //    site wrote to it, so history genuinely starts at the deploy.
+  //
+  // The console remains authoritative for the BILL. This is authoritative for
+  // the SPLIT — which is the question, and the one the console cannot answer.
+  router.get('/ai-usage', async (req, res) => {
+    try {
+      const { usageByPurpose, usageDailyTotals } = require('../../services/ai_usage');
+      const days = Math.max(1, Math.min(365, parseInt((req.query || {}).days, 10) || 30));
+
+      const [byPurpose, daily] = await Promise.all([
+        usageByPurpose(days),
+        usageDailyTotals(days),
+      ]);
+
+      const total = byPurpose.reduce((acc, r) => ({
+        calls: acc.calls + r.calls,
+        inputTokens: acc.inputTokens + r.inputTokens,
+        outputTokens: acc.outputTokens + r.outputTokens,
+        totalTokens: acc.totalTokens + r.totalTokens,
+        costUsd: acc.costUsd + r.costUsd,
+      }), { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 });
+      total.costUsd = Math.round(total.costUsd * 1e4) / 1e4;
+
+      // Share of spend, computed here rather than in the app so the two
+      // surfaces can never round it differently. Zero total → zero shares, not
+      // NaN: an empty ledger is the NORMAL state on day one.
+      const withShare = byPurpose.map((r) => ({
+        ...r,
+        shareOfCost: total.costUsd > 0
+          ? Math.round((r.costUsd / total.costUsd) * 1000) / 10
+          : 0,
+      }));
+
+      return res.ok({
+        days,
+        estimated: true,
+        trackingSince: '2026-08-26',
+        note: 'Tokens are exact; costs are estimated from list prices. '
+            + 'Covers the platform API key only — content written by hand in '
+            + 'Claude is billed to the same account but is not counted here.',
+        total,
+        byPurpose: withShare,
+        daily,
+      });
+    } catch (err) {
+      return res.fail('Failed to load AI usage', 500, 'AI_USAGE_ERROR');
+    }
+  });
+
   // ─── GET /cases (filterable / sortable / paginated list) ────
   // READ-ONLY triage queue over orders_active. Default scope excludes
   // expired_unpaid + draft (dead/pre-payment noise) UNLESS an explicit status

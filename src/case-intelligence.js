@@ -10,6 +10,7 @@ var { queryOne, queryAll, execute } = require('./pg');
 var { major: logMajor, fatal: logFatal } = require('./logger');
 var { modelSonnet } = require('./config/anthropic');
 var { recordAiHealth } = require('./services/ai_health');
+var { recordAiUsage } = require('./services/ai_usage');
 var os = require('os');
 // Storage read primitive for remote (R2) files. Required at call time so a
 // missing R2 config never blocks module load / boot.
@@ -377,8 +378,9 @@ async function structureFileData(fileId, text) {
       // across every file extracted in a session — wrap both with
       // ephemeral cache_control so re-runs within the 5-min cache window
       // pay ~10% of the prefix-token cost. Theme 9 Sub-issue D.
+      var _model = modelSonnet();
       var response = await anthropic.messages.create({
-        model: modelSonnet(),
+        model: _model,
         max_tokens: 4096,
         system: [
           { type: 'text', text: EXTRACTION_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }
@@ -390,6 +392,18 @@ async function structureFileData(fileId, text) {
             { type: 'text', text: text }
           ]
         }]
+      });
+
+      // Credit accounting, before the parse. This is the platform's most
+      // expensive call by a wide margin — Sonnet over a whole document — and it
+      // runs twice when the first attempt returns unparseable output, so both
+      // attempts get their own row. Labelled with the file id so a runaway
+      // retry loop on one bad scan is visible rather than averaged away.
+      recordAiUsage({
+        purpose: 'case_intelligence',
+        model: _model,
+        usage: response && response.usage,
+        label: 'file:' + fileId,
       });
 
       var raw = (response.content && response.content[0] && response.content[0].text) || '';
