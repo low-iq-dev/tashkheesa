@@ -108,6 +108,9 @@ function isStorageKey(v) {
 
 /** What the two rules select right now. Read-only; safe to call anywhere. */
 async function findCandidates() {
+  // include-deleted-ok: Rule A exists precisely to act on soft-deleted rows.
+  // orders_active would return the empty set and the rule would silently
+  // become a no-op.
   const abandoned = await queryAll(
     `SELECT id, reference_id, deleted_at, paid_at, payment_status
        FROM orders
@@ -137,7 +140,7 @@ async function findCandidates() {
  * The old scripts/purge_old_deleted_orders.js needed only `--apply`, and a
  * single mistyped shell line would have hard-deleted 21 orders with no
  * transaction, best-effort child deletes that swallowed their own errors, and
- * a DELETE FROM orders that CASCADEs into refunds and order_addons.
+ * a hard delete of the order row that CASCADEs into refunds and order_addons.
  *
  * @returns {Promise<{applied: boolean, counts: object, storageKeys: string[]}>}
  */
@@ -177,6 +180,9 @@ async function runRetentionPurge({ apply = false } = {}) {
       for (const r of (await client.query('SELECT file_url FROM medical_records WHERE order_id = ANY($1::text[])', [allIds])).rows) addKey(r.file_url);
       for (const r of (await client.query('SELECT storage_path FROM case_files WHERE case_id = ANY($1::text[])', [allIds])).rows) addKey(r.storage_path);
       for (const r of (await client.query('SELECT file_path FROM report_exports WHERE case_id = ANY($1::text[])', [allIds])).rows) addKey(r.file_path);
+      // include-deleted-ok: allIds mixes Rule A (soft-deleted) with Rule B, and
+      // a soft-deleted draft's report_url is exactly the key we must read
+      // before the row goes.
       for (const r of (await client.query('SELECT report_url FROM orders WHERE id = ANY($1::text[])', [allIds])).rows) addKey(r.report_url);
       // Message attachments. Both rules delete messages, so both rules must
       // read their keys first — account_deletion.js does and this did not.
@@ -193,10 +199,12 @@ async function runRetentionPurge({ apply = false } = {}) {
       // and a paid order must never be hard-deleted.
       // Belt and braces. paid_at/payment_status are a VALUE test on two
       // nullable columns; the NOT EXISTS clauses ask the financial tables
-      // themselves. DELETE FROM orders CASCADEs into refunds and
+      // themselves. Hard-deleting the order row CASCADEs into refunds and
       // order_addons — and from order_addons into addon_earnings, the
       // doctor's money — so the predicate that stands between this line and
       // that cascade should not be inferable state.
+      // include-deleted-ok: o.deleted_at IS NOT NULL is asserted below — this
+      // read is deliberately scoped to soft-deleted rows and nothing else.
       const stillSafe = (await client.query(
         `SELECT id FROM orders o
           WHERE o.id = ANY($1::text[]) AND o.paid_at IS NULL
@@ -218,6 +226,10 @@ async function runRetentionPurge({ apply = false } = {}) {
         for (const [table, column] of DRAFT_CHILD_TABLES) {
           bump(table, (await client.query(`DELETE FROM ${table} WHERE ${column} = ANY($1::text[])`, [stillSafe])).rowCount);
         }
+        // include-deleted-ok: `stillSafe` was selected under deleted_at IS NOT
+        // NULL and re-locked FOR UPDATE. These are abandoned unpaid drafts and
+        // nothing else; the NOT EXISTS clauses above prove no financial row
+        // hangs off them, so the CASCADE has nothing to reach.
         bump('orders_deleted', (await client.query('DELETE FROM orders WHERE id = ANY($1::text[])', [stillSafe])).rowCount);
       }
     }

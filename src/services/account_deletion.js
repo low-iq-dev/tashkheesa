@@ -19,7 +19,7 @@
 //     tokens entirely;
 //   * left every uploaded file sitting in Cloudflare R2 — and, by deleting the
 //     rows that held the keys, made those objects permanently unfindable;
-//   * ran DELETE FROM orders, which CASCADEs onto `refunds` and
+//   * hard-deleted the order row, which CASCADEs onto `refunds` and
 //     `order_addons` (confdeltype 'c', verified in production). Those are the
 //     financial records privacy.ejs §1 promises to keep "for accounting and
 //     refund purposes". Erasing an account silently destroyed the evidence of
@@ -65,7 +65,7 @@ const ORDER_FIELDS_TO_BLANK = [
 // The two cascades we are NOT firing are the important ones:
 //   orders → refunds        ON DELETE CASCADE
 //   orders → order_addons   ON DELETE CASCADE → addon_earnings ON DELETE CASCADE
-// The old DELETE FROM orders went two levels deep and took the doctor's
+// The old hard delete of the order row went two levels deep and took the doctor's
 // earnings rows with it.
 const ORDER_CHILD_DELETES = [
   ['file_ai_checks', 'order_id'],
@@ -225,6 +225,9 @@ async function deleteAccount(userId) {
       // returns uploadFile()'s key and routes/reports.js writes it verbatim).
       // It is NULL for every row today only because no report has been
       // generated yet; it will not stay that way after launch.
+      // include-deleted-ok: erasure covers abandoned drafts too — a draft that
+      // was never paid for still has files, and orders.report_url still holds
+      // a key. Filtering on deleted_at here would leave those objects in R2.
       for (const r of await q('SELECT report_url FROM orders WHERE id = ANY($1::text[])')) addKey(r.report_url);
     }
     for (const r of (await client.query('SELECT file_url FROM medical_records WHERE patient_id = $1', [userId])).rows) addKey(r.file_url);
