@@ -3007,7 +3007,21 @@ module.exports = function (db, helpers, deploy, deps) {
         [id]
       )).rows[0];
       if (!o) af('Case not found', 404, 'NOT_FOUND');
-      if (String(o.assignment_status || '') !== 'manual_queue') {
+      // 2026-08-25 — manual_pending accepted alongside manual_queue.
+      //
+      // The LIST query was widened earlier today to include manual_pending (see
+      // the note at the SELECT), because a paid case that auto-assign could not
+      // place is exactly what this screen exists to surface. The WRITES were
+      // not widened with it — so those cases appeared in the queue and every
+      // action on them failed with 409 "Case is not in the manual queue",
+      // which the Command app renders as "somebody else already resolved this
+      // case". Nobody had. The operator retries forever on the one case that
+      // most needs them.
+      //
+      // The two states differ only in CAUSE — classifier unsure vs. no eligible
+      // doctor — and the resolution is identical: a human picks the specialty,
+      // service and doctor. Nothing downstream distinguishes them.
+      if (!['manual_queue', 'manual_pending'].includes(String(o.assignment_status || ''))) {
         af('Case is not in the manual queue', 409, 'NOT_IN_QUEUE');
       }
 
@@ -3053,7 +3067,7 @@ module.exports = function (db, helpers, deploy, deps) {
             `UPDATE orders
                 SET specialty_id = $1, service_id = $2, doctor_id = $3,
                     assignment_status = $4, updated_at = NOW()
-              WHERE id = $5 AND assignment_status = 'manual_queue'
+              WHERE id = $5 AND assignment_status IN ('manual_queue', 'manual_pending')
             RETURNING id`,
             [specialtyId, serviceId, doctorId, nextAssignmentStatus, id]
           )
@@ -3061,7 +3075,7 @@ module.exports = function (db, helpers, deploy, deps) {
             `UPDATE orders
                 SET specialty_id = $1, service_id = $2,
                     assignment_status = $3, updated_at = NOW()
-              WHERE id = $4 AND assignment_status = 'manual_queue'
+              WHERE id = $4 AND assignment_status IN ('manual_queue', 'manual_pending')
             RETURNING id`,
             [specialtyId, serviceId, nextAssignmentStatus, id]
           );
@@ -3288,14 +3302,28 @@ module.exports = function (db, helpers, deploy, deps) {
         [id]
       )).rows[0];
       if (!o) af('Case not found', 404, 'NOT_FOUND');
-      if (String(o.assignment_status || '') !== 'manual_queue') {
+      // 2026-08-25 — manual_pending accepted alongside manual_queue.
+      //
+      // The LIST query was widened earlier today to include manual_pending (see
+      // the note at the SELECT), because a paid case that auto-assign could not
+      // place is exactly what this screen exists to surface. The WRITES were
+      // not widened with it — so those cases appeared in the queue and every
+      // action on them failed with 409 "Case is not in the manual queue",
+      // which the Command app renders as "somebody else already resolved this
+      // case". Nobody had. The operator retries forever on the one case that
+      // most needs them.
+      //
+      // The two states differ only in CAUSE — classifier unsure vs. no eligible
+      // doctor — and the resolution is identical: a human picks the specialty,
+      // service and doctor. Nothing downstream distinguishes them.
+      if (!['manual_queue', 'manual_pending'].includes(String(o.assignment_status || ''))) {
         af('Case is not in the manual queue', 409, 'NOT_IN_QUEUE');
       }
 
       const upd = await client.query(
         `UPDATE orders
             SET status = 'cancelled', assignment_status = 'cancelled', updated_at = NOW()
-          WHERE id = $1 AND assignment_status = 'manual_queue'
+          WHERE id = $1 AND assignment_status IN ('manual_queue', 'manual_pending')
         RETURNING id`,
         [id]
       );

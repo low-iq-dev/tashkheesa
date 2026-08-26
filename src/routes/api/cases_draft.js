@@ -196,7 +196,17 @@ router.post('/', async (req, res) => {
     // what stops "I closed the app on step 2 and started again" from leaving a
     // trail of half-cases — and it means the resume endpoint above always has
     // an unambiguous answer.
-    const existing = await queryOne(
+    //
+    // `fresh` opts OUT of that reuse. 2026-08-25: the app's "Start a new case"
+    // button called only a LOCAL reset and then POSTed here, which reused the
+    // open draft and UPDATEd its clinical_question in place — so the button
+    // that offers to leave the old case alone was the one that overwrote it.
+    // Worse, order_files is keyed on the same order_id, so the previous
+    // attempt's uploaded scans stayed attached to the "new" case, and the
+    // patient would have submitted someone's earlier documents against fresh
+    // text. The app now sends fresh=true and the old draft is left untouched.
+    const wantsFresh = b.fresh === true || String(b.fresh || '') === 'true';
+    const existing = wantsFresh ? null : await queryOne(
       `SELECT id FROM orders_active
         WHERE patient_id = $1 AND UPPER(COALESCE(status, '')) = 'DRAFT'
         ORDER BY updated_at DESC NULLS LAST, created_at DESC LIMIT 1`,
