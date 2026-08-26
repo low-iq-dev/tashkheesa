@@ -32,8 +32,16 @@ const DELETION_CODE = DELETION_SRC
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
 
-// A column that ties a row to one human being.
-const PATIENT_COLUMNS = ['patient_id', 'user_id', 'to_user_id', 'sender_id'];
+// A column that ties a row to one human being — or to one of their cases.
+//
+// case_id belongs on this list and its absence was the whole bug the first
+// version of this test failed to catch. case_id IS orders.id: the case_*
+// family is the same case reached by a second name, and it holds
+// case_extractions.patient_info (identity parsed out of the uploads),
+// case_files.storage_path (a second pointer to every uploaded object) and
+// report_exports.file_path (the finished PDF, which prints the patient's
+// name). A sweep for patient_id/user_id sees none of it.
+const PATIENT_COLUMNS = ['patient_id', 'user_id', 'to_user_id', 'sender_id', 'case_id'];
 
 // Tables that legitimately hold a patient-shaped column but are NOT the
 // patient's to erase. Each needs a reason, and the reason has to be in
@@ -41,12 +49,20 @@ const PATIENT_COLUMNS = ['patient_id', 'user_id', 'to_user_id', 'sender_id'];
 const NOT_PATIENT_OWNED = new Set([
   // Doctor-side and operator-side records. `user_id`/`sender_id` on these
   // refers to staff, not to the patient whose account is being erased.
+  //
+  // case_annotations and report_exports used to be on this list, and that was
+  // wrong: both are keyed on case_id, and what they store is the patient's
+  // annotated medical image and their finished report PDF. The fact that a
+  // DOCTOR created them does not make them the doctor's data.
   'doctor_earnings', 'addon_earnings', 'doctor_assignments', 'doctor_availability',
   'doctor_services', 'doctor_specialties', 'prescribed_medications_log',
-  'case_annotations', 'report_exports', 'email_campaigns', 'admin_audit_log',
-  'ops_push_log', 'otp_codes', 'schema_migrations',
+  'email_campaigns', 'admin_audit_log', 'ops_push_log', 'otp_codes',
+  'schema_migrations',
   // Financial skeleton, kept by design and anonymised via the order row.
   'refunds', 'order_addons',
+  // The tombstone written BY the erasure (migration 096). It holds an id and a
+  // timestamp and nothing else — deleting it would defeat its purpose.
+  'deleted_users',
 ]);
 
 function tablesWithPatientColumns() {

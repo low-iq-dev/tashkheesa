@@ -45,9 +45,14 @@ const ORDER_COLUMNS = [
 // Per-order child tables: [key, table, column allow-list].
 const ORDER_CHILDREN = [
   ['files', 'order_files',
-    ['id', 'order_id', 'url', 'label', 'filename', 'mime_type', 'size', 'created_at']],
+    // `url` is a bare R2 storage key, not a URL, despite the column name.
+    // `uploadcare_uuid` is the handle for rows predating the R2 cutover.
+    // Both are included because between them they are the only way to
+    // identify the file a row refers to, and an export that lists a patient's
+    // documents with no way to reach any of them is not portability.
+    ['id', 'order_id', 'url', 'uploadcare_uuid', 'label', 'filename', 'mime_type', 'size', 'created_at']],
   ['additional_files', 'order_additional_files',
-    ['id', 'order_id', 'file_url', 'label', 'uploaded_at']],
+    ['id', 'order_id', 'file_url', 'file_key', 'label', 'uploaded_at']],
   ['timeline', 'order_timeline',
     ['id', 'order_id', 'status', 'description', 'created_at']],
   ['events', 'order_events',
@@ -135,7 +140,7 @@ async function buildPatientExport(userId) {
   const messages = convIds.length
     ? await queryAll(
         `SELECT id, conversation_id, sender_role, content, message_type,
-                file_url, file_name, created_at
+                file_url, file_key, file_name, created_at
            FROM messages WHERE conversation_id = ANY($1::text[])
           ORDER BY conversation_id, created_at`,
         [convIds]
@@ -218,7 +223,7 @@ async function buildPatientExport(userId) {
     // without us in the room.
     notes: [
       'This file contains the personal and medical data Tashkheesa holds about this account.',
-      'Uploaded files are listed with their download URLs; the file contents themselves are not embedded in this document.',
+      'Uploaded files are listed by name and storage reference; the file contents themselves are not embedded in this document. Ask us and we will send you the files.',
       'Cases marked with a deleted_at timestamp were started but never paid for, and were closed automatically after 48 hours.',
       'Operational logs, payment-processor webhook envelopes and automated quality checks are excluded — they are internal records rather than data you provided.',
     ],

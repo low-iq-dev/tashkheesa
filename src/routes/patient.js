@@ -1,7 +1,7 @@
 // src/routes/patient.js
 const express = require('express');
 const { rateLimit } = require('express-rate-limit');
-const { requireRole } = require('../middleware');
+const { requireRole, refreshTombstones } = require('../middleware');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { logErrorToDb } = require('../logger');
 const { queueNotification, queueMultiChannelNotification, notifyAdmins } = require('../notify');
@@ -317,52 +317,78 @@ router.post('/patient/delete-account/code', requireRole('patient'), deleteCodeSe
     const row = await queryOne('SELECT phone FROM users WHERE id = $1', [req.user.id]);
     const phone = row && row.phone ? String(row.phone).trim() : '';
     if (!phone) {
-      return renderDeleteAccount(req, res, {
+      return await renderDeleteAccount(req, res, {
         error: isAr ? 'لا يوجد رقم هاتف على حسابك. تواصل معنا لحذف الحساب.' : 'There is no phone number on your account. Please contact us to delete it.'
       });
     }
     const { sendOtpViaTwilio } = require('../services/twilio_verify');
-    await sendOtpViaTwilio(phone);
-    return renderDeleteAccount(req, res, { codeSent: true });
+    // sendOtpViaTwilio NEVER throws (see its jsdoc). With any of
+    // TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_VERIFY_SERVICE_SID
+    // missing it logs and returns { stub: true }. Treating that as success
+    // would show the code-entry form to a patient who will never receive a
+    // code, and then tell them their code is invalid — forever, three sends
+    // per ten minutes. And it would hit exactly the password-less population
+    // this branch exists to serve. The catch below cannot save us here,
+    // because nothing is thrown.
+    const sent = await sendOtpViaTwilio(phone);
+    if (!sent || sent.stub || sent.ok === false) {
+      return await renderDeleteAccount(req, res, {
+        error: isAr
+          ? 'تعذر إرسال الكود الآن. من فضلك تواصل معنا لحذف حسابك.'
+          : 'We could not send a confirmation code. Please contact us and we will delete your account for you.'
+      });
+    }
+    return await renderDeleteAccount(req, res, { codeSent: true });
   } catch (err) {
     logErrorToDb(err, { context: 'patient.delete_account_code', requestId: req.requestId, userId: req.user?.id, url: req.originalUrl, method: req.method, category: 'patient_action' });
     // Fail CLOSED. If we cannot prove who is asking, we do not offer the form.
-    return renderDeleteAccount(req, res, {
-      error: isAr ? 'تعذر إرسال الكود الآن. حاول لاحقاً أو تواصل معنا.' : 'We could not send the code right now. Please try again shortly, or contact us.'
-    });
+    // Wrapped again: an error page that throws while rendering becomes an
+    // unhandled rejection, and server.js turns those into process.exit(1).
+    try {
+      return await renderDeleteAccount(req, res, {
+        error: isAr ? 'تعذر إرسال الكود الآن. حاول لاحقاً أو تواصل معنا.' : 'We could not send the code right now. Please try again shortly, or contact us.'
+      });
+    } catch (_) {
+      return res.redirect('/patient/profile');
+    }
   }
 });
 
 router.post('/patient/delete-account', requireRole('patient'), deleteAccountLimiter, async function(req, res) {
   const isAr = getLang(req, res) === 'ar';
   const userId = req.user.id;
+  // `return await fail(...)` at every call site below, not `return fail(...)`.
+  // In an async function `return p` adopts the promise AFTER leaving the try
+  // block, so a rejection from the render never reaches the local catch — it
+  // becomes an unhandled rejection, and server.js turns those into
+  // process.exit(1). The whole point of these branches is to fail safely.
   const fail = (msg, extra) => renderDeleteAccount(req, res, Object.assign({ error: msg }, extra || {}));
 
   try {
     const typed = String(req.body.confirm || '').trim().toUpperCase();
     if (typed !== 'DELETE' && typed !== 'حذف') {
-      return fail(isAr ? 'اكتب كلمة "حذف" بالضبط للتأكيد.' : 'Please type DELETE exactly to confirm.', { codeSent: true });
+      return await fail(isAr ? 'اكتب كلمة "حذف" بالضبط للتأكيد.' : 'Please type DELETE exactly to confirm.', { codeSent: true });
     }
 
     const row = await queryOne('SELECT password_hash, phone, role FROM users WHERE id = $1', [userId]);
     if (!row) return res.redirect('/logout');
     if (String(row.role || '').toLowerCase() !== 'patient') {
-      return fail(isAr ? 'لا يمكن حذف هذا النوع من الحسابات من هنا.' : 'This kind of account cannot be deleted here. Please contact us.');
+      return await fail(isAr ? 'لا يمكن حذف هذا النوع من الحسابات من هنا.' : 'This kind of account cannot be deleted here. Please contact us.');
     }
 
     if (row.password_hash) {
       const bcrypt = require('bcryptjs');
       const ok = await bcrypt.compare(String(req.body.password || ''), row.password_hash);
-      if (!ok) return fail(isAr ? 'كلمة المرور غير صحيحة.' : 'That password is not correct.');
+      if (!ok) return await fail(isAr ? 'كلمة المرور غير صحيحة.' : 'That password is not correct.');
     } else {
       const otp = String(req.body.otp || '').trim();
       if (!/^\d{6}$/.test(otp) || !row.phone) {
-        return fail(isAr ? 'الكود غير صحيح.' : 'That code is not valid.', { codeSent: true });
+        return await fail(isAr ? 'الكود غير صحيح.' : 'That code is not valid.', { codeSent: true });
       }
       const { verifyOtpCode } = require('../services/twilio_verify');
       const result = await verifyOtpCode(String(row.phone).trim(), otp);
       if (!result || !result.valid) {
-        return fail(isAr ? 'الكود غير صحيح أو انتهت صلاحيته.' : 'That code is not valid or has expired.', { codeSent: true });
+        return await fail(isAr ? 'الكود غير صحيح أو انتهت صلاحيته.' : 'That code is not valid or has expired.', { codeSent: true });
       }
     }
 
@@ -373,7 +399,33 @@ router.post('/patient/delete-account', requireRole('patient'), deleteAccountLimi
     // already durable; a Cloudflare timeout must not turn a completed deletion
     // into an error page that invites the patient to press the button again on
     // an account that no longer exists.
-    purgeStorageKeys(outcome.storageKeys, { userId: userId }).catch(() => {});
+    purgeStorageKeys(outcome.storageKeys, { userId: userId }, {
+      externalUrls: outcome.externalUrls,
+      uploadcareUuids: outcome.uploadcareUuids,
+    }).catch(() => {});
+
+    // A paid case that was still running when its patient erased leaves a
+    // doctor holding a shell — no images, no thread, an SLA clock they will be
+    // recorded as breaching. Erasure cannot be refused to finish the job, so
+    // the least we do is tell somebody. Fire-and-forget: a notification
+    // failure must not surface as "deletion failed" for a deletion that has
+    // already committed.
+    if (outcome.inFlight && outcome.inFlight.length) {
+      notifyAdmins({
+        template: 'admin_patient_erased_with_live_cases',
+        dedupeKey: 'erasure:' + userId,
+        payload: {
+          erasedUserId: userId,
+          cases: outcome.inFlight,
+          note: 'Patient deleted their account. These paid cases are still open and their files and messages are gone. Cancel and refund, or close them.',
+        },
+      }).catch(() => {});
+    }
+
+    // Prime the tombstone cache on this instance so the very next request from
+    // this browser — or from another tab that still holds the cookie — is
+    // already refused, rather than waiting out the 60s TTL.
+    refreshTombstones().catch(() => {});
 
     // Drop the session before responding — the row behind it is gone, and
     // requireRole() would otherwise bounce the next request off a user lookup
@@ -391,7 +443,11 @@ router.post('/patient/delete-account', requireRole('patient'), deleteAccountLimi
       method: req.method,
       category: 'patient_action'
     });
-    return fail(isAr ? 'حدث خطأ ولم نحذف أي شيء. حاول مرة أخرى أو تواصل معنا.' : 'Something went wrong and nothing was deleted. Please try again, or contact us.');
+    try {
+      return await fail(isAr ? 'حدث خطأ ولم نحذف أي شيء. حاول مرة أخرى أو تواصل معنا.' : 'Something went wrong and nothing was deleted. Please try again, or contact us.');
+    } catch (_) {
+      return res.redirect('/patient/profile');
+    }
   }
 });
 

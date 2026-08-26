@@ -43,6 +43,17 @@ const { ORDER_FIELDS_TO_BLANK } = require('./account_deletion');
 // itself goes too.
 const DRAFT_CHILD_TABLES = [
   ['file_ai_checks', 'order_id'],
+  // Keyed on case_id, which IS orders.id. Any enumeration written against
+  // order_id alone misses the entire case_* family — see the same list and
+  // the same reasoning in account_deletion.js.
+  ['case_files', 'case_id'],
+  ['case_extractions', 'case_id'],
+  ['case_annotations', 'case_id'],
+  ['case_context', 'case_id'],
+  ['case_events', 'case_id'],
+  ['specialty_classifications', 'case_id'],
+  ['specialty_classification_overrides', 'case_id'],
+  ['report_exports', 'case_id'],
   ['order_files', 'order_id'],
   ['order_additional_files', 'order_id'],
   ['order_timeline', 'order_id'],
@@ -64,7 +75,30 @@ const RETIRED_CASE_MEDICAL_TABLES = [
   ['order_additional_files', 'order_id'],
   ['medical_records', 'order_id'],
   ['prescriptions', 'order_id'],
+  // The case_* family holds the extracted and annotated forms of exactly the
+  // medical payload this rule exists to erase: case_extractions.patient_info
+  // is identity parsed OUT of the uploads, case_files.storage_path is a second
+  // pointer to the same objects, report_exports.file_path is the finished PDF.
+  ['case_files', 'case_id'],
+  ['case_extractions', 'case_id'],
+  ['case_annotations', 'case_id'],
+  ['case_context', 'case_id'],
+  ['specialty_classifications', 'case_id'],
+  ['specialty_classification_overrides', 'case_id'],
+  ['report_exports', 'case_id'],
 ];
+
+// NOT here, and deliberately: medical_records rows that carry a patient_id but
+// no order_id (routes/prescriptions.js inserts some that way). They are
+// patient-level records, not case-level ones. Erasing a patient's whole
+// records shelf because ONE of their cases aged past retention would be a
+// wider deletion than the policy describes; those rows go when the account
+// does, or when their own case does.
+
+// Keyed on case_id but retained under Rule B: this is the audit trail of a
+// transaction we are keeping, so order_timeline, order_events, payment_events
+// and case_events stay. Rule A deletes case_events because there the whole
+// order goes.
 
 function isStorageKey(v) {
   if (!v) return false;
@@ -141,6 +175,15 @@ async function runRetentionPurge({ apply = false } = {}) {
       for (const r of (await client.query('SELECT file_key, file_url FROM order_additional_files WHERE order_id = ANY($1::text[])', [allIds])).rows) { addKey(r.file_key); addKey(r.file_url); }
       for (const r of (await client.query('SELECT pdf_url FROM prescriptions WHERE order_id = ANY($1::text[])', [allIds])).rows) addKey(r.pdf_url);
       for (const r of (await client.query('SELECT file_url FROM medical_records WHERE order_id = ANY($1::text[])', [allIds])).rows) addKey(r.file_url);
+      for (const r of (await client.query('SELECT storage_path FROM case_files WHERE case_id = ANY($1::text[])', [allIds])).rows) addKey(r.storage_path);
+      for (const r of (await client.query('SELECT file_path FROM report_exports WHERE case_id = ANY($1::text[])', [allIds])).rows) addKey(r.file_path);
+      for (const r of (await client.query('SELECT report_url FROM orders WHERE id = ANY($1::text[])', [allIds])).rows) addKey(r.report_url);
+      // Message attachments. Both rules delete messages, so both rules must
+      // read their keys first — account_deletion.js does and this did not.
+      const allConvs = (await client.query('SELECT id FROM conversations WHERE order_id = ANY($1::text[])', [allIds])).rows.map((r) => r.id);
+      if (allConvs.length) {
+        for (const r of (await client.query('SELECT file_key, file_url FROM messages WHERE conversation_id = ANY($1::text[])', [allConvs])).rows) { addKey(r.file_key); addKey(r.file_url); }
+      }
     }
 
     // ── Rule A: abandoned drafts go completely ───────────────────────────
@@ -148,15 +191,23 @@ async function runRetentionPurge({ apply = false } = {}) {
       // Re-assert the safety predicate INSIDE the transaction. The candidate
       // list was read outside it; an order could have been paid in between,
       // and a paid order must never be hard-deleted.
+      // Belt and braces. paid_at/payment_status are a VALUE test on two
+      // nullable columns; the NOT EXISTS clauses ask the financial tables
+      // themselves. DELETE FROM orders CASCADEs into refunds and
+      // order_addons — and from order_addons into addon_earnings, the
+      // doctor's money — so the predicate that stands between this line and
+      // that cascade should not be inferable state.
       const stillSafe = (await client.query(
-        `SELECT id FROM orders
-          WHERE id = ANY($1::text[]) AND paid_at IS NULL
-            AND COALESCE(payment_status,'unpaid') = 'unpaid'
-            AND deleted_at IS NOT NULL
+        `SELECT id FROM orders o
+          WHERE o.id = ANY($1::text[]) AND o.paid_at IS NULL
+            AND COALESCE(o.payment_status,'unpaid') = 'unpaid'
+            AND o.deleted_at IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM refunds r WHERE r.order_id = o.id)
+            AND NOT EXISTS (SELECT 1 FROM order_addons a WHERE a.order_id = o.id)
             FOR UPDATE`,
         [draftIds]
       )).rows.map((r) => r.id);
-      bump('drafts_skipped_now_paid', draftIds.length - stillSafe.length);
+      bump('drafts_skipped_not_provably_unpaid', draftIds.length - stillSafe.length);
 
       if (stillSafe.length) {
         const convs = (await client.query('SELECT id FROM conversations WHERE order_id = ANY($1::text[])', [stillSafe])).rows.map((r) => r.id);

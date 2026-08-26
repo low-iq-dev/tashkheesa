@@ -69,6 +69,25 @@ const ORDER_FIELDS_TO_BLANK = [
 // earnings rows with it.
 const ORDER_CHILD_DELETES = [
   ['file_ai_checks', 'order_id'],
+  // ── The case_* family ────────────────────────────────────────────────
+  // These are keyed on case_id, and case_id IS orders.id — the same case,
+  // reached by a second name. Every enumeration written against
+  // patient_id/user_id/order_id misses all of them, which is how the
+  // original endpoint came to leave, per production counts on 2026-08-26:
+  //   case_files             4 rows, every one holding an R2 storage_path
+  //   case_extractions       9 rows of patient_info parsed OUT of the uploads
+  //   case_events           81 rows, 70 with an event_payload
+  //   specialty_classifications  6 rows of free-text reasoning about the case
+  // And crucially these were not orphaned: the order row survives by design,
+  // so they stayed joinable to a record that still carries payment_reference.
+  ['case_files', 'case_id'],
+  ['case_extractions', 'case_id'],
+  ['case_annotations', 'case_id'],
+  ['case_context', 'case_id'],
+  ['case_events', 'case_id'],
+  ['specialty_classifications', 'case_id'],
+  ['specialty_classification_overrides', 'case_id'],
+  ['report_exports', 'case_id'],
   ['order_files', 'order_id'],
   ['order_additional_files', 'order_id'],
   ['order_timeline', 'order_id'],
@@ -147,9 +166,20 @@ async function deleteAccount(userId) {
 
     // include-deleted-ok: an abandoned draft still holds uploaded files.
     const orderRes = await client.query(
-      'SELECT id FROM orders WHERE patient_id = $1', [userId]
+      'SELECT id, reference_id, status, doctor_id, paid_at, deadline_at FROM orders WHERE patient_id = $1', [userId]
     );
     const orderIds = orderRes.rows.map((r) => r.id);
+
+    // Cases that are PAID and still running when the patient erases. PDPL does
+    // not let us refuse erasure to finish a job, so this does not block — but
+    // the doctor is about to find a case with no images and no message thread,
+    // and an SLA clock still ticking that they will be recorded as breaching.
+    // Somebody has to know. Reported back to the caller, which notifies.
+    const inFlight = orderRes.rows.filter((r) => {
+      if (!r.paid_at) return false;
+      const st = String(r.status || '').toLowerCase();
+      return st !== 'completed' && st !== 'cancelled' && st !== 'refunded';
+    }).map((r) => ({ id: r.id, reference: r.reference_id, status: r.status, doctorId: r.doctor_id, deadlineAt: r.deadline_at }));
 
     const convRes = await client.query(
       'SELECT id FROM conversations WHERE patient_id = $1', [userId]
@@ -161,21 +191,41 @@ async function deleteAccount(userId) {
     // the single ordering constraint that the previous implementation got
     // backwards.
     const storageKeys = new Set();
+    // Absolute URLs in these columns are NOT third-party assets we can ignore.
+    // order_files.url and order_additional_files.file_url still hold legacy
+    // Uploadcare CDN links from before the R2 cutover, and those objects are
+    // publicly addressable. deleteFile() cannot remove them — that needs
+    // Uploadcare's own API and the uploadcare_uuid — so they are collected
+    // separately and logged loudly rather than dropped on the floor. Zero rows
+    // match today; the point is that the day one does, it is not silent.
+    const externalUrls = new Set();
+    const uploadcareUuids = new Set();
     const addKey = (v) => {
       if (!v) return;
       const s = String(v).trim();
-      // order_files.url holds a bare R2 key ('orders/draft/<id>/<uuid>.pdf'),
-      // despite the column name. Anything that is actually an absolute URL is
-      // a third-party asset we do not own and must not try to delete.
-      if (!s || /^https?:\/\//i.test(s) || s.startsWith('data:')) return;
+      if (!s || s.startsWith('data:')) return;
+      if (/^https?:\/\//i.test(s)) { externalUrls.add(s); return; }
       storageKeys.add(s);
     };
 
     if (orderIds.length) {
       const q = async (sql) => (await client.query(sql, [orderIds])).rows;
-      for (const r of await q('SELECT url FROM order_files WHERE order_id = ANY($1::text[])')) addKey(r.url);
+      for (const r of await q('SELECT url, uploadcare_uuid FROM order_files WHERE order_id = ANY($1::text[])')) {
+        addKey(r.url);
+        if (r.uploadcare_uuid) uploadcareUuids.add(String(r.uploadcare_uuid).trim());
+      }
       for (const r of await q('SELECT file_key, file_url FROM order_additional_files WHERE order_id = ANY($1::text[])')) { addKey(r.file_key); addKey(r.file_url); }
       for (const r of await q('SELECT pdf_url FROM prescriptions WHERE order_id = ANY($1::text[])')) addKey(r.pdf_url);
+      // case_files.storage_path and report_exports.file_path are R2 keys too.
+      // report_exports.file_path is the finished clinical PDF, which prints the
+      // patient's name — the single most sensitive object we hold for them.
+      for (const r of await q('SELECT storage_path FROM case_files WHERE case_id = ANY($1::text[])')) addKey(r.storage_path);
+      for (const r of await q('SELECT file_path FROM report_exports WHERE case_id = ANY($1::text[])')) addKey(r.file_path);
+      // orders.report_url likewise holds a bare key (report-generator.js
+      // returns uploadFile()'s key and routes/reports.js writes it verbatim).
+      // It is NULL for every row today only because no report has been
+      // generated yet; it will not stay that way after launch.
+      for (const r of await q('SELECT report_url FROM orders WHERE id = ANY($1::text[])')) addKey(r.report_url);
     }
     for (const r of (await client.query('SELECT file_url FROM medical_records WHERE patient_id = $1', [userId])).rows) addKey(r.file_url);
     for (const r of (await client.query('SELECT pdf_url FROM prescriptions WHERE patient_id = $1', [userId])).rows) addKey(r.pdf_url);
@@ -195,6 +245,13 @@ async function deleteAccount(userId) {
       bump('messages', (await client.query('DELETE FROM messages WHERE conversation_id = ANY($1::text[])', [convIds])).rowCount);
     }
     bump('messages', (await client.query('DELETE FROM messages WHERE sender_id = $1', [userId])).rowCount);
+    // chat_reports outlives the conversation it points at, and `details` is
+    // free text the patient wrote. Keyed on conversation_id and reported_by,
+    // neither of which any patient_id sweep would have found.
+    if (convIds.length) {
+      bump('chat_reports', (await client.query('DELETE FROM chat_reports WHERE conversation_id = ANY($1::text[])', [convIds])).rowCount);
+    }
+    bump('chat_reports', (await client.query('DELETE FROM chat_reports WHERE reported_by = $1', [userId])).rowCount);
     bump('conversations', (await client.query('DELETE FROM conversations WHERE patient_id = $1', [userId])).rowCount);
 
     if (orderIds.length) {
@@ -209,8 +266,17 @@ async function deleteAccount(userId) {
         `DELETE FROM ${table} WHERE ${column} = $1`, [userId]
       )).rowCount);
     }
+    // Only the rows where THIS user was the one referred. A row where they
+    // were the referrer belongs to a different patient — it records that
+    // someone else redeemed a code and got a discount on their own payment,
+    // and orders.referral_code keeps a text copy of that code on that other
+    // person's order. Deleting it would leave a discount on a stranger's
+    // invoice with nothing explaining it, which is the same class of financial
+    // record the anonymise-don't-delete design exists to protect. The dangling
+    // referrer_id is harmless: there are no foreign keys onto users.id, and
+    // the id it points at is now a tombstone.
     bump('referral_redemptions', (await client.query(
-      'DELETE FROM referral_redemptions WHERE referrer_id = $1 OR referred_id = $1', [userId]
+      'DELETE FROM referral_redemptions WHERE referred_id = $1', [userId]
     )).rowCount);
 
     // ── Tables that may or may not exist in a given environment ──────────
@@ -244,7 +310,25 @@ async function deleteAccount(userId) {
 
     bump('users', (await client.query('DELETE FROM users WHERE id = $1', [userId])).rowCount);
 
-    return { orderIds, storageKeys: Array.from(storageKeys), counts };
+    // Tombstone, in the same transaction. src/middleware.js builds req.user
+    // from the JWT with no database lookup, so without this a session on a
+    // second device stays valid for up to seven days after the account is
+    // gone — and can still POST, creating rows keyed to a user that no longer
+    // exists. See migration 096 and the check in requireRole().
+    await client.query(
+      `INSERT INTO deleted_users (user_id, role, source) VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) DO NOTHING`,
+      [userId, role, 'self_service']
+    );
+
+    return {
+      orderIds,
+      inFlight,
+      storageKeys: Array.from(storageKeys),
+      externalUrls: Array.from(externalUrls),
+      uploadcareUuids: Array.from(uploadcareUuids),
+      counts,
+    };
   });
 }
 
@@ -254,7 +338,15 @@ async function deleteAccount(userId) {
  * failed because a storage call timed out. Failures are logged with the key
  * so they can be swept by hand — the database no longer knows about them.
  */
-async function purgeStorageKeys(keys, meta) {
+async function purgeStorageKeys(keys, meta, extra) {
+  // Anything we cannot delete ourselves is shouted about here rather than
+  // dropped. Both lists are empty against today's data; they exist so that the
+  // first row that is not is visible in the logs instead of invisible forever.
+  if (extra && extra.externalUrls && extra.externalUrls.length) {
+    logMajor('[account-deletion] ' + extra.externalUrls.length + ' file(s) are absolute URLs (legacy Uploadcare) and were NOT deleted — they need Uploadcare\'s API, not R2', {
+      urls: extra.externalUrls, uploadcareUuids: (extra.uploadcareUuids || []), meta: meta
+    });
+  }
   const failed = [];
   if (!keys || !keys.length) return { deleted: 0, failed: failed };
   let deleteFile;

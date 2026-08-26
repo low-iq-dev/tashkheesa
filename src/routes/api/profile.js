@@ -275,7 +275,31 @@ module.exports = function (db, { safeGet, safeRun }) {
       // After commit, never inside it: an R2 timeout must not roll back a
       // durable erasure, and a rolled-back erasure must not have already
       // destroyed the files.
-      purgeStorageKeys(outcome.storageKeys, { userId: userId }).catch(() => {});
+      purgeStorageKeys(outcome.storageKeys, { userId: userId }, {
+      externalUrls: outcome.externalUrls,
+      uploadcareUuids: outcome.uploadcareUuids,
+    }).catch(() => {});
+
+      // Same as the web route: a paid case still running when its patient
+      // erased leaves a doctor with a shell and a live SLA clock.
+      if (outcome.inFlight && outcome.inFlight.length) {
+        try {
+          const { notifyAdmins } = require('../../notify');
+          notifyAdmins({
+            template: 'admin_patient_erased_with_live_cases',
+            dedupeKey: 'erasure:' + userId,
+            payload: {
+              erasedUserId: userId,
+              cases: outcome.inFlight,
+              note: 'Patient deleted their account from the app. These paid cases are still open and their files and messages are gone.',
+            },
+          }).catch(() => {});
+        } catch (_) { /* notification is never load-bearing */ }
+      }
+
+      // Invalidate any web session this person also holds. The tombstone was
+      // written inside the transaction; this just refreshes the cache early.
+      try { require('../../middleware').refreshTombstones().catch(() => {}); } catch (_) {}
 
       return res.ok({
         message: 'Your account has been deleted. An anonymous record of each payment and refund is kept for accounting, with your name removed.',

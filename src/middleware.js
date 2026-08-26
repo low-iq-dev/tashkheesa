@@ -12,6 +12,61 @@ require('dotenv').config();
 
 const SESSION_COOKIE = process.env.SESSION_COOKIE_NAME || 'tashkheesa_portal';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ERASED-ACCOUNT TOMBSTONES
+//
+// req.user is built from verify(token) with no database lookup — Phase 3
+// FIX #12 removed the per-request query deliberately, to avoid thousands of
+// pointless reads. That is the right call while accounts only ever appear.
+// Erasure changes the arithmetic: the session cookie is a 7-day JWT
+// (auth.js:40), so a patient who deletes their account on a laptop leaves a
+// phone signed in for up to a week, and that session can still POST. With zero
+// foreign keys onto users.id, nothing in the database would stop it creating
+// an order whose patient_id names a user who no longer exists.
+//
+// So: one small query per instance per minute, not per request. The tombstone
+// set is a handful of ids (migration 096 stores an id and a timestamp, nothing
+// else), so it is read whole and cached. Worst case a stale session survives
+// TTL_MS past the deletion instead of seven days.
+//
+// Fails OPEN on a database error. A tombstone lookup that cannot run must not
+// log every patient out of the platform; the failure it guards is rare and
+// bounded, and the failure it would cause is total.
+// ─────────────────────────────────────────────────────────────────────────────
+const TOMBSTONE_TTL_MS = 60 * 1000;
+let _tombstones = new Set();
+let _tombstonesAt = 0;
+let _tombstonesInFlight = null;
+
+function refreshTombstones() {
+  if (_tombstonesInFlight) return _tombstonesInFlight;
+  _tombstonesInFlight = (async () => {
+    try {
+      const { queryAll } = require('./pg');
+      const rows = await queryAll('SELECT user_id FROM deleted_users', []);
+      _tombstones = new Set(rows.map((r) => String(r.user_id)));
+      _tombstonesAt = Date.now();
+    } catch (_) {
+      // Table missing (pre-096 environment) or database unreachable. Back off
+      // for a full TTL rather than retrying on every request.
+      _tombstonesAt = Date.now();
+    } finally {
+      _tombstonesInFlight = null;
+    }
+  })();
+  return _tombstonesInFlight;
+}
+
+function isErasedUser(id) {
+  if (!id) return false;
+  if (Date.now() - _tombstonesAt > TOMBSTONE_TTL_MS) {
+    // Kick a refresh but answer from the current set — never block a request
+    // on it. A newly erased id is caught on the following request at worst.
+    refreshTombstones();
+  }
+  return _tombstones.has(String(id));
+}
+
 function baseMiddlewares(app) {
   // Helmet — every header EXCEPT Content-Security-Policy.
   //
@@ -297,6 +352,12 @@ function requireRole(...roles) {
       return res.redirect(`/login?next=${nextUrl}`);
     }
 
+    // A signed token for an account that has been erased is not a session.
+    if (isErasedUser(req.user.id)) {
+      res.clearCookie(SESSION_COOKIE, { path: '/' });
+      return res.redirect('/account-deleted');
+    }
+
     if (allowed.length === 0) return next();
 
     const role = String(req.user.role || '').toLowerCase();
@@ -317,5 +378,9 @@ function requireRole(...roles) {
 module.exports = {
   baseMiddlewares,
   requireAuth,
-  requireRole
+  requireRole,
+  // Exported for tests and for the deletion path, which primes the cache so
+  // the erasing browser is not the one request that slips through.
+  isErasedUser,
+  refreshTombstones
 };
