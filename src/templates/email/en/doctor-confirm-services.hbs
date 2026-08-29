@@ -1,35 +1,34 @@
 {{!-- Doctor tier-confirmation reminder — bilingual.
 
-      WHY THIS EXISTS. Until 2026-08-29 the only outreach a doctor could
-      receive was doctor-welcome.hbs, which opens "set your password". On
-      2026-08-29, 30 of 31 doctors had not confirmed their turnaround tiers
-      and six of them had ALREADY logged in and set a password weeks earlier
-      — so the one email the platform could send them was telling them to do
-      a thing they had already done. That is very likely part of why they
-      ignored it. This template is for the doctor who is already through the
-      door and has exactly one step left.
+      For the doctor who is already through the door: account approved,
+      password set, services pre-ticked, one screen left. doctor-welcome.hbs
+      opens with "set your password", which is the wrong sentence for someone
+      who set one weeks ago — and is very likely part of why six of them
+      stopped reading.
 
-      It carries no magic-login token: these doctors have a password. It
-      links to the services page directly.
+      No magic-login token: these doctors have a password. Linking one would
+      email a second live credential for no reason.
 
       EDIT ALL FOUR BLOCKS. Two files (en/, ar/) x two language blocks each.
-      Both files carry BOTH languages, ordered so the block matching
-      user.lang comes first — same convention as doctor-welcome.hbs, and for
-      the same reason: users.lang was a hardcoded default for most of these
-      accounts, so it is not a stated preference and dropping a language
-      would guess wrong. Editing only the top block of each file is the
-      mistake that shipped an email naming the 18-hour tier two different
-      things in its two halves.
+      Both carry BOTH languages, ordered so the block matching user.lang comes
+      first — same convention as doctor-welcome.hbs. Editing only the top block
+      of each file is the mistake that shipped an email naming the 18-hour tier
+      two different things in its two halves.
 
-      BODY PARTIAL — renderEmail() wraps it in _layout.hbs. No document
-      shell, masthead or footer here.
+      PLURALISATION IS PRE-RENDERED. servicesPhrase / servicesPhraseAr arrive
+      as finished noun phrases from routes/superadmin.js, not as a bare count.
+      "all 1 of the services" shipped to a real inbox on 2026-08-29; Arabic is
+      worse than a plural s, needing singular, dual, 3-10 and 11+ forms. That
+      is a language problem, not a template problem, so it is solved in code.
 
-      Variables: firstName, nameAr, specialtyEn, specialtyAr,
-                 servicesCount, servicesUrl.
+      BODY PARTIAL — renderEmail() wraps it in _layout.hbs.
+
+      Variables: firstName, firstNameAr, specialtyEn, specialtyAr,
+                 servicesPhrase, servicesPhraseAr, servicesUrl, launchDate,
+                 launchDateAr.
 
       Handlebars comment, stripped at compile time. Never write comment
-      delimiters or mustache braces inside it — a nested closing delimiter
-      ends the comment early and dumps this text into the sent email. --}}
+      delimiters or mustache braces inside it. --}}
 
 <!-- ================= ENGLISH ================= -->
 <div dir="ltr" style="text-align:left;">
@@ -46,12 +45,18 @@
   Your account is approved and active{{#if specialtyEn}} in <strong style="color:#0B6B5F;font-weight:600;">{{specialtyEn}}</strong>{{/if}}. There is one thing left before cases can reach you: confirming which turnaround times you are willing to take.
 </p>
 
+{{#if launchDate}}
 <p style="margin:0 0 18px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
-  We have already ticked{{#if servicesCount}} all {{servicesCount}}{{/if}} of the services in your specialty for you, so this is a review rather than a form to fill in. Untick anything you would rather not take. It takes about a minute.
+  We open to patients on <strong>{{launchDate}}</strong>. Only specialists who have confirmed their turnarounds can be assigned a case, so this is worth the minute it takes.
+</p>
+{{/if}}
+
+<p style="margin:0 0 18px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  We have already ticked {{servicesPhrase}} for you, so this is a review rather than a form to fill in. Untick anything you would rather not take.
 </p>
 
 <p style="margin:0 0 18px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
-  The three turnarounds are <strong>standard (48 hours)</strong>, <strong>fast track (18 hours)</strong> and <strong>urgent (4 hours, 7am&ndash;7pm Cairo time)</strong>. Only tick a tier you can genuinely meet — a missed deadline refunds the patient's surcharge, so we would rather you took fewer tiers and kept them.
+  The three turnarounds are <strong>standard (48 hours)</strong>, <strong>fast track (18 hours)</strong> and <strong>urgent (4 hours, 7am&ndash;7pm Cairo time)</strong>. If a deadline is missed we refund the patient's urgency surcharge, so pick the tiers that fit how you actually work.
 </p>
 
 <p style="margin:0 0 26px;">
@@ -76,19 +81,25 @@
 </h1>
 
 <p style="margin:0 0 18px;font:400 16px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
-  عزيزي د. {{nameAr}}،
+  عزيزي د. {{firstNameAr}}،
 </p>
 
 <p style="margin:0 0 18px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
   حسابك معتمد ومفعّل{{#if specialtyAr}} في تخصص <strong style="color:#0B6B5F;font-weight:600;">{{specialtyAr}}</strong>{{/if}}. بقيت خطوة واحدة قبل أن تصلك الحالات: تأكيد مدد التسليم التي توافق على العمل بها.
 </p>
 
+{{#if launchDateAr}}
 <p style="margin:0 0 18px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
-  قمنا بتحديد{{#if servicesCount}} كل الـ {{servicesCount}}{{/if}} خدمة في تخصصك نيابةً عنك، لذا الأمر مراجعة وليس نموذجاً تملؤه. أزل التحديد عن أي خدمة لا ترغب في استقبالها. يستغرق الأمر دقيقة تقريباً.
+  نفتح المنصة للمرضى في <strong>{{launchDateAr}}</strong>. لا يمكن إسناد الحالات إلا للأطباء الذين أكّدوا مدد التسليم، لذا تستحق الدقيقة التي تستغرقها.
+</p>
+{{/if}}
+
+<p style="margin:0 0 18px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  قمنا بتحديد {{servicesPhraseAr}} نيابةً عنك، لذا الأمر مراجعة وليس نموذجاً تملؤه. أزل التحديد عن أي خدمة لا ترغب في استقبالها.
 </p>
 
 <p style="margin:0 0 18px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
-  المدد الثلاث هي <strong>عادي (٤٨ ساعة)</strong> و<strong>سريع (١٨ ساعة)</strong> و<strong>عاجل (٤ ساعات، من ٧ صباحاً حتى ٧ مساءً بتوقيت القاهرة)</strong>. اختر فقط المدة التي يمكنك الالتزام بها فعلاً — تأخر التسليم يعني رد رسوم الاستعجال للمريض، ونفضّل أن تختار عدداً أقل وتلتزم به.
+  المدد الثلاث هي <strong>عادي (٤٨ ساعة)</strong> و<strong>سريع (١٨ ساعة)</strong> و<strong>عاجل (٤ ساعات، من ٧ صباحاً حتى ٧ مساءً بتوقيت القاهرة)</strong>. في حال تأخر التسليم نرد رسوم الاستعجال للمريض، لذا اختر المدد التي تناسب طريقة عملك فعلاً.
 </p>
 
 <p style="margin:0 0 26px;">

@@ -3981,16 +3981,26 @@ router.post('/superadmin/doctors/outreach/send', requireSuperadmin, welcomeSendI
               baseUrl = host ? proto + '://' + host : '';
             } catch (_) { baseUrl = ''; }
           }
+          // Noun phrases, not counts. "all 1 of the services" reached a real
+          // inbox on 2026-08-29, and Arabic needs singular/dual/paucal/11+ —
+          // four forms Handlebars cannot express. See services/doctor_outreach_copy.js.
+          const copy = require('../services/doctor_outreach_copy');
+          const dates = copy.launchDates();
           queueMultiChannelNotification({
             orderId: null, toUserId: d.id,
             channels: ['internal', 'email', 'whatsapp'],
             template: 'doctor_confirm_services',
             response: {
-              firstName: String(d.name || '').replace(/^\s*(?:Dr\.?|د\.?)\s+/i, '').trim().split(/\s+/)[0] || 'Doctor',
-              nameAr: d.nameAr || d.name || '',
+              firstName: copy.firstNameOf(d.name, 'en'),
+              // Never the whole Latin name: the Arabic greeting used to render
+              // "عزيزي د. Test Doctor Ortho،" for anyone without a name_ar.
+              firstNameAr: copy.firstNameArOf(d.nameAr, d.name),
               specialtyEn: d.specialty || '',
               specialtyAr: d.specialtyAr || d.specialty || '',
-              servicesCount: d.servicesTicked || null,
+              servicesPhrase: copy.servicesPhraseEn(d.servicesTicked),
+              servicesPhraseAr: copy.servicesPhraseAr(d.servicesTicked),
+              launchDate: dates.launchDate,
+              launchDateAr: dates.launchDateAr,
               servicesUrl: baseUrl ? baseUrl + '/portal/doctor/services' : '/portal/doctor/services',
               doctorName: d.name || '',
             },
