@@ -99,7 +99,17 @@
 .apply-page .next-step h3 { margin: 0 0 4px; font-size: 14px; font-weight: 700; color: var(--text-primary); }
 .apply-page .next-step p { margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.45; }
 
-.apply-page .hp-field { position: absolute !important; left: -9999px !important; width: 1px; height: 1px; overflow: hidden; }
+/* Spam honeypot. Hidden from people, still present for naive bots.
+   NOT `left: -9999px`: in LTR that overflow is off the inline START and the
+   browser clips it, but the Arabic page is dir="rtl", where the same offset
+   lands off the inline END and becomes SCROLLABLE — /apply?lang=ar had a
+   document 11,142px wide against a 1,440px viewport, so the page opened
+   scrolled to an empty region and read as completely blank. The clip-path
+   pattern takes zero space in either direction and is not `display:none`,
+   which a bot would skip. */
+.apply-page .hp-field { position: absolute !important; width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; }
 
 @media (max-width: 680px) {
   .apply-page .apply-hero { padding: 36px 22px 52px; }

@@ -689,7 +689,9 @@
   display: none;
   position: fixed;
   top: 12px;
-  left: 12px;
+  /* Logical, not physical: in Arabic the toggle belongs at the right edge,
+     beside the drawer it opens. */
+  inset-inline-start: 12px;
   z-index: 1100;
   background: var(--deep-blue);
   color: var(--white);
@@ -727,19 +729,24 @@
   .portal-sidebar {
     position: fixed;
     top: 0;
-    left: -280px;
+    /* The drawer must hide off the inline START and slide in from it — the
+       LEFT in English, the RIGHT in Arabic. Hardcoded `left` meant the Arabic
+       portal slid its menu in from the wrong edge, away from the toggle that
+       opened it, on every phone. The base rule already used
+       `border-inline-end`, so the intent was there; the drawer was missed. */
+    inset-inline-start: -280px;
     width: 260px;
     height: 100vh;
     z-index: 1050;
     background: var(--deep-blue);
-    transition: left 0.3s ease;
+    transition: inset-inline-start 0.3s ease;
     overflow-y: auto;
     padding-top: 60px;
     border-inline-end: none;
   }
 
   .portal-sidebar.open {
-    left: 0;
+    inset-inline-start: 0;
   }
 
   .portal-nav {
