@@ -128,10 +128,13 @@
             event-handler attributes, so that dialog never runs — one click
             would have sent all 23 with no prompt. The review page shows the
             actual names and owns the POST. %>
+        <%# Outreach is the primary action now. "Email all" only ever saw
+            doctors with no password, which silently excluded the ones who had
+            signed in and stopped — the group closest to taking a case. It is
+            kept as a secondary for the plain re-invite run. %>
+        <a class="btn primary" href="/superadmin/doctors/outreach"><%= isAr ? 'متابعة الأطباء' : 'Outreach' %></a>
         <% if (_bulkEligible > 0) { %>
-          <a class="btn primary" href="/superadmin/doctors/bulk-welcome"><%= isAr ? 'إرسال للكل (' + _bulkEligible + ')' : 'Email all (' + _bulkEligible + ')' %></a>
-        <% } else { %>
-          <span class="btn" aria-disabled="true" style="opacity:.55;pointer-events:none;"><%= isAr ? 'لا يوجد جاهز' : 'None ready' %></span>
+          <a class="btn" href="/superadmin/doctors/bulk-welcome"><%= isAr ? 'إرسال للكل (' + _bulkEligible + ')' : 'Email all (' + _bulkEligible + ')' %></a>
         <% } %>
       </div>
     <%- include('partials/superadmin/c_card_close') %>

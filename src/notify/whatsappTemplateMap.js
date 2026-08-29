@@ -188,6 +188,17 @@ const whatsappTemplateMap = {
     }),
   },
 
+  // No approved Meta template exists for this one yet, so both languages are
+  // null and the Meta path will decline it rather than fail. It still needs an
+  // entry: an unmapped template is an error, and OpenClaw (the free-text path)
+  // reads openclawTemplates.js, not this file.
+  doctor_confirm_services: {
+    templateNames: { en: null, ar: null },
+    paramBuilder: (data) => ({
+      doctor_name: data.doctorName || '',
+    }),
+  },
+
   // ── Appointment Notifications ──────────────────────────────────────
 
   appointment_booked: {

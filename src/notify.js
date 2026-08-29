@@ -610,6 +610,10 @@ function renderNotificationMessage(template, payload, lang) {
       if (isAr) return 'تم اعتماد حسابك كطبيب.';
       return "Your doctor account has been approved.";
 
+    case 'doctor_confirm_services':
+      if (isAr) return 'بقيت خطوة واحدة: أكّد مدد التسليم التي توافق عليها حتى تصلك الحالات.';
+      return 'One step left: confirm which turnaround times you will take, so cases can reach you.';
+
     case 'doctor_rejected':
       if (isAr) return 'لم يتم اعتماد طلب انضمامك كطبيب في الوقت الحالي.';
       return "Your doctor application was not approved at this time.";

@@ -1,0 +1,104 @@
+{{!-- Doctor tier-confirmation reminder — bilingual.
+
+      WHY THIS EXISTS. Until 2026-08-29 the only outreach a doctor could
+      receive was doctor-welcome.hbs, which opens "set your password". On
+      2026-08-29, 30 of 31 doctors had not confirmed their turnaround tiers
+      and six of them had ALREADY logged in and set a password weeks earlier
+      — so the one email the platform could send them was telling them to do
+      a thing they had already done. That is very likely part of why they
+      ignored it. This template is for the doctor who is already through the
+      door and has exactly one step left.
+
+      It carries no magic-login token: these doctors have a password. It
+      links to the services page directly.
+
+      EDIT ALL FOUR BLOCKS. Two files (en/, ar/) x two language blocks each.
+      Both files carry BOTH languages, ordered so the block matching
+      user.lang comes first — same convention as doctor-welcome.hbs, and for
+      the same reason: users.lang was a hardcoded default for most of these
+      accounts, so it is not a stated preference and dropping a language
+      would guess wrong. Editing only the top block of each file is the
+      mistake that shipped an email naming the 18-hour tier two different
+      things in its two halves.
+
+      BODY PARTIAL — renderEmail() wraps it in _layout.hbs. No document
+      shell, masthead or footer here.
+
+      Variables: firstName, nameAr, specialtyEn, specialtyAr,
+                 servicesCount, servicesUrl.
+
+      Handlebars comment, stripped at compile time. Never write comment
+      delimiters or mustache braces inside it — a nested closing delimiter
+      ends the comment early and dumps this text into the sent email. --}}
+
+<!-- ================= ARABIC ================= -->
+<div dir="rtl" style="text-align:right;">
+
+<h1 style="margin:0 0 22px;font:400 24px/1.4 Georgia,'Times New Roman',serif;color:#0B6B5F;">
+  خطوة واحدة متبقية في حسابك على تشخيصة
+</h1>
+
+<p style="margin:0 0 18px;font:400 16px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  عزيزي د. {{nameAr}}،
+</p>
+
+<p style="margin:0 0 18px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  حسابك معتمد ومفعّل{{#if specialtyAr}} في تخصص <strong style="color:#0B6B5F;font-weight:600;">{{specialtyAr}}</strong>{{/if}}. بقيت خطوة واحدة قبل أن تصلك الحالات: تأكيد مدد التسليم التي توافق على العمل بها.
+</p>
+
+<p style="margin:0 0 18px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  قمنا بتحديد{{#if servicesCount}} كل الـ {{servicesCount}}{{/if}} خدمة في تخصصك نيابةً عنك، لذا الأمر مراجعة وليس نموذجاً تملؤه. أزل التحديد عن أي خدمة لا ترغب في استقبالها. يستغرق الأمر دقيقة تقريباً.
+</p>
+
+<p style="margin:0 0 18px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  المدد الثلاث هي <strong>عادي (٤٨ ساعة)</strong> و<strong>سريع (١٨ ساعة)</strong> و<strong>عاجل (٤ ساعات، من ٧ صباحاً حتى ٧ مساءً بتوقيت القاهرة)</strong>. اختر فقط المدة التي يمكنك الالتزام بها فعلاً — تأخر التسليم يعني رد رسوم الاستعجال للمريض، ونفضّل أن تختار عدداً أقل وتلتزم به.
+</p>
+
+<p style="margin:0 0 26px;">
+  <a href="{{servicesUrl}}" style="display:inline-block;padding:13px 26px;background:#0B6B5F;color:#ffffff;text-decoration:none;border-radius:6px;font:600 15px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+    تأكيد خدماتي
+  </a>
+</p>
+
+<p style="margin:0 0 8px;font:400 14px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#6B655C;">
+  إذا نسيت كلمة المرور، استخدم "نسيت كلمة المرور" في صفحة تسجيل الدخول. ويمكنك الرد على هذه الرسالة إن كان أي شيء غير واضح — سيصلك رد من شخص حقيقي.
+</p>
+
+</div>
+
+<div style="height:1px;background:#E6E1D8;margin:34px 0;"></div>
+
+<!-- ================= ENGLISH ================= -->
+<div dir="ltr" style="text-align:left;">
+
+<h1 style="margin:0 0 22px;font:400 24px/1.4 Georgia,'Times New Roman',serif;color:#0B6B5F;">
+  One step left on your Tashkheesa account
+</h1>
+
+<p style="margin:0 0 18px;font:400 16px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  Dear Dr. {{firstName}},
+</p>
+
+<p style="margin:0 0 18px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  Your account is approved and active{{#if specialtyEn}} in <strong style="color:#0B6B5F;font-weight:600;">{{specialtyEn}}</strong>{{/if}}. There is one thing left before cases can reach you: confirming which turnaround times you are willing to take.
+</p>
+
+<p style="margin:0 0 18px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  We have already ticked{{#if servicesCount}} all {{servicesCount}}{{/if}} of the services in your specialty for you, so this is a review rather than a form to fill in. Untick anything you would rather not take. It takes about a minute.
+</p>
+
+<p style="margin:0 0 18px;font:400 15px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2E2B26;">
+  The three turnarounds are <strong>standard (48 hours)</strong>, <strong>fast track (18 hours)</strong> and <strong>urgent (4 hours, 7am&ndash;7pm Cairo time)</strong>. Only tick a tier you can genuinely meet — a missed deadline refunds the patient's surcharge, so we would rather you took fewer tiers and kept them.
+</p>
+
+<p style="margin:0 0 26px;">
+  <a href="{{servicesUrl}}" style="display:inline-block;padding:13px 26px;background:#0B6B5F;color:#ffffff;text-decoration:none;border-radius:6px;font:600 15px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+    Confirm my services
+  </a>
+</p>
+
+<p style="margin:0 0 8px;font:400 14px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#6B655C;">
+  If you have forgotten your password, use "Forgot password" on the sign-in page. Reply to this email if anything is unclear &mdash; it reaches a person.
+</p>
+
+</div>

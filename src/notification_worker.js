@@ -131,6 +131,12 @@ const TEMPLATE_TO_EMAIL = {
   order_reassigned_from_doctor: 'case-reassigned-original',
   welcome_patient: 'welcome',
   doctor_approved: 'doctor-welcome',
+  // 2026-08-29 — the doctor who is already IN. doctor-welcome opens with
+  // "set your password", which is the wrong sentence for six doctors who
+  // set one three weeks ago and only ever needed to tick their tiers.
+  // Without a mapping here processEmail answers
+  // no_email_template_mapping_for_<t> and burns three retries into 'failed'.
+  doctor_confirm_services: 'doctor-confirm-services',
   additional_files_requested_patient: 'additional-files-request',
   additional_files_request_approved_patient: 'additional-files-request',
   patient_uploaded_files_doctor: 'patient-uploaded-files',
@@ -188,6 +194,9 @@ const TEMPLATE_TO_EMAIL = {
  */
 const TEMPLATES_WITH_REPLY_TO = new Set([
   'doctor-welcome',
+  // Same reasoning: a doctor who replies "which tier should I take?" must
+  // reach a person, not noreply@.
+  'doctor-confirm-services',
 ]);
 
 /**

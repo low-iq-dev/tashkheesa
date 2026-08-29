@@ -79,6 +79,12 @@ const TEMPLATE_TITLES = {
     en: 'أهلاً بك في تشخيصة — حسابك جاهز · Welcome to Tashkheesa — your account is ready',
     ar: 'أهلاً بك في تشخيصة — حسابك جاهز · Welcome to Tashkheesa — your account is ready'
   },
+  // Bilingual-in-one-line, matching doctor_approved above: the body is
+  // bilingual regardless of user.lang, so the inbox preview should be too.
+  doctor_confirm_services: {
+    en: 'خطوة واحدة متبقية — أكّد خدماتك · One step left — confirm your services',
+    ar: 'خطوة واحدة متبقية — أكّد خدماتك · One step left — confirm your services'
+  },
   doctor_rejected: { en: 'Doctor rejected', ar: 'تم رفض الطبيب' },
   prescription_uploaded_patient: { en: 'Prescription available', ar: 'الوصفة الطبية متاحة' },
   new_message: { en: 'New message', ar: 'رسالة جديدة' },

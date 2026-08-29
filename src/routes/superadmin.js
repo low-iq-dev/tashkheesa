@@ -3793,6 +3793,278 @@ router.get('/superadmin/doctors/bulk-welcome', requireSuperadmin, async (req, re
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DOCTOR OUTREACH CONSOLE
+//
+// ROUTE ORDER IS LOAD-BEARING. Everything here is a literal path under
+// /superadmin/doctors/ and MUST stay above the /:id routes below. Express
+// matches in registration order; put these underneath and '/outreach' binds
+// :id='outreach', finds no doctor, and redirects to the list — which is
+// exactly how "Email all" silently did nothing on 25 August.
+// tests/lint/superadmin-route-order.test.js enforces this.
+//
+// WHY IT EXISTS. /bulk-welcome selected on `password_hash IS NULL`, which is
+// an implementation detail, not a cohort. On 29 August that sent 22 doctors a
+// "set your password" email and structurally excluded the six who had logged
+// in three weeks earlier and set one — the six closest to taking a case, and
+// the only ones the platform had no way to contact.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Sends are per-doctor-transactional and can run long (one invite = one
+// transaction). Same IP limiter as the other welcome paths.
+router.get('/superadmin/doctors/outreach', requireSuperadmin, async (req, res) => {
+  try {
+    const { loadDoctorOutreach, waLink } = require('../services/doctor_outreach');
+    const data = await loadDoctorOutreach({ cooldownHours: BULK_WELCOME_COOLDOWN_HOURS });
+
+    // WhatsApp delivery health, read from what actually happened rather than
+    // from config: if every WhatsApp row in the last 24h failed, say so and
+    // give the operator the manual link instead of letting them believe the
+    // message went.
+    let waHealth = { total: 0, failed: 0, down: false, lastError: null };
+    try {
+      const wa = await queryOne(
+        `SELECT count(*)::int AS total,
+                count(*) FILTER (WHERE status <> 'sent')::int AS failed,
+                (ARRAY_AGG(response ORDER BY at DESC) FILTER (WHERE status <> 'sent'))[1] AS last_error
+           FROM notifications
+          WHERE channel = 'whatsapp' AND at > NOW() - interval '24 hours'`
+      );
+      if (wa) {
+        waHealth.total = wa.total || 0;
+        waHealth.failed = wa.failed || 0;
+        waHealth.down = (wa.total || 0) > 0 && wa.failed === wa.total;
+        waHealth.lastError = wa.last_error || null;
+      }
+    } catch (_) { /* the banner is advisory; never block the page on it */ }
+
+    for (const d of data.doctors) d.waLink = d.template ? waLink(d, d.template) : null;
+
+    assertRenderableView('superadmin_doctor_outreach');
+    return res.render('superadmin_doctor_outreach', {
+      user: req.user,
+      lang: (res.locals && res.locals.lang) || 'en',
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+      data: data,
+      waHealth: waHealth,
+      flash: {
+        sent: req.query.sent || null,
+        skipped: req.query.skipped || null,
+        failed: req.query.failed || null,
+        error: req.query.error || null,
+        busy: req.query.busy || null,
+        toggled: req.query.toggled || null,
+      }
+    });
+  } catch (err) {
+    // A page that lists doctors must never be able to take the platform down.
+    // assertRenderableView throws, and before express-async-errors was
+    // confirmed present that throw reached unhandledRejection and exited the
+    // process. Belt and braces.
+    logErrorToDb(err, {
+      context: 'superadmin.doctor_outreach',
+      requestId: req.requestId, userId: req.user && req.user.id,
+      url: req.originalUrl, method: req.method, category: 'superadmin_auth'
+    });
+    return res.redirect('/superadmin/doctors?outreach_error=1');
+  }
+});
+
+// CSV of the whole list, so the operator can work it by phone or hand it on.
+router.get('/superadmin/doctors/outreach.csv', requireSuperadmin, async (req, res) => {
+  try {
+    const { loadDoctorOutreach } = require('../services/doctor_outreach');
+    const data = await loadDoctorOutreach({ cooldownHours: BULK_WELCOME_COOLDOWN_HOURS });
+    const esc = (v) => {
+      const t = String(v == null ? '' : v);
+      // Leading =,+,-,@ are formula triggers in Excel. Prefix with a quote so
+      // a specialty or name can never execute in someone's spreadsheet.
+      const safe = /^[=+\-@]/.test(t) ? "'" + t : t;
+      return '"' + safe.replace(/"/g, '""') + '"';
+    };
+    const head = ['name','email','phone','specialty','segment','logged_in','confirmed','services_ticked','last_invite'];
+    const lines = [head.join(',')];
+    for (const d of data.doctors) {
+      lines.push([
+        esc(d.name), esc(d.email), esc(d.phone), esc(d.specialty), esc(d.segment),
+        esc(d.firstLoginAt ? String(d.firstLoginAt).slice(0, 10) : ''),
+        esc(d.confirmedAt ? String(d.confirmedAt).slice(0, 10) : ''),
+        esc(d.servicesTicked),
+        esc(d.lastSentAt ? String(d.lastSentAt).slice(0, 10) : ''),
+      ].join(','));
+    }
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="doctor-outreach-' + new Date().toISOString().slice(0, 10) + '.csv"');
+    res.setHeader('Cache-Control', 'no-store, private');
+    // BOM so Excel reads the Arabic names as UTF-8 instead of mojibake.
+    return res.send('﻿' + lines.join('\n'));
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.doctor_outreach_csv',
+      requestId: req.requestId, userId: req.user && req.user.id,
+      url: req.originalUrl, method: req.method, category: 'superadmin_auth'
+    });
+    return res.redirect('/superadmin/doctors/outreach?error=csv');
+  }
+});
+
+// ONE send endpoint for all three shapes — a single doctor, a tick-box
+// selection, and a whole segment. They are the same operation with a
+// different list of ids, and three endpoints would be three places to get the
+// cooldown and the locking wrong.
+router.post('/superadmin/doctors/outreach/send', requireSuperadmin, welcomeSendIpLimiter, async (req, res) => {
+  const back = '/superadmin/doctors/outreach';
+  const client = await pool.connect();
+  try {
+    const { loadDoctorOutreach } = require('../services/doctor_outreach');
+
+    await client.query('BEGIN');
+    // Same advisory lock the bulk welcome uses, and the same key: two
+    // overlapping outreach runs would both read the cohort before either
+    // stamped welcome_email_last_sent_at, and the second run's re-mint would
+    // invalidate the magic links the first one had already emailed.
+    const lock = await client.query('SELECT pg_try_advisory_xact_lock(4242, 1) AS ok');
+    if (!lock.rows[0] || lock.rows[0].ok !== true) {
+      await client.query('ROLLBACK');
+      return res.redirect(back + '?busy=1');
+    }
+
+    const raw = req.body && (req.body.ids || req.body.id);
+    let ids = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    const segment = String((req.body && req.body.segment) || '').trim();
+
+    const data = await loadDoctorOutreach({ cooldownHours: BULK_WELCOME_COOLDOWN_HOURS });
+    if (segment) {
+      ids = (data.bySegment[segment] || []).map((d) => d.id);
+    }
+    ids = ids.map(String).filter(Boolean);
+
+    // Resolve every id against the loaded cohort. An id the operator did not
+    // see on the page, or one whose segment is not sendable, is dropped here
+    // rather than trusted from the form.
+    const byId = new Map(data.doctors.map((d) => [d.id, d]));
+    const force = String((req.body && req.body.force) || '') === '1';
+    const targets = [];
+    let skipped = 0;
+    for (const id of ids) {
+      const d = byId.get(id);
+      if (!d || !d.sendable) { skipped++; continue; }
+      if (d.cooling && !force) { skipped++; continue; }
+      targets.push(d);
+    }
+
+    await client.query('COMMIT');
+
+    let sent = 0, failed = 0;
+    for (const d of targets) {
+      try {
+        if (d.template === 'doctor_approved') {
+          // Re-mints the 7-day magic link and stamps welcome_email_last_sent_at.
+          const doctor = await queryOne('SELECT * FROM users WHERE id = $1 AND role = $2', [d.id, 'doctor']);
+          if (!doctor) { failed++; continue; }
+          const payload = await _issueDoctorWelcomePayload(doctor, req);
+          queueMultiChannelNotification({
+            orderId: null, toUserId: d.id,
+            channels: ['internal', 'email', 'whatsapp'],
+            template: 'doctor_approved', response: payload,
+            dedupe_key: 'doctor_outreach_welcome:' + d.id + ':' + Date.now(),
+          });
+        } else {
+          // doctor_confirm_services: no token. These doctors already have a
+          // password; minting a magic link for them would be a second live
+          // credential emailed for no reason.
+          let baseUrl = String(process.env.BASE_URL || process.env.APP_URL || '').trim().replace(/\/+$/, '');
+          if (!baseUrl) {
+            try {
+              const proto = String(req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
+              const host = req.get('x-forwarded-host') || req.get('host');
+              baseUrl = host ? proto + '://' + host : '';
+            } catch (_) { baseUrl = ''; }
+          }
+          queueMultiChannelNotification({
+            orderId: null, toUserId: d.id,
+            channels: ['internal', 'email', 'whatsapp'],
+            template: 'doctor_confirm_services',
+            response: {
+              firstName: String(d.name || '').replace(/^\s*(?:Dr\.?|د\.?)\s+/i, '').trim().split(/\s+/)[0] || 'Doctor',
+              nameAr: d.nameAr || d.name || '',
+              specialtyEn: d.specialty || '',
+              specialtyAr: d.specialtyAr || d.specialty || '',
+              servicesCount: d.servicesTicked || null,
+              servicesUrl: baseUrl ? baseUrl + '/portal/doctor/services' : '/portal/doctor/services',
+              doctorName: d.name || '',
+            },
+            dedupe_key: 'doctor_outreach_tiers:' + d.id + ':' + Date.now(),
+          });
+          // Stamp so the cooldown applies to this template too — otherwise the
+          // reminder has no throttle at all and a doctor can be mailed on
+          // every page refresh.
+          await execute('UPDATE users SET welcome_email_last_sent_at = $1 WHERE id = $2',
+            [new Date().toISOString(), d.id]);
+        }
+        sent++;
+      } catch (e) {
+        failed++;
+        logErrorToDb(e, {
+          context: 'superadmin.doctor_outreach_send_one',
+          requestId: req.requestId, userId: req.user && req.user.id,
+          url: req.originalUrl, method: req.method, category: 'superadmin_action'
+        });
+      }
+    }
+
+    logAdminAudit({ req, action: 'doctor_outreach_send', target: segment || ('ids:' + targets.length) });
+    const q = new URLSearchParams({ sent: String(sent), skipped: String(skipped), failed: String(failed) });
+    return res.redirect(back + '?' + q.toString());
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) { /* already aborted */ }
+    logErrorToDb(err, {
+      context: 'superadmin.doctor_outreach_send',
+      requestId: req.requestId, userId: req.user && req.user.id,
+      url: req.originalUrl, method: req.method, category: 'superadmin_auth'
+    });
+    return res.redirect(back + '?error=send');
+  } finally {
+    client.release();
+  }
+});
+
+// Pause / deactivate from the row. Both are reversible, both are one UPDATE,
+// and the confirmation is the operator having to pick which button — there is
+// no inline confirm() available under this CSP (no 'unsafe-inline'), and a
+// dialog that silently never fires is worse than none.
+router.post('/superadmin/doctors/outreach/state', requireSuperadmin, async (req, res) => {
+  const back = '/superadmin/doctors/outreach';
+  try {
+    const id = String((req.body && req.body.id) || '').trim();
+    const action = String((req.body && req.body.action) || '').trim();
+    if (!id) return res.redirect(back + '?error=state');
+
+    let sql = null;
+    if (action === 'deactivate')      sql = "UPDATE users SET is_active = false WHERE id = $1 AND role = 'doctor'";
+    else if (action === 'activate')   sql = "UPDATE users SET is_active = true  WHERE id = $1 AND role = 'doctor'";
+    else if (action === 'pause')      sql = "UPDATE users SET is_paused = true,  paused_at = NOW() WHERE id = $1 AND role = 'doctor'";
+    else if (action === 'unpause')    sql = "UPDATE users SET is_paused = false, paused_at = NULL   WHERE id = $1 AND role = 'doctor'";
+    else return res.redirect(back + '?error=state');
+
+    await execute(sql, [id]);
+    logAdminAudit({ req, action: 'doctor_outreach_' + action, target: id });
+
+    // Availability changed, so the coming-soon computation is stale.
+    try { await resyncComingSoon(); } catch (e) {
+      logErrorToDb(e, { context: 'superadmin.doctor_outreach_state_resync', userId: req.user && req.user.id, url: req.originalUrl, method: req.method, category: 'superadmin_auth' });
+    }
+    return res.redirect(back + '?toggled=' + encodeURIComponent(action));
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.doctor_outreach_state',
+      requestId: req.requestId, userId: req.user && req.user.id,
+      url: req.originalUrl, method: req.method, category: 'superadmin_auth'
+    });
+    return res.redirect(back + '?error=state');
+  }
+});
+
 router.get('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) => {
   const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [req.params.id]);
   if (!doctor) return res.redirect('/superadmin/doctors');

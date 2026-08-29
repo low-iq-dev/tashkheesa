@@ -305,6 +305,14 @@ const OPENCLAW_TEMPLATES = {
     en: (v) => `Your Tashkheesa specialist account is approved. Sign in to view available cases: ${appUrl()}/portal/doctor\n— Tashkheesa`,
     ar: (v) => `تم اعتماد حسابك كطبيب على تشخيصة. لتسجيل الدخول ومتابعة الحالات المتاحة: ${appUrl()}/portal/doctor\n— تشخيصة`
   },
+  // 2026-08-29 — for a doctor who is already signed up and has one step left.
+  // Deliberately short: this same string is what the outreach console
+  // pre-fills into a wa.me link when automatic WhatsApp dispatch is down, and
+  // a wa.me URL carries the whole body in the query string.
+  doctor_confirm_services: {
+    en: (v) => `Your Tashkheesa account is active — one step left. Confirm which turnaround times you'll take so cases can reach you: ${appUrl()}/portal/doctor/services\n— Tashkheesa`,
+    ar: (v) => `حسابك على تشخيصة مفعّل — بقيت خطوة واحدة. أكّد مدد التسليم التي توافق عليها حتى تصلك الحالات: ${appUrl()}/portal/doctor/services\n— تشخيصة`
+  },
 
   // ── Patient: order + prescription ─────────────────────────────────
   order_created_patient: {

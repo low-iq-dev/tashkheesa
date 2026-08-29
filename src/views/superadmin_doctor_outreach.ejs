@@ -1,0 +1,331 @@
+<%
+  // Doctor outreach console.
+  //
+  // Replaces the single-cohort "Email all". That page selected on
+  // `password_hash IS NULL`, which is a database detail rather than a cohort:
+  // on 29 August it mailed 22 doctors a "set your password" email and
+  // structurally excluded the six who had logged in three weeks earlier and
+  // set one — the six closest to taking a case.
+  //
+  // CSP: script-src carries a nonce and NO 'unsafe-inline', so every inline
+  // on* attribute is dead. Everything here that must work — sending,
+  // selecting, pausing — is a plain form. The one nonce'd script is
+  // copy-to-clipboard, which is a convenience and degrades to nothing.
+  //
+  // Checkboxes use the HTML5 `form=` attribute to post into a form declared
+  // ABOVE the table rather than wrapping it. That is what lets each row carry
+  // its own send/pause forms without nesting forms, which is invalid HTML and
+  // silently drops the inner one in every browser.
+
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var _d = (typeof data !== 'undefined' && data) ? data : { doctors: [], bySegment: {}, coverage: [], counts: {}, cooldownHours: 24 };
+  var _wa = (typeof waHealth !== 'undefined' && waHealth) ? waHealth : { down: false, total: 0, failed: 0 };
+  var _flash = (typeof flash !== 'undefined' && flash) ? flash : {};
+  var _nonce = (typeof cspNonce !== 'undefined') ? cspNonce : '';
+
+  function _esc(v) {
+    return String(v == null ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function _when(iso) {
+    if (!iso) return '—';
+    var t = new Date(iso);
+    if (Number.isNaN(t.getTime())) return '—';
+    var h = Math.round((Date.now() - t.getTime()) / 3600000);
+    if (h < 1) return isAr ? 'منذ أقل من ساعة' : 'under 1h';
+    if (h < 24) return h + (isAr ? ' ساعة' : 'h ago');
+    return Math.round(h / 24) + (isAr ? ' يوم' : 'd ago');
+  }
+
+  var SEGMENTS = [
+    { key: 'needs_tiers',  en: 'Logged in — tiers not confirmed', ar: 'سجّل الدخول — لم يؤكد المدد',
+      whyEn: 'Already through the door with a password. One click left. The old bulk button could never reach these.',
+      whyAr: 'لديهم حسابات وكلمات مرور بالفعل. بقيت خطوة واحدة. الزر القديم لم يكن يصل إليهم إطلاقاً.',
+      ctaEn: 'Send tier reminder', ctaAr: 'إرسال تذكير بالمدد', tone: '#8a6100' },
+    { key: 'never_opened', en: 'Invited — never opened', ar: 'تمت دعوتهم — لم يفتحوا',
+      whyEn: 'Invite sent, no first login. Re-sending mints a fresh 7-day link and kills the old one.',
+      whyAr: 'أُرسلت الدعوة ولم يسجلوا الدخول. إعادة الإرسال تنشئ رابطاً جديداً صالحاً 7 أيام وتلغي القديم.',
+      ctaEn: 'Resend welcome', ctaAr: 'إعادة إرسال الترحيب', tone: '#8a6100' },
+    { key: 'dormant',      en: 'Never invited', ar: 'لم تُرسل لهم دعوة',
+      whyEn: 'No invite has ever gone out to these accounts.',
+      whyAr: 'لم تُرسل أي دعوة لهذه الحسابات.',
+      ctaEn: 'Send welcome', ctaAr: 'إرسال الترحيب', tone: '#8a6100' },
+    { key: 'confirmed',    en: 'Confirmed — ready to take cases', ar: 'مؤكَّد — جاهز لاستقبال الحالات',
+      whyEn: 'Done. Nothing to send.', whyAr: 'اكتمل. لا حاجة لإرسال شيء.',
+      ctaEn: '', ctaAr: '', tone: '#0B6B5F' },
+    { key: 'inactive',     en: 'Inactive or pending approval', ar: 'غير مفعّل أو قيد المراجعة',
+      whyEn: 'Not sendable. Listed so nothing is invisible.', whyAr: 'لا يمكن الإرسال إليهم. معروضون حتى لا يختفي أحد.',
+      ctaEn: '', ctaAr: '', tone: '#6B655C' }
+  ];
+%>
+<%- include('partials/superadmin/header', {
+      title: isAr ? 'متابعة الأطباء' : 'Doctor outreach',
+      currentSection: 'doctors',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: _nonce
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: isAr ? 'متابعة الأطباء' : 'Doctor outreach',
+      subtitle: isAr
+        ? 'كل مجموعة تحتاج رسالة مختلفة. اختر أطباء بعينهم أو أرسل لمجموعة كاملة.'
+        : 'Each group needs a different message. Pick individual doctors, or send to a whole group.',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: isAr ? 'الأطباء' : 'Doctors', href: '/superadmin/doctors' },
+        { label: isAr ? 'المتابعة' : 'Outreach' }
+      ]
+    }) %>
+
+<div class="page-body">
+
+  <% if (_flash.sent || _flash.failed || _flash.skipped) { %>
+    <div style="margin-bottom:14px;padding:13px 16px;border-radius:8px;border:1px solid var(--line);
+                border-inline-start:3px solid #0B6B5F;background:var(--bg-2,#fff);font-size:13.5px;line-height:1.7;">
+      <strong><%= _flash.sent || '0' %></strong> <%= isAr ? 'أُرسلت' : 'sent' %>
+      · <strong><%= _flash.skipped || '0' %></strong> <%= isAr ? 'تم تخطيها' : 'skipped' %>
+      · <strong><%= _flash.failed || '0' %></strong> <%= isAr ? 'فشلت' : 'failed' %>
+      <% if (Number(_flash.skipped) > 0) { %>
+        <div style="margin-top:6px;color:var(--ink-2,#6B655C);font-size:12.5px;">
+          <%= isAr ? 'التخطي يعني أن الطبيب ضمن فترة التهدئة أو ليس ضمن مجموعة قابلة للإرسال.' : 'Skipped means the doctor is inside the cooldown window, or is in a group nothing is sent to.' %>
+        </div>
+      <% } %>
+    </div>
+  <% } %>
+
+  <% if (_flash.busy) { %>
+    <div style="margin-bottom:14px;padding:13px 16px;border-radius:8px;border:1px solid var(--line);
+                border-inline-start:3px solid #8a6100;background:var(--bg-2,#fff);font-size:13.5px;">
+      <%= isAr ? 'هناك عملية إرسال جارية بالفعل. لم يُرسل شيء.' : 'A send is already running. Nothing was sent.' %>
+    </div>
+  <% } %>
+
+  <% if (_flash.error) { %>
+    <div style="margin-bottom:14px;padding:13px 16px;border-radius:8px;border:1px solid #FCA5A5;
+                border-inline-start:3px solid #B91C1C;background:var(--bg-2,#fff);font-size:13.5px;">
+      <%= isAr ? 'حدث خطأ ولم يُرسل شيء.' : 'Something went wrong and nothing was sent.' %>
+    </div>
+  <% } %>
+
+  <% if (_wa.down) { %>
+    <div style="margin-bottom:16px;padding:14px 16px;border-radius:8px;border:1px solid #FCA5A5;
+                border-inline-start:3px solid #B91C1C;background:var(--bg-2,#fff);font-size:13.5px;line-height:1.7;">
+      <strong style="color:#B91C1C;"><%= isAr ? 'واتساب لا يعمل' : 'WhatsApp delivery is down' %></strong><br>
+      <%= isAr
+        ? 'كل رسائل واتساب في آخر 24 ساعة فشلت (' + _wa.failed + ' من ' + _wa.total + '). الإيميل يعمل بشكل طبيعي — لكن أي دعوة ترسلها الآن ستصل بالإيميل فقط.'
+        : 'Every WhatsApp send in the last 24 hours failed (' + _wa.failed + ' of ' + _wa.total + '). Email is unaffected — but anything you send now arrives by email only.' %>
+      <div style="margin-top:6px;color:var(--ink-2,#6B655C);font-size:12.5px;">
+        <%= isAr ? 'استخدم زر واتساب بجانب كل طبيب لإرسال نفس الرسالة يدوياً.' : 'Use the WhatsApp button on each row to send the same message by hand.' %>
+        <% if (_wa.lastError) { %>
+          <code style="font-size:11.5px;opacity:.8;"><%= _esc(String(_wa.lastError).slice(0, 90)) %></code>
+        <% } %>
+      </div>
+    </div>
+  <% } %>
+
+  <%# Coverage first. A list of doctors does not answer the only question that
+      matters before launch: can a patient who buys a Radiology review be
+      served. %>
+  <div style="margin-bottom:18px;padding:14px 16px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2,#fff);">
+    <div style="font-weight:600;font-size:13.5px;margin-bottom:10px;">
+      <%= isAr ? 'التغطية حسب التخصص المتاح للحجز' : 'Coverage by bookable specialty' %>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="text-align:start;color:var(--ink-2,#6B655C);font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;">
+          <th style="text-align:start;padding:6px 8px;"><%= isAr ? 'التخصص' : 'Specialty' %></th>
+          <th style="text-align:start;padding:6px 8px;"><%= isAr ? 'أطباء' : 'Doctors' %></th>
+          <th style="text-align:start;padding:6px 8px;"><%= isAr ? 'سجّلوا الدخول' : 'Logged in' %></th>
+          <th style="text-align:start;padding:6px 8px;"><%= isAr ? 'مؤكَّد' : 'Confirmed' %></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% (_d.coverage || []).forEach(function (c) { %>
+          <tr style="border-top:1px solid var(--line);">
+            <td style="padding:7px 8px;"><%= _esc(c.specialty) %></td>
+            <td style="padding:7px 8px;"><%= c.doctors %></td>
+            <td style="padding:7px 8px;"><%= c.loggedIn %></td>
+            <td style="padding:7px 8px;font-weight:700;color:<%= c.confirmed > 0 ? '#0B6B5F' : '#B91C1C' %>;">
+              <%= c.confirmed %>
+              <% if (c.confirmed === 0) { %>
+                <span style="font-weight:400;font-size:11.5px;color:#B91C1C;">
+                  — <%= isAr ? 'لا يمكن خدمة أي حالة' : 'cannot serve a case' %>
+                </span>
+              <% } %>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="margin-bottom:18px;">
+    <a href="/superadmin/doctors/outreach.csv" class="btn btn-secondary" style="font-size:13px;">
+      <%= isAr ? 'تصدير CSV' : 'Export CSV' %>
+    </a>
+  </div>
+
+  <% SEGMENTS.forEach(function (seg) {
+       var rows = (_d.bySegment && _d.bySegment[seg.key]) || [];
+       if (!rows.length) return;
+       var sendable = !!seg.ctaEn;
+       var formId = 'sel-' + seg.key;
+  %>
+    <section style="margin-bottom:26px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg-2,#fff);">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--line);border-inline-start:3px solid <%= seg.tone %>;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;">
+          <div style="font-weight:600;font-size:14.5px;">
+            <%= isAr ? seg.ar : seg.en %>
+            <span style="color:var(--ink-2,#6B655C);font-weight:400;">(<%= rows.length %>)</span>
+          </div>
+          <% if (sendable) { %>
+            <form method="POST" action="/superadmin/doctors/outreach/send" style="margin:0;">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <input type="hidden" name="segment" value="<%= seg.key %>">
+              <button type="submit" class="btn btn-primary" style="font-size:12.5px;">
+                <%= (isAr ? seg.ctaAr : seg.ctaEn) %> — <%= isAr ? 'الكل' : 'all' %> <%= rows.length %>
+              </button>
+            </form>
+          <% } %>
+        </div>
+        <div style="margin-top:6px;font-size:12.5px;color:var(--ink-2,#6B655C);line-height:1.6;">
+          <%= isAr ? seg.whyAr : seg.whyEn %>
+        </div>
+      </div>
+
+      <%# Declared BEFORE the table. Row checkboxes point at it with form=,
+          so each row can still carry its own action forms. %>
+      <% if (sendable) { %>
+        <form method="POST" action="/superadmin/doctors/outreach/send" id="<%= formId %>" style="margin:0;padding:10px 16px;border-bottom:1px solid var(--line);">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <button type="submit" class="btn btn-secondary" style="font-size:12.5px;">
+            <%= isAr ? 'إرسال للمحددين' : 'Send to selected' %>
+          </button>
+          <span style="font-size:12px;color:var(--ink-2,#6B655C);margin-inline-start:8px;">
+            <%= isAr ? 'حدّد الأطباء من القائمة أدناه.' : 'Tick the doctors below.' %>
+          </span>
+        </form>
+      <% } %>
+
+      <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <tbody>
+        <% rows.forEach(function (dr) { %>
+          <tr style="border-top:1px solid var(--line);">
+            <td style="padding:10px 8px 10px 16px;width:28px;vertical-align:top;">
+              <% if (sendable) { %>
+                <input type="checkbox" name="ids" value="<%= _esc(dr.id) %>" form="<%= formId %>"
+                       aria-label="<%= _esc(dr.name) %>">
+              <% } %>
+            </td>
+            <td style="padding:10px 8px;vertical-align:top;min-width:190px;">
+              <div style="font-weight:600;"><%= _esc(dr.name) %></div>
+              <div style="font-size:12px;color:var(--ink-2,#6B655C);margin-top:2px;">
+                <%= _esc(dr.specialty || '—') %>
+                <% if (!dr.specialtyVisible && dr.specialty) { %>
+                  <span style="color:#8a6100;">· <%= isAr ? 'تخصص مخفي' : 'specialty hidden' %></span>
+                <% } %>
+              </div>
+              <div style="font-size:12px;color:var(--ink-2,#6B655C);margin-top:2px;" dir="ltr">
+                <%= _esc(dr.email) %><% if (dr.phone) { %> · <%= _esc(dr.phone) %><% } %>
+              </div>
+            </td>
+            <td style="padding:10px 8px;vertical-align:top;font-size:12px;color:var(--ink-2,#6B655C);min-width:150px;">
+              <div><%= isAr ? 'آخر دعوة' : 'Last contact' %>: <%= _when(dr.lastSentAt) %></div>
+              <div><%= isAr ? 'دخول' : 'Logged in' %>: <%= dr.firstLoginAt ? _when(dr.firstLoginAt) : (isAr ? 'أبداً' : 'never') %></div>
+              <div><%= isAr ? 'خدمات محددة' : 'Services ticked' %>: <%= dr.servicesTicked %></div>
+              <% if (dr.cooling) { %>
+                <div style="color:#8a6100;"><%= isAr ? 'ضمن فترة التهدئة' : 'in cooldown' %></div>
+              <% } %>
+            </td>
+            <td style="padding:10px 16px 10px 8px;vertical-align:top;text-align:end;white-space:nowrap;">
+              <% if (sendable) { %>
+                <form method="POST" action="/superadmin/doctors/outreach/send" style="display:inline;margin:0;">
+                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                  <input type="hidden" name="id" value="<%= _esc(dr.id) %>">
+                  <% if (dr.cooling) { %><input type="hidden" name="force" value="1"><% } %>
+                  <button type="submit" class="btn btn-secondary" style="font-size:12px;padding:5px 11px;">
+                    <%= dr.cooling ? (isAr ? 'إرسال رغم التهدئة' : 'Send anyway') : (isAr ? 'إرسال' : 'Send') %>
+                  </button>
+                </form>
+              <% } %>
+              <% if (dr.waLink) { %>
+                <a href="<%= _esc(dr.waLink) %>" target="_blank" rel="noopener noreferrer"
+                   class="btn btn-secondary" style="font-size:12px;padding:5px 11px;">
+                  <%= isAr ? 'واتساب' : 'WhatsApp' %>
+                </a>
+              <% } %>
+              <button type="button" class="btn btn-secondary js-copy" style="font-size:12px;padding:5px 11px;"
+                      data-copy="<%= _esc(dr.name + ' | ' + dr.email + (dr.phone ? ' | ' + dr.phone : '')) %>">
+                <%= isAr ? 'نسخ' : 'Copy' %>
+              </button>
+              <form method="POST" action="/superadmin/doctors/outreach/state" style="display:inline;margin:0;">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <input type="hidden" name="id" value="<%= _esc(dr.id) %>">
+                <input type="hidden" name="action" value="<%= dr.isActive ? 'deactivate' : 'activate' %>">
+                <button type="submit" class="btn btn-secondary"
+                        style="font-size:12px;padding:5px 11px;<%= dr.isActive ? 'color:#B91C1C;border-color:#FCA5A5;' : '' %>">
+                  <%= dr.isActive ? (isAr ? 'تعطيل' : 'Deactivate') : (isAr ? 'تفعيل' : 'Activate') %>
+                </button>
+              </form>
+              <% if (dr.isActive) { %>
+                <form method="POST" action="/superadmin/doctors/outreach/state" style="display:inline;margin:0;">
+                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                  <input type="hidden" name="id" value="<%= _esc(dr.id) %>">
+                  <input type="hidden" name="action" value="<%= dr.isPaused ? 'unpause' : 'pause' %>">
+                  <button type="submit" class="btn btn-secondary" style="font-size:12px;padding:5px 11px;">
+                    <%= dr.isPaused ? (isAr ? 'استئناف' : 'Unpause') : (isAr ? 'إيقاف مؤقت' : 'Pause') %>
+                  </button>
+                </form>
+              <% } %>
+            </td>
+          </tr>
+        <% }); %>
+        </tbody>
+      </table>
+      </div>
+    </section>
+  <% }); %>
+
+</div>
+
+<script nonce="<%= _nonce %>">
+  // Copy-to-clipboard only. Everything that changes state is a form, so this
+  // script failing or being blocked costs a convenience and nothing else.
+  (function () {
+    document.addEventListener('click', function (ev) {
+      var btn = ev.target && ev.target.closest ? ev.target.closest('.js-copy') : null;
+      if (!btn) return;
+      var text = btn.getAttribute('data-copy') || '';
+      var done = function () {
+        var was = btn.textContent;
+        btn.textContent = '✓';
+        setTimeout(function () { btn.textContent = was; }, 1200);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () {});
+        return;
+      }
+      // Older Safari on the office Mac has no async clipboard over some
+      // contexts; this fallback is why the button is not just a mailto.
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        done();
+      } catch (e) { /* nothing to do; the text is on screen anyway */ }
+    });
+  }());
+</script>
+
+<%- include('partials/superadmin/footer') %>

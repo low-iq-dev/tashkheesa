@@ -31,7 +31,10 @@ test('literal doctor sub-paths are registered before the :id param routes', () =
   const firstParam = Math.min(...paramRoutes);
 
   // Every literal segment that could be mistaken for an id.
-  const literals = ['new', 'bulk-welcome'];
+  // 2026-08-29 — 'outreach' added with the console. Same trap: it is a
+  // literal segment that :id would happily swallow, and the failure is
+  // silent (a redirect back to the list) rather than an error.
+  const literals = ['new', 'bulk-welcome', 'outreach'];
   for (const seg of literals) {
     const at = lineOf(new RegExp("router\\.get\\('/superadmin/doctors/" + seg + "'"));
     assert.ok(at > 0, `/superadmin/doctors/${seg} is not registered at all`);
