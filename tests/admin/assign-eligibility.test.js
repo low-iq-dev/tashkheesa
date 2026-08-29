@@ -99,6 +99,10 @@ function makeApp(doctor, doctorOffers, load = 2) {
     safeGet: async () => null,
     safeAll: async () => [],
     safeRun: async () => ({ rowCount: 0 }),
+    // AUDIT-KPI-HONESTY (2026-08-29) — strict variants, injected like the soft
+    // ones so this stays hermetic. See src/sql-utils.js.
+    mustGet: async () => null,
+    mustAll: async () => [],
   };
   const deploy = { gitSha: 'test', startedAt: Date.now(), startedAtIso: new Date().toISOString(), version: '0', mode: 'test' };
   const notifiers = {

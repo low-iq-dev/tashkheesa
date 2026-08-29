@@ -53,6 +53,119 @@ function normalizeTier(raw) {
   return t === 'fast_track' ? 'vip' : t || 'standard';
 }
 
+// ── AUDIT-PREDICATE-PARITY (2026-08-29) — the status sets, defined ONCE ─────
+//
+// THE RECURRING BUG IN THIS CODEBASE IS "A CHIP COUNTS ONE THING AND THE LIST
+// IT OPENS FILTERS ANOTHER". Every instance found so far has the same shape: a
+// status tuple written inline in one query and re-typed, slightly differently,
+// in the query behind the tile that links to it. Verified pairs, all live:
+//
+//   * GET /cases `breached` FACET used 5 statuses; the ?breached=1 LIST and the
+//     /pulse tile used the 9 below. Badge said 0, the list it opened showed 2.
+//   * GET /cases `unassigned` FACET used ('paid','reassigned'); the list used
+//     the 9. Badge said 0, the list showed 1.
+//   * Doctor "load" had THREE spellings in routes/api/admin.js alone
+//     (/doctors, /cases/:id, /cases/:id/candidates), one of them missing
+//     'refunded', and all three written as an EXCLUSION list — so a 'draft' or
+//     'DRAFT' row (production has one) counted against a doctor's capacity.
+//
+// The cure is not to re-type them more carefully. It is that there is exactly
+// one definition and every facet, list and tile interpolates it. Everything
+// below is that definition; tests/lint/kpi-predicates-shared.test.js fails the
+// build if a partial status tuple is hand-written next to one of these again.
+//
+// ACTIVE_STATUS_LIST is the RAW lowercase spellings as they appear in
+// orders.status — including both spellings of SLA breach ('sla_breach' is
+// canonical, 'breached' is the legacy one still in the table) and
+// 'in_progress'/'in_review'. Comparisons ALWAYS fold case: orders.status is
+// written in BOTH cases by different paths (see
+// tests/lint/status-comparisons-fold-case.test.js).
+const ACTIVE_STATUS_LIST = Object.freeze([
+  'paid', 'in_progress', 'in_review', 'submitted', 'assigned',
+  'rejected_files', 'sla_breach', 'breached', 'reassigned',
+]);
+
+// The same set expressed as the canonical keys normalizeStatus() produces, for
+// the JS side of a payload (a row flag must agree with the SQL facet that
+// counts it, and the row's status has already been normalized by then).
+const ACTIVE_STATUS_KEYS = Object.freeze(
+  new Set(ACTIVE_STATUS_LIST.map(normalizeStatus))
+);
+
+// SQL tuple literal, e.g. ('paid','in_progress',…). Safe to interpolate: the
+// values are this module's own constants and never carry user text.
+function sqlTuple(list) {
+  return '(' + list.map((s) => "'" + s + "'").join(',') + ')';
+}
+const ACTIVE_STATUSES = sqlTuple(ACTIVE_STATUS_LIST);
+
+// Case-folded reference to orders.status. `p` is the column prefix — 'o.' when
+// the query aliases the table, '' when it does not.
+function statusExpr(p) {
+  return `LOWER(COALESCE(${p || ''}status, ''))`;
+}
+
+// "Open work": not finished, and in one of the active statuses. This is the
+// /pulse "Active cases" definition, the ?active=1 filter, and the base of every
+// predicate below — so a case can never be inside one and outside another.
+function activeCaseSql(p) {
+  const c = p || '';
+  return `${c}completed_at IS NULL AND ${statusExpr(c)} IN ${ACTIVE_STATUSES}`;
+}
+
+// Active AND past its SLA deadline. ::timestamptz makes it an INSTANT
+// comparison regardless of whether the column is naive on a given deploy.
+function breachedCaseSql(p) {
+  const c = p || '';
+  return `${activeCaseSql(c)} AND ${c}deadline_at IS NOT NULL AND ${c}deadline_at::timestamptz < NOW()`;
+}
+
+// Active AND nobody is holding it.
+function unassignedCaseSql(p) {
+  const c = p || '';
+  return `${c}doctor_id IS NULL AND ${activeCaseSql(c)}`;
+}
+
+// A doctor's CURRENT LOAD, i.e. the open cases counted against their cap.
+//
+// Deliberately an INCLUSION list built from ACTIVE_STATUS_LIST, replacing the
+// three hand-written `NOT IN ('completed','cancelled','expired_unpaid'[,
+// 'refunded'])` exclusions. An exclusion list counts every status nobody
+// remembered to exclude — which is how an abandoned 'draft' cart (and the
+// uppercase 'DRAFT' spelling, which the old lists did not even fold) came to
+// occupy a slot in a doctor's capacity. The load a picker SHOWS and the load
+// the assign gate ENFORCES are now the same expression.
+function doctorLoadSql(p) {
+  return activeCaseSql(p);
+}
+
+// ── SLA hit-rate, numerator and denominator from ONE predicate ──────────────
+//
+// The denominator used to be every row with completed_at. services/
+// refund_closure.js stamps completed_at when it closes a REFUNDED order, so
+// every refund landed in a doctor's SLA denominator as a missed deadline —
+// verified in production: one doctor's denominator was 2, of which one row was
+// status='refunded'. The numerator additionally required deadline_at IS NOT
+// NULL while the denominator did not, so a completion with no SLA clock was
+// counted as a miss it could not possibly have hit.
+//
+// Both sides are now the SAME predicate — a genuine completion, with a real
+// deadline — and the numerator is that predicate AND on-time. They cannot drift
+// apart because the numerator is literally built from the denominator.
+const COMPLETED_STATUSES = sqlTuple(['completed']);
+function slaCountableCompletionSql(p) {
+  const c = p || '';
+  return `${c}completed_at IS NOT NULL AND ${c}deadline_at IS NOT NULL`
+    + ` AND ${statusExpr(c)} IN ${COMPLETED_STATUSES}`;
+}
+function slaHitRatioSql(p) {
+  const c = p || '';
+  const den = slaCountableCompletionSql(c);
+  return `COUNT(*) FILTER (WHERE ${den}`
+    + ` AND ${c}completed_at::timestamptz <= ${c}deadline_at::timestamptz)::float`
+    + ` / NULLIF(COUNT(*) FILTER (WHERE ${den}), 0)`;
+}
+
 // ── /assign helpers (pure) ─────────────────────────────────────
 // 2026-08-24 — accepts BOTH spellings of the middle tier.
 //
@@ -123,4 +236,16 @@ module.exports = {
   doctorSupportsTier,
   capFor,
   acceptByIsoForOrder,
+  // AUDIT-PREDICATE-PARITY — the one definition of each status set, plus the
+  // SQL fragments built from it. Every facet, list and tile interpolates these.
+  ACTIVE_STATUS_LIST,
+  ACTIVE_STATUS_KEYS,
+  ACTIVE_STATUSES,
+  statusExpr,
+  activeCaseSql,
+  breachedCaseSql,
+  unassignedCaseSql,
+  doctorLoadSql,
+  slaCountableCompletionSql,
+  slaHitRatioSql,
 };

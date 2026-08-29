@@ -38,6 +38,7 @@ const {
   doctorSupportsTier,
   capFor,
   acceptByIsoForOrder,
+  doctorLoadSql,
 } = require('../routes/api/_assign_helpers');
 
 // Assignment states that mean "a human flagged this case for review" — never
@@ -46,6 +47,13 @@ const {
 const MANUAL_REVIEW_STATES = new Set(['manual_queue', 'manual_pending', 'manual_claimed']);
 
 // Active-caseload definition — identical to single-assign's capacity COUNT.
+//
+// AUDIT-PREDICATE-PARITY (2026-08-29) — the live SQL no longer reads this list;
+// it interpolates doctorLoadSql() from routes/api/_assign_helpers.js, which is
+// an INCLUSION list over the active statuses. The exported constant is kept
+// because it is the documented shape of "what does not count as load" and
+// src/case_lifecycle.js:977 refers to it by name, but it is now only a label:
+// the one definition that decides anything lives in _assign_helpers.
 const LOAD_EXCLUDED_STATUSES = ['completed', 'cancelled', 'expired_unpaid', 'refunded'];
 
 /**
@@ -119,10 +127,16 @@ async function bulkAutoAssign(client, opts) {
         poolCache.set(poolKey, pool);
         for (const d of pool) {
           if (!projected.has(d.id)) {
+            // AUDIT-PREDICATE-PARITY (2026-08-29) — the shared doctor-load
+            // expression (routes/api/_assign_helpers.js), identical to the
+            // candidates picker and the single-assign capacity gate. It used to
+            // be a hand-written exclusion list, which counted abandoned 'draft'
+            // carts against a doctor's cap and so could make bulk-assign skip a
+            // doctor who was not actually full.
             const load = Number((await client.query(
               `SELECT COUNT(*) AS load FROM orders
                 WHERE doctor_id = $1 AND deleted_at IS NULL
-                  AND LOWER(COALESCE(status,'')) NOT IN ('completed','cancelled','expired_unpaid','refunded')`,
+                  AND ${doctorLoadSql('')}`,
               [d.id]
             )).rows[0].load) || 0;
             projected.set(d.id, load);

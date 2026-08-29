@@ -38,6 +38,15 @@ function makeApp(stubs = {}) {
     safeGet: stubs.safeGet || (async () => null),
     safeAll: stubs.safeAll || (async () => []),
     safeRun: stubs.safeRun || (async () => ({ rowCount: 0 })),
+    // AUDIT-KPI-HONESTY (2026-08-29) — the money/KPI endpoints now read through
+    // mustGet/mustAll (src/sql-utils.js), which THROW instead of swallowing so
+    // a failed query becomes a 500 rather than a fabricated zero. They are
+    // injected exactly like the soft helpers; these stubs map them onto the
+    // same fakes so every existing assertion (including the captured SQL) is
+    // unchanged, and a test that wants to exercise the failure path can pass
+    // mustGet/mustAll explicitly.
+    mustGet: stubs.mustGet || stubs.safeGet || (async () => null),
+    mustAll: stubs.mustAll || stubs.safeAll || (async () => []),
   };
   const pool = stubs.pool || { totalCount: 1, idleCount: 1, waitingCount: 0 };
   const deploy = stubs.deploy || {

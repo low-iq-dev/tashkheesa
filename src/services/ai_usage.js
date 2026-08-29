@@ -62,10 +62,25 @@ const PURPOSES = Object.freeze({
 //
 // The mapping from id to class goes through the config helpers, so a rotation
 // carries the price with it.
+//
+// 2026-08-29 — opus added. The table held haiku and sonnet only, and priceFor()
+// fell through to SONNET for everything else, so an Opus-class call was billed
+// into this ledger at ONE FIFTH of its real rate. The "unknown prices at the
+// expensive rate" rule below is what makes that a silent under-report rather
+// than an obvious zero, so it has to be the most expensive rate ACTUALLY KNOWN,
+// not a hard-coded class — see MOST_EXPENSIVE_RATE.
 const RATES_PER_MTOK = Object.freeze({
   haiku:  { input: 1.00, output: 5.00 },
   sonnet: { input: 3.00, output: 15.00 },
+  opus:   { input: 15.00, output: 75.00 },
 });
+
+// The dearest rate card in the table, derived rather than named. Adding a class
+// above automatically moves the unknown-model fallback if the new class is more
+// expensive, which is the only way the "never under-report an unknown model"
+// rule survives the next price list.
+const MOST_EXPENSIVE_RATE = Object.values(RATES_PER_MTOK)
+  .reduce((a, b) => (b.output > a.output ? b : a));
 
 // Prompt-caching multipliers on the base input rate. Two of the six call sites
 // — case intelligence and the support assistant — send a large stable prefix
@@ -82,12 +97,22 @@ const CACHE_READ_MULTIPLIER  = 0.10; // cache hit
  * Three steps, cheapest and most certain first: ask the config what each class
  * currently resolves to; failing that, read the family out of the id (which
  * survives a rotation the config has not caught up with); failing that, price
- * it as Sonnet.
+ * it at the dearest rate in the table.
  *
- * The last step matters. An UNKNOWN model prices at the EXPENSIVE rate, never
- * at zero — a spend we cannot price should look expensive, not free. A zero
- * would quietly under-report exactly the new model someone just switched to,
- * which is the one case where a wrong number would go unnoticed.
+ * The last step matters. An UNKNOWN model prices at the MOST EXPENSIVE KNOWN
+ * rate, never at zero — a spend we cannot price should look expensive, not
+ * free. A zero would quietly under-report exactly the new model someone just
+ * switched to, which is the one case where a wrong number would go unnoticed.
+ *
+ * 2026-08-29 — the family sniff now covers Opus, and the fallback is
+ * MOST_EXPENSIVE_RATE rather than a hard-coded Sonnet. Before this, an
+ * Opus-class id matched no branch and fell through to Sonnet: a real 5×
+ * under-report, presented with the same confidence as every other figure.
+ *
+ * The sniff stays a FAMILY regex, never a model-id literal — tests/core/
+ * anthropic-model-centralisation.test.js forbids `claude-…` outside
+ * src/config/anthropic.js, and keying prices by class is what lets a model
+ * rotation carry its price with it.
  */
 function priceFor(model) {
   const key = String(model || '').trim();
@@ -95,8 +120,10 @@ function priceFor(model) {
     if (key === modelHaiku()) return RATES_PER_MTOK.haiku;
     if (key === modelSonnet() || key === modelVision()) return RATES_PER_MTOK.sonnet;
     if (/haiku/i.test(key)) return RATES_PER_MTOK.haiku;
+    if (/opus/i.test(key)) return RATES_PER_MTOK.opus;
+    if (/sonnet/i.test(key)) return RATES_PER_MTOK.sonnet;
   }
-  return RATES_PER_MTOK.sonnet;
+  return MOST_EXPENSIVE_RATE;
 }
 
 /**
@@ -179,6 +206,42 @@ async function recordAiUsage({ purpose, model, usage, label }) {
   }
 }
 
+// ─── AUDIT-AI-WINDOW (2026-08-29) — ONE window, used by BOTH readers ────────
+//
+// THE BUG. usageDailyTotals filtered on a ROLLING INSTANT
+// (`logged_at >= NOW() - N days`) and then built its dense day array from the
+// last N CAIRO CALENDAR DAYS. Those are not the same period. A rolling 1-day
+// window at 09:00 Cairo starts at 09:00 YESTERDAY, so calls made yesterday
+// morning are inside the SQL result and have a key ('2026-08-28') that the
+// array — which for days=1 holds only today — does not contain. The row is
+// silently dropped by the `byDay.get(key)` lookup.
+//
+// usageByPurpose used the SAME rolling predicate, so those calls stayed in the
+// headline `total`. The screen rendered exactly that contradiction:
+//
+//     $7.7777 · 1 call        (KPI, rolling window)
+//     "No spend recorded on any day in this window."   (chart, Cairo days)
+//
+// THE FIX. Both queries bound on the CAIRO DAY BOUNDARY — 00:00 Cairo of the
+// oldest day the chart draws — so the SQL window and the JS array describe the
+// same period by construction, and every row the total counts has a bucket to
+// land in.
+//
+// The two-step `AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Cairo'` is mandatory
+// and must stay two steps: logged_at is `timestamp WITHOUT time zone` holding
+// UTC digits (every writer is SQL NOW() under the UTC-pinned session in
+// src/pg.js). A single AT TIME ZONE would reinterpret UTC digits as Cairo wall
+// clock and shift every bucket by the offset.
+//
+// The lower bound subtracts days from a NAIVE Cairo timestamp, which is pure
+// calendar arithmetic — no DST offset can creep into it — matching
+// cairoDayKeysEndingToday() below step for step.
+const AI_TZ = 'Africa/Cairo';
+const LOGGED_AT_CAIRO = `(logged_at AT TIME ZONE 'UTC' AT TIME ZONE '${AI_TZ}')`;
+const WINDOW_START_CAIRO =
+  `(date_trunc('day', (NOW() AT TIME ZONE '${AI_TZ}')) - make_interval(days => $1::int - 1))`;
+const IN_WINDOW = `${LOGGED_AT_CAIRO} >= ${WINDOW_START_CAIRO}`;
+
 /**
  * Spend by purpose over a window, for the Command app.
  *
@@ -186,6 +249,9 @@ async function recordAiUsage({ purpose, model, usage, label }) {
  * order wizard has cost nothing this month" means either a quiet month or a
  * broken classifier, and the operator should be able to tell which from the
  * case count elsewhere rather than from a missing row.
+ *
+ * Windowed by IN_WINDOW, the IDENTICAL predicate usageDailyTotals uses, so the
+ * KPI above the chart and the chart itself can never describe different periods.
  */
 async function usageByPurpose(days) {
   const windowDays = Math.max(1, Math.min(365, Number(days) || 30));
@@ -198,9 +264,9 @@ async function usageByPurpose(days) {
             COALESCE(SUM(cost_usd), 0)   AS cost_usd,
             MAX(logged_at)               AS last_call
        FROM agent_token_log
-      WHERE logged_at >= NOW() - ($1 || ' days')::interval
+      WHERE ${IN_WINDOW}
       GROUP BY 1`,
-    [String(windowDays)]
+    [windowDays]
   );
 
   const byPurpose = new Map(rows.map(r => [String(r.purpose), r]));
@@ -213,7 +279,7 @@ async function usageByPurpose(days) {
       inputTokens: r ? Number(r.input_tokens) : 0,
       outputTokens: r ? Number(r.output_tokens) : 0,
       totalTokens: r ? Number(r.total_tokens) : 0,
-      costUsd: r ? Math.round(Number(r.cost_usd) * 1e4) / 1e4 : 0,
+      costUsd: r ? Math.round(Number(r.cost_usd) * 1e6) / 1e6 : 0,
       lastCall: r && r.last_call ? new Date(r.last_call).toISOString() : null,
     };
   });
@@ -230,7 +296,7 @@ async function usageByPurpose(days) {
       inputTokens: Number(r.input_tokens),
       outputTokens: Number(r.output_tokens),
       totalTokens: Number(r.total_tokens),
-      costUsd: Math.round(Number(r.cost_usd) * 1e4) / 1e4,
+      costUsd: Math.round(Number(r.cost_usd) * 1e6) / 1e6,
       lastCall: r.last_call ? new Date(r.last_call).toISOString() : null,
     });
   }
@@ -253,36 +319,38 @@ async function usageByPurpose(days) {
 async function usageDailyTotals(days) {
   const windowDays = Math.max(1, Math.min(365, Number(days) || 30));
   const rows = await queryAll(
-    // TWO-step conversion, and it has to stay two steps. logged_at is
-    // `timestamp WITHOUT time zone` holding UTC digits (every writer is SQL
-    // NOW() under the UTC-pinned session in src/pg.js). Labelling it UTC first
-    // and THEN converting to Cairo is the pre-081 pattern already used for
-    // refunds.refunded_at in routes/api/admin.js. A single AT TIME ZONE would
-    // reinterpret UTC digits as Cairo wall clock and shift every bucket by the
-    // offset — enough to move late-evening calls onto the wrong day.
-    `SELECT to_char(date_trunc('day', logged_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Cairo'), 'YYYY-MM-DD') AS day,
+    // IN_WINDOW — the SAME bound usageByPurpose applies, on the Cairo day
+    // boundary rather than a rolling instant. See the long AUDIT-AI-WINDOW note
+    // above for the KPI-vs-chart contradiction the rolling bound produced.
+    `SELECT to_char(date_trunc('day', ${LOGGED_AT_CAIRO}), 'YYYY-MM-DD') AS day,
             COUNT(*)::int              AS calls,
             COALESCE(SUM(cost_usd), 0) AS cost_usd
        FROM agent_token_log
-      WHERE logged_at >= NOW() - ($1 || ' days')::interval
+      WHERE ${IN_WINDOW}
       GROUP BY 1`,
-    [String(windowDays)]
+    [windowDays]
   );
   const byDay = new Map(rows.map(r => [String(r.day), r]));
 
-  // Walk the window from the Cairo "today" backwards so the array is dense and
-  // in order regardless of what the database returned.
-  const out = [];
-  for (let i = windowDays - 1; i >= 0; i--) {
-    const key = cairoDayKey(new Date(Date.now() - i * 86400000));
+  // Dense, ordered, and built by CALENDAR arithmetic — see
+  // cairoDayKeysEndingToday for why fixed-ms stepping was wrong.
+  return cairoDayKeysEndingToday(windowDays).map((key) => {
     const r = byDay.get(key);
-    out.push({
+    return {
       day: key,
       calls: r ? Number(r.calls) : 0,
-      costUsd: r ? Math.round(Number(r.cost_usd) * 1e4) / 1e4 : 0,
-    });
-  }
-  return out;
+      // AUDIT-AI-PRECISION (2026-08-29) — SIX decimals, not four.
+      //
+      // Individual calls cost fractions of a cent: estimateCostUsd already
+      // rounds to 1e-6 and a real day's spend has been as low as $0.000039
+      // across 3 calls. Rounding to 4dp turned that into 0.0000, which the app
+      // then drew as a zero-height bar — defeating the 2% minimum-height floor
+      // that exists precisely so a small non-zero day is still visible, and
+      // reading as "nothing happened" on a day something did. The payload keeps
+      // the precision; formatting for display is the app's job.
+      costUsd: r ? Math.round(Number(r.cost_usd) * 1e6) / 1e6 : 0,
+    };
+  });
 }
 
 // The Cairo calendar day an instant falls on, as YYYY-MM-DD.
@@ -300,6 +368,34 @@ function cairoDayKey(d) {
   return _cairoDayFmt.format(d);
 }
 
+// ─── AUDIT-AI-DST (2026-08-29) — the N Cairo days ending today, oldest first ─
+//
+// The old loop was `cairoDayKey(new Date(Date.now() - i * 86400000))`: step back
+// a FIXED 86 400 000 ms and ask Intl which Cairo day that lands on. Egypt
+// observes DST, so on the two transition nights a year one step is 23 or 25
+// hours of wall clock and the fixed step lands on the WRONG side of it:
+//   * spring forward → two consecutive steps format to the SAME Cairo date,
+//     producing a duplicate bar (and a duplicate React key in the chart);
+//   * autumn back    → a Cairo date is SKIPPED entirely, so a day with real
+//     spend has no bucket to land in and is silently dropped.
+// On the 30-day tab that is roughly 30 affected nights a year, twice over.
+//
+// Calendar arithmetic instead: take TODAY's Cairo date parts and walk the DAY
+// field. Date.UTC normalises an out-of-range day across month and year
+// boundaries for free, and UTC has no DST, so every step is exactly one
+// calendar day. The keys are formatted from the same UTC parts rather than
+// re-run through Intl, so they cannot drift back into the offset problem.
+function cairoDayKeysEndingToday(days) {
+  const pad = (v) => String(v).padStart(2, '0');
+  const [y, m, d] = cairoDayKey(new Date()).split('-').map(Number);
+  const out = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const t = new Date(Date.UTC(y, m - 1, d - i));
+    out.push(`${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`);
+  }
+  return out;
+}
+
 module.exports = {
   recordAiUsage,
   usageByPurpose,
@@ -307,4 +403,8 @@ module.exports = {
   estimateCostUsd,
   PURPOSES,
   RATES_PER_MTOK,
+  // Exported for tests/services/ai-usage-window-and-rates.test.js: the DST-safe
+  // day walk and the window predicate are the two things that must not regress.
+  cairoDayKeysEndingToday,
+  IN_WINDOW,
 };

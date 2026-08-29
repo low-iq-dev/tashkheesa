@@ -98,6 +98,27 @@ const BREACH_COST_PERIODS = {
 // moment the breach is detected.
 const COMMITTED_REFUND_STATUSES = "('paid','approved','auto_approved')";
 
+// ─── AUDIT-REFUND-AMOUNT (2026-08-29) ───────────────────────────────────────
+// The money a refund is actually worth.
+//
+// `amount_egp` is what the patient ASKED for. A partial approval taken in the
+// web console (routes/superadmin.js ~6136) writes the reduced figure to
+// `approved_amount` and deliberately leaves `amount_egp` alone, as the record
+// of the request. Every LIST on the Payments screen therefore shows
+// approved_amount ?? amount_egp, while the two TILES above them summed
+// amount_egp — so a 1250 EGP request approved at 400 rendered as a 1250 tile
+// sitting on top of a 400 list. One expression now, used by both.
+const SETTLED_REFUND_EGP_R = 'COALESCE(r.approved_amount, r.amount_egp)';
+
+// ─── AUDIT-PENDING-OVERLOAD (2026-08-29) ────────────────────────────────────
+// "Pending" meant two different sets on ONE screen: the header count is
+// refunds.status = 'pending' (requests awaiting a decision), while the
+// Refunds-owed tile's sub-count was these THREE statuses (everything the
+// platform still owes money on, decided or not). Naming the tile's set
+// UNSETTLED — and shipping it as unsettledCount/unsettledTotal — leaves
+// "pending" meaning exactly one thing.
+const UNSETTLED_REFUND_STATUSES = "('pending','approved','auto_approved')";
+
 // Shared pure helpers for the /cases endpoints (status/tier normalization,
 // tier-support, capacity, acceptance window). Extracted to a single source of
 // truth so the candidates picker, single-assign write, queue/detail readers,
@@ -110,7 +131,36 @@ const {
   doctorSupportsTier,
   capFor,
   acceptByIsoForOrder,
+  // AUDIT-PREDICATE-PARITY (2026-08-29) — the status sets and the SQL fragments
+  // built from them now live in ONE place. See the long note in that module for
+  // the four proven "chip counts one thing, its list filters another" bugs this
+  // closes. Nothing in this file may re-type a partial status tuple next to one
+  // of these; tests/lint/kpi-predicates-shared.test.js enforces that.
+  ACTIVE_STATUS_LIST,
+  ACTIVE_STATUS_KEYS,
+  ACTIVE_STATUSES,
+  activeCaseSql,
+  breachedCaseSql,
+  unassignedCaseSql,
+  doctorLoadSql,
+  slaHitRatioSql,
 } = require('./_assign_helpers');
+// ─── AUDIT-ADDONS-IN-ADMIN (2026-08-29) — one definition of "what was charged" ─
+//
+// Every money figure on these surfaces used to read
+// COALESCE(total_price_with_addons, price). That column has 35 readers in src/
+// and ZERO writers — no INSERT or UPDATE anywhere sets it, and it is NULL on
+// every production row — so the expression was just `price` wearing a name that
+// promised add-ons. A case charged 1600 + a 300 EGP prescription reported 1600,
+// and the refund sheet, which caps on that number, refused to hand back the 300.
+//
+// chargedEgpSql / chargedEgpForOrder are owedCentsForOrder — the number
+// routes/payments.js asks Paymob for and the webhook verifies — in SQL and in
+// EGP respectively. maxRefundableEgp is the server's OWN refund ceiling
+// (services/admin_refund.js enforces it), exposed so the app caps on exactly the
+// number the server will accept rather than a number it derives itself.
+const { chargedEgpSql, chargedEgpForOrder } = require('../../services/order_pricing');
+const { maxRefundableEgp } = require('../../services/refund_eligibility');
 const { bulkAutoAssign } = require('../../services/admin_bulk_assign');
 const { issueRefund } = require('../../services/admin_refund');
 const { setDoctorPause } = require('../../services/admin_doctor_pause');
@@ -120,6 +170,20 @@ const { setRefundApproval } = require('../../services/admin_refund_approve');
 const { setRefundDenial } = require('../../services/admin_refund_deny');
 const { setRefundPaid } = require('../../services/admin_refund_mark_paid');
 const { reviewPaymentEvent } = require('../../services/payment_event_review');
+
+// Built once. `CHARGED_EGP_O` is for queries that alias orders as `o`,
+// `CHARGED_EGP` for the ones that do not — the tile and the list it opens must
+// sum the SAME expression or they will disagree the moment an add-on is sold.
+const CHARGED_EGP = chargedEgpSql('');
+const CHARGED_EGP_O = chargedEgpSql('o.');
+
+// The four columns chargedEgpForOrder() / maxRefundableEgp() read off a row.
+// Selected as one fragment so a payload can never expose a money figure it
+// computed from a partially-selected row (a missing addons_json silently prices
+// every add-on at zero — the exact shape of the bug this replaces).
+const MONEY_COLS_O =
+  'o.price, o.base_price, o.urgency_uplift_amount, o.addons_json,'
+  + ' o.video_consultation_selected, o.video_consultation_price';
 
 // Single-account lock (decision 1): the app authenticates ONLY the Shifa
 // superadmin. Email allowlist is defense-in-depth on top of the role gate.
@@ -332,6 +396,33 @@ const SILENT_FAILURE_LIKE = (col) =>
 
 module.exports = function (db, helpers, deploy, deps) {
   const { safeGet, safeAll, safeRun } = helpers;
+  // ─── AUDIT-KPI-HONESTY (2026-08-29) — the money screens FAIL LOUD ─────────
+  //
+  // safeGet/safeAll swallow every SQL error and return null/[]. That is the
+  // right behaviour for genuinely optional data and it stays. It is the WRONG
+  // behaviour for a KPI: the handler carries on, `Number(null) || 0` renders a
+  // fabricated 0, and the response is a 200 — so the app never enters its
+  // error state and the operator reads a zero as a fact. Every `catch` block
+  // below that returns 500 with the comment "Honest failure over fabricated
+  // zeros" was UNREACHABLE, because nothing under it could throw.
+  //
+  // Reachable in production, not theoretical: src/pg.js sets
+  // statement_timeout = 30000, and exceeding it raises SQLSTATE 57014. Under
+  // the old wiring GET /pulse answered 200 {"kpis":{"activeCases":0,…}} on a
+  // timeout. The Command app's payouts screen makes the cost of that explicit:
+  // a fabricated "EGP 0 owed" tells the founder his largest liability is
+  // settled.
+  //
+  // mustGet/mustAll are the same reads with no catch (src/sql-utils.js), so the
+  // rejection reaches the route's catch and the 500 the app already handles.
+  //
+  // Injected like the soft helpers so the hermetic route tests can stub them;
+  // the real throwing pair is the default, which is what runs in production
+  // (server.js passes only the soft three). tests/lint/kpi-endpoints-fail-loud
+  // pins which endpoints must use which.
+  const strictSql = require('../../sql-utils');
+  const mustGet = helpers.mustGet || strictSql.mustGet;
+  const mustAll = helpers.mustAll || strictSql.mustAll;
   const router = express.Router();
 
   // Post-commit notification helpers for POST /cases/:id/assign. Injectable so
@@ -544,33 +635,35 @@ module.exports = function (db, helpers, deploy, deps) {
   // ('breached_sla', 'sla_breached', 'delayed', 'overdue'). No writer in this
   // codebase produces them; they exist only in the alias map. Add them here if
   // one is ever found in prod.
-  const ACTIVE_STATUS_LIST = ['paid', 'in_progress', 'in_review', 'submitted', 'assigned', 'rejected_files', 'sla_breach', 'breached', 'reassigned'];
-  const ACTIVE_STATUSES = '(' + ACTIVE_STATUS_LIST.map((s) => "'" + s + "'").join(',') + ')';
-  // Case-folded column reference, for use on either side of an IN.
+  // 2026-08-29 — ACTIVE_STATUS_LIST / ACTIVE_STATUSES moved to
+  // ./_assign_helpers.js (imported at the top of this file) so the facets, the
+  // lists, the tiles AND the doctor-load/SLA expressions all read one
+  // definition. The two case-folded column references stay here; they are the
+  // spelling every other predicate in this file already uses.
   const ST = "LOWER(COALESCE(status, ''))";
   const ST_O = "LOWER(COALESCE(o.status, ''))";
 
   router.get('/pulse', async (req, res) => {
     try {
       const [agg, backlog, breachedRows, pendingRows, activityRows] = await Promise.all([
-        safeGet(
+        mustGet(
           `SELECT
-              COUNT(*) FILTER (WHERE completed_at IS NULL AND ${ST} IN ${ACTIVE_STATUSES}) AS active_cases,
+              COUNT(*) FILTER (WHERE ${activeCaseSql('')}) AS active_cases,
               COUNT(*) FILTER (WHERE completed_at IS NULL AND doctor_id IS NOT NULL AND ${ST} IN ('in_progress','in_review','assigned')) AS awaiting_review,
-              COUNT(*) FILTER (WHERE completed_at IS NULL AND doctor_id IS NULL AND ${ST} IN ${ACTIVE_STATUSES}) AS pending_assignment,
-              COUNT(*) FILTER (WHERE completed_at IS NULL AND ${ST} IN ${ACTIVE_STATUSES} AND deadline_at IS NOT NULL AND deadline_at::timestamptz < NOW()) AS sla_breached,
-              COUNT(*) FILTER (WHERE completed_at IS NULL AND ${ST} IN ${ACTIVE_STATUSES} AND deadline_at IS NULL) AS no_sla_timer,
+              COUNT(*) FILTER (WHERE ${unassignedCaseSql('')}) AS pending_assignment,
+              COUNT(*) FILTER (WHERE ${breachedCaseSql('')}) AS sla_breached,
+              COUNT(*) FILTER (WHERE ${activeCaseSql('')} AND deadline_at IS NULL) AS no_sla_timer,
               ROUND(EXTRACT(EPOCH FROM (NOW() - MIN(created_at::timestamptz) FILTER (
-                WHERE completed_at IS NULL AND doctor_id IS NULL AND ${ST} IN ${ACTIVE_STATUSES}
+                WHERE ${unassignedCaseSql('')}
               ))) / 60) AS oldest_pending_mins
            FROM orders_active`,
           []
         ),
-        safeGet(
+        mustGet(
           `SELECT COUNT(*) AS pending_approvals FROM users WHERE role = 'doctor' AND pending_approval = true`,
           []
         ),
-        safeAll(
+        mustAll(
           `SELECT o.id, o.reference_id,
                   COALESCE(p.name, '—') AS patient,
                   COALESCE(sp.name, '—') AS specialty,
@@ -578,13 +671,12 @@ module.exports = function (db, helpers, deploy, deps) {
              FROM orders_active o
              LEFT JOIN users p ON p.id = o.patient_id
              LEFT JOIN specialties sp ON sp.id = o.specialty_id
-            WHERE o.completed_at IS NULL AND ${ST_O} IN ${ACTIVE_STATUSES}
-              AND o.deadline_at IS NOT NULL AND o.deadline_at::timestamptz < NOW()
+            WHERE ${breachedCaseSql('o.')}
             ORDER BY o.deadline_at::timestamptz ASC
             LIMIT 3`,
           []
         ),
-        safeAll(
+        mustAll(
           `SELECT o.id, o.reference_id, o.status, o.urgency_tier,
                   COALESCE(p.name, '—') AS patient, p.gender, p.date_of_birth,
                   COALESCE(sp.name, '—') AS specialty,
@@ -594,12 +686,12 @@ module.exports = function (db, helpers, deploy, deps) {
              LEFT JOIN users p ON p.id = o.patient_id
              LEFT JOIN specialties sp ON sp.id = o.specialty_id
              LEFT JOIN services sv ON sv.id = o.service_id
-            WHERE o.completed_at IS NULL AND o.doctor_id IS NULL AND ${ST_O} IN ${ACTIVE_STATUSES}
+            WHERE ${unassignedCaseSql('o.')}
             ORDER BY (o.deadline_at IS NULL), o.deadline_at::timestamptz ASC, o.created_at ASC
             LIMIT 6`,
           []
         ),
-        safeAll(
+        mustAll(
           `SELECT e.id, e.label, e.at, e.actor_role,
                   u.name AS actor_name, o.reference_id, o.id AS order_id
              FROM order_events e
@@ -677,11 +769,16 @@ module.exports = function (db, helpers, deploy, deps) {
   // (o.patient_id) — NOT via r.requested_by, which the web /superadmin/refunds
   // uses and which mislabels operator-initiated refunds. KPIs reuse the
   // authoritative dashboard/finance formulas verbatim:
-  //   - collected = SUM(orders_active.price) WHERE payment_status IN ('paid','captured')
-  //   - refundedMTD = committed refunds (status paid/approved/auto_approved) this month
+  //   - collected = SUM(price + selected add-ons) over orders_active WHERE
+  //     payment_status IN ('paid','captured') — CHARGED_EGP, the SQL form of
+  //     what Paymob was asked to charge
+  //   - refundedMTD = committed refunds (status paid/approved/auto_approved) this
+  //     CAIRO month, valued at COALESCE(approved_amount, amount_egp)
   //     (identical to superadmin_dashboard so the two never disagree)
-  //   - refundsOwed = the OPERATIONAL unpaid obligation (pending/approved/auto_approved),
-  //     kept SEPARATE from refundedMTD.
+  //   - refundsOwed = the OPERATIONAL unsettled obligation
+  //     (pending/approved/auto_approved), kept SEPARATE from refundedMTD, and
+  //     shipped as unsettledCount/unsettledTotal so it does not share the word
+  //     "pending" with counts.pending (which is the 'pending' status alone).
   router.get('/refunds', async (req, res) => {
     try {
       const n = (v) => Number(v) || 0;
@@ -702,12 +799,12 @@ module.exports = function (db, helpers, deploy, deps) {
 
       const [pendingRows, awaitingRows, recentRows, refundedMtdRows, rev, ref] = await Promise.all([
         // pending — FIFO, oldest obligation first
-        safeAll(`SELECT ${ROW} WHERE r.status = 'pending' ORDER BY r.refunded_at ASC`),
+        mustAll(`SELECT ${ROW} WHERE r.status = 'pending' ORDER BY r.refunded_at ASC`),
         // approved but not yet paid out
-        safeAll(`SELECT ${ROW} WHERE r.status IN ('approved','auto_approved') ORDER BY r.refunded_at ASC`),
+        mustAll(`SELECT ${ROW} WHERE r.status IN ('approved','auto_approved') ORDER BY r.refunded_at ASC`),
         // recently closed (paid or denied), last 30d — no reason filter (show
         // operator refunds too, unlike the web queue). Left UNCHANGED.
-        safeAll(
+        mustAll(
           `SELECT ${ROW} WHERE r.status IN ('paid','denied')
              AND r.refunded_at > NOW() - INTERVAL '30 days'
            ORDER BY r.refunded_at DESC LIMIT 50`
@@ -715,16 +812,30 @@ module.exports = function (db, helpers, deploy, deps) {
         // Refunded-MTD list — the EXACT set behind the refundedMTD KPI: committed
         // refunds (paid/approved/auto_approved) this calendar MONTH, so this list's
         // total equals the tile. Distinct from `recent` (30d rolling + denied).
-        safeAll(
+        //
+        // AUDIT-TZ (2026-08-29) — "this month" is the CAIRO month, via the
+        // REFUNDED_AT_CAIRO_R constant, exactly as the tile below now is. Both
+        // sides bucketed on date_trunc('month', NOW()), i.e. the UTC month, while
+        // every sibling money figure on this screen buckets in Cairo. For the two
+        // hours after Cairo midnight on the 1st of the month a refund committed
+        // "today" fell into LAST month here and into THIS month on the collected
+        // tile beside it.
+        mustAll(
           `SELECT ${ROW} WHERE r.status IN ('paid','approved','auto_approved')
-             AND r.refunded_at >= date_trunc('month', NOW())
+             AND ${REFUNDED_AT_CAIRO_R} >= ${MONTH_START_CAIRO}
            ORDER BY r.refunded_at DESC`
         ),
-        // Collected revenue (paid/captured) — orders_active. Sums grandTotal
-        // = COALESCE(total_price_with_addons, price), bucketed by
-        // the collected-date expression below — the SAME amount column and date
-        // as the GET /revenue list total, so the tile always equals the list
-        // (including orders with file add-ons).
+        // Collected revenue (paid/captured) — orders_active. Sums the amount
+        // ACTUALLY CHARGED (CHARGED_EGP = order_pricing.chargedEgpSql, the SQL
+        // mirror of owedCentsForOrder), bucketed by the collected-date
+        // expression below — the SAME amount expression and date as the GET
+        // /revenue list total, so the tile always equals the list.
+        //
+        // AUDIT-ADDONS-IN-ADMIN (2026-08-29) — this summed
+        // COALESCE(total_price_with_addons, price). That column has no writer
+        // anywhere in the codebase, so the "including orders with file add-ons"
+        // this comment used to claim was never true: it was SUM(price) and every
+        // add-on the platform sold was missing from collected revenue.
         //
         // AUDIT-TZ-3 — the date expression is explicit about BOTH timezones, for
         // two separate reasons:
@@ -744,22 +855,38 @@ module.exports = function (db, helpers, deploy, deps) {
         //
         // Keep this expression identical to the one in GET /revenue below, or
         // the tile and the list it links to will disagree.
-        safeGet(
+        mustGet(
           `SELECT
-             COALESCE(SUM(COALESCE(total_price_with_addons, price)) FILTER (WHERE ${COLLECTED_AT_CAIRO} >= date_trunc('day', ${NOW_CAIRO})), 0) AS collected_today,
-             COALESCE(SUM(COALESCE(total_price_with_addons, price)) FILTER (WHERE ${COLLECTED_AT_CAIRO} >= date_trunc('month', ${NOW_CAIRO})), 0) AS collected_mtd
+             COALESCE(SUM(${CHARGED_EGP}) FILTER (WHERE ${COLLECTED_AT_CAIRO} >= date_trunc('day', ${NOW_CAIRO})), 0) AS collected_today,
+             COALESCE(SUM(${CHARGED_EGP}) FILTER (WHERE ${COLLECTED_AT_CAIRO} >= date_trunc('month', ${NOW_CAIRO})), 0) AS collected_mtd
            FROM orders_active
            WHERE payment_status IN ('paid','captured')`
         ),
-        // refundedMTD (committed) + refundsOwed (operational obligation), one pass.
-        safeGet(
+        // refundedMTD (committed) + refundsOwed (the operational obligation), one pass.
+        //
+        // AUDIT-REFUND-AMOUNT (2026-08-29) — SETTLED_REFUND_EGP, not amount_egp.
+        //
+        // A partial approval taken in the web console (routes/superadmin.js
+        // ~6136) writes the reduced figure to `approved_amount` and leaves
+        // `amount_egp` at what the patient asked for. These tiles summed
+        // amount_egp while the drill-down list beside them shows
+        // approved_amount ?? amount_egp — so a 1250 request approved at 400
+        // read as a 1250 tile over a 400 list. Both sides now use the same
+        // COALESCE, and mapRefund exposes it as `settledAmount` so the app does
+        // not have to re-derive it either.
+        //
+        // AUDIT-TZ (2026-08-29) — refundedMTD is the CAIRO month. It was the
+        // only figure on this screen bucketed on the UTC month; refunded_at is
+        // `timestamp WITHOUT time zone` holding UTC digits, so it needs the
+        // TWO-step conversion REFUNDED_AT_CAIRO_R already defines.
+        mustGet(
           `SELECT
-             COALESCE(SUM(amount_egp) FILTER (
-               WHERE refunded_at >= date_trunc('month', NOW())
-                 AND status IN ('paid','approved','auto_approved')), 0) AS refunded_mtd,
-             COUNT(*) FILTER (WHERE status IN ('pending','approved','auto_approved')) AS owed_count,
-             COALESCE(SUM(amount_egp) FILTER (WHERE status IN ('pending','approved','auto_approved')), 0) AS owed_total
-           FROM refunds`
+             COALESCE(SUM(${SETTLED_REFUND_EGP_R}) FILTER (
+               WHERE ${REFUNDED_AT_CAIRO_R} >= ${MONTH_START_CAIRO}
+                 AND r.status IN ('paid','approved','auto_approved')), 0) AS refunded_mtd,
+             COUNT(*) FILTER (WHERE r.status IN ${UNSETTLED_REFUND_STATUSES}) AS unsettled_count,
+             COALESCE(SUM(${SETTLED_REFUND_EGP_R}) FILTER (WHERE r.status IN ${UNSETTLED_REFUND_STATUSES}), 0) AS unsettled_total
+           FROM refunds r`
         ),
       ]);
 
@@ -774,6 +901,11 @@ module.exports = function (db, helpers, deploy, deps) {
         amountEgp: n(r.amount_egp),
         requestedAmount: r.requested_amount == null ? null : Number(r.requested_amount),
         approvedAmount: r.approved_amount == null ? null : Number(r.approved_amount),
+        // AUDIT-REFUND-AMOUNT — the ONE figure a list total should sum:
+        // approved_amount when a decision narrowed it, otherwise amount_egp.
+        // Identical to SETTLED_REFUND_EGP_R, which is what the tiles now sum,
+        // so the app never has to derive it and can never derive it differently.
+        settledAmount: n(r.approved_amount == null ? r.amount_egp : r.approved_amount),
         status: r.status,
         reason: r.reason || null,
         instapayHandle: r.instapay_handle || null,
@@ -796,9 +928,30 @@ module.exports = function (db, helpers, deploy, deps) {
           collectedToday: n(r1.collected_today),
           collectedMTD: n(r1.collected_mtd),
           refundedMTD: n(r2.refunded_mtd),
-          refundsOwed: { count: n(r2.owed_count), total: n(r2.owed_total) },
+          // AUDIT-PENDING-OVERLOAD — `unsettledCount`/`unsettledTotal` are the
+          // canonical names; `count`/`total` are kept as aliases of the same two
+          // numbers so a Command app build that predates this deploy keeps
+          // working. The tile counts refunds in ('pending','approved',
+          // 'auto_approved') — money still owed — which is a DIFFERENT set from
+          // `counts.pending` below, and used to share the word "pending" with it
+          // on the same screen. `statuses` ships the set so the app can label
+          // the tile from the server's definition instead of a second copy.
+          refundsOwed: {
+            count: n(r2.unsettled_count),
+            total: n(r2.unsettled_total),
+            unsettledCount: n(r2.unsettled_count),
+            unsettledTotal: n(r2.unsettled_total),
+            statuses: ['pending', 'approved', 'auto_approved'],
+          },
         },
-        counts: { pending: pending.length, awaitingPayment: awaitingPayment.length },
+        counts: {
+          // refunds.status = 'pending' ONLY — requests still awaiting a
+          // decision. `pendingRefundRequests` is the unambiguous name; `pending`
+          // is retained for the shipped app.
+          pending: pending.length,
+          pendingRefundRequests: pending.length,
+          awaitingPayment: awaitingPayment.length,
+        },
       });
     } catch (err) {
       return res.fail('Failed to load refunds', 500, 'REFUNDS_ERROR');
@@ -816,9 +969,9 @@ module.exports = function (db, helpers, deploy, deps) {
       const unit = scope === 'today' ? 'day' : scope === 'mtd' ? 'month' : null;
       if (!unit) return res.fail("scope must be 'today' or 'mtd'", 400, 'BAD_REQUEST');
 
-      const rows = await safeAll(
+      const rows = await mustAll(
         `SELECT o.id, o.reference_id, COALESCE(p.name,'—') AS patient, COALESCE(sv.name,'—') AS service,
-                o.base_price, o.price, o.total_price_with_addons, o.currency, o.payment_method,
+                o.base_price, o.price, ${CHARGED_EGP_O} AS charged_egp, o.currency, o.payment_method,
                 COALESCE(o.paid_at, o.created_at) AS collected_at
            FROM orders_active o
            LEFT JOIN users p     ON p.id = o.patient_id
@@ -830,7 +983,12 @@ module.exports = function (db, helpers, deploy, deps) {
       );
 
       const orders = (rows || []).map((o) => {
-        const grandTotal = n(o.total_price_with_addons != null ? o.total_price_with_addons : o.price);
+        // AUDIT-ADDONS-IN-ADMIN — the amount actually charged, computed by the
+        // SAME expression the collected tile sums (CHARGED_EGP_O), so this
+        // list's total is the tile by construction. It used to be
+        // COALESCE(total_price_with_addons, price) on both sides — a column
+        // nothing writes, i.e. `price` with the add-ons quietly dropped.
+        const grandTotal = money(o.charged_egp);
         return {
           id: o.id,
           orderReference: o.reference_id || null,
@@ -844,7 +1002,9 @@ module.exports = function (db, helpers, deploy, deps) {
           collectedAt: toIso(o.collected_at),
         };
       });
-      const amount = orders.reduce((s, o) => s + o.grandTotal, 0);
+      // money() on the accumulator too: each grandTotal is already 2dp, but a
+      // float sum of them is not (1349.99 + 0.01 → 1350.0000000000002).
+      const amount = money(orders.reduce((s, o) => s + o.grandTotal, 0));
 
       return res.ok({ scope, orders, total: { count: orders.length, amount } });
     } catch (err) {
@@ -891,7 +1051,10 @@ module.exports = function (db, helpers, deploy, deps) {
         totalTokens: acc.totalTokens + r.totalTokens,
         costUsd: acc.costUsd + r.costUsd,
       }), { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 });
-      total.costUsd = Math.round(total.costUsd * 1e4) / 1e4;
+      // AUDIT-AI-PRECISION (2026-08-29) — 6dp, matching the per-day series and
+      // estimateCostUsd's own precision. At 4dp a real day of spend ($0.000039
+      // over 3 calls) rounded to 0.0000 and the KPI read as free.
+      total.costUsd = Math.round(total.costUsd * 1e6) / 1e6;
 
       // Share of spend, computed here rather than in the app so the two
       // surfaces can never round it differently. Zero total → zero shares, not
@@ -967,19 +1130,19 @@ module.exports = function (db, helpers, deploy, deps) {
         // completed_at NULL (manual-queue/:id/unsuitable sets status='cancelled'
         // and nothing else), so it dropped out of the tile and stayed in both
         // lists. Tapping "SLA breached · 7" landed on a header reading 12.
-        cond.push(`o.completed_at IS NULL AND ${ST} IN ${ACTIVE_STATUSES} AND o.deadline_at IS NOT NULL AND o.deadline_at::timestamptz < NOW()`);
+        cond.push(breachedCaseSql('o.'));
       }
       // Active = the pulse "Active cases" KPI set (the ACTIVE_STATUSES constant),
       // not yet completed. This ANDs with assigned=unassigned to yield the EXACT
       // pulse "Pending assign" definition — so the loose `assigned` filter the
       // Cases screen relies on is left unchanged (tightening is gated behind active).
       if (q.active === '1' || q.active === 'true') {
-        cond.push(`o.completed_at IS NULL AND LOWER(o.status) IN ${ACTIVE_STATUSES}`);
+        cond.push(activeCaseSql('o.'));
       }
       // No active timer = the pulse "No active timer" KPI: active, not completed,
       // and no SLA clock yet (deadline_at NULL — case not yet accepted).
       if (q.timer === 'none') {
-        cond.push(`o.completed_at IS NULL AND o.deadline_at IS NULL AND LOWER(o.status) IN ${ACTIVE_STATUSES}`);
+        cond.push(`${activeCaseSql('o.')} AND o.deadline_at IS NULL`);
       }
       if (q.q) {
         params.push('%' + String(q.q).trim() + '%');
@@ -999,10 +1162,10 @@ module.exports = function (db, helpers, deploy, deps) {
           LEFT JOIN services sv ON sv.id = o.service_id`;
 
       const [rows, totalRow, facets] = await Promise.all([
-        safeAll(
+        mustAll(
           `SELECT o.id, o.reference_id, o.status, o.urgency_tier, o.payment_status, o.doctor_id, o.created_at,
                   o.deadline_at, o.completed_at,
-                  o.base_price, o.price, o.total_price_with_addons,
+                  ${MONEY_COLS_O},
                   COALESCE(p.name,'—') AS patient, p.gender, p.date_of_birth,
                   COALESCE(sp.name,'—') AS specialty, COALESCE(sv.name,'—') AS service,
                   d.name AS doctor_name,
@@ -1010,16 +1173,25 @@ module.exports = function (db, helpers, deploy, deps) {
              ${fromJoins} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`,
           params
         ),
-        safeGet(`SELECT COUNT(*) AS total ${fromJoins} ${where}`, params),
-        safeAll(
+        mustGet(`SELECT COUNT(*) AS total ${fromJoins} ${where}`, params),
+        mustAll(
+          // AUDIT-PREDICATE-PARITY (2026-08-29) — the two facets now interpolate
+          // the SHARED predicates, and that is the whole point of this change.
+          //
+          // `unassigned` counted ('paid','reassigned') while the list the chip
+          // opens (?assigned=unassigned&active=1) filters the full active set:
+          // an unassigned case sitting at 'submitted' or 'sla_breach' was in the
+          // list and not in the badge. Proven on this data: badge 0, list 1.
+          //
+          // `breached` counted five statuses while the /pulse tile, the
+          // ?breached=1 drill-down and the row-level `breached` flag all used
+          // nine: a case at 'submitted' or 'rejected_files' past its deadline
+          // was breached everywhere except the chip. Proven: badge 0, list 2.
+          //
+          // Both are now literally the same string as the list predicate.
           `SELECT LOWER(o.status) AS s, COUNT(*) AS n,
-                  -- AUDIT-2026-08-22 — 'reassigned' joins 'paid'. A case that
-                  -- breached with no alternate doctor is parked at REASSIGNED
-                  -- with doctor_id NULL; it is unassigned in every sense that
-                  -- matters and was missing from this count entirely.
-                  COUNT(*) FILTER (WHERE o.doctor_id IS NULL AND o.completed_at IS NULL AND LOWER(o.status) IN ('paid','reassigned')) AS unassigned,
-                  -- Same predicate as the tile and the drill-down (2026-08-25).
-                  COUNT(*) FILTER (WHERE o.completed_at IS NULL AND LOWER(o.status) IN ('paid','assigned','in_progress','in_review','reassigned') AND o.deadline_at IS NOT NULL AND o.deadline_at::timestamptz < NOW()) AS breached
+                  COUNT(*) FILTER (WHERE ${unassignedCaseSql('o.')}) AS unassigned,
+                  COUNT(*) FILTER (WHERE ${breachedCaseSql('o.')}) AS breached
              FROM orders_active o GROUP BY LOWER(o.status)`,
           []
         ),
@@ -1052,14 +1224,28 @@ module.exports = function (db, helpers, deploy, deps) {
           payment: String(r.payment_status || 'unpaid').toLowerCase(),
           slaMins: r.sla_mins == null ? null : Number(r.sla_mins),
           breached: !r.completed_at && r.sla_mins != null && Number(r.sla_mins) < 0,
-          // AUDIT-2026-08-22 — mirrors the `unassigned` facet above.
-          unassigned: !r.doctor_id && (norm === 'paid' || norm === 'reassigned'),
+          // AUDIT-PREDICATE-PARITY — mirrors the `unassigned` facet above, from
+          // the SAME set. `norm` has already been through normalizeStatus, so
+          // this compares against ACTIVE_STATUS_KEYS (the normalized spellings)
+          // rather than the raw list the SQL uses.
+          unassigned: !r.doctor_id && !r.completed_at && ACTIVE_STATUS_KEYS.has(norm),
           createdAt: toIso(r.created_at),
-          // Money (additive). base = base_price; price = charged (urgency incl.);
-          // grandTotal = COALESCE(total_price_with_addons, price) (incl. add-ons).
+          // Money (additive). base = base_price; price = the case fee (urgency
+          // uplift included); grandTotal = what the patient was ACTUALLY charged
+          // = price + every selected add-on = order_pricing.owedCentsForOrder,
+          // the number Paymob was asked for. maxRefundable is the server's own
+          // refund ceiling (services/refund_eligibility.maxRefundableEgp) — the
+          // same number services/admin_refund.js enforces, so a refund sheet
+          // capped on it can never be rejected for exceeding the cap.
+          //
+          // AUDIT-ADDONS-IN-ADMIN (2026-08-29) — grandTotal was
+          // COALESCE(total_price_with_addons, price), and NOTHING WRITES THAT
+          // COLUMN, so it was always just `price`. Every add-on the platform
+          // sold was invisible here and the refund cap derived from it was short.
           basePrice: n(r.base_price),
           price: n(r.price),
-          grandTotal: n(r.total_price_with_addons != null ? r.total_price_with_addons : r.price),
+          grandTotal: chargedEgpForOrder(r),
+          maxRefundable: maxRefundableEgp(r),
         };
       });
 
@@ -1079,14 +1265,18 @@ module.exports = function (db, helpers, deploy, deps) {
     const id = req.params.id;
     try {
       const [row, orderFiles, addlFiles, ai, events, doctor, refund] = await Promise.all([
-        safeGet(
+        mustGet(
           `SELECT o.id, o.reference_id, o.status, o.urgency_tier, o.payment_status, o.paid_at, o.payment_method,
-                  o.price,
-                  -- 2026-08-25: the detail response now exposes grandTotal, which the
-                  -- refund sheet caps on. Without this column it would silently be
-                  -- price alone again and the cap would be wrong on any case with
-                  -- add-ons.
-                  o.total_price_with_addons,
+                  -- 2026-08-25: the detail response exposes grandTotal, which the
+                  -- refund sheet caps on.
+                  -- 2026-08-29 (AUDIT-ADDONS-IN-ADMIN): it used to be selected as
+                  -- o.total_price_with_addons — a column with 35 readers and no
+                  -- writer, NULL on every row — so the "cap would be wrong on any
+                  -- case with add-ons" this comment warned about was exactly what
+                  -- shipped. The money columns are now selected as one fragment
+                  -- and priced by the same helpers routes/payments.js charges
+                  -- with (see MONEY_COLS_O at the top of this file).
+                  ${MONEY_COLS_O},
                   o.created_at, o.completed_at, o.accepted_at, o.deadline_at, o.sla_hours,
                   o.doctor_id, o.specialty_id, o.service_id,
                   o.diagnosis_text, o.impression_text, o.recommendation_text, o.clinical_question, o.report_url,
@@ -1102,6 +1292,11 @@ module.exports = function (db, helpers, deploy, deps) {
             WHERE o.id = $1`,
           [id]
         ),
+        // The four reads that follow stay SOFT (safeAll/safeGet) on purpose:
+        // files, the AI classification and the timeline are ancillary. A case
+        // detail that renders with an empty file list is degraded but honest; a
+        // case detail that renders EGP 0 is a lie. The money row above and the
+        // doctor load/SLA + refund rows below are strict for exactly that reason.
         safeAll(`SELECT id, filename, label, mime_type, size, url, created_at FROM order_files WHERE order_id = $1 ORDER BY created_at ASC`, [id]),
         safeAll(`SELECT id, label, file_url, file_key, uploaded_at FROM order_additional_files WHERE order_id = $1 ORDER BY uploaded_at ASC`, [id]),
         safeGet(
@@ -1119,19 +1314,23 @@ module.exports = function (db, helpers, deploy, deps) {
             WHERE e.order_id = $1 ORDER BY e.at ASC LIMIT 50`,
           [id]
         ),
-        safeGet(
+        // AUDIT-PREDICATE-PARITY (2026-08-29) — load and sla_hit now come from
+        // the shared builders, so this card, GET /doctors and the candidates
+        // picker report ONE number. This copy was the odd one out twice over: it
+        // omitted 'refunded' from the exclusion list (so a refunded case still
+        // occupied a slot here and nowhere else), and the exclusion form counted
+        // 'draft'/'DRAFT' rows as load in all three.
+        mustGet(
           `SELECT u.max_active_cases AS cap,
-                  (SELECT COUNT(*) FROM orders_active o WHERE o.doctor_id = u.id AND o.completed_at IS NULL
-                     AND LOWER(o.status) NOT IN ('completed','cancelled','expired_unpaid')) AS load,
-                  (SELECT COUNT(*) FILTER (WHERE o.completed_at IS NOT NULL AND o.deadline_at IS NOT NULL
-                            AND o.completed_at::timestamptz <= o.deadline_at::timestamptz)::float
-                          / NULLIF(COUNT(*) FILTER (WHERE o.completed_at IS NOT NULL), 0)
+                  (SELECT COUNT(*) FROM orders_active o WHERE o.doctor_id = u.id
+                     AND ${doctorLoadSql('o.')}) AS load,
+                  (SELECT ${slaHitRatioSql('o.')}
                      FROM orders_active o WHERE o.doctor_id = u.id) AS sla_hit,
                   (SELECT AVG(rating)::numeric(3,1) FROM reviews r WHERE r.doctor_id = u.id) AS rating
              FROM users u WHERE u.id = (SELECT doctor_id FROM orders_active WHERE id = $1)`,
           [id]
         ),
-        safeGet(`SELECT amount_egp, status, reason, refunded_at FROM refunds WHERE order_id = $1 ORDER BY refunded_at DESC NULLS LAST LIMIT 1`, [id]),
+        mustGet(`SELECT amount_egp, approved_amount, status, reason, refunded_at FROM refunds WHERE order_id = $1 ORDER BY refunded_at DESC NULLS LAST LIMIT 1`, [id]),
       ]);
 
       if (!row) return res.fail('Case not found', 404, 'NOT_FOUND');
@@ -1166,21 +1365,40 @@ module.exports = function (db, helpers, deploy, deps) {
         payment: {
           state: String(row.payment_status || 'unpaid').toLowerCase(),
           price: row.price == null ? null : Number(row.price),
-          // 2026-08-25 — grandTotal added.
+          // 2026-08-25 — grandTotal added. 2026-08-29 — made TRUE.
           //
-          // This returned orders.price alone while the queue row, /revenue and
-          // /breach-cost all use COALESCE(total_price_with_addons, price), and
-          // the refund guard allows up to price + add-ons. So on any case with
-          // add-ons the list said EGP 550, the detail said "Case fee EGP 400",
-          // and the refund sheet — which caps on this number — REFUSED to
-          // refund what the patient actually paid.
-          grandTotal: row.total_price_with_addons == null
-            ? (row.price == null ? null : Number(row.price))
-            : Number(row.total_price_with_addons),
+          // grandTotal is what the patient was ACTUALLY charged: price + every
+          // add-on locked on the order = services/order_pricing.owedCentsForOrder,
+          // the exact figure routes/payments.js asks Paymob for and the webhook
+          // verifies. It was COALESCE(total_price_with_addons, price), and that
+          // column has no writer anywhere in this codebase — so on a case with
+          // add-ons the detail said "Case fee EGP 1600" on an EGP 1900 charge
+          // and the refund sheet, which caps on this number, REFUSED to refund
+          // the 300 the patient had actually paid.
+          grandTotal: chargedEgpForOrder(row),
+          // maxRefundable is the ceiling the SERVER enforces
+          // (services/refund_eligibility.maxRefundableEgp, applied by
+          // services/admin_refund.js). It is grandTotal MINUS a video
+          // consultation the patient has already claimed and still holds — so it
+          // is legitimately SMALLER than grandTotal on those cases and the app
+          // must cap on THIS field, not on grandTotal, or the server will reject
+          // the refund it just offered.
+          maxRefundable: maxRefundableEgp(row),
           paidAt: toIso(row.paid_at),
           method: row.payment_method || null,
           createdAt: toIso(row.created_at),
-          refund: refund ? { amount: Number(refund.amount_egp) || 0, state: refund.status || null, reason: refund.reason || null, at: toIso(refund.refunded_at) } : null,
+          // AUDIT-REFUND-AMOUNT — `amount` is the SETTLED figure (approved_amount
+          // once a decision narrowed it, else amount_egp), the same expression
+          // the Payments tiles and lists use.
+          refund: refund
+            ? {
+                amount: money(refund.approved_amount == null ? refund.amount_egp : refund.approved_amount),
+                requestedAmount: refund.amount_egp == null ? null : money(refund.amount_egp),
+                state: refund.status || null,
+                reason: refund.reason || null,
+                at: toIso(refund.refunded_at),
+              }
+            : null,
         },
         assignment: row.doctor_id
           ? {
@@ -1237,7 +1455,7 @@ module.exports = function (db, helpers, deploy, deps) {
   // chooses informed; the assign write re-validates everything server-side.
   router.get('/cases/:id/candidates', async (req, res) => {
     try {
-      const c = await safeGet(
+      const c = await mustGet(
         `SELECT o.id, o.specialty_id, o.service_id, o.urgency_tier, o.doctor_id, COALESCE(sp.name,'—') AS specialty
            FROM orders_active o LEFT JOIN specialties sp ON sp.id = o.specialty_id WHERE o.id = $1`,
         [req.params.id]
@@ -1245,12 +1463,16 @@ module.exports = function (db, helpers, deploy, deps) {
       if (!c) return res.fail('Case not found', 404, 'NOT_FOUND');
 
       const docs = c.specialty_id
-        ? await safeAll(
+        ? await mustAll(
             `SELECT u.id, u.name, u.is_active, u.is_paused, u.onboarding_complete, u.specialty_id, COALESCE(sp.name,'—') AS specialty,
                     u.max_active_cases, u.max_active_cases_urgent, u.sla_tiers_supported,
                     EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = u.id AND ds.service_id = $2) AS offers_service,
+                    -- AUDIT-PREDICATE-PARITY — shared with /doctors, /cases/:id
+                    -- AND the capacity gate in POST /cases/:id/assign, so the
+                    -- load the operator is shown is the load the assign write
+                    -- enforces.
                     (SELECT COUNT(*) FROM orders_active o WHERE o.doctor_id = u.id
-                       AND LOWER(COALESCE(o.status,'')) NOT IN ('completed','cancelled','expired_unpaid','refunded')) AS load
+                       AND ${doctorLoadSql('o.')}) AS load
                FROM users u LEFT JOIN specialties sp ON sp.id = u.specialty_id
               WHERE u.role = 'doctor' AND u.specialty_id = $1 ORDER BY u.name ASC`,
             [c.specialty_id, c.service_id]
@@ -1311,18 +1533,23 @@ module.exports = function (db, helpers, deploy, deps) {
         return Array.isArray(arr) ? arr.map((s) => String(s)) : [];
       };
 
-      const rows = await safeAll(
+      const rows = await mustAll(
         `SELECT u.id, u.name, u.name_ar, u.display_name, u.email, u.phone,
                 u.specialty_id, COALESCE(sp.name, '—') AS specialty,
                 u.is_active, u.is_paused, u.is_available, u.pending_approval,
                 u.max_active_cases, u.max_active_cases_urgent, u.sla_tiers_supported,
                 u.years_of_experience, u.medical_license_number,
                 u.created_at, u.approved_at, u.last_seen_at, u.welcome_email_last_sent_at,
+                -- AUDIT-PREDICATE-PARITY — one shared expression for load and
+                -- one for the SLA ratio. The old denominator was every row with
+                -- completed_at, and services/refund_closure.js stamps
+                -- completed_at when it closes a REFUNDED order — so every refund
+                -- counted against the doctor as a missed deadline. Verified in
+                -- production: a doctor with one genuine completion had a
+                -- denominator of 2.
                 (SELECT COUNT(*) FROM orders_active o WHERE o.doctor_id = u.id
-                   AND LOWER(COALESCE(o.status,'')) NOT IN ('completed','cancelled','expired_unpaid','refunded')) AS load,
-                (SELECT COUNT(*) FILTER (WHERE o.completed_at IS NOT NULL AND o.deadline_at IS NOT NULL
-                          AND o.completed_at::timestamptz <= o.deadline_at::timestamptz)::float
-                        / NULLIF(COUNT(*) FILTER (WHERE o.completed_at IS NOT NULL), 0)
+                   AND ${doctorLoadSql('o.')}) AS load,
+                (SELECT ${slaHitRatioSql('o.')}
                    FROM orders_active o WHERE o.doctor_id = u.id) AS sla_hit,
                 (SELECT AVG(rating)::numeric(3,1) FROM reviews r WHERE r.doctor_id = u.id) AS rating,
                 (SELECT COUNT(*) FROM reviews r WHERE r.doctor_id = u.id) AS rating_count
@@ -1475,9 +1702,13 @@ module.exports = function (db, helpers, deploy, deps) {
       if (!offersService) af('Doctor does not offer this service', 409, 'DOCTOR_SERVICE_NOT_OFFERED');
 
       const cap = capFor(d, o.urgency_tier);
+      // AUDIT-PREDICATE-PARITY — the SAME expression the candidates picker
+      // displays. It has to be: the operator picks a doctor showing 2/3 and
+      // this gate decides whether that assign is allowed, so a second spelling
+      // here is a 409 the operator was given no way to predict.
       const load = Number((await client.query(
         `SELECT COUNT(*) AS c FROM orders WHERE doctor_id = $1 AND deleted_at IS NULL
-           AND LOWER(COALESCE(status,'')) NOT IN ('completed','cancelled','expired_unpaid','refunded')`,
+           AND ${doctorLoadSql('')}`,
         [doctorId]
       )).rows[0].c) || 0;
       if (cap > 0 && load >= cap) af(`Doctor is at capacity (${load}/${cap})`, 409, 'DOCTOR_AT_CAPACITY');
@@ -2435,7 +2666,7 @@ module.exports = function (db, helpers, deploy, deps) {
       return res.fail("type must be 'amount_mismatch'", 400, 'BAD_REQUEST');
     }
     try {
-      const rows = await safeAll(
+      const rows = await mustAll(
         `SELECT pe.id, pe.order_id, pe.received_at, pe.payload_json,
                 o.reference_id, o.payment_status, (o.deleted_at IS NOT NULL) AS order_deleted,
                 u.name AS patient_name, u.phone AS patient_phone, u.email AS patient_email,
@@ -2655,13 +2886,18 @@ module.exports = function (db, helpers, deploy, deps) {
   // people's money.
   //
   // MONEY DEFINITIONS — deliberately the SAME as the existing surfaces:
-  //   refunded  = SUM(refunds.amount_egp) over COMMITTED refunds only
-  //               (paid/approved/auto_approved) — identical to the /refunds
-  //               refundedMTD KPI, so the two can never disagree. Pending is an
-  //               obligation that may still be denied; denied never becomes money.
-  //   collected = SUM(COALESCE(total_price_with_addons, price)) over
-  //               orders_active with payment_status paid/captured — verbatim
-  //               the GET /revenue + /refunds collected formula.
+  //   refunded  = SUM(COALESCE(approved_amount, amount_egp)) over COMMITTED
+  //               refunds only (paid/approved/auto_approved) — identical to the
+  //               /refunds refundedMTD KPI, so the two can never disagree.
+  //               Pending is an obligation that may still be denied; denied
+  //               never becomes money. (2026-08-29: it was SUM(amount_egp),
+  //               which is what the patient ASKED for, not what a partial
+  //               approval settled at — see SETTLED_REFUND_EGP_R.)
+  //   collected = SUM(price + selected add-ons) over orders_active with
+  //               payment_status paid/captured — CHARGED_EGP_O, verbatim the
+  //               GET /revenue + /refunds collected formula. (2026-08-29: it
+  //               was COALESCE(total_price_with_addons, price), a column with
+  //               no writer, so it silently omitted every add-on sold.)
   // Every SUM is wrapped in COALESCE(...,0) so an empty period returns 0, not
   // NULL, and every figure is rounded to piastres on the way out (money()).
   //
@@ -2688,10 +2924,10 @@ module.exports = function (db, helpers, deploy, deps) {
           // (1) Every committed refund in the window, split by reason. Drives
           //     BOTH the by-reason breakdown and the refund-rate numerator, so
           //     the two are arithmetically consistent by construction.
-          safeAll(
+          mustAll(
             `SELECT LOWER(COALESCE(r.reason,'')) AS reason,
                     COUNT(*)::int AS n,
-                    COALESCE(SUM(r.amount_egp), 0) AS egp
+                    COALESCE(SUM(${SETTLED_REFUND_EGP_R}), 0) AS egp
                FROM refunds r
               WHERE ${inPeriod}
               GROUP BY 1`
@@ -2702,10 +2938,10 @@ module.exports = function (db, helpers, deploy, deps) {
           //     ever touches unpaid expired drafts — so this join cannot
           //     produce a deleted row, and if it somehow did you would still
           //     want the cost counted.
-          safeAll(
+          mustAll(
             `SELECT o.specialty_id AS id, COALESCE(sp.name, '—') AS name,
                     COUNT(*)::int AS n,
-                    COALESCE(SUM(r.amount_egp), 0) AS egp
+                    COALESCE(SUM(${SETTLED_REFUND_EGP_R}), 0) AS egp
                FROM refunds r
                -- include-deleted-ok: driven by refunds. The money moved
                -- whether or not the order was later soft-deleted; excluding
@@ -2719,10 +2955,10 @@ module.exports = function (db, helpers, deploy, deps) {
           // (3) Breaches by doctor. LEFT JOIN + a null bucket: a case can breach
           //     with no doctor on it (the acceptance handshake never completed),
           //     and dropping those rows would under-report the total.
-          safeAll(
+          mustAll(
             `SELECT o.doctor_id AS id, d.name AS name,
                     COUNT(*)::int AS n,
-                    COALESCE(SUM(r.amount_egp), 0) AS egp
+                    COALESCE(SUM(${SETTLED_REFUND_EGP_R}), 0) AS egp
                FROM refunds r
                -- include-deleted-ok: driven by refunds. The money moved
                -- whether or not the order was later soft-deleted; excluding
@@ -2737,10 +2973,10 @@ module.exports = function (db, helpers, deploy, deps) {
           //     normalized again in JS (normalizeTier maps the legacy
           //     'fast_track' onto 'vip'), so two raw rows can collapse into one
           //     output bucket — hence the merge below rather than a direct map.
-          safeAll(
+          mustAll(
             `SELECT LOWER(COALESCE(o.urgency_tier,'standard')) AS tier,
                     COUNT(*)::int AS n,
-                    COALESCE(SUM(r.amount_egp), 0) AS egp
+                    COALESCE(SUM(${SETTLED_REFUND_EGP_R}), 0) AS egp
                FROM refunds r
                -- include-deleted-ok: driven by refunds. The money moved
                -- whether or not the order was later soft-deleted; excluding
@@ -2751,8 +2987,13 @@ module.exports = function (db, helpers, deploy, deps) {
           ),
           // (5) Refund-rate denominator + the window's Cairo lower bound, echoed
           //     back so the app can label the period without recomputing it.
-          safeGet(
-            `SELECT COALESCE(SUM(COALESCE(o.total_price_with_addons, o.price)), 0) AS collected,
+          mustGet(
+            // AUDIT-ADDONS-IN-ADMIN — CHARGED_EGP_O, not
+            // COALESCE(total_price_with_addons, price). Nothing writes that
+            // column, so the refund-rate denominator was SUM(price) with every
+            // add-on missing — which OVERSTATES the refund rate, because the
+            // numerator (refunds) does include the add-on money.
+            `SELECT COALESCE(SUM(${CHARGED_EGP_O}), 0) AS collected,
                     to_char(${from}, 'YYYY-MM-DD"T"HH24:MI:SS') AS period_start_cairo
                FROM orders_active o
               WHERE LOWER(COALESCE(o.payment_status,'')) IN ('paid','captured')
@@ -2779,7 +3020,7 @@ module.exports = function (db, helpers, deploy, deps) {
           //     Any other/unknown policy contributes 0 EGP but is still counted,
           //     so a new policy string shows up as an unpriced row instead of
           //     silently vanishing from the total.
-          safeAll(
+          mustAll(
             `SELECT COALESCE(de.clawback_reason, 'unknown') AS policy,
                     COUNT(*)::int AS n,
                     COALESCE(SUM(
@@ -2881,8 +3122,8 @@ module.exports = function (db, helpers, deploy, deps) {
           basis: 'derived_from_clawback_policy',
         },
         basis: {
-          refunds: 'committed refunds (status paid/approved/auto_approved), SUM(amount_egp)',
-          collected: 'orders_active payment_status paid/captured, SUM(COALESCE(total_price_with_addons, price))',
+          refunds: 'committed refunds (status paid/approved/auto_approved), SUM(COALESCE(approved_amount, amount_egp))',
+          collected: 'orders_active payment_status paid/captured, SUM(price + selected add-ons) — services/order_pricing.chargedEgpSql, the SQL form of the amount charged to Paymob',
           bucketing: 'Cairo business day (Africa/Cairo)',
         },
       });
@@ -2923,43 +3164,15 @@ module.exports = function (db, helpers, deploy, deps) {
   router.get('/manual-queue', async (req, res) => {
     try {
       const n = (v) => Number(v) || 0;
-      const rows = await safeAll(
-        `SELECT o.id, o.reference_id, o.created_at, o.status, o.payment_status,
-                o.urgency_tier, o.base_price, o.price, o.total_price_with_addons,
-                o.specialty_id AS chosen_specialty_id, o.service_id AS chosen_service_id,
-                COALESCE(p.name,'—') AS patient_name, p.gender, p.date_of_birth,
-                sp_chosen.name AS chosen_specialty_name,
-                sv_chosen.name AS chosen_service_name,
-                sc.specialty_id  AS predicted_specialty_id,
-                sc.service_id    AS predicted_service_id,
-                sc.confidence    AS predicted_confidence,
-                sc.created_at    AS predicted_at,
-                sp_pred.name AS predicted_specialty_name,
-                sv_pred.name AS predicted_service_name,
-                -- Both arms cast to timestamptz so the subtraction is an
-                -- INSTANT difference, never a wall-clock one. o.created_at is
-                -- already timestamptz (migration 081) and the cast is a no-op;
-                -- specialty_classifications.created_at is still naive-UTC (056,
-                -- outside 081's two-table scope) and the cast reads it in the
-                -- session zone, which src/pg.js pins to UTC — the same
-                -- ::timestamptz form GET /cases uses on deadline_at.
-                ROUND(EXTRACT(EPOCH FROM (
-                  NOW() - COALESCE(sc.created_at::timestamptz, o.created_at::timestamptz)
-                )) / 60) AS waiting_mins
-           FROM orders_active o
-           LEFT JOIN users p ON p.id = o.patient_id
-           LEFT JOIN specialties sp_chosen ON sp_chosen.id = o.specialty_id
-           LEFT JOIN services   sv_chosen  ON sv_chosen.id  = o.service_id
-           -- Latest classification per case (the web's LATERAL, verbatim).
-           LEFT JOIN LATERAL (
-             SELECT specialty_id, service_id, confidence, created_at
-               FROM specialty_classifications
-              WHERE case_id = o.id
-              ORDER BY created_at DESC
-              LIMIT 1
-           ) sc ON true
-           LEFT JOIN specialties sp_pred ON sp_pred.id = sc.specialty_id
-           LEFT JOIN services   sv_pred  ON sv_pred.id  = sc.service_id
+      // AUDIT-MANUAL-QUEUE-TOTAL (2026-08-29) — the row set is LIMIT 200 and
+      // `total` was `cases.length`, i.e. the count AFTER the limit. At 200+
+      // parked cases the screen would have reported exactly 200 forever and the
+      // operator would have had no signal that the queue was still growing.
+      // A real COUNT(*) over the same WHERE, exactly as GET /cases and
+      // GET /events already do. The predicate is written once and interpolated
+      // into both queries so the count and the list cannot describe different
+      // sets — the same discipline as the facets on GET /cases.
+      const QUEUE_WHERE = `
           WHERE o.completed_at IS NULL
             -- 2026-08-25 — manual_pending added.
             --
@@ -2991,10 +3204,59 @@ module.exports = function (db, helpers, deploy, deps) {
             -- contents are permanently two un-actionable rows is a queue the
             -- operator stops opening. Drafts and expired-unpaid carts are
             -- excluded; genuinely stuck paid work is not.
-            AND LOWER(COALESCE(o.status, '')) NOT IN ('draft', 'expired_unpaid', 'cancelled', 'refunded')
-          ORDER BY o.created_at ASC
-          LIMIT 200`
-      );
+            AND LOWER(COALESCE(o.status, '')) NOT IN ('draft', 'expired_unpaid', 'cancelled', 'refunded')`;
+
+      const [rows, totalRow, paidRow] = await Promise.all([
+        mustAll(
+          `SELECT o.id, o.reference_id, o.created_at, o.status, o.payment_status,
+                  o.urgency_tier, ${MONEY_COLS_O},
+                  o.specialty_id AS chosen_specialty_id, o.service_id AS chosen_service_id,
+                  COALESCE(p.name,'—') AS patient_name, p.gender, p.date_of_birth,
+                  sp_chosen.name AS chosen_specialty_name,
+                  sv_chosen.name AS chosen_service_name,
+                  sc.specialty_id  AS predicted_specialty_id,
+                  sc.service_id    AS predicted_service_id,
+                  sc.confidence    AS predicted_confidence,
+                  sc.created_at    AS predicted_at,
+                  sp_pred.name AS predicted_specialty_name,
+                  sv_pred.name AS predicted_service_name,
+                  -- Both arms cast to timestamptz so the subtraction is an
+                  -- INSTANT difference, never a wall-clock one. o.created_at is
+                  -- already timestamptz (migration 081) and the cast is a no-op;
+                  -- specialty_classifications.created_at is still naive-UTC (056,
+                  -- outside 081's two-table scope) and the cast reads it in the
+                  -- session zone, which src/pg.js pins to UTC — the same
+                  -- ::timestamptz form GET /cases uses on deadline_at.
+                  ROUND(EXTRACT(EPOCH FROM (
+                    NOW() - COALESCE(sc.created_at::timestamptz, o.created_at::timestamptz)
+                  )) / 60) AS waiting_mins
+             FROM orders_active o
+             LEFT JOIN users p ON p.id = o.patient_id
+             LEFT JOIN specialties sp_chosen ON sp_chosen.id = o.specialty_id
+             LEFT JOIN services   sv_chosen  ON sv_chosen.id  = o.service_id
+             -- Latest classification per case (the web's LATERAL, verbatim).
+             LEFT JOIN LATERAL (
+               SELECT specialty_id, service_id, confidence, created_at
+                 FROM specialty_classifications
+                WHERE case_id = o.id
+                ORDER BY created_at DESC
+                LIMIT 1
+             ) sc ON true
+             LEFT JOIN specialties sp_pred ON sp_pred.id = sc.specialty_id
+             LEFT JOIN services   sv_pred  ON sv_pred.id  = sc.service_id
+            ${QUEUE_WHERE}
+            ORDER BY o.created_at ASC
+            LIMIT 200`
+        ),
+        // The TRUE size of the queue and its paid subset, over the same
+        // predicate and WITHOUT the LIMIT. `paid` folds case on payment_status
+        // for the same reason every other status comparison in this file does.
+        mustGet(`SELECT COUNT(*)::int AS total FROM orders_active o ${QUEUE_WHERE}`),
+        mustGet(
+          `SELECT COUNT(*)::int AS paid FROM orders_active o ${QUEUE_WHERE}
+             AND LOWER(COALESCE(o.payment_status,'')) IN ('paid','captured')`
+        ),
+      ]);
 
       const cases = (rows || []).map((r) => ({
         id: r.id, // raw orders.id — the routing key for the two POSTs below
@@ -3021,7 +3283,11 @@ module.exports = function (db, helpers, deploy, deps) {
         payment: String(r.payment_status || 'unpaid').toLowerCase(),
         basePrice: n(r.base_price),
         price: n(r.price),
-        grandTotal: n(r.total_price_with_addons != null ? r.total_price_with_addons : r.price),
+        // AUDIT-ADDONS-IN-ADMIN — the amount ACTUALLY charged (price + every
+        // selected add-on), not COALESCE(total_price_with_addons, price) on a
+        // column nothing writes. This is a triage screen for PAID work; the
+        // figure it shows has to be the money at risk.
+        grandTotal: chargedEgpForOrder(r),
         // How long this case has been waiting for a human, in minutes, measured
         // from the classification that parked it (falling back to order
         // creation when no classification row exists).
@@ -3029,10 +3295,16 @@ module.exports = function (db, helpers, deploy, deps) {
         createdAt: toIso(r.created_at),
       }));
 
-      const paid = cases.filter((c) => c.payment === 'paid' || c.payment === 'captured').length;
+      // AUDIT-MANUAL-QUEUE-TOTAL — `total`/`paid`/`unpaid` are the real counts
+      // over the whole queue, from the COUNT(*) queries above. They were
+      // cases.length and a filter over the returned array, i.e. the counts AFTER
+      // `LIMIT 200`. `returned` is the size of THIS page, so the app can say
+      // "showing 200 of 431" instead of silently implying there are 200.
+      const total = Number((totalRow && totalRow.total) || 0);
+      const paid = Number((paidRow && paidRow.paid) || 0);
       return res.ok({
         cases,
-        counts: { total: cases.length, paid, unpaid: cases.length - paid },
+        counts: { total, paid, unpaid: Math.max(0, total - paid), returned: cases.length },
       });
     } catch (err) {
       console.error('[admin/manual-queue] failed:', err && err.message);
@@ -3720,7 +3992,7 @@ module.exports = function (db, helpers, deploy, deps) {
         // row is a line the operator has to scroll past. Same reason for the
         // HAVING — a doctor fully settled and inactive this month is not a
         // payout, and dropping them is what keeps this screen readable.
-        safeAll(
+        mustAll(
           // 2026-08-24 — owed spans BOTH payout ledgers.
           //
           // This screen is the one an operator actually pays InstaPay from, and
@@ -3768,7 +4040,7 @@ module.exports = function (db, helpers, deploy, deps) {
         // Totals over the WHOLE table, never over the trimmed list above — so
         // the headline liability stays true even if the list is capped or a
         // doctor row was filtered out by the HAVING.
-        safeGet(
+        mustGet(
           `SELECT COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0)
                     + COALESCE((SELECT SUM(earned_amount_egp) FROM addon_earnings WHERE status = 'pending'), 0)
                     AS owed_total,

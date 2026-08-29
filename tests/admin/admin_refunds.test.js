@@ -37,6 +37,15 @@ function makeApp(stubs = {}) {
     safeGet: stubs.safeGet || (async () => null),
     safeAll: stubs.safeAll || (async () => []),
     safeRun: stubs.safeRun || (async () => ({ rowCount: 0 })),
+    // AUDIT-KPI-HONESTY (2026-08-29) — the money/KPI endpoints now read through
+    // mustGet/mustAll (src/sql-utils.js), which THROW instead of swallowing so
+    // a failed query becomes a 500 rather than a fabricated zero. They are
+    // injected exactly like the soft helpers; these stubs map them onto the
+    // same fakes so every existing assertion (including the captured SQL) is
+    // unchanged, and a test that wants to exercise the failure path can pass
+    // mustGet/mustAll explicitly.
+    mustGet: stubs.mustGet || stubs.safeGet || (async () => null),
+    mustAll: stubs.mustAll || stubs.safeAll || (async () => []),
   };
   const pool = stubs.pool || { totalCount: 1, idleCount: 1, waitingCount: 0 };
   const deploy = stubs.deploy || {
@@ -99,7 +108,11 @@ function fullStubs() {
     },
     safeGet: async (sql) => {
       if (/collected_today/.test(sql)) return { collected_today: 1000, collected_mtd: 5000 };
-      if (/refunded_mtd/.test(sql)) return { refunded_mtd: '750.00', owed_count: '2', owed_total: '800.00' };
+      // AUDIT-PENDING-OVERLOAD (2026-08-29) — owed_count/owed_total renamed to
+      // unsettled_count/unsettled_total. "Pending" named two different sets on
+      // this one screen: counts.pending is refunds.status='pending', while the
+      // tile counted pending+approved+auto_approved. Only the tile's set moved.
+      if (/refunded_mtd/.test(sql)) return { refunded_mtd: '750.00', unsettled_count: '2', unsettled_total: '800.00' };
       return null;
     },
   };
@@ -151,10 +164,18 @@ test('GET /refunds: happy path — buckets, mapping, kpis, counts', async () => 
     assert.equal(kpis.collectedToday, 1000);
     assert.equal(kpis.collectedMTD, 5000);
     assert.equal(kpis.refundedMTD, 750);
-    assert.deepEqual(kpis.refundsOwed, { count: 2, total: 800 });
+    // unsettledCount/unsettledTotal are the canonical names; count/total are
+    // kept as aliases so a Command app build predating this deploy still works.
+    // `statuses` ships the set the tile counts, so the app does not keep a copy.
+    assert.deepEqual(kpis.refundsOwed, {
+      count: 2, total: 800,
+      unsettledCount: 2, unsettledTotal: 800,
+      statuses: ['pending', 'approved', 'auto_approved'],
+    });
 
-    // counts for the tab badge (pending + awaiting only)
-    assert.deepEqual(counts, { pending: 1, awaitingPayment: 1 });
+    // counts for the tab badge (pending + awaiting only). pendingRefundRequests
+    // is the unambiguous name for the status-pending set; `pending` is retained.
+    assert.deepEqual(counts, { pending: 1, pendingRefundRequests: 1, awaitingPayment: 1 });
   } finally {
     server.close();
   }
@@ -176,9 +197,13 @@ test('GET /refunds: empty — buckets [], kpis zeroed, counts zero', async () =>
       collectedToday: 0,
       collectedMTD: 0,
       refundedMTD: 0,
-      refundsOwed: { count: 0, total: 0 },
+      refundsOwed: {
+        count: 0, total: 0,
+        unsettledCount: 0, unsettledTotal: 0,
+        statuses: ['pending', 'approved', 'auto_approved'],
+      },
     });
-    assert.deepEqual(body.data.counts, { pending: 0, awaitingPayment: 0 });
+    assert.deepEqual(body.data.counts, { pending: 0, pendingRefundRequests: 0, awaitingPayment: 0 });
   } finally {
     server.close();
   }

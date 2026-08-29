@@ -81,9 +81,28 @@ async function safeGet(sql, params = [], fallback = null) {
 
 /**
  * === PHASE 3: FIX #20 - ERROR HANDLING CONSISTENCY ===
+ * === AUDIT 2026-08-29 — renamed getOrThrow → mustGet (old name kept as an alias) ===
+ *
  * Execute a query and throw on error (for critical operations).
  * Use for operations that MUST succeed or fail loudly.
  * Errors are not caught - they bubble up to caller.
+ *
+ * WHY THIS PAIR EXISTS, AND WHY THE MONEY SCREENS MUST USE IT.
+ *
+ * safeGet/safeAll above swallow EVERY error and hand back null/[]. For genuinely
+ * optional data that is correct and deliberate. For a KPI it is a lie with a
+ * 200 on it: the handler carries on, `Number(null) || 0` becomes 0, and the app
+ * renders "EGP 0 owed" — the founder reads his largest liability as settled.
+ *
+ * This is reachable in production, not theoretical: src/pg.js pins
+ * statement_timeout to 30s, and a query that exceeds it raises SQLSTATE 57014.
+ * safeGet caught it, logged one line to stdout, and GET /pulse answered
+ * 200 {"kpis":{"activeCases":0,…}} — the app's error state never rendered
+ * because nothing ever told it there was an error.
+ *
+ * So every money/KPI query goes through mustGet/mustAll and the route's
+ * existing `catch` block — the one already commented "Honest failure over
+ * fabricated zeros" — finally becomes reachable and returns the 500.
  *
  * @param {string} sql - SQL query
  * @param {Array} params - Query parameters
@@ -93,7 +112,7 @@ async function safeGet(sql, params = [], fallback = null) {
  * @example
  * // Good: Critical operation, must succeed
  * try {
- *   const user = await getOrThrow('SELECT * FROM users WHERE id = $1', [userId]);
+ *   const user = await mustGet('SELECT * FROM users WHERE id = $1', [userId]);
  *   // user is guaranteed to exist or error was thrown
  * } catch (err) {
  *   // Handle critical error (user not found, DB error, etc)
@@ -101,15 +120,18 @@ async function safeGet(sql, params = [], fallback = null) {
  *   return res.status(500).send('Internal error');
  * }
  */
-async function getOrThrow(sql, params = []) {
+async function mustGet(sql, params = []) {
   return await queryOne(sql, params);
 }
 
 /**
  * === PHASE 3: FIX #20 - ERROR HANDLING CONSISTENCY ===
+ * === AUDIT 2026-08-29 — renamed allOrThrow → mustAll (old name kept as an alias) ===
+ *
  * Execute a query and throw on error (for critical operations).
  * Use for operations that MUST succeed or fail loudly.
- * Errors are not caught - they bubble up to caller.
+ * Errors are not caught - they bubble up to caller. See the long note on
+ * mustGet above for why every money/KPI list uses this and not safeAll.
  *
  * @param {string} sql - SQL query
  * @param {Array} params - Query parameters
@@ -119,13 +141,13 @@ async function getOrThrow(sql, params = []) {
  * @example
  * // Good: Critical operation, must succeed
  * try {
- *   const users = await allOrThrow('SELECT * FROM users WHERE role = $1', ['doctor']);
+ *   const users = await mustAll('SELECT * FROM users WHERE role = $1', ['doctor']);
  *   // users is guaranteed to be valid or error was thrown
  * } catch (err) {
  *   // Handle critical error
  * }
  */
-async function allOrThrow(sql, params = []) {
+async function mustAll(sql, params = []) {
   return await queryAll(sql, params);
 }
 
@@ -133,6 +155,11 @@ module.exports = {
   tableExists,
   safeAll,
   safeGet,
-  getOrThrow,    // === PHASE 3: New function for critical operations
-  allOrThrow      // === PHASE 3: New function for critical operations
+  mustGet,        // === AUDIT 2026-08-29: fail-loud read for money/KPI queries
+  mustAll,        // === AUDIT 2026-08-29: fail-loud read for money/KPI queries
+  // Legacy names for the same two functions. Kept so an older import cannot
+  // break; new call sites should use mustGet/mustAll, which is what the
+  // tests/lint/kpi-endpoints-fail-loud guard looks for.
+  getOrThrow: mustGet,
+  allOrThrow: mustAll,
 };
