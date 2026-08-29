@@ -44,6 +44,11 @@
 .featured-section h2 {
   font-size: 28px;
   font-weight: 700;
+  /* Explicit, not inherited from .featured-section's `color: white`: the
+     global `h2 { color: ... }` rule is an element selector, and an element
+     selector beats inheritance no matter how specific the ancestor is. This
+     heading was rendering dark navy on the dark navy panel. */
+  color: #fff;
   margin-bottom: 8px;
 }
 .featured-section .featured-sub {
@@ -438,9 +443,40 @@
       'pulm_hrct',
       'derm_dermoscopy',
     ];
+    // The hand-picked list above is a PREFERENCE, not the answer.
+    //
+    // 2026-08-29 visual audit: this panel rendered exactly ONE card in a
+    // container sized for a full row — about 70% dark empty space under a
+    // heading promising our most requested reviews. Thirteen of the fourteen
+    // ids resolved to nothing, because most name services under specialties
+    // that migrations 060/066/087 hid, and those rows never reach
+    // uniqueServices. The list was written when far more of the catalogue was
+    // live and silently decayed as the catalogue shrank.
+    //
+    // So: honour whichever picks still resolve, then top up from what is
+    // actually bookable — the dearest service in each specialty not yet
+    // represented, which is a defensible reading of "high-value" and, unlike
+    // the fixed list, cannot decay. Capped at 6, which fills the row at every
+    // breakpoint (the grid is minmax(220px, 1fr)).
+    const FEATURED_TARGET = 6;
     const featuredServices = featuredIds
       .map(id => uniqueServices.find(s => s.id === id))
       .filter(Boolean);
+    if (featuredServices.length < FEATURED_TARGET) {
+      const taken = new Set(featuredServices.map(s => s.id));
+      const shown = new Set(featuredServices.map(s => s.specialty_name));
+      const topUp = Object.keys(bySpecialty)
+        .filter(sp => !shown.has(sp))
+        .map(sp => (bySpecialty[sp] || [])
+          .filter(s => !taken.has(s.id) && !s.coming_soon && s.base_price > 0)
+          .sort((a, b) => (b.base_price || 0) - (a.base_price || 0))[0])
+        .filter(Boolean)
+        .sort((a, b) => (b.base_price || 0) - (a.base_price || 0));
+      for (const s of topUp) {
+        if (featuredServices.length >= FEATURED_TARGET) break;
+        featuredServices.push(s);
+      }
+    }
 
     // Display order for specialties
     const specOrder = [
@@ -458,9 +494,12 @@
     <!-- ── FEATURED SPOTLIGHT ─────────────────────────── -->
     <% if (featuredServices.length > 0) { %>
     <div class="featured-section">
+      <%# "Most Requested" was a claim about order volume on a platform where
+          no card payment has ever settled. These are a hand-picked selection
+          topped up from the live catalogue, so say that instead. %>
       <div class="featured-label"><%= tt('svc.featured.label',
-        '⭐ Most Requested Services',
-        '⭐ الخدمات الأكتر طلباً') %></div>
+        '⭐ Featured Reviews',
+        '⭐ مراجعات مختارة') %></div>
       <h2><%= tt('svc.featured.title',
         'Start with what matters most',
         'ابدأ بالأهم') %></h2>

@@ -91,7 +91,12 @@ h1, h2, h3, h4, h5, h6 {
   gap: var(--space-4);
 }
 
-.site-nav .nav-links a:not(.lang-btn):not(.nav-signin) {
+/* .btn-primary MUST stay in every exclusion below. This rule outranks
+   .btn-primary on specificity (0,4,1 vs 0,1,0), so without the :not() the
+   header "Start Your Case" button renders --text-secondary slate on its teal
+   pill — the primary conversion CTA, barely readable. It also gets the nav
+   underline pseudo-element drawn across it. */
+.site-nav .nav-links a:not(.lang-btn):not(.nav-signin):not(.btn-primary) {
   font-size: 15px;
   font-weight: 500;
   color: var(--text-secondary);
@@ -100,24 +105,26 @@ h1, h2, h3, h4, h5, h6 {
   transition: color var(--transition-standard);
 }
 
-.site-nav .nav-links a:not(.lang-btn):not(.nav-signin):hover,
-.site-nav .nav-links a:not(.lang-btn):not(.nav-signin).active {
+.site-nav .nav-links a:not(.lang-btn):not(.nav-signin):not(.btn-primary):hover,
+.site-nav .nav-links a:not(.lang-btn):not(.nav-signin):not(.btn-primary).active {
   color: var(--medical-blue);
 }
 
-.site-nav .nav-links a:not(.lang-btn):not(.nav-signin)::after {
+.site-nav .nav-links a:not(.lang-btn):not(.nav-signin):not(.btn-primary)::after {
   content: '';
   position: absolute;
   bottom: -2px;
-  left: 0;
+  /* Logical: the underline must grow from the start of the text, which is the
+     right in Arabic. */
+  inset-inline-start: 0;
   width: 0;
   height: 2px;
   background: var(--medical-blue);
   transition: width var(--transition-standard);
 }
 
-.site-nav .nav-links a:not(.lang-btn):not(.nav-signin):hover::after,
-.site-nav .nav-links a:not(.lang-btn):not(.nav-signin).active::after {
+.site-nav .nav-links a:not(.lang-btn):not(.nav-signin):not(.btn-primary):hover::after,
+.site-nav .nav-links a:not(.lang-btn):not(.nav-signin):not(.btn-primary).active::after {
   width: 100%;
 }
 
