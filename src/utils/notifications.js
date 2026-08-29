@@ -135,7 +135,7 @@ async function markAllNotificationsRead(userId, userEmail = '') {
 
     if (cols.includes('is_read')) {
       await execute(
-        `UPDATE notifications SET is_read = true${cols.includes('status') ? ", status = 'seen'" : ''} WHERE ${ownerClause} AND COALESCE(is_read, false) = false`,
+        `UPDATE notifications SET is_read = true WHERE ${ownerClause} AND COALESCE(is_read, false) = false`,
         params
       );
     } else if (cols.includes('status')) {

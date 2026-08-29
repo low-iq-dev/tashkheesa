@@ -1726,7 +1726,7 @@ async function markDoctorNotificationRead(userId, userEmail, notificationId) {
   if (cols.includes('is_read')) {
     try {
       const r = await execute(
-        `UPDATE notifications SET is_read = true${cols.includes('status') ? ", status = 'seen'" : ''} WHERE id = ${idParam} AND ${ownerClause}`,
+        `UPDATE notifications SET is_read = true WHERE id = ${idParam} AND ${ownerClause}`,
         params
       );
       return { ok: !!(r && r.rowCount), mode: 'is_read' };
@@ -1779,7 +1779,7 @@ async function markAllDoctorNotificationsRead(userId, userEmail = '') {
   if (cols.includes('is_read')) {
     try {
       const r = await execute(
-        `UPDATE notifications SET is_read = true${cols.includes('status') ? ", status = 'seen'" : ''} WHERE ${ownerClause} AND COALESCE(is_read, false) = false`,
+        `UPDATE notifications SET is_read = true WHERE ${ownerClause} AND COALESCE(is_read, false) = false`,
         params
       );
       return { ok: true, mode: 'is_read', changes: (r && r.rowCount) ? r.rowCount : 0 };
