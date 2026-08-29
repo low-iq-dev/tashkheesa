@@ -42,7 +42,7 @@ function setupStaticPages(opts) {
     // (see src/services/urgency.js and patient_new_case.ejs §3). The old
     // 'Sunday – Thursday 9–5' string contradicted every SLA we actually sell.
     businessHours: '24/7 — cases accepted any time. Urgent 4-hour reviews run 7:00 AM – 7:00 PM (Cairo Time).',
-    businessHours_ar: 'متاح ٢٤/٧ — نستقبل الحالات في أي وقت. المراجعات العاجلة خلال ٤ ساعات تعمل من ٧:٠٠ صباحاً حتى ٧:٠٠ مساءً (بتوقيت القاهرة).',
+    businessHours_ar: 'متاح 24/7 — نستقبل الحالات في أي وقت. المراجعات العاجلة خلال 4 ساعات تعمل من 7:00 صباحاً حتى 7:00 مساءً (بتوقيت القاهرة).',
     instagram: 'https://instagram.com/tashkheesa',
   };
 
@@ -143,7 +143,24 @@ function setupStaticPages(opts) {
       _servicesCache = { services: services, specialtyNames: specialtyNames, specialtyNameArMap: specialtyNameArMap, ts: now };
     }
     var serviceCount = await getVisibleServiceCount();
-    res.render('services', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', services: _servicesCache.services, specialtyNames: _servicesCache.specialtyNames, specialtyNameArMap: _servicesCache.specialtyNameArMap, title: 'Services & Pricing — Tashkheesa', BUSINESS_INFO: BUSINESS_INFO, description: 'Browse ' + serviceCount + ' specialist medical review services with transparent EGP pricing. Radiology, cardiology, oncology, gastroenterology and more.', canonical: '/services' });
+
+    // The meta description used to name a HARDCODED specialty list —
+    // "Radiology, cardiology, oncology, gastroenterology and more" — while
+    // Oncology has been hidden since migration 066 and Gastroenterology is not
+    // visible either. That string is what Google shows in the search snippet,
+    // so the site's own listing advertised two specialties a patient cannot
+    // book. Derive it from the same list the page renders instead, so it can
+    // never disagree with the catalogue again.
+    var _specs = _servicesCache.specialtyNames || [];
+    var _specPhrase = _specs.length
+      // Kept in the catalogue's own casing: lowercasing turned OB/GYN into
+      // "ob/gyn", which reads as a typo in a search snippet.
+      ? _specs.slice(0, 4).join(', ') + (_specs.length > 4 ? ' and more' : '')
+      : 'a growing range of specialties';
+    var _desc = 'Browse ' + serviceCount + ' specialist medical review services with transparent EGP pricing: '
+      + _specPhrase + '.';
+
+    res.render('services', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', services: _servicesCache.services, specialtyNames: _servicesCache.specialtyNames, specialtyNameArMap: _servicesCache.specialtyNameArMap, title: 'Services & Pricing — Tashkheesa', BUSINESS_INFO: BUSINESS_INFO, description: _desc, canonical: '/services' });
   });
 
   var LAUNCH_DATE = process.env.LAUNCH_DATE || '';

@@ -8,7 +8,7 @@
 <% if (__isAr) { %>
       <h1>سياسة التسليم والخدمة</h1>
       <p class="subtitle">كيف تصلك خدماتنا الطبية الرقمية.</p>
-      <p class="legal-updated">آخر تحديث: فبراير 2026</p>
+      <p class="legal-updated">آخر تحديث: 29 أغسطس 2026</p>
 
       <p>تشخيصة منصة رقمية للآراء الطبية الثانية. تُسلَّم جميع الخدمات إلكترونيًا عبر بوابتنا الآمنة، ولا تتضمن الخدمة أي منتجات مادية أو شحن.</p>
 
@@ -82,8 +82,8 @@
       <h2>توفر الخدمة</h2>
       <ul>
         <li>يتاح تقديم الحالات على تشخيصة على مدار الساعة طوال أيام الأسبوع.</li>
-        <li>تُعالَج مراجعات الأطباء على مدار الساعة (<%= biz.businessHours_ar || 'متاح ٢٤/٧ — نستقبل الحالات في أي وقت. المراجعات العاجلة خلال ٤ ساعات تعمل من ٧:٠٠ صباحاً حتى ٧:٠٠ مساءً (بتوقيت القاهرة).' %>).</li>
-        <li>الحالة المقدَّمة الساعة ٣ فجراً تُعالَج مثل المقدَّمة الساعة ٣ عصراً. أما الحالة العاجلة المقدَّمة خارج فترة ٧ صباحاً – ٧ مساءً فتبدأ ساعاتها الأربع في تمام ٧:٠٠ صباحاً.</li>
+        <li>مواعيد مراجعة الأطباء: <%= biz.businessHours_ar || 'متاح 24/7 — نستقبل الحالات في أي وقت. المراجعات العاجلة خلال 4 ساعات تعمل من 7:00 صباحاً حتى 7:00 مساءً (بتوقيت القاهرة).' %></li>
+        <li>الحالة المقدَّمة الساعة 3 فجراً تُعالَج مثل المقدَّمة الساعة 3 عصراً. أما الحالة العاجلة المقدَّمة خارج فترة 7 صباحاً – 7 مساءً فتبدأ ساعاتها الأربع في تمام 7:00 صباحاً.</li>
         <li>تخضع المراجعات VIP (خلال 18 ساعة) والعاجلة (خلال 4 ساعات) لتوفر الأطباء الاستشاريين.</li>
       </ul>
 
@@ -95,7 +95,7 @@
 <% } else { %>
       <h1>Delivery & Service Policy</h1>
       <p class="subtitle">How our digital medical services are delivered to you.</p>
-      <p class="legal-updated">Last updated: February 2026</p>
+      <p class="legal-updated">Last updated: 29 August 2026</p>
 
       <p>Tashkheesa is a digital medical second opinion platform. All services are delivered electronically through our secure portal. There are no physical products or shipping involved.</p>
 
@@ -169,7 +169,7 @@
       <h2>Service Availability</h2>
       <ul>
         <li>Tashkheesa services are available 24/7 for case submission</li>
-        <li>Specialist reviews are processed around the clock (<%= biz.businessHours || '24/7 — cases accepted any time. Urgent 4-hour reviews run 7:00 AM – 7:00 PM (Cairo Time).' %>)</li>
+        <li>Specialist review hours: <%= biz.businessHours || '24/7 — cases accepted any time. Urgent 4-hour reviews run 7:00 AM – 7:00 PM (Cairo Time).' %></li>
         <li>A case submitted at 3am is handled the same as one submitted at 3pm. An urgent case submitted outside the 7:00 AM – 7:00 PM window starts its four hours at 7:00 AM</li>
         <li>VIP (18-hour) and Urgent (4-hour) reviews are subject to specialist availability</li>
       </ul>

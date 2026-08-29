@@ -558,7 +558,7 @@ async function seedPricingData() {
     { id: 'neph_htn_workup', specialty_id: 'nephrology', name: 'Hypertension Workup Review' },
     { id: 'obgyn_obs_us', specialty_id: 'obgyn', name: 'Obstetric Ultrasound Review' },
     { id: 'obgyn_fetal_echo', specialty_id: 'obgyn', name: 'Fetal Echocardiography Review' },
-    { id: 'obgyn_gynae_us', specialty_id: 'obgyn', name: 'Gynaecological Ultrasound Review' },
+    { id: 'obgyn_gynae_us', specialty_id: 'obgyn', name: 'Gynecological Ultrasound Review' },
     { id: 'obgyn_pap_smear', specialty_id: 'obgyn', name: 'Pap Smear Report Review' },
     { id: 'obgyn_mri_pelvis', specialty_id: 'obgyn', name: 'MRI Pelvis Review' },
     { id: 'obgyn_fertility_panel', specialty_id: 'obgyn', name: 'Fertility Panel Review' },
