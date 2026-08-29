@@ -972,6 +972,11 @@ body.layout-auth {
   width: 100%;
   padding: 10px 12px;
   font-size: var(--text-base);
+  /* The UA stylesheet gives `textarea` monospace. Nothing here set a family,
+     so the contact form's Message box rendered its placeholder in Courier
+     beside three sans-serif fields — and, in Arabic, broke the cursive
+     joining of "إزاي نقدر نساعدك؟" into disconnected glyphs. */
+  font-family: inherit;
   line-height: 1.5;
   color: var(--neutral-black);
   background-color: #ffffff;
@@ -987,8 +992,18 @@ body.layout-auth {
   box-shadow: var(--shadow-focus);
 }
 
+/* :user-invalid, not :invalid:not(:placeholder-shown).
+   The :placeholder-shown guard was there to stop a required INPUT going red
+   before anyone typed — and for inputs it works. A <select> has no
+   placeholder, so :placeholder-shown never matches it and
+   :not(:placeholder-shown) is permanently true. A required select whose first
+   option is empty is :invalid from the moment it renders, so the contact
+   form's Subject field showed a red error border on page load, before the
+   visitor had touched anything, on a public contact page.
+   :user-invalid only matches after the user has interacted or submitted, and
+   it means the same thing for every control type. */
 .form-control.is-error,
-.form-control:invalid:not(:placeholder-shown) {
+.form-control:user-invalid {
   border-color: var(--color-danger);
   box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
 }

@@ -23,8 +23,15 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div class="footer-brand">
-        <img src="/assets/brand/tashkheesa-logo-primary.svg" class="footer-logo logo-light" alt="Tashkheesa" style="max-height:36px;width:auto;" />
-        <img src="/assets/brand/tashkheesa-logo-white.svg" class="footer-logo logo-dark" alt="Tashkheesa" style="max-height:36px;width:auto;" />
+        <%# Both variants used to render, stacked, on every page: `.logo-light`
+            and `.logo-dark` were never given CSS anywhere in public/css, so
+            nothing ever hid either one. The primary SVG's wordmark is #1e3a8a
+            navy, drawn for LIGHT backgrounds, so the top copy all but vanished
+            against the footer while the white copy sat correctly beneath it —
+            a doubled, half-invisible logo site-wide. .site-footer is
+            unconditionally dark (--footer-bg, white text), so there is no
+            light-footer case to switch for: render the white mark only. %>
+        <img src="/assets/brand/tashkheesa-logo-white.svg" class="footer-logo" alt="Tashkheesa" style="max-height:36px;width:auto;" />
         <p class="muted"><%= __footerIsAr ? 'آراء طبية ثانية من استشاريين متخصصين، مقدمة بوضوح.' : 'Specialist medical second opinions, delivered clearly.' %></p>
       </div>
       <div class="footer-columns">
