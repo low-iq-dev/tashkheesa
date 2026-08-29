@@ -1087,6 +1087,10 @@ app.use(function(req, res, next) {
 
 // Routes
 app.use('/', aiAssistantRoutes);
+// Signed provider webhooks. Mounted before the app routes so nothing can
+// shadow the path; authentication is the Svix signature, not a session.
+app.use('/', require('./routes/webhooks_resend'));
+
 app.use('/', authRoutes);
 app.use('/', doctorRoutes);
 app.use('/', patientRoutes);

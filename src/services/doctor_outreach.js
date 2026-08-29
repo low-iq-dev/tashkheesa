@@ -70,11 +70,28 @@ async function loadDoctorOutreach(opts) {
     []
   );
 
+  // Which of these addresses Resend will refuse. Read in one query rather
+  // than per doctor: without this the console shows "3 emails delivered" next
+  // to someone who has received nothing, which is exactly the lie that cost
+  // four doctors eighteen days.
+  let suppressed = new Map();
+  try {
+    const rows = await queryAll(
+      `SELECT lower(email) AS email, reason, event_count, last_event_at, note
+         FROM email_suppressions WHERE cleared_at IS NULL`, []
+    );
+    suppressed = new Map(rows.map((r) => [r.email, r]));
+  } catch (_) {
+    // Table missing (pre-098) or a DB blip. Fail OPEN — an unreadable
+    // suppression list must not block every doctor email on the platform.
+  }
+
   const now = Date.now();
   const cooldownMs = cooldownHours * 60 * 60 * 1000;
 
   const doctors = rows.map((r) => {
     const seg = segmentOf(r);
+    const sup = suppressed.get(String(r.email || '').trim().toLowerCase()) || null;
     const lastSent = r.welcome_email_last_sent_at ? new Date(r.welcome_email_last_sent_at).getTime() : null;
     const coolingUntil = lastSent ? lastSent + cooldownMs : null;
     return {
@@ -97,7 +114,16 @@ async function loadDoctorOutreach(opts) {
       confirmedAt: r.sla_tiers_confirmed_at,
       segment: seg,
       template: SEGMENT_TEMPLATE[seg],
-      sendable: !!SEGMENT_TEMPLATE[seg],
+      // An address the provider refuses is not sendable, whatever segment the
+      // doctor is in. Sending anyway returns a message id and delivers
+      // nothing, which is worse than not sending: it looks like contact.
+      sendable: !!SEGMENT_TEMPLATE[seg] && !sup,
+      suppressed: sup ? {
+        reason: sup.reason,
+        count: sup.event_count,
+        since: sup.last_event_at,
+        note: sup.note || '',
+      } : null,
       // Cooling is advisory in the UI. The send path enforces it.
       cooling: !!(coolingUntil && coolingUntil > now),
       coolingUntil: coolingUntil ? new Date(coolingUntil).toISOString() : null,

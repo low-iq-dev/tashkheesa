@@ -247,6 +247,12 @@ services:
         sync: false
       - key: OPENCLAW_SEND_KEY
         sync: false
+      # Svix signing secret for POST /webhooks/resend. Without it the endpoint
+      # fails CLOSED and rejects every delivery event, so bounces and spam
+      # complaints stay invisible and a suppressed address keeps reading as
+      # "delivered". Resend -> Webhooks -> Signing Secret (whsec_...).
+      - key: RESEND_WEBHOOK_SECRET
+        sync: false
       # src/server.js:222-229 warns when WHATSAPP_ENABLED is not "true" (this
       # gates the Meta Cloud API path + OTP, separately from the flag above).
       - key: WHATSAPP_ENABLED

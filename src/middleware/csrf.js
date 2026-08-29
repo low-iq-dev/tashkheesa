@@ -118,6 +118,14 @@ function setupCsrf(app, opts) {
     if (p === '/callback' || p.startsWith('/portal/video/payment/callback') || p.startsWith('/payments/callback')) {
       return next();
     }
+    // Signed provider webhooks. Exempt because they are server-to-server POSTs
+    // carrying no cookie, so a CSRF token is meaningless — and safe to exempt
+    // ONLY because each verifies a cryptographic signature over the raw body
+    // before reading it (routes/webhooks_resend.js -> lib/svix_verify.js). An
+    // unsigned or unverifiable request writes nothing and returns 401.
+    if (p === '/webhooks/resend') {
+      return next();
+    }
     // Machine-to-machine ops agent endpoints. Authentication for these
     // lives in src/routes/ops.js#requireAgentKeyOptional (Theme 3 Stage 1;
     // promoted to required in Stage 2 — see

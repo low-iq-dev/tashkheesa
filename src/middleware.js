@@ -98,7 +98,25 @@ function baseMiddlewares(app) {
   );
   app.use(cookieParser());
   app.use(require('express').urlencoded({ extended: true, limit: '1mb' }));
-  app.use(require('express').json({ limit: '1mb' }));
+  // RAW BODY FOR SIGNED WEBHOOKS.
+  //
+  // Svix (which is what Resend signs with) computes its HMAC over the exact
+  // bytes it sent. JSON.stringify(req.body) is NOT those bytes — key order,
+  // whitespace and unicode escaping all differ — so a verifier built on the
+  // parsed body rejects every legitimate delivery, or worse, is written to
+  // "work" by skipping verification.
+  //
+  // The `verify` hook is the standard way to keep one json parser for the
+  // whole app and still retain the original buffer. Scoped by path so a 1mb
+  // copy is not held for every request on the platform.
+  app.use(require('express').json({
+    limit: '1mb',
+    verify: (req, _res, buf) => {
+      if (req.originalUrl && req.originalUrl.startsWith('/webhooks/')) {
+        req.rawBody = Buffer.isBuffer(buf) ? buf.toString('utf8') : String(buf || '');
+      }
+    }
+  }));
 
   // Rate limiter
   const limiter = rateLimit({
