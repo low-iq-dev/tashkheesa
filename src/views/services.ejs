@@ -641,7 +641,13 @@
       <div class="services-grid">
         <% preview.forEach(function(service) { %>
         <% if (!isBookable(service) || !__ctaOn) { %>
-        <div class="service-card service-card--soon" role="link" aria-disabled="true" tabindex="-1">
+        <%# Two different states share this branch and must NOT share a look.
+            A service that is genuinely not orderable gets the muted
+            --soon treatment. A perfectly bookable one, rendered unlinked only
+            because the site-wide CTA is held shut, keeps its normal card and
+            its price — greying the whole catalogue would tell a visitor the
+            catalogue is unavailable, when it is the checkout that is. %>
+        <div class="service-card<%= isBookable(service) ? '' : ' service-card--soon' %>"<% if (!isBookable(service)) { %> role="link" aria-disabled="true" tabindex="-1"<% } %>>
           <h3><%= service.name %></h3>
           <p><%= service.description || tt('svc.default_desc',
             'Board-certified specialist review with detailed written report in English and Arabic.',
