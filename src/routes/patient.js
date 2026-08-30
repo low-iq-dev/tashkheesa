@@ -1792,7 +1792,7 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
       // The two must agree: offer exactly what the next step will accept.
       const visibleClause = servicesBookableClause('sv');
       services = await safeAll(
-        (slaExpr) => `SELECT sv.id, sv.specialty_id, sv.name,
+        (slaExpr) => `SELECT sv.id, sv.specialty_id, sv.name, sv.name_ar,
                              COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
                              COALESCE(cp.currency, sv.currency) AS currency,
                              ${slaExpr} AS sla_hours
@@ -1820,7 +1820,7 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
         // returns null for coming_soon services (matching what the POST validates).
         const bookableClause = servicesBookableClause('sv');
         const localPrice = await safeGet(
-          (slaExpr) => `SELECT sv.id, sv.name, sv.specialty_id,
+          (slaExpr) => `SELECT sv.id, sv.name, sv.name_ar, sv.specialty_id,
                                COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
                                COALESCE(cp.currency, sv.currency, 'EGP') AS currency,
                                sv.vip_multiplier, sv.urgent_multiplier,

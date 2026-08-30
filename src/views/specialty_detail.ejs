@@ -130,7 +130,7 @@
                    var slaTxt = fmtSla(sv.sla_hours);
               %>
                 <tr>
-                  <td class="col-service"><%= sv.name %></td>
+                  <td class="col-service"><%= (__isAr && sv.name_ar) ? sv.name_ar : sv.name %></td>
                   <td class="col-price">
                     <% if (price) { %><%= price %><% } else { %><span class="price-na"><%= tt('specd.on_request', 'On request', 'حسب الطلب') %></span><% } %>
                   </td>

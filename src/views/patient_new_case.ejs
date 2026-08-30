@@ -24,6 +24,13 @@
   // re-render only for the active step.
 
   const __isAr = !!isAr;
+  // Service names in the reader's language (migration 102 added
+  // services.name_ar). Falls back to English rather than blank, so a service
+  // added after that migration still names itself.
+  const __svcName = function (sv) {
+    if (!sv) return '';
+    return (__isAr && sv.name_ar) ? sv.name_ar : sv.name;
+  };
   const __step = Math.min(5, Math.max(1, Number(step) || 1));
   // P2-VIEW-1 defensive read for CSP nonce — needed for inline <script>
   // tags (line 402, 878). Express's res.render normally merges res.locals
@@ -611,7 +618,7 @@
                   data-specialty-id="<%= sv.specialty_id %>"
                   style="text-align:start;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid <%= sel ? 'var(--primary)' : 'var(--rule)' %>;background:<%= sel ? 'var(--primary-light)' : '#fff' %>;border-radius:12px;padding:14px 16px;">
             <div>
-              <div style="font-size:14px;font-weight:600;color:var(--ink);"><%= sv.name %></div>
+              <div style="font-size:14px;font-weight:600;color:var(--ink);"><%= __svcName(sv) %></div>
               <div style="font-size:11.5px;color:var(--muted);margin-top:3px;"><%= tt('Standard ' + (sv.sla_hours || 48) + 'h turnaround', 'Standard ' + (sv.sla_hours || 48) + 'h turnaround', 'تسليم خلال ' + (sv.sla_hours || 48) + ' ساعة قياسي') %></div>
             </div>
             <div class="p-num" style="font-size:14px;font-weight:600;color:var(--accent-dark);"><%= priceLabel %></div>
@@ -685,7 +692,7 @@
     <%# Embed services data for client-side filtering when patient picks a specialty. %>
     <script<%- __nonceAttr %>>
       (function() {
-        var allServices = <%- JSON.stringify(__services.map(function(sv) { return { id: sv.id, specialty_id: sv.specialty_id, name: sv.name, base_price: Number(sv.base_price) || 0, currency: sv.currency || 'EGP', sla_hours: sv.sla_hours || 48 }; })) %>;
+        var allServices = <%- JSON.stringify(__services.map(function(sv) { return { id: sv.id, specialty_id: sv.specialty_id, name: __svcName(sv), base_price: Number(sv.base_price) || 0, currency: sv.currency || 'EGP', sla_hours: sv.sla_hours || 48 }; })) %>;
         var specialtyInput = document.getElementById('step3-specialty-id');
         var serviceInput = document.getElementById('step3-service-id');
         var servicesCard = document.getElementById('step3-services-card');

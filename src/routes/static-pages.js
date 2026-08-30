@@ -399,7 +399,7 @@ function setupStaticPages(opts) {
       return res.status(404).render('404', { title: 'Not Found', BUSINESS_INFO: BUSINESS_INFO, canonical: '/specialties' });
     }
     var services = await safeAll(
-      "SELECT sv.id, sv.name, sv.base_price, sv.currency, sv.sla_hours " +
+      "SELECT sv.id, sv.name, sv.name_ar, sv.base_price, sv.currency, sv.sla_hours " +
       "FROM services sv " +
       "WHERE sv.specialty_id = $1 " +
       "  AND COALESCE(sv.is_visible, true) = true " +

@@ -425,6 +425,15 @@
     // which is true of 128 of the 183 services on this page.
     function isBookable(sv) { return !!(sv && sv.is_bookable); }
 
+    // Service names in the reader's language. services.name_ar was added in
+    // migration 102 — before it, an Arabic visitor read Arabic chrome wrapped
+    // around 183 English medical terms. Falls back to the English name rather
+    // than rendering blank, so a service added after 102 still shows something.
+    function svcName(sv) {
+      if (!sv) return '';
+      return (__isAr && sv.name_ar) ? sv.name_ar : sv.name;
+    }
+
     // Which specialties have anything orderable. Declared HERE, above the
     // featured spotlight, because that block filters on it too — a `const`
     // declared further down is in the temporal dead zone and throws.
@@ -591,7 +600,7 @@
         <div class="featured-card is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>">
         <% } %>
           <div class="fc-specialty"><%= __isAr && s.specialty_name_ar ? s.specialty_name_ar : s.specialty_name %></div>
-          <div class="fc-name"><%= s.name %></div>
+          <div class="fc-name"><%= svcName(s) %></div>
           <div class="fc-price">
             <%= s.base_price ? formatMoney(s.base_price, 'EGP') : 'EGP —' %>
             <span> <%= tt('svc.per_report', '/ report', '/ تقرير') %></span>
@@ -648,7 +657,7 @@
             its price — greying the whole catalogue would tell a visitor the
             catalogue is unavailable, when it is the checkout that is. %>
         <div class="service-card<%= isBookable(service) ? '' : ' service-card--soon' %>"<% if (!isBookable(service)) { %> role="link" aria-disabled="true" tabindex="-1"<% } %>>
-          <h3><%= service.name %></h3>
+          <h3><%= svcName(service) %></h3>
           <p><%= service.description || tt('svc.default_desc',
             'Board-certified specialist review with detailed written report in English and Arabic.',
             'مراجعة من دكتور متخصص معتمد بتقرير مكتوب مفصل بالإنجليزي والعربي.') %></p>
@@ -669,7 +678,7 @@
         </div>
         <% } else { %>
         <a href="<%= submitUrl %>?service_id=<%= service.id %>" class="service-card">
-          <h3><%= service.name %></h3>
+          <h3><%= svcName(service) %></h3>
           <p><%= service.description || tt('svc.default_desc',
             'Board-certified specialist review with detailed written report in English and Arabic.',
             'مراجعة من دكتور متخصص معتمد بتقرير مكتوب مفصل بالإنجليزي والعربي.') %></p>

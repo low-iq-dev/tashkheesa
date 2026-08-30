@@ -67,23 +67,24 @@
   <link rel="stylesheet" href="/css/portal-variables.css" />
   <link rel="stylesheet" href="/css/portal-components.css" />
   <link rel="stylesheet" href="/css/portal-global.css" />
-  <link rel="stylesheet" href="https://unpkg.com/lucide-static/font/lucide.css">
+  <%# The Lucide icon font used to be pulled from unpkg here. Our own CSP
+      (style-src 'self' 'unsafe-inline' ucarecdn fonts.googleapis) never
+      allowed it, so the browser refused the stylesheet on EVERY page load
+      and logged a violation every time. It has therefore never rendered a
+      single icon in production — every icon you see is an inline SVG or the
+      .portal-icon-fallback text, which is why nothing looked broken.
+
+      Removed rather than added to the CSP: the fallback path is the only
+      path that has ever run, so widening a medical site's style-src to a
+      third-party CDN would buy a cosmetic change in exchange for a real
+      supply-chain surface. If the icon font is ever genuinely wanted,
+      self-host it under /fonts and the CSP needs no change at all.
+
+      The html.lucide-ready probe that sat below is gone with it — it
+      existed only to detect a font that can no longer arrive. The
+      html.lucide-ready CSS rules are left in place, inert, so a future
+      self-hosted font needs one line here and nothing else. %>
   <% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
-  <script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
-    (function () {
-      try {
-        var el = document.createElement('i');
-        el.className = 'lucide lucide-bell';
-        el.style.position = 'absolute';
-        el.style.left = '-9999px';
-        el.style.top = '-9999px';
-        document.documentElement.appendChild(el);
-        var ff = (window.getComputedStyle(el).fontFamily || '').toLowerCase();
-        el.remove();
-        if (ff.indexOf('lucide') !== -1) document.documentElement.classList.add('lucide-ready');
-      } catch (e) {}
-    })();
-  </script>
   <link rel="icon" href="/favicon.ico" />
 </head>
 <body class="layout layout-public">
