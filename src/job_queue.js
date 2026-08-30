@@ -59,10 +59,12 @@ async function startJobQueue() {
   // AUDIT-2026-08-22 (AUDIT-BOSS-POOL-2) — the first fix bounded it to 4 on the
   // strength of a worker count that was simply WRONG. The comment said "four
   // workers, all teamConcurrency 1". The real registration is:
-  //   createQueue × 6 : case-intelligence, case-reprocess, auto-assign,
-  //                     specialty-classify, sla-sweep, ai-canary
-  //   boss.work   × 6 : the four below, plus sla-sweep (scheduleSlaSweep) and
-  //                     ai-canary (scheduleAiCanary) — both registered from
+  //   createQueue × 7 : case-intelligence, case-reprocess, auto-assign,
+  //                     specialty-classify, sla-sweep, ai-canary, and
+  //                     classifier-learning (created in its own scheduler)
+  //   boss.work   × 7 : the four below, plus sla-sweep (scheduleSlaSweep),
+  //                     ai-canary (scheduleAiCanary) and classifier-learning
+  //                     (scheduleClassifierLearning) — all registered from
   //                     server.js after start()
   //   teamSize 2 on THREE of them (case-intelligence, auto-assign,
   //                     specialty-classify) → up to 9 concurrent handlers
@@ -348,6 +350,19 @@ async function handleClassifierLearning() {
  */
 async function scheduleClassifierLearning() {
   if (!boss) return false;
+  // pg-boss v12 will not create a queue implicitly. work(), send() and
+  // schedule() all throw "Queue <name> does not exist" against an unregistered
+  // name — and because the scheduler retries, one missing line produces a
+  // continuous error stream in production rather than a single failure.
+  //
+  // This queue was added after the six in start(), and gained work() and
+  // schedule() but not createQueue(). Net effect since it shipped: the
+  // classifier learning loop has never run once, and every attempt logged.
+  //
+  // It belongs HERE and not beside the other six, because this function is
+  // what owns the queue's lifecycle — a createQueue in start() for a queue
+  // registered in a different module is exactly how the two drifted apart.
+  await boss.createQueue('classifier-learning');
   await boss.work('classifier-learning', { teamSize: 1, teamConcurrency: 1 }, handleClassifierLearning);
   var cron = process.env.CLASSIFIER_LEARNING_CRON || '30 3 * * *';
   await boss.schedule('classifier-learning', cron, {}, { singletonKey: 'classifier-learning' });
