@@ -206,3 +206,52 @@ check('admin.js defaults mustGet/mustAll to the real throwing helpers', function
     throw new Error('admin.js no longer requires src/sql-utils.js for the strict default.');
   }
 });
+
+// ── AUTH: a database error must never read as "not authorised" ──────────────
+//
+// 2026-08-30. The KPI endpoints were migrated off safeGet in the morning; the
+// AUTH endpoints were not, and that is where the same bug hurt most.
+//
+// /auth/refresh did:
+//     const user = await safeGet("... WHERE refresh_token = $2 ...");
+//     if (!user) return res.fail('Refresh token revoked', 401);
+//
+// safeGet returns null on ANY SQL error, so a statement timeout or a saturated
+// pool during a token refresh was reported to the Command app as a 401 — the
+// app cleared its tokens and dropped the founder at the login screen. Because
+// the app refreshes whenever the access token expires, it happened again and
+// again: the "constantly signing me in and out" report.
+//
+// A null from safeGet means "we could not tell". On every other endpoint that
+// fabricates a zero; on an auth endpoint it fabricates a REJECTION, which is
+// strictly worse — it destroys state the user cannot get back without signing
+// in. These two handlers must use the throwing helper and answer 5xx.
+check('auth endpoints never decide identity from a swallowed SQL error', function () {
+  const src = stripComments(fs.readFileSync(ADMIN, 'utf8'));
+
+  for (const route of ['/auth/login', '/auth/refresh']) {
+    const start = src.indexOf("router.post('" + route + "'");
+    if (start === -1) throw new Error('routes/api/admin.js no longer defines POST ' + route);
+    // The handler body, up to the next route declaration.
+    const next = src.indexOf('router.', start + 10);
+    const body = src.slice(start, next === -1 ? src.length : next);
+
+    if (/\bsafeGet\s*\(|\bsafeAll\s*\(/.test(body)) {
+      throw new Error(
+        route + ' looks up the account with safeGet/safeAll. Those return null on a '
+        + 'SQL error, and this handler turns null into a 401 — so a database blip '
+        + 'signs the user out (or tells them their password is wrong). Use mustGet '
+        + 'and answer 5xx so the client treats it as transient.'
+      );
+    }
+    if (!/\bmustGet\s*\(/.test(body)) {
+      throw new Error(route + ' no longer uses mustGet for its account lookup.');
+    }
+    if (!/\b500\b/.test(body)) {
+      throw new Error(
+        route + ' has no 5xx path. A lookup that could not run must not be '
+        + 'reported as an authentication failure.'
+      );
+    }
+  }
+});

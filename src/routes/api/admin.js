@@ -483,10 +483,20 @@ module.exports = function (db, helpers, deploy, deps) {
       return res.fail('Invalid email or password.', 401, 'INVALID_CREDENTIALS');
     }
 
-    const user = await safeGet(
-      "SELECT * FROM users WHERE email = $1 AND role = 'superadmin'",
-      [email]
-    );
+    // mustGet for the same reason as /auth/refresh: safeGet's null on a SQL
+    // error is indistinguishable here from "no such account", so a database
+    // blip told the founder his own password was wrong. "We could not check"
+    // and "you are not who you say" are different answers and only one of them
+    // is 401.
+    let user;
+    try {
+      user = await mustGet(
+        "SELECT * FROM users WHERE email = $1 AND role = 'superadmin'",
+        [email]
+      );
+    } catch (err) {
+      return res.fail('Sign-in is temporarily unavailable', 500, 'LOGIN_UNAVAILABLE');
+    }
     // Defense-in-depth: the query filters role, but re-check in code in case
     // an injected/odd row comes back.
     if (!user || user.role !== 'superadmin') {
@@ -523,16 +533,43 @@ module.exports = function (db, helpers, deploy, deps) {
 
     // Rotation + role re-check: the stored token must match AND the account
     // must still be a superadmin.
-    const user = await safeGet(
-      "SELECT * FROM users WHERE id = $1 AND refresh_token = $2 AND role = 'superadmin'",
-      [decoded.id, refreshToken]
-    );
+    //
+    // 2026-08-30 — mustGet, NOT safeGet, and the difference is the whole bug.
+    // safeGet returns null on ANY SQL error — a statement timeout, a saturated
+    // pool, a pooler reset. This handler read that null as "no row matched" and
+    // answered 401 REFRESH_REVOKED, so a transient database hiccup during a
+    // token refresh was reported to the app as "your session was revoked". The
+    // app then cleared its tokens and dropped the admin at the login screen.
+    // Sign in, use the app, hit one blip, get ejected, repeat.
+    //
+    // A refresh is the one place a fabricated negative is most expensive: null
+    // here does not mean "not authorised", it means "we could not tell", and
+    // the only safe answer to that is 500 — which the client treats as
+    // transient and retries, keeping the session. Throwing reaches the catch
+    // below.
+    let user;
+    try {
+      user = await mustGet(
+        "SELECT * FROM users WHERE id = $1 AND refresh_token = $2 AND role = 'superadmin'",
+        [decoded.id, refreshToken]
+      );
+    } catch (err) {
+      return res.fail('Could not verify the session', 500, 'REFRESH_UNAVAILABLE');
+    }
     if (!user) {
       return res.fail('Refresh token revoked', 401, 'REFRESH_REVOKED');
     }
 
     const tokens = generateAdminTokens(user);
-    await safeRun('UPDATE users SET refresh_token = $1 WHERE id = $2', [tokens.refreshToken, user.id]);
+    // If the rotation write fails, the client must NOT be handed tokens whose
+    // refresh half the database does not know about — the next refresh would
+    // then genuinely not match and log them out for real. execute() throws;
+    // answer 500 and let them keep the working session they already have.
+    try {
+      await safeRun('UPDATE users SET refresh_token = $1 WHERE id = $2', [tokens.refreshToken, user.id]);
+    } catch (err) {
+      return res.fail('Could not rotate the session', 500, 'REFRESH_UNAVAILABLE');
+    }
 
     return res.ok({
       accessToken: tokens.accessToken,
