@@ -5555,7 +5555,7 @@ table tbody tr:last-child td {
 
 .legal-page .legal-updated {
   font-size: 13px;
-  color: #94a3b8;
+  color: #64748b; /* was #94a3b8 = 2.56:1 on white; slate-500 is 4.76:1 */
   margin-bottom: 32px;
 }
 
@@ -5719,7 +5719,7 @@ table tbody tr:last-child td {
 
 .service-card-sla {
   font-size: 13px;
-  color: #94a3b8;
+  color: #64748b; /* was #94a3b8 = 2.56:1 on white; slate-500 is 4.76:1 */
   margin-bottom: 12px;
 }
 
@@ -5783,7 +5783,7 @@ table tbody tr:last-child td {
 
 .services-price-note p {
   font-size: 13px;
-  color: #94a3b8;
+  color: #64748b; /* was #94a3b8 = 2.56:1 on white; slate-500 is 4.76:1 */
   line-height: 1.6;
 }
 
@@ -5914,7 +5914,7 @@ table tbody tr:last-child td {
 
 .contact-response-note {
   font-size: 13px;
-  color: #94a3b8;
+  color: #64748b; /* was #94a3b8 = 2.56:1 on white; slate-500 is 4.76:1 */
   font-style: italic;
 }
 

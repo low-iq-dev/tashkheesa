@@ -13,6 +13,18 @@
   --text-primary: #1f2937;
   --text-secondary: #64748b;
   --text-muted: #94a3b8;
+  /* Muted text that sits on a LIGHT surface.
+     --text-muted (#94a3b8) is tuned for the dark footer, where it measures
+     6.16:1 — but on white it is 2.56:1, well under the 4.5:1 WCAG AA needs for
+     body text. A sweep of the live site found it on legal "Last updated" dates,
+     the pricing note, the contact response-time note, service-card turnarounds
+     and the doctor application's disclaimer: small print, and some of it legal.
+     Slate-500 gives 4.76:1 on white.
+     Deliberately a SECOND token rather than a change to --text-muted, because
+     retuning that one for white would drop the footer to 3.32:1 — trading one
+     failure for another. Which surface the text sits on is the thing that
+     decides, so the token names the surface. */
+  --text-muted-on-light: #64748b;
   --white: #ffffff;
   --danger: #ef4444;
   --success: #22c55e;
