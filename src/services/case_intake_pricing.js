@@ -187,10 +187,43 @@ function assertUrgentWindowOpen(urgencyTier) {
  * @returns {Promise<{displayCountry, charge, pricing, slaHours, urgencyFlag, urgencyTier}>}
  * @throws {IntakeError} UNSUPPORTED_CURRENCY
  */
+// The market whose price lives in services.base_price. Everything the public
+// site quotes — /services, specialty pages, blog bodies, the FAQ, the
+// schema.org priceRange — reads base_price, so for this market base_price IS
+// the advertised price and nothing else may override it at checkout.
+const HOME_MARKET = 'EG';
+
 async function priceCaseForMarket({ service, country, urgencyTier }) {
   const displayCountry = String(country || 'EG').trim().toUpperCase() || 'EG';
 
-  const regionalPrice = await queryOne(
+  // ── The home market prices from services.base_price, never from
+  //    service_regional_prices. ────────────────────────────────────────────
+  //
+  // AUDIT 2026-08-30. These were two sources of truth for the SAME number and
+  // they disagreed on every row that had both. 38 EG rows existed in
+  // service_regional_prices; ALL 38 differed from base_price, 20 of them on
+  // services a patient could book that day. The catalogue reads base_price, so
+  // the page and the checkout quoted different prices:
+  //
+  //   CT/MR Angiography Review   page 3,500   checkout 17,480   (+13,980)
+  //   Spine MRI Review           page 2,400   checkout  9,315   (+6,915)
+  //   Echocardiogram Review      page 2,400   checkout  1,380   (-1,020)
+  //
+  // service_regional_prices exists to express OTHER markets in THEIR currency —
+  // 177 services each in AED, SAR, GBP, USD, KWD, QAR, BHD, OMR. An EG row in
+  // EGP is a second EGP price for a service that already has one, which is the
+  // bug rather than a feature. base_price is the home-market price by
+  // definition: it is what /services, the specialty pages, the blogs, the FAQ
+  // and the schema.org priceRange all publish.
+  //
+  // So the home market is skipped here rather than the EG rows being deleted:
+  // deleting is Ziad's call, and if a row is ever promoted to authoritative the
+  // fix is to change base_price, not to reintroduce a second column that only
+  // the checkout can see. tests/lint/home-market-prices-single-source.test.js
+  // holds this.
+  const isHomeMarket = displayCountry === HOME_MARKET;
+
+  const regionalPrice = isHomeMarket ? null : await queryOne(
     "SELECT tashkheesa_price, currency FROM service_regional_prices " +
     "WHERE service_id = $1 AND country_code = $2 AND COALESCE(status, 'active') = 'active'",
     [service.id, displayCountry]

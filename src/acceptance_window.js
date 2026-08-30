@@ -88,13 +88,32 @@ function acceptanceMinutesForSlaHours(slaHours) {
  * the 15-minute urgent window instead of 45 — a 16× tightening against the
  * pre-change 4h, on the tier that pays a premium for attention.
  *
- * The tier columns are the only honest signal: `tier` is written by
- * notify/broadcast.js, `urgency_tier` by the wizard and the mobile API. When
- * both are missing, sla_hours buckets to the same three tiers.
+ * The tier columns are the only honest signal: `urgency_tier` is written by the
+ * wizard and the mobile API at order creation — the moment the patient chooses
+ * and pays for the tier — while `tier` is written LATER, and only by
+ * notify/broadcast.js. When both are missing, sla_hours buckets to the same
+ * three tiers.
+ *
+ * ── ORDER OF PREFERENCE: urgency_tier FIRST. ────────────────────────────────
+ *
+ * AUDIT 2026-08-30. This read `order.tier || order.urgency_tier`. orders.tier
+ * carries DEFAULT 'standard' from migration 010 and is only overwritten once a
+ * case has been broadcast — so on every order in production (39 of 39, none
+ * NULL) it read 'standard', which is TRUTHY, so the `||` never reached
+ * urgency_tier at all. An urgent case that had not yet been broadcast was
+ * handed the STANDARD acceptance window instead of the 15-minute urgent one,
+ * on the tier that pays the largest premium for speed.
+ *
+ * The earlier fix (F6, in workers/acceptance_watcher.js) assumed the failure
+ * mode was `tier` arriving NULL and fell through correctly for that. A DEFAULT
+ * makes it non-null and wrong instead of null and absent, which no `||` can
+ * detect. Preferring the creation-time column removes the whole class:
+ * urgency_tier is written when the money is taken, tier is a later derivative
+ * of it, and migration 105 backfills the rows where they already disagree.
  */
 function acceptanceMinutesForOrder(order) {
   if (!order) return ACCEPTANCE_MINUTES_BY_TIER.standard;
-  const tier = order.tier || order.urgency_tier;
+  const tier = order.urgency_tier || order.tier;
   if (tier) return acceptanceMinutesForTier(tier);
   return acceptanceMinutesForSlaHours(order.sla_hours);
 }

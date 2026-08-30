@@ -60,15 +60,38 @@ module.exports = function (db, { safeGet, safeAll }) {
     return res.ok(services);
   });
 
+
+// Which market's prices this request may see.
+//
+// AUDIT 2026-08-30. Both routes below took the country from `req.query.country`
+// — a value the caller types — so a client chose its own price band. The web
+// funnel has never worked that way: getDisplayCountryCode() in routes/patient.js
+// prefers the AUTHENTICATED user's stored country and only falls back to a
+// header for an anonymous visitor.
+//
+// The exposure was limited (every foreign market prices higher than EG, and the
+// card is charged in EGP after FX, so picking one cannot underpay) but "limited"
+// is not a property to rely on: it holds only while the price tables happen to
+// be ordered that way, and nothing enforces that.
+//
+// So: a signed-in caller is priced for the country on their account, and the
+// query parameter is honoured only for anonymous catalogue browsing, where
+// there is no account to read and no charge to make.
+function pricingCountryFor(req) {
+  const fromUser = req && req.user && (req.user.country_code || req.user.country);
+  if (fromUser) return coerceCountry(fromUser);
+  return coerceCountry(req && req.query && req.query.country);
+}
+
   // ─── GET /services ───────────────────────────────────────
   // Optional: ?specialty=spec-cardiology&country=EG
 
   router.get('/services', async (req, res) => {
-    const { specialty, country } = req.query;
+    const { specialty } = req.query;
     let paramIndex = 1;
 
     let whereExtra = '';
-    const params = [coerceCountry(country)];
+    const params = [pricingCountryFor(req)];
 
     if (specialty) {
       whereExtra = ` AND s.specialty_id = $${++paramIndex}`;
@@ -103,7 +126,6 @@ module.exports = function (db, { safeGet, safeAll }) {
   // ─── GET /services/:id/price ─────────────────────────────
 
   router.get('/services/:id/price', async (req, res) => {
-    const { country } = req.query;
     const serviceId = req.params.id;
 
     // 2026-08-25: had no filter at all, so it returned a live quote for any
@@ -121,7 +143,7 @@ module.exports = function (db, { safeGet, safeAll }) {
       SELECT tashkheesa_price as price, doctor_commission as "doctorFee", currency
       FROM service_regional_prices
       WHERE service_id = $1 AND country_code = $2 AND COALESCE(status, 'active') = 'active'
-    `, [serviceId, coerceCountry(country)]);
+    `, [serviceId, pricingCountryFor(req)]);
 
     if (regional) {
       return res.ok({

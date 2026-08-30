@@ -252,6 +252,24 @@ function requireAgentKeyOptional(routeLabel) {
       ? String(req.body.agent_name).slice(0, 80)
       : '<unknown>';
     logMajor('agent ' + routeLabel + ' ' + verdict + ' agent=' + agentName);
+
+    // AUDIT 2026-08-30. This used to `return next()` unconditionally: it
+    // computed a verdict, logged it, and let the request through either way —
+    // including when OPS_AGENT_KEY was set and the caller sent nothing. So
+    // POST /ops/agent/ping was an unauthenticated public write, and an audit
+    // demonstrated it by leaving a real row in agent_heartbeats (removed by
+    // migration 103).
+    //
+    // Now it fails closed WHEN A KEY EXISTS and stays permissive when one does
+    // not, which is what "Optional" was always meant to mean. That ordering
+    // matters: enforcing unconditionally would lock out every agent the moment
+    // this deploys, before the key is distributed. Set OPS_AGENT_KEY on Render
+    // and the endpoint is shut with no further change; until then behaviour is
+    // exactly as it is today, and the log line says `unsigned` on every call so
+    // the gap stays visible rather than quietly forgotten.
+    if (expected && verdict !== 'signed OK') {
+      return res.status(401).json({ ok: false, error: 'agent key required' });
+    }
     return next();
   };
 }

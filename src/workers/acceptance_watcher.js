@@ -141,10 +141,14 @@ async function notifyUrgentUnaccepted(order) {
     // of wrong alarm that trains someone to swipe the channel away.
     //
     // The tier columns are the only honest signal, and it is read the same way
-    // acceptanceMinutesForOrder reads it — `tier || urgency_tier` — so the
+    // acceptanceMinutesForOrder reads it — `urgency_tier || tier` — so the
     // window quoted in the body and the tier claimed in the title come from one
     // source. (Same reasoning as the DO-NOT-RE-ADD note in acceptance_window.js.)
-    const declaredTier = order.tier || order.urgency_tier;
+    //
+    // The order was flipped on 2026-08-30: orders.tier defaults to 'standard'
+    // and is written only after a broadcast, so reading it first made every
+    // not-yet-broadcast urgent case look standard — here and in the window.
+    const declaredTier = order.urgency_tier || order.tier;
     const slaHours = Number(order.sla_hours);
     const isUrgent = declaredTier
       ? normalizeTier(declaredTier) === 'urgent'
