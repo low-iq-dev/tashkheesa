@@ -631,6 +631,10 @@ app.use(attachUser);
 app.use(function(req, res, next) {
   if (res && res.locals) {
     res.locals.user = req.user || null;
+    // Every public view asks this before rendering a link into the booking
+    // wizard. Read per-request rather than captured at boot so flipping the
+    // env var takes effect on the next request, not the next cold start.
+    res.locals.bookingCtaEnabled = require('./services/public_cta').bookingCtaEnabled();
   }
   return next();
 });
@@ -933,14 +937,25 @@ var homepageLocals = {
   businessEmail: process.env.BUSINESS_EMAIL || 'info@tashkheesa.com',
   businessPhone: process.env.BUSINESS_PHONE || '+20 110 200 9886',
   businessAddress: process.env.BUSINESS_ADDRESS || 'Cairo, Egypt',
-  priceRangeMin: process.env.PRICE_RANGE_MIN || '200',
-  priceRangeMax: process.env.PRICE_RANGE_MAX || '18,250',
   currency: 'EGP'
 };
 
 async function renderHomepage(req, res) {
-  var specialtyCount = await require('./services/site_stats').getVisibleSpecialtyCount();
-  return res.render('index', Object.assign({}, homepageLocals, { specialtyCount: specialtyCount }));
+  var stats = require('./services/site_stats');
+  var specialtyCount = await stats.getVisibleSpecialtyCount();
+  // The homepage emits a schema.org MedicalBusiness block, and its priceRange
+  // was hardcoded "EGP 200 - EGP 18,250" behind env vars nobody set. The real
+  // bookable range is 1,600-5,500 — so the structured data Google reads
+  // advertised a floor eight times below anything we sell and a ceiling more
+  // than three times above it. Driven from the live catalogue now, and
+  // BOOKABLE-only: a coming-soon service must never move the quoted range.
+  var cat = await stats.getCatalogueStats();
+  var fmt = function (n) { return Number(n || 0).toLocaleString('en-US'); };
+  return res.render('index', Object.assign({}, homepageLocals, {
+    specialtyCount: specialtyCount,
+    priceRangeMin: fmt(cat.minPrice),
+    priceRangeMax: fmt(cat.maxPrice)
+  }));
 }
 
 app.get('/index.html', function(req, res) { return res.redirect('/'); });

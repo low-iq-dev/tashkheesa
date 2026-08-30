@@ -33,6 +33,20 @@
 
 [dir="rtl"] .spec-card-cta { align-self: flex-end; }
 
+/* A specialty with nothing bookable yet. It is a <div>, not an <a>, so it
+   cannot be clicked or tabbed to — this only has to say why. Muted rather
+   than hidden: the point of listing it is to show the catalogue's real size. */
+.spec-card--soon { background: #fbfcfd; border-style: dashed; cursor: default; }
+.spec-card--soon:hover { border-color: #e2e8f0; box-shadow: none; transform: none; }
+.spec-card--soon .spec-card-title { color: #3f5871; }
+.soon-pill {
+  align-self: flex-start;
+  font-size: 11.5px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+  color: #8E6C2C; background: #FAF1DD; border: 1px solid #EBD9AE;
+  border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+}
+[dir="rtl"] .spec-card--soon .soon-pill { align-self: flex-end; }
+
 .specs-empty { text-align: center; padding: 60px 20px; color: #6b7280; font-size: 16px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 14px; }
 
 @media (max-width: 640px) {
@@ -68,6 +82,11 @@
                  ? (count === 1 ? 'خدمة واحدة' : (count + ' خدمة'))
                  : (count === 1 ? '1 service'   : (count + ' services'));
           %>
+            <%# A specialty with nothing bookable is listed but not linked: its
+                detail page 404s by design, so an anchor here would be a dead
+                link. Rendered as a div with the same card shape so the grid
+                stays even. %>
+            <% if (s.is_live) { %>
             <a class="spec-card" href="/specialties/<%= slug %>" aria-label="<%= name %>">
               <div class="spec-card-head">
                 <h2 class="spec-card-title"><%= name %></h2>
@@ -76,6 +95,16 @@
               <p class="spec-card-desc"><%= desc %></p>
               <span class="spec-card-cta"><%= tt('specs.learn_more', 'Learn more →', 'اعرف أكتر ←') %></span>
             </a>
+            <% } else { %>
+            <div class="spec-card spec-card--soon" aria-disabled="true">
+              <div class="spec-card-head">
+                <h2 class="spec-card-title"><%= name %></h2>
+                <span class="spec-card-count"><%= countLabel %></span>
+              </div>
+              <p class="spec-card-desc"><%= desc %></p>
+              <span class="soon-pill"><%= tt('specs.coming_soon', 'Coming Soon', 'قريبًا') %></span>
+            </div>
+            <% } %>
           <% }); %>
         </div>
       <% } %>

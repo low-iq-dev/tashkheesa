@@ -9,6 +9,13 @@
     ''
   );
   var __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
+
+  // Booking is held shut on the public site until Ziad opens it — see
+  // services/public_cta.js. Defaults to CLOSED if the local is missing,
+  // because failing open means walking a patient into a funnel that
+  // cannot take their payment.
+  var __ctaOn = (typeof bookingCtaEnabled !== 'undefined') ? !!bookingCtaEnabled : false;
+  var __ctaOffLabel = tt('home.cta.locked', 'Booking opens soon', 'الحجز هيفتح قريب');
 %><!DOCTYPE html>
 <html lang="<%= lang %>" dir="<%= dir %>">
 <head>
@@ -107,7 +114,8 @@
         </div>
         <a href="/login" class="nav-signin"><%= tt('nav.signin', 'Sign In', 'تسجيل الدخول') %></a>
         <div class="nav-cta">
-          <a class="btn-primary btn-sm" href="/register"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
+          <% if (__ctaOn) { %><a class="btn-primary btn-sm" href="/register"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
+          <% } else { %><span class="btn-primary btn-sm is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></span><% } %>
         </div>
       </div>
       <button class="hamburger" aria-label="<%= tt('nav.toggle_menu', 'Toggle menu', 'افتح القائمة') %>">
@@ -134,7 +142,8 @@
             'Connect with verified specialists for second opinions, diagnostic reviews, and treatment guidance. Secure, fast, and built for clarity.',
             'اتواصل مع دكاترة متخصصين معتمدين عشان تاخد رأي تاني، أو مراجعة تشخيصية، أو إرشاد للعلاج. آمن، سريع، ومبسّط.') %></p>
           <div class="hero-buttons hero-fade-in">
-            <a class="btn-primary" href="/register"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
+            <% if (__ctaOn) { %><a class="btn-primary" href="/register"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
+            <% } else { %><span class="btn-primary is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></span><% } %>
             <a href="/services" class="btn-outline"><%= tt('home.hero.view_services',
               'View Services & Pricing',
               'شوف الخدمات والأسعار') %></a>
@@ -434,7 +443,8 @@
         <p class="reveal"><%= tt('home.cta.body',
           'Get a specialist second opinion in 48 hours standard, as fast as 4 hours with Urgent. Start your secure medical review today.',
           'خد رأي تاني من دكتور متخصص في 48 ساعة قياسي، وحتى 4 ساعات للحالات العاجلة. ابدأ مراجعتك الطبية الآمنة النهارده.') %></p>
-        <a class="btn-primary reveal" href="/register"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
+        <% if (__ctaOn) { %><a class="btn-primary reveal" href="/register"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
+        <% } else { %><span class="btn-primary reveal is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></span><% } %>
       </div>
     </section>
   </main>

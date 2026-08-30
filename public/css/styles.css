@@ -1559,3 +1559,42 @@ h1, h2, h3, h4, h5, h6 {
 [dir="rtl"] .section-header {
   text-align: center;
 }
+
+
+/* ── Deliberately-shut CTA ────────────────────────────────────────────
+   Booking is held closed on the public site until it is opened — one switch,
+   src/services/public_cta.js (PUBLIC_BOOKING_CTA=on). Every gated CTA renders
+   as a <span> rather than an <a>, so there is nothing to click and nothing to
+   reach by keyboard; this class only has to make that state legible.
+
+   Quiet grey, not error-red: it is a "not yet", not a failure. pointer-events
+   is belt-and-braces — the element is already not a link.
+
+   NOTE: this rule is duplicated in public/css/styles.css and public/styles.css
+   ON PURPOSE. The homepage loads /site/css/styles.css (which resolves to
+   public/css/) while every layout-rendered page loads /styles.css (public/).
+   The two sheets share a name and nothing else; a class defined in only one of
+   them works on half the site, which is exactly the sort of split that makes a
+   dead button look alive on one page and grey on another. */
+.is-cta-locked,
+a.is-cta-locked,
+span.is-cta-locked {
+  background: #e5e7eb !important;
+  background-image: none !important;
+  color: #6b7280 !important;
+  border-color: #d1d5db !important;
+  box-shadow: none !important;
+  transform: none !important;
+  cursor: not-allowed;
+  pointer-events: none;
+  text-decoration: none;
+  animation: none !important;
+}
+.is-cta-locked:hover,
+.is-cta-locked:focus {
+  background: #e5e7eb !important;
+  color: #6b7280 !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+.is-cta-locked::after { display: none !important; }

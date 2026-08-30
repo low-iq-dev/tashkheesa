@@ -66,7 +66,67 @@ async function getVisibleServiceCount() {
   );
 }
 
+/**
+ * Everything the public pages need to describe the catalogue, in one query.
+ *
+ * The site now LISTS the whole catalogue and marks what is not yet orderable
+ * with a Coming Soon pill, so two different numbers are on the page at once and
+ * they must not be computed in two different places:
+ *
+ *   bookable  — what a patient can actually buy today (the shared rule)
+ *   total     — what the page displays, coming-soon included
+ *
+ * The price range is deliberately BOOKABLE-ONLY. Listing coming-soon services
+ * must never move the advertised range, or the site quotes a price for
+ * something nobody can buy. Today the two ranges happen to be identical
+ * (1,600-5,500 either way), which is exactly the situation in which a
+ * range computed over the wrong set would look correct and stay wrong.
+ *
+ * Zero rows is treated as a failed read, not as an empty catalogue: the
+ * fallbacks below are production's real figures as of 2026-08-30.
+ */
+async function getCatalogueStats() {
+  var now = _now();
+  var c = _cache.catalogue;
+  if (c && c.value && (now - c.ts) < TTL_MS) return c.value;
+
+  var FALLBACK = {
+    bookable: 55, total: 183,
+    liveSpecialties: 6, totalSpecialties: 23,
+    minPrice: 1600, maxPrice: 5500
+  };
+  try {
+    var row = await queryOne(
+      'SELECT ' +
+      '  count(*) FILTER (WHERE ' + serviceBookableClause('sv') + ')::int         AS bookable, ' +
+      '  count(*)::int                                                            AS total, ' +
+      '  count(DISTINCT sv.specialty_id) FILTER (WHERE ' + serviceBookableClause('sv') + ')::int AS live_specialties, ' +
+      '  count(DISTINCT sv.specialty_id)::int                                     AS total_specialties, ' +
+      '  min(sv.base_price) FILTER (WHERE ' + serviceBookableClause('sv') + ')     AS min_price, ' +
+      '  max(sv.base_price) FILTER (WHERE ' + serviceBookableClause('sv') + ')     AS max_price ' +
+      '  FROM services sv ' +
+      ' WHERE sv.base_price IS NOT NULL AND sv.base_price > 0'
+    );
+    if (row && Number(row.total) > 0) {
+      var value = {
+        bookable: Number(row.bookable) || 0,
+        total: Number(row.total) || 0,
+        liveSpecialties: Number(row.live_specialties) || 0,
+        totalSpecialties: Number(row.total_specialties) || 0,
+        minPrice: Number(row.min_price) || FALLBACK.minPrice,
+        maxPrice: Number(row.max_price) || FALLBACK.maxPrice
+      };
+      _cache.catalogue = { value: value, ts: now };
+      return value;
+    }
+  } catch (_) {
+    // Fall through to the last good value, then the fallback.
+  }
+  return (_cache.catalogue && _cache.catalogue.value) || FALLBACK;
+}
+
 module.exports = {
   getVisibleSpecialtyCount: getVisibleSpecialtyCount,
-  getVisibleServiceCount: getVisibleServiceCount
+  getVisibleServiceCount: getVisibleServiceCount,
+  getCatalogueStats: getCatalogueStats
 };

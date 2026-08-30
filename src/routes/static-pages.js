@@ -8,6 +8,7 @@ var { v4: uuidv4 } = require('uuid');
 var router = express.Router();
 
 var { getVisibleSpecialtyCount, getVisibleServiceCount } = require('../services/site_stats');
+const { serviceBookableClause } = require('../services/service_bookable');
 var comingSoonNotify = require('../notify/coming_soon');
 // Durable persistence surface for contact-form submissions (see POST /contact).
 var { logErrorToDb } = require('../logger');
@@ -127,10 +128,34 @@ function setupStaticPages(opts) {
   router.get('/services', async function(req, res) {
     var now = Date.now();
     if (!_servicesCache.services || (now - _servicesCache.ts) >= SERVICES_CACHE_TTL_MS) {
-      var services = await safeAll('\n      SELECT DISTINCT ON (sv.id) sv.*, sp.name as specialty_name, sp.name_ar as specialty_name_ar\n      FROM services sv\n      JOIN specialties sp ON sv.specialty_id = sp.id AND COALESCE(sp.is_visible, true) = true\n      WHERE COALESCE(sv.is_visible, true) = true\n        AND sv.base_price IS NOT NULL\n        AND sv.base_price > 0\n      ORDER BY sv.id, sp.name, sv.base_price ASC\n    ', [], []);
+      // The page now lists the WHOLE catalogue, not just what is orderable.
+      //
+      // It used to filter on sp.is_visible and sv.is_visible, which meant 128
+      // of 183 services simply did not exist as far as a visitor was
+      // concerned — the site looked like a six-specialty operation. They are
+      // all listed now, and the ones that cannot be bought carry a Coming Soon
+      // pill and do not link anywhere.
+      //
+      // is_bookable comes from serviceBookableClause, the SAME expression the
+      // wizard, the mobile catalogue and the pricing endpoint gate on — used
+      // here as a SELECTED COLUMN rather than a WHERE filter. That is the
+      // whole trick: one definition, two uses. If it ever drifts, the pill and
+      // the wizard drift together instead of the page offering something the
+      // wizard refuses.
+      var services = await safeAll(
+        'SELECT DISTINCT ON (sv.id) sv.*, ' +
+        '       sp.name AS specialty_name, sp.name_ar AS specialty_name_ar, ' +
+        '       COALESCE(sp.is_visible, true) AS specialty_is_live, ' +
+        '       (' + serviceBookableClause('sv') + ') AS is_bookable ' +
+        '  FROM services sv ' +
+        '  JOIN specialties sp ON sv.specialty_id = sp.id ' +
+        ' WHERE sv.base_price IS NOT NULL AND sv.base_price > 0 ' +
+        ' ORDER BY sv.id, sp.name, sv.base_price ASC',
+        [], []);
       services.forEach(function(s) { s.description = getServiceDescription(s.name); });
       var specialtyNames = [];
       var specialtyNameArMap = {};
+      var specialtyLiveMap = {};
       var seen = {};
       services.forEach(function(s) {
         if (s.specialty_name && !seen[s.specialty_name]) {
@@ -138,29 +163,64 @@ function setupStaticPages(opts) {
           specialtyNames.push(s.specialty_name);
           if (s.specialty_name_ar) specialtyNameArMap[s.specialty_name] = s.specialty_name_ar;
         }
+        // A specialty is LIVE if any of its services is bookable — not merely
+        // if specialties.is_visible is true. A visible specialty whose every
+        // service is coming_soon has nothing to sell, and heading it without a
+        // pill would promise a consultant we cannot route a case to.
+        if (s.specialty_name && s.is_bookable) specialtyLiveMap[s.specialty_name] = true;
       });
       specialtyNames.sort();
-      _servicesCache = { services: services, specialtyNames: specialtyNames, specialtyNameArMap: specialtyNameArMap, ts: now };
+      _servicesCache = { services: services, specialtyNames: specialtyNames,
+        specialtyNameArMap: specialtyNameArMap, specialtyLiveMap: specialtyLiveMap, ts: now };
     }
-    var serviceCount = await getVisibleServiceCount();
+    var cat = await require('../services/site_stats').getCatalogueStats();
 
-    // The meta description used to name a HARDCODED specialty list —
-    // "Radiology, cardiology, oncology, gastroenterology and more" — while
-    // Oncology has been hidden since migration 066 and Gastroenterology is not
-    // visible either. That string is what Google shows in the search snippet,
-    // so the site's own listing advertised two specialties a patient cannot
-    // book. Derive it from the same list the page renders instead, so it can
-    // never disagree with the catalogue again.
+    // The Google snippet.
+    //
+    // It named a HARDCODED specialty list — "radiology, cardiology, oncology,
+    // gastroenterology and more" — while Oncology had been hidden since
+    // migration 066 and Gastroenterology was never visible, so our own search
+    // result advertised two specialties nobody could book. It then said
+    // "Browse 55 services", which stopped being what the page shows the moment
+    // the page started listing the full catalogue.
+    //
+    // Both numbers now come from the catalogue itself, and the sentence keeps
+    // them apart: TOTAL is what you can browse, BOOKABLE is what you can buy
+    // today. Naming the coming-soon specialties is deliberate — they are real
+    // and they are on the page — but the snippet never implies they are
+    // orderable.
     var _specs = _servicesCache.specialtyNames || [];
-    var _specPhrase = _specs.length
-      // Kept in the catalogue's own casing: lowercasing turned OB/GYN into
-      // "ob/gyn", which reads as a typo in a search snippet.
-      ? _specs.slice(0, 4).join(', ') + (_specs.length > 4 ? ' and more' : '')
-      : 'a growing range of specialties';
-    var _desc = 'Browse ' + serviceCount + ' specialist medical review services with transparent EGP pricing: '
-      + _specPhrase + '.';
+    var _live = _servicesCache.specialtyLiveMap || {};
+    // Lead with specialties that are actually live, so the snippet's examples
+    // are things a visitor can buy today.
+    var _named = _specs.filter(function (n) { return _live[n]; })
+      .concat(_specs.filter(function (n) { return !_live[n]; }))
+      .slice(0, 3);
+    var _desc = 'Browse ' + cat.total + ' specialist medical review services across ' +
+      cat.totalSpecialties + ' specialties. ' + cat.bookable + ' available now from EGP ' +
+      Number(cat.minPrice).toLocaleString('en-US') + ' — ' + _named.join(', ') + ' and more.';
+    // Google truncates around 160 characters. Specialty names vary in length,
+    // so cap it rather than assume: drop named examples until it fits, which
+    // keeps the counts and the price (the part that must not be cut) intact.
+    while (_desc.length > 158 && _named.length > 1) {
+      _named.pop();
+      _desc = 'Browse ' + cat.total + ' specialist medical review services across ' +
+        cat.totalSpecialties + ' specialties. ' + cat.bookable + ' available now from EGP ' +
+        Number(cat.minPrice).toLocaleString('en-US') + ' — ' + _named.join(', ') + ' and more.';
+    }
 
-    res.render('services', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', services: _servicesCache.services, specialtyNames: _servicesCache.specialtyNames, specialtyNameArMap: _servicesCache.specialtyNameArMap, title: 'Services & Pricing — Tashkheesa', BUSINESS_INFO: BUSINESS_INFO, description: _desc, canonical: '/services' });
+    res.render('services', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+      services: _servicesCache.services,
+      specialtyNames: _servicesCache.specialtyNames,
+      specialtyNameArMap: _servicesCache.specialtyNameArMap,
+      specialtyLiveMap: _servicesCache.specialtyLiveMap,
+      catalogue: cat,
+      title: 'Services & Pricing — Tashkheesa',
+      BUSINESS_INFO: BUSINESS_INFO,
+      description: _desc,
+      canonical: '/services'
+    });
   });
 
   var LAUNCH_DATE = process.env.LAUNCH_DATE || '';
@@ -277,22 +337,37 @@ function setupStaticPages(opts) {
   // are added — no code change required. This is intentional, not a bug.
   router.get('/specialties', async function(req, res) {
     var rows = await safeAll(
+      // Lists ALL specialties that have a service, live or not.
+      //
+      // It used to require s.is_visible, so 17 of the 23 were invisible to a
+      // visitor and the platform read as a six-specialty operation. They are
+      // listed now; the ones with nothing orderable get a Coming Soon pill and
+      // do not link anywhere (their detail pages deliberately still 404, so
+      // there is no dead link and nothing for a crawler to follow).
+      //
+      // is_live is "has at least one BOOKABLE service", not "is_visible" — a
+      // visible specialty whose every service is coming_soon has nothing to
+      // sell, and linking it would send a patient to a page they cannot buy
+      // from. service_count is the full listed count so the card's number
+      // matches what the detail page would show.
       "SELECT s.id, s.name, s.name_ar, s.description, s.description_ar, " +
       "  (SELECT COUNT(*)::int FROM services sv " +
-      "   WHERE sv.specialty_id = s.id AND COALESCE(sv.is_visible, true) = true) AS service_count " +
+      "   WHERE sv.specialty_id = s.id) AS service_count, " +
+      "  EXISTS (SELECT 1 FROM services sv " +
+      "           WHERE sv.specialty_id = s.id AND " + serviceBookableClause('sv') + ") AS is_live " +
       "FROM specialties s " +
-      "WHERE COALESCE(s.is_visible, true) = true " +
-      "  AND EXISTS ( " +
-      "    SELECT 1 FROM services sv " +
-      "    WHERE sv.specialty_id = s.id AND COALESCE(sv.is_visible, true) = true) " +
-      "ORDER BY s.name ASC",
+      "WHERE EXISTS ( " +
+      "    SELECT 1 FROM services sv WHERE sv.specialty_id = s.id) " +
+      "ORDER BY (EXISTS (SELECT 1 FROM services sv " +
+      "                   WHERE sv.specialty_id = s.id AND " + serviceBookableClause('sv') + ")) DESC, " +
+      "         s.name ASC",
       [],
       []
     );
     return res.render('specialties_index', {
       title: 'Medical Specialties',
       BUSINESS_INFO: BUSINESS_INFO,
-      description: 'Browse medical specialties available on Tashkheesa for second-opinion reviews by board-certified Egyptian consultants.',
+      description: 'Browse every medical specialty on Tashkheesa for second-opinion reviews by board-certified Egyptian consultants — open now or coming soon.',
       canonical: '/specialties',
       specialties: rows
     });

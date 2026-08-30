@@ -323,6 +323,50 @@
   box-shadow: none;
   background: #f9fafb;
 }
+/* Pill beside a specialty heading whose services are all coming soon.
+   Same amber as the per-service badge so the two read as one signal. */
+.soon-pill {
+  display: inline-block;
+  vertical-align: middle;
+  margin-inline-start: 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  color: #8E6C2C;
+  background: #FAF1DD;
+  border: 1px solid #EBD9AE;
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+/* A CTA that is deliberately shut (services/public_cta.js), NOT a broken one.
+   Rendered as a span, so there is nothing to click and nothing to tab to; this
+   only has to make that legible. Kept visually quiet rather than error-red —
+   it is a "not yet", not a failure. */
+.is-cta-locked {
+  background: #e5e7eb !important;
+  background-image: none !important;
+  color: #6b7280 !important;
+  border-color: #d1d5db !important;
+  cursor: not-allowed;
+  box-shadow: none !important;
+  transform: none !important;
+  pointer-events: none;
+  opacity: 1;
+}
+.is-cta-locked:hover { background: #e5e7eb !important; transform: none !important; box-shadow: none !important; }
+/* The featured cards are tinted panels on a dark ground, not solid buttons —
+   the button treatment above would black them out, so they only lose their
+   affordance. */
+.featured-card.is-cta-locked {
+  background: rgba(255,255,255,0.08) !important;
+  border-color: rgba(255,255,255,0.15) !important;
+  color: inherit !important;
+  cursor: default;
+}
+
 .service-soon-badge {
   display: inline-block;
   font-size: 12px;
@@ -374,6 +418,25 @@
     // which is the same mistake in the opposite direction. Getting the first
     // version of this wrong is exactly why the rule is written out.
     const A_DESPITE_VOWEL = /^(uro|uri|uni|use|usu|util|euro|eu[a-z]|one\b)/i;
+    // A service is orderable only if the shared SQL rule said so. The page
+    // renders everything; this decides which cards link and which get a pill.
+    // `service.coming_soon` alone is NOT the test — a service can be perfectly
+    // fine in itself and still unorderable because its specialty is hidden,
+    // which is true of 128 of the 183 services on this page.
+    function isBookable(sv) { return !!(sv && sv.is_bookable); }
+
+    // Which specialties have anything orderable. Declared HERE, above the
+    // featured spotlight, because that block filters on it too — a `const`
+    // declared further down is in the temporal dead zone and throws.
+    const __specLive = (typeof specialtyLiveMap !== 'undefined' && specialtyLiveMap) ? specialtyLiveMap : {};
+    const __isLiveSpec = (sp) => !!__specLive[sp];
+
+    // One place asks whether the public site may link into the wizard. Held
+    // off deliberately (see services/public_cta.js); when off, every CTA
+    // renders as an inert grey control instead of an anchor.
+    const __ctaOn = (typeof bookingCtaEnabled !== 'undefined') ? !!bookingCtaEnabled : false;
+    const __ctaOffLabel = tt('svc.cta.locked', 'Booking opens soon', 'الحجز هيفتح قريب');
+
     function enArticle(name) {
       const n = String(name || '').trim();
       if (AN_DESPITE_CONSONANT.test(n)) return 'an';
@@ -461,14 +524,17 @@
     const FEATURED_TARGET = 6;
     const featuredServices = featuredIds
       .map(id => uniqueServices.find(s => s.id === id))
-      .filter(Boolean);
+      // The page lists coming-soon services now, so a hand-picked id can
+      // resolve to one. Featured must stay orderable — it is the one panel
+      // that exists to be clicked.
+      .filter(s => s && isBookable(s));
     if (featuredServices.length < FEATURED_TARGET) {
       const taken = new Set(featuredServices.map(s => s.id));
       const shown = new Set(featuredServices.map(s => s.specialty_name));
-      const topUp = Object.keys(bySpecialty)
+      const topUp = Object.keys(bySpecialty).filter(__isLiveSpec)
         .filter(sp => !shown.has(sp))
         .map(sp => (bySpecialty[sp] || [])
-          .filter(s => !taken.has(s.id) && !s.coming_soon && s.base_price > 0)
+          .filter(s => !taken.has(s.id) && isBookable(s) && s.base_price > 0)
           .sort((a, b) => (b.base_price || 0) - (a.base_price || 0))[0])
         .filter(Boolean)
         .sort((a, b) => (b.base_price || 0) - (a.base_price || 0));
@@ -485,9 +551,17 @@
       'ENT (Ear Nose & Throat)','General Surgery','Pediatrics','Pulmonology',
       'OB/GYN','Dermatology','Ophthalmology','Urology','Hematology'
     ];
-    const orderedSpecs = [
+    // Hand-ordered names first, then anything the list does not know about —
+    // and then the whole thing partitioned so every bookable specialty comes
+    // before every coming-soon one. A visitor scrolling from the top hits what
+    // they can buy today before what they cannot.
+    const __allSpecs = [
       ...specOrder.filter(sp => bySpecialty[sp]),
-      ...Object.keys(bySpecialty).filter(sp => !specOrder.includes(sp))
+      ...Object.keys(bySpecialty).filter(sp => !specOrder.includes(sp)).sort()
+    ];
+    const orderedSpecs = [
+      ...__allSpecs.filter(__isLiveSpec),
+      ...__allSpecs.filter(sp => !__isLiveSpec(sp))
     ];
     %>
 
@@ -504,28 +578,25 @@
         'Start with what matters most',
         'ابدأ بالأهم') %></h2>
       <p class="featured-sub"><%= tt('svc.featured.sub',
-        'Our highest-demand specialist reviews — chosen for their clinical impact and patient outcome',
-        'أكتر مراجعات مطلوبة من الدكاترة بتاعتنا — مختارة على أساس تأثيرها السريري ونتيجتها على المريض') %></p>
+        'A cross-section of what our consultants review most often — one from each specialty open today',
+        'نماذج من أكتر المراجعات اللي بيعملها استشاريينا — واحدة من كل تخصص متاح دلوقتي') %></p>
       <div class="featured-grid">
+        <%# featuredServices is filtered to BOOKABLE only above, so there is no
+            coming-soon case to handle here — this panel exists to be clicked.
+            The only branch left is whether the site-wide booking CTA is open. %>
         <% featuredServices.forEach(function(s) { %>
-        <% if (s.coming_soon) { %>
-        <div class="featured-card service-card--soon" role="link" aria-disabled="true" tabindex="-1">
-          <div class="fc-specialty"><%= __isAr && s.specialty_name_ar ? s.specialty_name_ar : s.specialty_name %></div>
-          <div class="fc-name"><%= s.name %></div>
-          <div class="fc-price">
-            <span class="service-soon-badge"><%= tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %></span>
-          </div>
-        </div>
-        <% } else { %>
+        <% if (__ctaOn) { %>
         <a href="<%= submitUrl %>?service_id=<%= s.id %>" class="featured-card">
+        <% } else { %>
+        <div class="featured-card is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>">
+        <% } %>
           <div class="fc-specialty"><%= __isAr && s.specialty_name_ar ? s.specialty_name_ar : s.specialty_name %></div>
           <div class="fc-name"><%= s.name %></div>
           <div class="fc-price">
             <%= s.base_price ? formatMoney(s.base_price, 'EGP') : 'EGP —' %>
             <span> <%= tt('svc.per_report', '/ report', '/ تقرير') %></span>
           </div>
-        </a>
-        <% } %>
+        <% if (__ctaOn) { %></a><% } else { %></div><% } %>
         <% }); %>
       </div>
     </div>
@@ -538,6 +609,7 @@
       const meta = specialtyMeta[specName] || { icon: '🏥', desc: '', color: '#6b7280' };
       const preview = specServices.slice(0, 3);
       const rest = specServices.slice(3);
+      const __specIsLive = __isLiveSpec(specName);
       const sectionId = specName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
     %>
     <div class="specialty-section" id="<%= sectionId %>">
@@ -546,27 +618,44 @@
           <div class="specialty-title">
             <span class="specialty-icon"><%= meta.icon %></span>
             <h2><%= specDisplayName(specName) %></h2>
+            <% if (!__specIsLive) { %>
+            <span class="soon-pill"><%= tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %></span>
+            <% } %>
           </div>
           <div class="specialty-count"><%= metaDesc(meta) %> &nbsp;·&nbsp; <%
             if (__isAr) { %><%= specServices.length %> <%= tt('svc.unit.service', 'service', 'خدمة') %><% }
             else { %><%= specServices.length %> service<%= specServices.length !== 1 ? 's' : '' %><% }
           %></div>
         </div>
+        <% if (__specIsLive && __ctaOn) { %>
         <a href="<%= submitUrl %>?specialty=<%= encodeURIComponent(specName) %>" class="see-all-link">
           <%= tt('svc.book_review', 'Book a review →', 'احجز مراجعة ←') %>
         </a>
+        <% } else if (__specIsLive) { %>
+        <span class="see-all-link is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>">
+          <%= tt('svc.book_review', 'Book a review →', 'احجز مراجعة ←') %>
+        </span>
+        <% } %>
       </div>
 
       <div class="services-grid">
         <% preview.forEach(function(service) { %>
-        <% if (service.coming_soon) { %>
+        <% if (!isBookable(service) || !__ctaOn) { %>
         <div class="service-card service-card--soon" role="link" aria-disabled="true" tabindex="-1">
           <h3><%= service.name %></h3>
           <p><%= service.description || tt('svc.default_desc',
             'Board-certified specialist review with detailed written report in English and Arabic.',
             'مراجعة من دكتور متخصص معتمد بتقرير مكتوب مفصل بالإنجليزي والعربي.') %></p>
           <div class="service-meta">
+            <% if (!isBookable(service)) { %>
             <span class="service-soon-badge"><%= tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %></span>
+            <% } else { %>
+            <%# Bookable, but the site-wide booking CTA is held off. Keep the
+                price — it is true and useful — and simply do not link. %>
+            <div class="service-price">
+              <span class="currency">EGP</span> <%= service.base_price ? Number(service.base_price).toLocaleString('en-GB', { maximumFractionDigits: 0 }) : '—' %>
+            </div>
+            <% } %>
             <div class="service-sla"><%= (service.sla_hours && service.sla_hours <= 24)
               ? tt('svc.sla.24', '24-hour', '24 ساعة')
               : tt('svc.sla.standard', '48-hour', '48 ساعة') %></div>
@@ -601,11 +690,14 @@
             ? ('احجز أي مراجعة ' + specDisplayName(specName) + ' — التقرير بيوصل في خلال 48 ساعة')
             : ('Book any ' + specDisplayName(specName) + ' review — report delivered within 48 hours') %></span>
         </div>
-        <a href="<%= submitUrl %>?specialty=<%= encodeURIComponent(specName) %>" class="specialty-cta-btn">
-          <%= __isAr
-            ? ('احجز مراجعة ' + specDisplayName(specName) + ' ←')
-            : ('Get ' + enArticle(specDisplayName(specName)) + ' ' + specDisplayName(specName) + ' review →') %>
-        </a>
+        <% var __ctaLabel = __isAr
+             ? ('احجز مراجعة ' + specDisplayName(specName) + ' ←')
+             : ('Get ' + enArticle(specDisplayName(specName)) + ' ' + specDisplayName(specName) + ' review →'); %>
+        <% if (__specIsLive && __ctaOn) { %>
+        <a href="<%= submitUrl %>?specialty=<%= encodeURIComponent(specName) %>" class="specialty-cta-btn"><%= __ctaLabel %></a>
+        <% } else { %>
+        <span class="specialty-cta-btn is-cta-locked" aria-disabled="true" title="<%= __specIsLive ? __ctaOffLabel : tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %>"><%= __specIsLive ? __ctaLabel : tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %></span>
+        <% } %>
       </div>
       <% } %>
     </div>
@@ -616,9 +708,15 @@
       <p><%= tt('svc.cta.body',
         'Submit your case in minutes. Expert specialist review, delivered to your inbox.',
         'ابعت حالتك في دقايق. مراجعة من دكتور متخصص بتوصلك على إيميلك.') %></p>
+      <% if (__ctaOn) { %>
       <a href="<%= submitUrl %>" class="btn-cta"><%= tt('svc.cta.submit',
         'Submit Your Case Now',
         'ابعت حالتك دلوقتي') %></a>
+      <% } else { %>
+      <span class="btn-cta is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('svc.cta.submit',
+        'Submit Your Case Now',
+        'ابعت حالتك دلوقتي') %></span>
+      <% } %>
     </div>
 
     <div class="services-note">

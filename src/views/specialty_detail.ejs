@@ -102,7 +102,12 @@
         <% if (desc) { %>
           <p><%= desc %></p>
         <% } %>
+        <% var __ctaOn = (typeof bookingCtaEnabled !== 'undefined') ? !!bookingCtaEnabled : false; %>
+        <% if (__ctaOn) { %>
         <a class="specd-cta" href="/patient/new-case?specialty=<%= encodeURIComponent(__sp.id || '') %>"><%= tt('specd.cta', 'Book a case →', 'احجز حالة ←') %></a>
+        <% } else { %>
+        <span class="specd-cta is-cta-locked" aria-disabled="true" title="<%= tt('specd.cta.locked', 'Booking opens soon', 'الحجز هيفتح قريب') %>"><%= tt('specd.cta', 'Book a case →', 'احجز حالة ←') %></span>
+        <% } %>
       </section>
 
       <% if (__services.length > 0) { %>
