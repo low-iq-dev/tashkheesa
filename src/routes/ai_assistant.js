@@ -10,14 +10,14 @@ const { serviceBookableClause } = require('../services/service_bookable');
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // --- P2 #9: In-memory catalog cache (5-minute TTL) ---
-let _catalogCache = { text: '', ts: 0 };
+let _catalogCache = { text: '', ids: null, ts: 0 };
 const CATALOG_TTL_MS = 5 * 60 * 1000;
 
 // Build a compact service catalog string for the system prompt
 async function buildCatalog() {
   const now = Date.now();
   if (_catalogCache.text && (now - _catalogCache.ts) < CATALOG_TTL_MS) {
-    return _catalogCache.text;
+    return _catalogCache;
   }
 
   // 2026-08-25: gated on sv.is_visible alone, so the assistant recommended
@@ -48,8 +48,12 @@ async function buildCatalog() {
     .map(([specialty, items]) => `${specialty}:\n${items.join('\n')}`)
     .join('\n\n');
 
-  _catalogCache = { text, ts: now };
-  return text;
+  // The id set is cached alongside the prose because it is the SAME row set the
+  // model is shown, captured at the same instant. Validating a recommendation
+  // against a second, separately-fetched query would reintroduce exactly the
+  // drift this is here to prevent.
+  _catalogCache = { text, ids: new Set(services.map((s) => String(s.id))), ts: now };
+  return _catalogCache;
 }
 
 const SYSTEM_EN = (catalog) => `You are a friendly medical triage assistant for Tashkheesa, an Egyptian telemedicine platform specialising in specialist second opinions. Your job is to help patients identify which medical review service they need.
@@ -122,7 +126,7 @@ router.post('/api/help-me-choose', assistantLimiter, async (req, res) => {
     }
 
     const catalog = await buildCatalog();
-    const systemPrompt = lang === 'ar' ? SYSTEM_AR(catalog) : SYSTEM_EN(catalog);
+    const systemPrompt = lang === 'ar' ? SYSTEM_AR(catalog.text) : SYSTEM_EN(catalog.text);
 
     // --- P0 #2: Anthropic call with timeout ---
     // systemPrompt embeds the cached service catalog (~2–5KB of stable text)
@@ -166,6 +170,28 @@ router.post('/api/help-me-choose', assistantLimiter, async (req, res) => {
         const parsed = JSON.parse(jsonMatch[0]);
         recommendation = parsed.recommendation;
       } catch (_) { /* ignore parse errors */ }
+    }
+
+    // 2026-08-30 — the recommendation's service_id is not advice, it is a LINK.
+    // help_me_choose.ejs turns it straight into `/submit?service_id=<id>`, so an
+    // id the catalogue does not contain sends a visitor who is ready to buy into
+    // a dead booking page. Nothing checked it.
+    //
+    // Two ways a bad id gets here even though the prompt lists the real ones:
+    // the model can mis-copy or invent one, and — more likely — the 5-minute
+    // catalogue cache means an operator hiding a specialty leaves this route
+    // recommending its services until the TTL expires.
+    //
+    // Checked against the SAME id set the model was shown, so the test can
+    // never disagree with the prompt. A bad id drops the recommendation and
+    // keeps the chat text: the visitor still gets the answer in prose, and the
+    // one thing removed is the button that would not have worked.
+    if (recommendation && recommendation.service_id) {
+      const id = String(recommendation.service_id);
+      if (!catalog.ids || !catalog.ids.has(id)) {
+        console.error('[ai-assistant] dropped a recommendation for an unbookable service_id:', id);
+        recommendation = null;
+      }
     }
 
     // Strip the JSON block from the display text

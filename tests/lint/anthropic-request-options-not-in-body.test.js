@@ -158,3 +158,35 @@ check('the assistant does not infer a timeout from message text', function () {
     );
   }
 });
+
+// ── 3. A recommended service_id must be validated before it becomes a link ──
+//
+// help_me_choose.ejs builds `/submit?service_id=<id>` straight from the
+// model's answer, so an id the catalogue does not contain is a dead booking
+// page shown to a visitor who was ready to pay. The prompt listing the real
+// ids is not a guarantee: the model can mis-copy one, and the route's own
+// 5-minute catalogue cache keeps recommending a specialty for up to five
+// minutes after an operator hides it.
+check('a recommended service_id is checked against the catalogue', function () {
+  const file = path.join(SRC, 'routes', 'ai_assistant.js');
+  const code = stripComments(fs.readFileSync(file, 'utf8'));
+
+  if (!/catalog\.ids/.test(code) || !/\.has\(/.test(code)) {
+    throw new Error(
+      'routes/ai_assistant.js returns recommendation.service_id without testing '
+      + 'it against the catalogue id set. That id is turned into a booking link '
+      + 'by help_me_choose.ejs, so an unknown id is a dead page on the revenue '
+      + 'path. Validate against the same set the model was shown.'
+    );
+  }
+  // The set must come from buildCatalog(), not a second query — a separately
+  // fetched list can disagree with the prompt the model actually saw.
+  if (!/ids:\s*new Set\(/.test(code)) {
+    throw new Error(
+      'The catalogue id set is no longer built alongside the prompt text in '
+      + 'buildCatalog(). Validating against a separately-fetched list '
+      + 'reintroduces the drift between what the model was shown and what is '
+      + 'considered valid.'
+    );
+  }
+});
