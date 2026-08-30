@@ -126,6 +126,22 @@ function setupCsrf(app, opts) {
     if (p === '/webhooks/resend') {
       return next();
     }
+    // OpenClaw opt-out / opt-in. Same category as the webhook above: a
+    // server-to-server POST from the WhatsApp gateway on the Mac mini, which
+    // holds no cookie and so can never present a CSRF token. Both routes
+    // authenticate on the shared `x-openclaw-key` header before writing
+    // anything (routes/openclaw-api.js), and a request without it gets 401.
+    //
+    // 2026-08-30 — until this exemption, a patient replying STOP was honoured
+    // by the gateway's own mirror but never reached `users.notify_whatsapp`:
+    // the callback died on 403 CSRF, so the portal kept enqueuing messages the
+    // gateway then refused one by one. It failed closed, which is the right
+    // direction, but it surfaced as a stream of failed notifications rather
+    // than an unsubscribe, and the patient's stated wish was recorded nowhere
+    // the rest of the platform could see.
+    if (p === '/api/openclaw/opt-out' || p === '/api/openclaw/opt-in') {
+      return next();
+    }
     // Machine-to-machine ops agent endpoints. Authentication for these
     // lives in src/routes/ops.js#requireAgentKeyOptional (Theme 3 Stage 1;
     // promoted to required in Stage 2 — see
