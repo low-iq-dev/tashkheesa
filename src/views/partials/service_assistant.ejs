@@ -3,6 +3,11 @@
   const _saSubmitUrl = typeof submitUrl !== 'undefined' ? submitUrl : '/register?next=/patient/new-case';
   const _saLang = (typeof locals !== 'undefined' && locals.lang) ? locals.lang : 'en';
   const _saIsAr = _saLang === 'ar';
+  // The assistant ends in a booking link, so it is a route into the wizard and
+  // has to respect the same gate as every other CTA. It is built in JavaScript
+  // rather than markup, which is exactly why it was missed: a template scan for
+  // href="..." cannot see `cta.href = ...`.
+  const _saCtaOn = (typeof bookingCtaEnabled !== 'undefined') ? !!bookingCtaEnabled : false;
 %>
 
 <!-- AI Service Assistant Floating Button -->
@@ -43,7 +48,10 @@
       <div class="sa-rec-name" id="sa-rec-name"></div>
       <div class="sa-rec-specialty" id="sa-rec-specialty"></div>
       <div class="sa-rec-reason" id="sa-rec-reason"></div>
-      <a id="sa-rec-cta" href="#" class="sa-rec-btn">
+      <%# No href in the markup either way — showRecommendation() sets it, and
+          only when booking is open. Rendering href="#" here would leave a
+          clickable control that scrolls the page to the top when shut. %>
+      <a id="sa-rec-cta" class="sa-rec-btn<%= _saCtaOn ? '' : ' is-cta-locked' %>"<% if (!_saCtaOn) { %> aria-disabled="true" title="<%= _saIsAr ? 'الحجز هيفتح قريب' : 'Booking opens soon' %>"<% } %>>
         <%= _saIsAr ? 'ابدأ هنا ←' : 'Start with this →' %>
       </a>
       <button class="sa-rec-reset" data-sa-action="reset">
@@ -225,6 +233,7 @@
 <script nonce="<%= cspNonce %>">
 (function() {
   const SUBMIT_BASE = '<%= _saSubmitUrl.split("?")[0] %>';
+  const CTA_ON = <%= _saCtaOn ? 'true' : 'false' %>;
   const LANG = '<%= _saLang %>';
   const CSRF_TOKEN = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
   let history = []; // {role, content}
@@ -336,7 +345,15 @@
     document.getElementById('sa-rec-specialty').textContent = rec.specialty || '';
     document.getElementById('sa-rec-reason').textContent = rec.reason || '';
     const cta = document.getElementById('sa-rec-cta');
-    cta.href = SUBMIT_BASE + '?service_id=' + encodeURIComponent(rec.service_id);
+    // The recommendation itself is still worth showing while booking is shut —
+    // the visitor gets the named service and the reasoning. Only the link is
+    // withheld. Setting no href leaves an <a> that is not a link and is not
+    // focusable, which is what we want here.
+    if (CTA_ON) {
+      cta.href = SUBMIT_BASE + '?service_id=' + encodeURIComponent(rec.service_id);
+    } else {
+      cta.removeAttribute('href');
+    }
     document.getElementById('sa-recommendation').style.display = 'block';
     const msgs = document.getElementById('sa-messages');
     msgs.scrollTop = msgs.scrollHeight;

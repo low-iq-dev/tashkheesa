@@ -33,11 +33,22 @@ const PUBLIC_VIEWS = [
   'about.ejs',
   'faq.ejs',
   'blog_how_tashkheesa_works.ejs',
-  'blog_when_to_get_second_opinion.ejs'
+  'blog_when_to_get_second_opinion.ejs',
+  // The "help me choose" assistant ends in a booking button. It is a public
+  // route into the wizard like any other, and it is the one this guard already
+  // missed once: it assigns the link in JavaScript, so the markup scan below
+  // never saw it and the site was 95% shut with one live path through a chat
+  // bubble. Hence the second pattern.
+  'partials/service_assistant.ejs'
 ];
 
 // An href into the wizard, or into registration via the submitUrl helper.
 const BOOKING_HREF = /href\s*=\s*"(?:<%=\s*submitUrl\s*%>|\/patient\/new-case|\/register)\b/;
+
+// The same link built in script: `el.href = SUBMIT_BASE + ...`, `location =`,
+// a window.open, or a data attribute a handler later reads. Markup is not the
+// only way to hand someone a link.
+const BOOKING_JS = /(?:\.href\s*=|location\s*(?:\.href)?\s*=|window\.open\s*\()[^\n;]*(?:SUBMIT_BASE|submitUrl|\/patient\/new-case|service_id=)/;
 
 function readIfExists(rel) {
   const p = path.join(VIEWS, rel);
@@ -51,13 +62,13 @@ test('every public link into booking sits behind the CTA gate', () => {
     if (src === null) continue;
     const lines = src.split('\n');
     lines.forEach((line, i) => {
-      if (!BOOKING_HREF.test(line)) return;
+      if (!BOOKING_HREF.test(line) && !BOOKING_JS.test(line)) return;
       // The gate may be on this line or open on a recent preceding line.
       // Five lines is generous for the formatting used in these templates and
       // still tight enough that an unrelated earlier `if` will not launder a
       // new ungated link.
       const window = lines.slice(Math.max(0, i - 5), i + 1).join('\n');
-      if (/__ctaOn|bookingCtaEnabled/.test(window)) return;
+      if (/__ctaOn|bookingCtaEnabled|_saCtaOn|CTA_ON/.test(window)) return;
       ungated.push(rel + ':' + (i + 1) + '  ' + line.trim().slice(0, 110));
     });
   }
