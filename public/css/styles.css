@@ -475,21 +475,37 @@ h1, h2, h3, h4, h5, h6 {
   line-height: 1.4;
 }
 
+/* These three float over the device mockup, and two of them were sitting on
+   its text rather than beside it. Measured at 1440px:
+
+     card-b (722-942 x 376-462) covered the "Assigned Consultant" pill whole
+     (776-905 x 409-435), 25px of "Pending Follow-up", and clipped 11px off the
+     top of the action bar.
+     card-c (1096-1316 x 435-520) covered 216x41px of "Report Draft Complete" —
+     its entire right half, so the bar read "Report Draft Comple".
+
+   Overlapping the mockup is the intended look; overlapping its WORDS is not.
+   card-b moves up to sit over the decorative placeholder lines, card-c drops
+   below the action bar's baseline. Both keep a margin wider than the ±8px the
+   float animations travel, so nothing re-collides mid-cycle.
+
+   Physical left/right became logical, so the cards mirror in Arabic instead of
+   landing on the opposite side of the layout from the corner they belong to. */
 .floating-card-a {
   top: -10px;
-  right: -20px;
+  inset-inline-end: -20px;
   animation: float-a 4s ease-in-out infinite;
 }
 
 .floating-card-b {
-  bottom: 60px;
-  left: -30px;
+  bottom: 128px;
+  inset-inline-start: -60px;
   animation: float-b 5s ease-in-out infinite;
 }
 
 .floating-card-c {
-  bottom: -10px;
-  right: 20px;
+  bottom: -68px;
+  inset-inline-end: 20px;
   animation: float-c 4.5s ease-in-out infinite;
 }
 
