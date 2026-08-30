@@ -137,6 +137,16 @@ router.post('/api/help-me-choose', assistantLimiter, async (req, res) => {
         { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }
       ],
       messages: validMessages,
+    }, {
+      // 2026-08-30 — `timeout` belongs in the SDK's REQUEST OPTIONS (this second
+      // argument), not in the message body. It sat in the body for months, so
+      // every single call was rejected:
+      //
+      //   400 invalid_request_error "timeout: Extra inputs are not permitted"
+      //
+      // and the catch below matched that message's own first word, answering
+      // 504 ai_timeout. A feature that had never once succeeded reported itself
+      // as a slow day. Verified against the live API before and after.
       timeout: 30000,
     });
 
@@ -175,13 +185,24 @@ router.post('/api/help-me-choose', assistantLimiter, async (req, res) => {
       console.error('[ai-assistant] Anthropic overloaded:', msg);
       return res.status(503).json({ ok: false, error: 'ai_busy' });
     }
-    if (err.code === 'ETIMEDOUT' || err.code === 'ECONNABORTED' || msg.includes('timeout') || msg.includes('Timeout')) {
+    // A 4xx is the API telling us the REQUEST is wrong, and it is never a
+    // timeout. Checked first and on the status, because the substring test
+    // below is what turned a permanent 400 into a plausible-looking 504 for
+    // months: the rejection message was "timeout: Extra inputs are not
+    // permitted", and matching on its own first word hid the outage. Any
+    // validation error naming a field can do this again — 429 and 529 are
+    // already handled above, so anything else in the 4xx range is ours to fix
+    // and must be loud in the logs rather than blamed on the network.
+    if (status >= 400 && status < 500) {
+      console.error('[ai-assistant] Anthropic rejected the request (' + status + '):', msg);
+      return res.status(500).json({ ok: false, error: 'ai_config_error' });
+    }
+    // Only a genuine transport timeout past this point. Keyed on the SDK's own
+    // error type and the socket error codes, not on message text.
+    if (err.code === 'ETIMEDOUT' || err.code === 'ECONNABORTED'
+        || err.name === 'APIConnectionTimeoutError') {
       console.error('[ai-assistant] Anthropic timeout:', msg);
       return res.status(504).json({ ok: false, error: 'ai_timeout' });
-    }
-    if (status === 401 || status === 403) {
-      console.error('[ai-assistant] Anthropic auth error:', msg);
-      return res.status(500).json({ ok: false, error: 'ai_config_error' });
     }
 
     console.error('[ai-assistant] error:', msg);
