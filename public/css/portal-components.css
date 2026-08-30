@@ -448,7 +448,8 @@
 .p-toast {
   position: fixed;
   bottom: 24px;
-  right: 24px;
+  /* Toast anchor — the inline END corner, which is the left in Arabic. */
+  inset-inline-end: 24px;
   padding: 14px 20px;
   border-radius: var(--radius-md);
   font-size: var(--text-md);
@@ -693,7 +694,8 @@
 .p-timeline::before {
   content: '';
   position: absolute;
-  left: 11px;
+  /* The timeline spine. Must run down the inline START so the dots meet the text on the side the text starts from; hardcoded `left` left the spine on the west edge of a right-aligned Arabic timeline. */
+  inset-inline-start: 11px;
   top: 0;
   bottom: 0;
   width: 2px;
@@ -711,7 +713,8 @@
 
 .p-timeline-dot {
   position: absolute;
-  left: -32px;
+  /* The dot that sits on the spine. Mirrors with it, or it detaches from its own row in Arabic. */
+  inset-inline-start: -32px;
   top: 2px;
   width: 22px;
   height: 22px;

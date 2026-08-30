@@ -81,7 +81,8 @@
 .dd-btn-icon-dot {
   position: absolute;
   top: 8px;
-  right: 8px;
+  /* Notification dot on an icon button; belongs on the inline END of the icon in both directions. */
+  inset-inline-end: 8px;
   width: 8px;
   height: 8px;
   background: #EF4444;

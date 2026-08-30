@@ -56,6 +56,12 @@
   left: 50%;
   margin-inline-start: -7px;
 }
+/* Physical `right` ON PURPOSE. This is the arrow of a tooltip that has been
+   positioned to the LEFT of its target, so the arrow must point back east at
+   the target — the direction is the meaning, not the text direction.
+   Converting it to inset-inline-* would flip the arrow away from the thing it
+   points at in Arabic. If tours are ever mirrored, flip data-position when the
+   tooltip is placed, not the arrow here. (audit 2026-08-30) */
 .tour-tooltip[data-position="left"]::before {
   right: -7px;
   top: 50%;

@@ -354,7 +354,8 @@ body.doctor-theme.portal-v2 .v2-iconbtn:hover { background: var(--v2-surface-tin
 body.doctor-theme.portal-v2 .v2-iconbtn .v2-iconbtn__dot {
   position: absolute;
   top: 7px;
-  right: 7px;
+  /* Notification dot on an icon button; belongs on the inline END of the icon in both directions. */
+  inset-inline-end: 7px;
   width: 8px;
   height: 8px;
   border-radius: 999px;

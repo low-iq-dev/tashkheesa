@@ -200,6 +200,9 @@
   border-radius: 16px;
   margin-bottom: 0;
 }
+/* Physical `right` left as-is: a decorative background blob with no text and
+   no interactive target. Mirroring it changes nothing a user can name.
+   (audit 2026-08-30) */
 .owner-theme .owner-hero::after {
   content: '';
   position: absolute;

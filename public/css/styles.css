@@ -287,6 +287,8 @@ h1, h2, h3, h4, h5, h6 {
   min-height: 600px;
 }
 
+/* Physical `right` left as-is: a decorative background blob with no text and
+   no interactive target. (audit 2026-08-30) */
 .site-hero::before {
   content: '';
   position: absolute;
@@ -1364,7 +1366,8 @@ h1, h2, h3, h4, h5, h6 {
 
 .hero-search button {
   position: absolute;
-  right: 6px;
+  /* The submit button INSIDE the search field. On the physical right it lands over the start of Arabic text; it must sit at the inline end. */
+  inset-inline-end: 6px;
   top: 50%;
   transform: translateY(-50%);
   width: 42px;
@@ -1392,7 +1395,8 @@ h1, h2, h3, h4, h5, h6 {
 .toast {
   position: fixed;
   bottom: 24px;
-  right: 24px;
+  /* Toast anchor — the inline END corner, which is the left in Arabic. */
+  inset-inline-end: 24px;
   background: var(--success);
   color: var(--white);
   padding: 14px 24px;
