@@ -2165,6 +2165,11 @@ router.get('/portal/doctor/appointments', requireRole('doctor'), async (req, res
   const lang = getLang(req);
   const isAr = String(lang).toLowerCase() === 'ar';
   const doctorId = req.user.id;
+  // 2026-09-06: was referenced at render time but never defined in this
+  // handler (only in the patient one above) — every doctor visit to this
+  // page threw ReferenceError as an unhandled rejection and took the
+  // process down.
+  const _videoComingSoon = !isVideoEnabled();
 
   // Parse filters from query string
   const filterStatus = req.query.status || 'all';
