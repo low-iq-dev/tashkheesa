@@ -52,7 +52,7 @@
       return dt.toLocaleDateString(__isAr ? 'ar-EG' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
     } catch (_) { return ''; }
   })() : '';
-  const docName = (__reportContent && __reportContent.doctor_name) || __doctor.name || '';
+  const docName = drName((__reportContent && __reportContent.doctor_name) || __doctor.name || '');
   const specName = (__isAr
       ? ((__reportContent && __reportContent.specialty_name_ar) || __specialty.name_ar || (__reportContent && __reportContent.specialty_name) || __specialty.name || '')
       : ((__reportContent && __reportContent.specialty_name) || __specialty.name || ''));
@@ -179,7 +179,7 @@
                  loading="lazy"
                  style="display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:var(--surface-2);" />
             <div style="padding:8px 10px;font-size:12px;">
-              <div style="color:var(--ink);font-weight:600;"><%= ann.doctor_name || tt('Specialist', 'Specialist', 'الطبيب') %></div>
+              <div style="color:var(--ink);font-weight:600;"><%= ann.doctor_name ? drName(ann.doctor_name) : tt('Specialist', 'Specialist', 'الطبيب') %></div>
               <div style="color:var(--muted);font-size:11px;margin-top:2px;">
                 <%= ann.updated_at ? new Date(ann.updated_at).toLocaleDateString(__isAr ? 'ar-EG' : 'en-GB') : '' %>
               </div>

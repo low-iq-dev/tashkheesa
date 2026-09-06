@@ -25,6 +25,7 @@
 
   function _slaTone(c) {
     if (!c || !c.sla) return 'green';
+    if (_isUnaccepted(c)) return 'info';
     if (c.sla.isBreached) return 'red';
     var min = Number(c.sla.minutesRemaining);
     if (!Number.isFinite(min)) return 'green';
@@ -33,8 +34,27 @@
     return 'green';
   }
 
+  // 2026-09-06: a paid case nobody has accepted yet has no SLA clock, so it
+  // must never read "due in 0m". Say what is actually true — it is waiting
+  // for a doctor — and show the acceptance window when there is one.
+  function _isUnaccepted(c) {
+    var st = String((c && (c.db_status || c.status)) || '').toLowerCase();
+    return !!(c && !c.accepted_at && (st === 'new' || st === 'paid' || st === 'submitted' || st === 'assigned' || st === 'accepted'));
+  }
+  function _acceptWindowText(c) {
+    var dl = c && c.acceptance_deadline_at ? new Date(c.acceptance_deadline_at) : null;
+    if (!dl || isNaN(dl.getTime())) return tt('awaiting acceptance', 'awaiting acceptance', 'بانتظار القبول');
+    var mins = Math.floor((dl.getTime() - Date.now()) / 60000);
+    if (mins <= 0) return tt('accept now', 'accept now', 'اقبل الآن');
+    var h = Math.floor(mins / 60), m = mins % 60;
+    var s = h >= 1 ? (h + 'h ' + m + 'm') : (m + 'm');
+    return tt('accept within ' + s, 'accept within ' + s, 'اقبل خلال ' + s);
+  }
+
   function _slaText(c) {
     if (!c || !c.sla) return '';
+    if (_isUnaccepted(c)) return _acceptWindowText(c);
+    if (c.sla.isPaused) return tt('paused · awaiting files', 'paused · awaiting files', 'متوقف · بانتظار الملفات');
     if (c.sla.isBreached) {
       var over = Math.max(1, Math.ceil((Number(c.sla.minutesOverdue) || 0) / 60));
       return tt('overdue ' + over + 'h', 'overdue ' + over + 'h', 'متأخر ' + over + 'س');
@@ -88,7 +108,8 @@
     // Theme 7 sub-issue D (2026-05-10): 'awaiting_files' transitional
     // fallback; migration 047 converts to 'rejected_files' canonical.
     if (status === 'awaiting_files' || status === 'rejected_files') return { kind: 'brass', label: tt('Awaiting files', 'Awaiting files', 'بانتظار الملفات') };
-    if (status === 'assigned' || status === 'accepted') return { kind: 'brass', label: tt('Awaiting accept', 'Awaiting accept', 'بانتظار القبول') };
+    if (status === 'assigned' || status === 'accepted') return { kind: 'brass', label: tt('Assigned to you', 'Assigned to you', 'مُسندة إليك') };
+    if (status === 'new' || status === 'paid' || status === 'submitted') return { kind: 'info', label: tt('New', 'New', 'جديدة') };
     return { kind: 'neutral', label: c && c.statusLabel ? c.statusLabel : (status || tt('Status', 'Status', 'الحالة')) };
   }
 
@@ -115,6 +136,15 @@
   topbarShowSearch: false
 }) %>
 
+<%# Colour key — one glance tells the doctor where every case sits in the flow. %>
+<div class="v2-status-key" aria-label="<%= tt('Status colours', 'Status colours', 'ألوان الحالة') %>">
+  <span><i class="v2-status-key__dot v2-status-key__dot--info"></i><%= tt('New · awaiting acceptance', 'New · awaiting acceptance', 'جديدة · بانتظار القبول') %></span>
+  <span><i class="v2-status-key__dot v2-status-key__dot--teal"></i><%= tt('In review', 'In review', 'قيد المراجعة') %></span>
+  <span><i class="v2-status-key__dot v2-status-key__dot--brass"></i><%= tt('Waiting on patient files', 'Waiting on patient files', 'بانتظار ملفات المريض') %></span>
+  <span><i class="v2-status-key__dot v2-status-key__dot--amber"></i><%= tt('Due within 48h', 'Due within 48h', 'يستحق خلال 48س') %></span>
+  <span><i class="v2-status-key__dot v2-status-key__dot--red"></i><%= tt('Due within 24h / overdue', 'Due within 24h / overdue', 'خلال 24س / متأخرة') %></span>
+  <span><i class="v2-status-key__dot v2-status-key__dot--green"></i><%= tt('Completed', 'Completed', 'مكتملة') %></span>
+</div>
 <div class="v2-tabs" role="tablist">
   <a class="v2-tab <%= _tab === 'active' ? 'active' : '' %>" role="tab" aria-selected="<%= _tab === 'active' %>" href="<%= _tabHref('active') %>">
     <%= tt('Active', 'Active', 'النشطة') %><% if (_activeTotal !== null) { %> · <span data-numeric><%= _activeTotal %></span><% } %>

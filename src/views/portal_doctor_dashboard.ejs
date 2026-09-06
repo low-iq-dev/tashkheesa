@@ -59,6 +59,8 @@
 
   function _slaDotClass(caseItem) {
     if (!caseItem || !caseItem.sla) return 'dd-dot--ok';
+    var _st0 = String(caseItem.db_status || caseItem.status || '').toLowerCase();
+    if (!caseItem.accepted_at && (_st0 === 'new' || _st0 === 'paid' || _st0 === 'submitted' || _st0 === 'assigned' || _st0 === 'accepted')) return 'dd-dot--info';
     if (caseItem.sla.isBreached) return 'dd-dot--breach';
     var min = Number(caseItem.sla.minutesRemaining);
     if (!Number.isFinite(min)) return 'dd-dot--ok';
@@ -70,6 +72,20 @@
   function _slaTimeLabel(caseItem) {
     if (!caseItem || !caseItem.sla) return '';
     var sla = caseItem.sla;
+    // 2026-09-06: no clock runs before acceptance — never "due in 0m".
+    var _st = String(caseItem.db_status || caseItem.status || '').toLowerCase();
+    if (!caseItem.accepted_at && (_st === 'new' || _st === 'paid' || _st === 'submitted' || _st === 'assigned' || _st === 'accepted')) {
+      var _dl = caseItem.acceptance_deadline_at ? new Date(caseItem.acceptance_deadline_at) : null;
+      if (_dl && !isNaN(_dl.getTime())) {
+        var _mins = Math.floor((_dl.getTime() - Date.now()) / 60000);
+        if (_mins <= 0) return _isAr ? 'اقبل الآن' : 'accept now';
+        var _h = Math.floor(_mins / 60), _m = _mins % 60;
+        var _s = _h >= 1 ? (_h + 'h ' + _m + 'm') : (_m + 'm');
+        return _isAr ? ('اقبل خلال ' + _s) : ('accept within ' + _s);
+      }
+      return _isAr ? 'بانتظار القبول' : 'awaiting acceptance';
+    }
+    if (sla.isPaused) return _isAr ? 'متوقف · بانتظار الملفات' : 'paused · awaiting files';
     if (sla.isBreached) {
       var over = Number(sla.minutesOverdue) || 0;
       var oH = Math.floor(over / 60), oM = Math.floor(over % 60);

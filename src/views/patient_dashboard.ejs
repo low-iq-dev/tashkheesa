@@ -69,8 +69,8 @@
 
   // Active state copy resolution.
   const activeStatus = String(__activeOrder ? (__activeOrder.effectiveStatus || __activeOrder.status || '') : '').toUpperCase();
-  const activeDoctorName = (__activeOrder && __activeOrder.doctor_name) ? String(__activeOrder.doctor_name) : '';
-  const activeDoctorShort = activeDoctorName.split(/\s+/).slice(0, 2).join(' ');
+  const activeDoctorName = (__activeOrder && __activeOrder.doctor_name) ? drName(String(__activeOrder.doctor_name)) : '';
+  const activeDoctorShort = drName(String((__activeOrder && __activeOrder.doctor_name) || '').split(/\s+/).slice(0, 2).join(' '));
   const expectedBy = (__activeOrder && __activeOrder.deadline_at) ? fmtDayDate(__activeOrder.deadline_at) : '';
 
   // "In review" is true ONLY once a specialist is actually on the case
@@ -128,8 +128,8 @@
   }
 
   // Report-ready copy. NEVER includes report text.
-  const __readyDoctorName = (__reportReadyOrder && __reportReadyOrder.doctor_name) ? String(__reportReadyOrder.doctor_name) : '';
-  const __readyDoctorShort = __readyDoctorName.split(/\s+/).slice(0, 2).join(' ');
+  const __readyDoctorName = (__reportReadyOrder && __reportReadyOrder.doctor_name) ? drName(String(__reportReadyOrder.doctor_name)) : '';
+  const __readyDoctorShort = drName(String((__reportReadyOrder && __reportReadyOrder.doctor_name) || '').split(/\s+/).slice(0, 2).join(' '));
   const __reportDeliveredAgo = (__reportReadyOrder && __reportReadyOrder.report_delivered_at)
     ? fmtRelative(__reportReadyOrder.report_delivered_at) : '';
   const __reportCaseId = __reportReadyOrder ? __reportReadyOrder.id : '';

@@ -4511,7 +4511,9 @@ function mapPortalCaseItem(order, lang = 'en', extra = {}) {
     : (order && order.specialty_name);
   return {
     ...safeOrder,
-    reference: order && order.id != null ? order.id : '',
+    // 2026-09-06: show the human reference (TSH-YYYY-NNNNNN) on queue rows,
+    // not the UUID. The row href is built from `href` below, never from this.
+    reference: (order && order.reference_id) ? order.reference_id : (order && order.id != null ? order.id : ''),
     specialtyLabel: [specialtyLabelName, order && order.service_name].filter(Boolean).join(' • ') || '—',
     statusLabel: humanStatusText(order && order.status, lang),
     slaLabel: formatSlaLabel(order, order && order.sla, lang),

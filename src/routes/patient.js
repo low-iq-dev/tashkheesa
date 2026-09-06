@@ -7,6 +7,7 @@ const { logErrorToDb } = require('../logger');
 const { queueNotification, queueMultiChannelNotification, notifyAdmins } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
 const { randomUUID } = require('crypto');
+const { generateReferenceId } = require('../utils/reference');
 const { logOrderEvent } = require('../audit');
 var { enqueueCaseIntelligence } = require('../job_queue');
 const { computeSla } = require('../sla_status');
@@ -1675,7 +1676,7 @@ async function resolveDraftStep(orderRow) {
 async function loadOwnedDraft(orderId, patientId) {
   if (!orderId || !patientId) return null;
   const row = await queryOne(
-    `SELECT o.id, o.patient_id, o.status, o.payment_status, o.draft_step,
+    `SELECT o.id, o.patient_id, o.status, o.payment_status, o.draft_step, o.reference_id,
             o.clinical_question, o.medical_history, o.current_medications,
             o.specialty_id, o.service_id, o.sla_hours, o.urgency_tier,
             o.base_price, o.urgency_uplift_amount, o.price, o.urgency_flag,
@@ -2174,12 +2175,17 @@ router.post('/patient/new-case/step1', requireRole('patient'), async (req, res) 
       );
     } else {
       orderId = randomUUID();
+      // 2026-09-06: wizard cases never received a reference_id, so the doctor
+      // dashboard/queue showed the raw UUID while the patient side showed a
+      // derived TSH-<uuid-prefix>. Mint the sequence-backed reference here so
+      // every surface shows the same TSH-YYYY-NNNNNN from the first minute.
+      const referenceId = await generateReferenceId();
       await execute(
         `INSERT INTO orders
            (id, patient_id, status, language, clinical_question, medical_history, current_medications,
-            payment_status, source, draft_step, created_at, updated_at)
-         VALUES ($1, $2, 'DRAFT', $3, $4, $5, $6, 'unpaid', 'patient_wizard_v2', 1, $7, $7)`,
-        [orderId, patientId, lang, clinicalQuestion, medicalHistory || null, currentMedications || null, nowIso]
+            payment_status, source, draft_step, reference_id, created_at, updated_at)
+         VALUES ($1, $2, 'DRAFT', $3, $4, $5, $6, 'unpaid', 'patient_wizard_v2', 1, $8, $7, $7)`,
+        [orderId, patientId, lang, clinicalQuestion, medicalHistory || null, currentMedications || null, nowIso, referenceId]
       );
       try {
         logOrderEvent({ orderId, label: 'draft_created', actorUserId: patientId, actorRole: 'patient' });
@@ -2714,6 +2720,15 @@ router.post('/patient/new-case/step5', requireRole('patient'), newCaseSubmitLimi
   // is idempotent (SUBMITTED -> SUBMITTED no-ops); loadOwnedDraft above guarantees
   // the row is still DRAFT here.
   try {
+    // Drafts created before reference_id was minted at step 1 get one now, so
+    // no paid case ever reaches a doctor without a human-facing reference.
+    if (!owned.reference_id) {
+      const referenceId = await generateReferenceId();
+      await execute(
+        `UPDATE orders SET reference_id = COALESCE(reference_id, $1) WHERE id = $2 AND patient_id = $3`,
+        [referenceId, orderId, patientId]
+      );
+    }
     await caseLifecycle.submitCase(orderId);
   } catch (e) {
     logErrorToDb(e, {

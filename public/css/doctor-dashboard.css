@@ -357,6 +357,7 @@
 .dd-dot--warn   { background: var(--v2-accent); }
 .dd-dot--urgent { background: var(--v2-danger); }
 .dd-dot--breach { background: var(--v2-danger); box-shadow: 0 0 0 3px var(--v2-danger-bg); }
+.dd-dot--info   { background: #2F6FCF; } /* new · awaiting acceptance (2026-09-06) */
 
 .dd-status-text {
   font-weight: 600;

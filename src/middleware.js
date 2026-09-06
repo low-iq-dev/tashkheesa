@@ -324,6 +324,15 @@ function baseMiddlewares(app) {
     // implementation in server.js (preserved verbatim here). They are
     // tracked as Phase 2 migration debt in
     // docs/audits/THEME_10_VIEW_INVENTORY.md.
+    // 2026-09-06: doctors are never addressed by bare name on patient-facing
+    // surfaces. drName('Ahmed Hassan') → 'Dr. Ahmed Hassan' / 'د. أحمد حسن'.
+    // Idempotent: an already-prefixed name (Dr., Dr, Prof., د.) is returned as is.
+    res.locals.drName = function (name) {
+      const n = (name == null) ? '' : String(name).trim();
+      if (!n) return '';
+      if (/^(dr\.?|prof\.?|د\.?|أ\.?د\.?|الدكتور|الدكتورة)\s/i.test(n) || /^(dr\.|د\.)/i.test(n)) return n;
+      return (lang === 'ar' ? 'د. ' : 'Dr. ') + n;
+    };
     res.locals.tt = function (key, enFallback, arFallback) {
       const isAr = lang === 'ar';
       // Trim at the entry point: src/i18n.js#t also trims keys before lookup,
