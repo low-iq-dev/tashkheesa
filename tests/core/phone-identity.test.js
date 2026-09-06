@@ -152,24 +152,59 @@ module.exports = (async function () {
 
   // The suffix fallback must carry the SAME role gate, or the recovery path is a
   // hole straight through the security fix it sits behind.
+  //
+  // UPDATED 2026-09-06 (BLOCKER 2): the stub row now carries a `phone`. It has
+  // to — a suffix candidate is no longer returned on the strength of the SQL
+  // match alone, it must also re-normalise to the same full E.164 string. The
+  // row below is the legacy EG local spelling of the number being looked up,
+  // which is exactly the case this fallback exists to recover.
   try {
-    const q = stubQuery([[], [], [{ id: 'u3', role: 'patient' }]]);
-    const r = await findUserByPhone(q, '+201277399043', '01277399043', ['patient', 'doctor']);
-    assert.strictEqual(r.matchedBy, 'suffix');
+    const q = stubQuery([[], [], [{ id: 'u3', role: 'patient', phone: '01277399043' }]]);
+    const r = await findUserByPhone(q, '+201277399043', '01277399043', ['patient', 'doctor'], '+20');
+    assert.strictEqual(r.matchedBy, 'suffix_verified');
+    assert.strictEqual(r.user.id, 'u3');
     const suffixSql = q.calls[q.calls.length - 1].sql;
     assert.ok(/RIGHT\(/.test(suffixSql), 'expected the suffix query, got: ' + suffixSql);
     assert.ok(/role = ANY\(\$3\)/.test(suffixSql),
       'the suffix fallback must apply the same role gate as the exact lookup, or it becomes a way ' +
       'around it. Got: ' + suffixSql);
-    t.pass('suffix fallback carries the same role gate');
+    t.pass('suffix fallback carries the same role gate and still recovers a legacy spelling');
   } catch (e) { t.fail('suffix fallback role gate', e); }
 
   // Two accounts sharing a suffix must resolve to NOTHING, never to a guess.
   try {
-    const q = stubQuery([[], [], [{ id: 'a' }, { id: 'b' }]]);
-    const r = await findUserByPhone(q, '+201277399043', '01277399043', ['patient', 'doctor']);
+    const q = stubQuery([[], [], [
+      { id: 'a', phone: '01277399043' },
+      { id: 'b', phone: '+201277399043' },
+    ]]);
+    const r = await findUserByPhone(q, '+201277399043', '01277399043', ['patient', 'doctor'], '+20');
     assert.strictEqual(r.user, null);
     assert.strictEqual(r.ambiguous, true);
     t.pass('an ambiguous suffix returns nothing rather than guessing a medical record');
   } catch (e) { t.fail('ambiguous suffix', e); }
+
+  // BLOCKER 2 (2026-09-06) — the takeover this fallback used to permit.
+  // '+447383109933' and '+207383109933' are both 12 digits, so they share the
+  // last-9 key and the SQL below matches. Before verification, that single row
+  // was returned and the caller minted a session on it — signing an Egyptian
+  // caller in as a British patient, then overwriting the victim's phone number
+  // with the caller's so the takeover became permanent.
+  try {
+    const q = stubQuery([[], [], [{ id: 'victim', role: 'patient', phone: '+447383109933' }]]);
+    const r = await findUserByPhone(q, '+207383109933', '07383109933', ['patient', 'doctor'], '+20');
+    assert.strictEqual(r.user, null,
+      'a GB number sharing the last 9 digits was returned as the match for an EG number');
+    assert.strictEqual(r.matchedBy, 'suffix_rejected');
+    assert.strictEqual(r.suffixRejected, true);
+    t.pass('a cross-country 9-digit collision is refused, not signed in');
+  } catch (e) { t.fail('cross-country suffix collision', e); }
+
+  // The verification must not depend on the caller supplying a country hint —
+  // an unhinted call still has the dial code of the number being looked up.
+  try {
+    const q = stubQuery([[], [], [{ id: 'victim', role: 'patient', phone: '+447383109933' }]]);
+    const r = await findUserByPhone(q, '+207383109933', '07383109933', ['patient', 'doctor']);
+    assert.strictEqual(r.user, null);
+    t.pass('the collision is refused even with no country hint');
+  } catch (e) { t.fail('cross-country suffix collision, no hint', e); }
 })();

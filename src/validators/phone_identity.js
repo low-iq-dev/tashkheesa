@@ -158,6 +158,56 @@ function _stripTrunkAfterDialCode(digits) {
 }
 
 /**
+ * The dial code of an already-international number, by longest-prefix match.
+ * Returns null for a number outside our nine markets.
+ */
+function dialCodeFromE164(e164) {
+  const digits = digitsOnly(e164);
+  if (!digits) return null;
+  for (const dial of DIALS_BY_LENGTH) {
+    if (digits.startsWith(dial.slice(1))) return dial;
+  }
+  return null;
+}
+
+/**
+ * Is `storedRaw` the SAME telephone number as `normalized`, written differently?
+ *
+ * AUDIT 2026-09-06 (BLOCKER 2). This is the guard the suffix lookup was
+ * missing. The suffix query below finds rows whose last 9 digits match; that is
+ * a fine way to find CANDIDATES and a catastrophic way to decide IDENTITY,
+ * because the one caller of this module mints a session from whatever row comes
+ * back. Egyptian (+20) and British (+44) numbers are both 12 digits in E.164, so
+ * the 9-digit key discards the country entirely: two unrelated people, one in
+ * Cairo and one in London, can share it. The caller would have been signed in as
+ * the other person, with their medical history — and, because the OTP handler
+ * then healed the row to the caller's number, permanently.
+ *
+ * So: re-normalise the stored spelling and require the FULL E.164 to match.
+ * A legacy local form ('01277399043') and a bare form ('1277399043') still
+ * resolve to the same account, which is the whole point of the module. A
+ * different country's number no longer can.
+ */
+function isSameNumber(storedRaw, normalized, countryHint) {
+  const target = String(normalized == null ? '' : normalized).trim();
+  const stored = String(storedRaw == null ? '' : storedRaw).trim();
+  if (!target || !stored) return false;
+  if (stored === target) return true;
+
+  // A local spelling only has meaning inside a country. Try the caller's own
+  // hint first (the dial code they picked), then the country of the number
+  // being verified — a row stored in a legacy shape is overwhelmingly the same
+  // country as the number now signing in.
+  const hints = [countryHint, dialCodeFromE164(target)];
+  for (const hint of hints) {
+    if (!hint) continue;
+    const r = normalizePhone(stored, hint);
+    if (r && r.ok && r.normalized === target) return true;
+  }
+  return false;
+}
+
+/**
  * The last N significant digits of a number, used ONLY as a secondary lookup
  * key to find an account stored under a legacy spelling.
  *
@@ -182,20 +232,27 @@ function significantDigits(input, n) {
  * Order matters:
  *   1. exact match on the normalised E.164 form — the common, correct case
  *   2. exact match on the raw input, for rows stored before normalisation
- *   3. UNIQUE suffix match on the last 9 significant digits
+ *   3. suffix candidates on the last 9 significant digits, each then VERIFIED
+ *      to be the same full number written differently (AUDIT 2026-09-06)
  *
- * Step 3 returns null when it matches more than one row. Two accounts sharing a
- * suffix is precisely the ambiguity we must not resolve by guessing — silently
- * attaching a patient to the wrong medical record is far worse than asking them
- * to sign in another way.
+ * Step 3 returns null when more than one row survives verification, and null
+ * when none does. Two accounts sharing a suffix is precisely the ambiguity we
+ * must not resolve by guessing — silently attaching a patient to the wrong
+ * medical record is far worse than asking them to sign in another way.
  *
  * @param {Function} queryFn  async (sql, params) => rows   (e.g. pg.queryAll)
  * @param {string} normalized E.164 phone
  * @param {string} [rawInput] what the user actually typed
  * @param {string} [role]     restrict to a role, e.g. 'patient'
- * @returns {Promise<{user: object|null, matchedBy: string, ambiguous?: boolean}>}
+ * @param {string} [countryHint] ISO ('EG') or dial code ('+20') — the country
+ *   the caller just dialled from. Used to re-normalise legacy stored spellings
+ *   during suffix verification (AUDIT 2026-09-06, BLOCKER 2). Omitting it does
+ *   not weaken the guard: verification falls back to the dial code of the
+ *   number being looked up, so an unhinted call still refuses a cross-country
+ *   match — it just resolves fewer legacy local spellings.
+ * @returns {Promise<{user: object|null, matchedBy: string, ambiguous?: boolean, suffixRejected?: boolean}>}
  */
-async function findUserByPhone(queryFn, normalized, rawInput, role) {
+async function findUserByPhone(queryFn, normalized, rawInput, role, countryHint) {
   // `role` accepts a single role or an array. An array is the OTP case: sign-in
   // is gated to ('patient','doctor') so that an SMS code sent to a staff number
   // can never mint a token that satisfies requireRole('superadmin').
@@ -222,17 +279,46 @@ async function findUserByPhone(queryFn, normalized, rawInput, role) {
     if (legacy && legacy.length > 1) return { user: null, matchedBy: 'legacy_raw', ambiguous: true };
   }
 
+  // Step 3 — suffix CANDIDATES, then full-number verification.
+  //
+  // AUDIT 2026-09-06 (BLOCKER 2). This step used to return whatever single row
+  // shared the last 9 digits, and that row was then signed in. See isSameNumber
+  // above for why that is an account-takeover primitive rather than a
+  // convenience. The query is unchanged — it is a good index-friendly way to
+  // narrow the table — but its output is now a candidate list that every row
+  // must earn its way out of by normalising to the SAME E.164 string.
+  //
+  // LIMIT raised 2 -> 5: with verification, extra candidates are the normal
+  // case (a real collision plus the real account), and stopping at 2 would let
+  // one unrelated row hide the genuine match behind a false 'ambiguous'.
   const suffix = significantDigits(normalized || raw, 9);
   if (suffix.length >= 8) {
     const bySuffix = await queryFn(
       `SELECT * FROM users
         WHERE phone IS NOT NULL
           AND RIGHT(regexp_replace(phone, '[^0-9]', '', 'g'), $1) = $2${roles ? ' AND role = ANY($3)' : ''}
-        LIMIT 2`,
+        LIMIT 5`,
       [suffix.length, suffix].concat(roles ? [roles] : [])
     );
-    if (bySuffix && bySuffix.length === 1) return { user: bySuffix[0], matchedBy: 'suffix' };
-    if (bySuffix && bySuffix.length > 1) return { user: null, matchedBy: 'suffix', ambiguous: true };
+    const candidates = (bySuffix || []).filter(
+      (row) => isSameNumber(row && row.phone, normalized || raw, countryHint)
+    );
+    if (candidates.length === 1) {
+      return { user: candidates[0], matchedBy: 'suffix_verified' };
+    }
+    if (candidates.length > 1) {
+      // Two rows that really are the same number. Duplicate identity, not a
+      // collision — still refuse, for the original reason: attaching a patient
+      // to the wrong medical record is worse than asking them to sign in
+      // another way.
+      return { user: null, matchedBy: 'suffix_verified', ambiguous: true };
+    }
+    if (bySuffix && bySuffix.length > 0) {
+      // Rows shared the suffix and NONE of them is this number. Before today
+      // one of these would have been signed in. Reported so the caller can log
+      // it — this is the near-miss that used to be a takeover.
+      return { user: null, matchedBy: 'suffix_rejected', suffixRejected: true };
+    }
   }
 
   return { user: null, matchedBy: 'none' };
@@ -241,6 +327,8 @@ async function findUserByPhone(queryFn, normalized, rawInput, role) {
 module.exports = {
   normalizePhone,
   dialCodeFor,
+  dialCodeFromE164,
+  isSameNumber,
   significantDigits,
   findUserByPhone,
   DIAL_CODES,

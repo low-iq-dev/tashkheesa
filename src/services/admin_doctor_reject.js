@@ -69,12 +69,25 @@ async function setDoctorRejection(client, opts) {
           SET pending_approval = false,
               is_active = false,
               approved_at = NULL,
+              refresh_token = NULL,
               rejection_reason = $2
         WHERE id = $1
        RETURNING id, is_active, pending_approval, rejection_reason`,
       [doctorId, reason]
     );
     const row = upd.rows[0];
+
+    // AUDIT 2026-09-06 (BLOCKERS 1 + 4) — mirrors the web reject at
+    // routes/superadmin.js. refresh_token = NULL above kills the 30-day mobile
+    // credential; this kills any welcome/magic link still in flight, which
+    // /magic-login → /set-password would otherwise redeem back into
+    // is_active = true. Inside the transaction here (unlike the web path,
+    // which is a sequence of separate statements) so a rejection either
+    // revokes everything or nothing.
+    await client.query(
+      `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+      [doctorId]
+    );
 
     // (4) admin audit on the txn client (atomic with the flag write). Shape
     //     matches admin_doctor_approve.js / admin_doctor_pause.js. The reason is

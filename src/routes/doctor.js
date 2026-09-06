@@ -2369,6 +2369,27 @@ const canAccept =
     case_completed: {
       en: 'This case has already been delivered to the patient, so its report can no longer be edited.',
       ar: 'تم تسليم هذه الحالة للمريض بالفعل، لذا لم يعد بالإمكان تعديل تقريرها.'
+    },
+    // AUDIT 2026-09-06 (BLOCKER 3) — the Save-notes failure path. Deliberately
+    // worded like report_save_failed rather than the softer "your text is still
+    // in the editor": it is NOT. This page repopulates the textareas from the
+    // database, so on a failed write the doctor's typed findings are gone and
+    // the only honest instruction is to write them again.
+    notes_save_failed: {
+      en: 'We could not save your notes — nothing was written. Your text is NOT in the editor below, so please re-enter your findings and save again in a moment.',
+      ar: 'تعذّر حفظ ملاحظاتك — لم يُكتب أي شيء. نصّك غير موجود في المحرر أدناه، لذا يرجى إعادة إدخال النتائج والحفظ مرة أخرى بعد قليل.'
+    },
+    // AUDIT 2026-09-06 — codes that handlers already redirect with but that
+    // were absent from this map, so those failures rendered nothing at all.
+    // doctor.js accept-case redirects with accept_failed; reject-files with
+    // reason_required.
+    accept_failed: {
+      en: 'We could not finish accepting this case. Open it again from your queue — if it now shows as yours, it was accepted and only the confirmation failed.',
+      ar: 'تعذّر إتمام قبول هذه الحالة. افتحها مرة أخرى من قائمتك — إذا ظهرت الآن باسمك فقد تم القبول وفشل التأكيد فقط.'
+    },
+    reason_required: {
+      en: 'A reason is required before the uploaded files can be rejected.',
+      ar: 'السبب مطلوب قبل رفض الملفات المرفوعة.'
     }
   };
   const submitErrorEntry = REPORT_SUBMIT_ERRORS[String((req.query && req.query.error) || '')];
@@ -2418,6 +2439,20 @@ const canAccept =
   const rxFlashEntry = RX_FLASH[String((req.query && req.query.rx) || '')];
   const rxFlash = rxFlashEntry
     ? { ok: rxFlashEntry.ok, text: isAr ? rxFlashEntry.ar : rxFlashEntry.en }
+    : null;
+
+  // AUDIT 2026-09-06 (BLOCKER 3) — the positive half of the Save-notes
+  // outcome. The old handler redirected with ?success=notes_saved, which no
+  // route and no view ever read, so a successful save looked exactly like a
+  // failed one: a bare 302 back to the same page. Reuses the rxFlash card
+  // rather than inventing a second flash component.
+  const notesFlash = String((req.query && req.query.saved) || '') === '1'
+    ? {
+        ok: true,
+        text: isAr
+          ? 'تم حفظ ملاحظاتك.'
+          : 'Your notes have been saved.'
+      }
     : null;
 
   // AUDIT-2026-09-06 (D1) — every "how much of this case do we render?"
@@ -2761,6 +2796,7 @@ const canAccept =
     routingFacts,
     prescriptionAddon,
     rxFlash,
+    notesFlash,
     prescriptionRequestUrl: `/portal/doctor/case/${orderId}/request-prescription`,
     showAcceptButton: canAccept,
     acceptBlockedReason,
@@ -3668,9 +3704,27 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, 
       orderId
     });
     console.error('[DOCTOR] save diagnosis error:', err.message);
+
+    // AUDIT 2026-09-06 (BLOCKER 3) — this catch used to fall through to the
+    // success redirect below, so the two outcomes were byte-identical
+    // responses. Worse than a missing message: the textareas are repopulated
+    // from the database (view line 188), so a failed write ALSO wiped the
+    // findings the doctor had just typed, and the card header claimed
+    // "Auto-saved as you type". A doctor could write a report, watch it
+    // vanish, and have no reason to think anything had gone wrong.
+    //
+    // The sibling report-submit handler already got this right — it returns
+    // report_save_failed with copy that says plainly that nothing was written.
+    // Same treatment here, with its own code so the two are distinguishable in
+    // the logs.
+    return res.redirect(`/portal/doctor/case/${orderId}?error=notes_save_failed`);
   }
 
-  return res.redirect(`/portal/doctor/case/${orderId}?success=notes_saved`);
+  // AUDIT 2026-09-06 (BLOCKER 3) — `?success=notes_saved` was a dead
+  // parameter: nothing in doctor.js read it and portal_doctor_case.ejs has no
+  // occurrence of `success` at all, so the doctor got a bare 302 and no
+  // confirmation either way. Now carried as ?saved=1 and rendered.
+  return res.redirect(`/portal/doctor/case/${orderId}?saved=1`);
 });
 // ---- end save diagnosis ----
 

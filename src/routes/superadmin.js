@@ -3963,6 +3963,12 @@ router.post('/superadmin/doctors/outreach/send', requireSuperadmin, welcomeSendI
           const doctor = await queryOne('SELECT * FROM users WHERE id = $1 AND role = $2', [d.id, 'doctor']);
           if (!doctor) { failed++; continue; }
           const payload = await _issueDoctorWelcomePayload(doctor, req);
+          // AUDIT 2026-09-06 (BLOCKER 5) — the bulk path is the one that
+          // matters most here: it is what sends the invite blast, and a
+          // baseUrl resolution failure would give EVERY doctor in the batch a
+          // welcome with an empty {{password_setup_link}} while the summary
+          // reported them all as sent. Count it as failed instead.
+          if (!_welcomePayloadIsSendable(payload)) { failed++; continue; }
           queueMultiChannelNotification({
             orderId: null, toUserId: d.id,
             channels: ['internal', 'email', 'whatsapp'],
@@ -4051,13 +4057,44 @@ router.post('/superadmin/doctors/outreach/state', requireSuperadmin, async (req,
     if (!id) return res.redirect(back + '?error=state');
 
     let sql = null;
-    if (action === 'deactivate')      sql = "UPDATE users SET is_active = false WHERE id = $1 AND role = 'doctor'";
+    // AUDIT 2026-09-06 (BLOCKERS 1 + 4) — deactivation now REVOKES as well as
+    // flags. Two things used to survive it:
+    //   refresh_token — a 30-day mobile credential that /api/v1/auth/refresh
+    //     would keep rotating into fresh access tokens for a month.
+    //   unused password_reset_tokens — a live welcome/magic link that
+    //     /magic-login + /set-password would redeem straight back into
+    //     is_active = true, undoing this decision.
+    // Pause deliberately revokes neither: a paused doctor is still a working
+    // doctor (migrations/040 — "excluded from open-pool broadcasts", not
+    // logged out), and pause is set AUTOMATICALLY on SLA breach with no human
+    // in the loop, so signing them out would be a silent lockout.
+    if (action === 'deactivate')      sql = "UPDATE users SET is_active = false, refresh_token = NULL WHERE id = $1 AND role = 'doctor'";
     else if (action === 'activate')   sql = "UPDATE users SET is_active = true  WHERE id = $1 AND role = 'doctor'";
     else if (action === 'pause')      sql = "UPDATE users SET is_paused = true,  paused_at = NOW() WHERE id = $1 AND role = 'doctor'";
     else if (action === 'unpause')    sql = "UPDATE users SET is_paused = false, paused_at = NULL   WHERE id = $1 AND role = 'doctor'";
     else return res.redirect(back + '?error=state');
 
     await execute(sql, [id]);
+
+    // AUDIT 2026-09-06 (BLOCKER 4) — deactivate also burns unused welcome /
+    // magic links, for the reason given above the SQL. Only deactivate: an
+    // activate/pause/unpause has no credential to revoke, and burning a live
+    // invite on pause would strand a doctor mid-onboarding.
+    if (action === 'deactivate') {
+      try {
+        await execute(
+          `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+          [id]
+        );
+      } catch (e) {
+        logErrorToDb(e, {
+          context: 'superadmin.doctor_deactivate_token_burn',
+          userId: req.user && req.user.id, url: req.originalUrl, method: req.method,
+          category: 'superadmin_auth'
+        });
+      }
+    }
+
     logAdminAudit({ req, action: 'doctor_outreach_' + action, target: id });
 
     // Availability changed, so the coming-soon computation is stale.
@@ -4364,6 +4401,24 @@ async function _issueDoctorWelcomePayload(doctor, req) {
   };
 }
 
+// AUDIT 2026-09-06 (BLOCKER 5) — a welcome with no login link is not a welcome.
+//
+// _issueDoctorWelcomePayload can fail in two distinct ways and only one of them
+// throws. It throws on a DB error (token mint). It returns SILENTLY with
+// magicLinkUrl: null when baseUrl cannot be resolved — BASE_URL/APP_URL unset
+// and no usable Host header, which is exactly the shape of a worker or CLI
+// context. The approve handler caught the throw and then queued the
+// notification anyway, so both failure modes ended the same way: the doctor
+// received a welcome email and WhatsApp message with an empty
+// {{password_setup_link}} and no way to reach the portal, while the operator
+// was shown "Approved. Welcome email queued."
+//
+// One predicate, used by every sender, so "the payload is not sendable" is
+// decided in one place rather than re-derived per call site.
+function _welcomePayloadIsSendable(payload) {
+  return !!(payload && typeof payload.magicLinkUrl === 'string' && payload.magicLinkUrl.trim());
+}
+
 router.post('/superadmin/doctors/:id/approve', requireSuperadmin, async (req, res) => {
   const doctorId = req.params.id;
   const doctor = await queryOne(DOCTOR_WITH_SPECIALTY_SQL, [doctorId]);
@@ -4410,16 +4465,41 @@ router.post('/superadmin/doctors/:id/approve', requireSuperadmin, async (req, re
     console.error('[doctor-approve] token issuance failed:', err && err.message ? err.message : err);
   }
 
-  queueMultiChannelNotification({
-    orderId: null,
-    toUserId: doctorId,
-    channels: ['internal', 'email', 'whatsapp'],
-    template: 'doctor_approved',
-    response: welcomePayload,
-    dedupe_key: 'doctor_approved:' + doctorId
-  });
+  // AUDIT 2026-09-06 (BLOCKER 5). See _welcomePayloadIsSendable above. The
+  // approval itself is COMMITTED and stays committed — that is the right
+  // outcome and re-running it would only churn state. What changes is that a
+  // link-less welcome is no longer sent, and the operator is told, so the
+  // remedy (Resend welcome, on this same page) is one click away instead of
+  // being discovered weeks later by a doctor who never logged in.
+  const welcomeOk = _welcomePayloadIsSendable(welcomePayload);
 
-  return res.redirect(`/superadmin/doctors/${doctorId}?approved=1`);
+  if (welcomeOk) {
+    queueMultiChannelNotification({
+      orderId: null,
+      toUserId: doctorId,
+      channels: ['internal', 'email', 'whatsapp'],
+      template: 'doctor_approved',
+      response: welcomePayload,
+      dedupe_key: 'doctor_approved:' + doctorId
+    });
+  } else {
+    logErrorToDb(
+      new Error('doctor_approved welcome NOT sent: payload carried no magic-login link'),
+      {
+        context: 'superadmin.doctor_approve_welcome_unsendable',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'superadmin_auth'
+      }
+    );
+    console.error('[doctor-approve] welcome suppressed — no magic link for doctor', doctorId);
+  }
+
+  return res.redirect(
+    `/superadmin/doctors/${doctorId}?approved=1` + (welcomeOk ? '' : '&welcome=failed')
+  );
 });
 
 // P1-NOTIF-5: resend the welcome email to an already-approved doctor.
@@ -4455,6 +4535,12 @@ router.post('/superadmin/doctors/:id/resend-welcome', requireSuperadmin, welcome
     console.error('[doctor-resend-welcome] token issuance failed:', err && err.message ? err.message : err);
     resendOk = false;
   }
+
+  // AUDIT 2026-09-06 (BLOCKER 5) — same predicate as the approve path. Resend
+  // already handled the THROW correctly; it did not handle the silent
+  // magicLinkUrl: null return, so "Welcome email re-queued" could still be a
+  // link-less message. Both senders now agree on what sendable means.
+  if (resendOk && !_welcomePayloadIsSendable(welcomePayload)) resendOk = false;
 
   if (resendOk) {
     queueMultiChannelNotification({
@@ -4619,10 +4705,31 @@ router.post('/superadmin/doctors/:id/reject', requireSuperadmin, async (req, res
      SET pending_approval = false,
          is_active = false,
          approved_at = NULL,
+         refresh_token = NULL,
          rejection_reason = $1
      WHERE id = $2 AND role = 'doctor'`,
     [rejection_reason || 'Not approved', doctorId]
   );
+
+  // AUDIT 2026-09-06 (BLOCKER 4) — burn any welcome/magic link still in
+  // flight. Rejected doctors are precisely the population with
+  // password_hash IS NULL, which is the branch /magic-login requires; leaving
+  // their invite live meant a rejected applicant could click the email they
+  // had already been sent, land on /set-password, and have that handler write
+  // is_active = true straight back. Best-effort: the rejection above is
+  // committed and must not be undone by a cleanup failure.
+  try {
+    await execute(
+      `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+      [doctorId]
+    );
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'superadmin.doctor_reject_token_burn',
+      userId: req.user?.id, url: req.originalUrl, method: req.method,
+      category: 'superadmin_auth'
+    });
+  }
 
   // Rejecting deactivates the doctor (is_active→false) → recompute coming_soon
   // so a service losing its last active doctor is flagged (§4.3), best-effort.

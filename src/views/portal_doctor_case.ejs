@@ -19,6 +19,10 @@
   var _rx = (typeof prescriptionAddon !== 'undefined' && prescriptionAddon) ? prescriptionAddon : null;
   var _rxUrl = (typeof prescriptionRequestUrl !== 'undefined' && prescriptionRequestUrl) ? String(prescriptionRequestUrl) : '';
   var _rxFlash = (typeof rxFlash !== 'undefined' && rxFlash) ? rxFlash : null;
+  /* AUDIT 2026-09-06 (BLOCKER 3): outcome of POST .../diagnosis. This view had
+     no `success` handling at all, so a saved report and a save that threw were
+     the same blank page. */
+  var _notesFlash = (typeof notesFlash !== 'undefined' && notesFlash) ? notesFlash : null;
   /* Prescriptions are held back — see src/services/prescriptions_flag.js.
      The card stays VISIBLE so a doctor expecting the feature sees it coming
      rather than a hole, but every action on it is inert. Set from res.locals
@@ -211,6 +215,16 @@
         <div style="font-weight:600;color:var(--v2-danger);"><%= tt('Heads up', 'Heads up', 'تنبيه') %></div>
         <div style="font-size:13px;color:var(--v2-ink-2);margin-block-start:4px;"><%= _errMsg %></div>
       </div>
+    </div>
+  </div>
+<% } %>
+
+<%# AUDIT 2026-09-06 (BLOCKER 3): outcome of a Save-notes POST. %>
+<% if (_notesFlash) { %>
+  <div class="v2-card" style="margin-block-end:18px;border-color:var(--v2-brand-tint);">
+    <div class="v2-card__body" style="display:flex;gap:12px;align-items:flex-start;">
+      <div style="width:32px;height:32px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:700;background:var(--v2-brand-lt);color:var(--v2-brand-dk);">✓</div>
+      <div style="flex:1;font-size:13px;line-height:1.55;color:var(--v2-ink-2);"><%= _notesFlash.text %></div>
     </div>
   </div>
 <% } %>
@@ -622,7 +636,12 @@
       <div class="v2-card">
         <div class="v2-card__header">
           <div class="v2-card__title"><%= tt('Report', 'Report', 'التقرير') %></div>
-          <span class="v2-card__title-sub"><%= tt('Auto-saved as you type', 'Auto-saved as you type', 'يُحفظ تلقائياً أثناء الكتابة') %></span>
+<%# AUDIT 2026-09-06 (BLOCKER 3): this said "Auto-saved as you type". There is
+    no autosave — this file contains no fetch, no XMLHttpRequest and no timer;
+    the editor is a plain form POST. The label told a doctor their work was
+    safe while they typed, which is the single worst thing to be wrong about
+    on this page. Replaced with what the form actually does. %>
+          <span class="v2-card__title-sub"><%= tt('Saved when you press Save', 'Saved when you press Save', 'يُحفظ عند الضغط على حفظ') %></span>
         </div>
         <form method="POST" action="/portal/doctor/case/<%= _orderIdEnc %>/diagnosis">
           <%- (typeof csrfField === 'function') ? csrfField() : '' %>

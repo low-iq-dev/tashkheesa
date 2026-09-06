@@ -23,6 +23,10 @@
   // Flash messages from query params (approved / resend success or failure)
   var flashApproved = _query.approved === '1';
   var flashResend = _query.resend || null;
+  // AUDIT 2026-09-06 (BLOCKER 5): approval commits even when the welcome
+  // cannot be sent, so the two outcomes need two different banners. Without
+  // this the operator was told the welcome was queued in both cases.
+  var flashWelcomeFailed = _query.welcome === 'failed';
 %>
 <%- include('partials/superadmin/header', {
       title: _doctor.name || 'Doctor',
@@ -46,8 +50,16 @@
     }) %>
 
 <div class="page-body">
-  <% if (flashApproved) { %>
+  <% if (flashApproved && !flashWelcomeFailed) { %>
     <div class="flash ok"><strong>Approved.</strong> Welcome email queued for <%= _doctor.email || 'this doctor' %>.</div>
+  <% } %>
+  <% if (flashApproved && flashWelcomeFailed) { %>
+    <div class="flash err"><strong>Approved — but the welcome was NOT sent.</strong>
+      The magic-login link could not be generated, so no message went out (sending one
+      without a link would leave <%= _doctor.name || 'this doctor' %> with no way in).
+      Use <strong>Resend welcome</strong> below once the cause is cleared — check
+      error_logs for <code>superadmin.doctor_approve_token</code> or
+      <code>superadmin.doctor_approve_welcome_unsendable</code>.</div>
   <% } %>
   <% if (flashResend === 'ok') { %>
     <div class="flash ok"><strong>Welcome email re-queued</strong> for <%= _doctor.email || 'this doctor' %>.</div>

@@ -14,6 +14,7 @@ const { validatePhoneE164 } = require('../validators/phone');
 const { resolveDoctorLanding } = require('../services/doctor_landing');
 const { buildDoctorWelcomePayload, WELCOME_EXPIRY_HOURS, SERVICES_READY_SQL } = require('../services/doctor_welcome_payload');
 const { captureSignup } = require('../services/analytics');
+const { loginBlockReason, LOGIN_BLOCKED } = require('../services/login_gate');
 require('dotenv').config();
 
 const NODE_ENV = String(process.env.NODE_ENV || '').toLowerCase();
@@ -348,11 +349,20 @@ router.post('/login', async (req, res) => {
       return renderLogin(req, res, { error: c.login_invalid });
     }
 
-    if (user.role === 'doctor') {
-      if (user.pending_approval) {
+    // AUDIT 2026-09-06 (BLOCKER 1) — was an inline copy of the gate; now the
+    // shared one, so this path and the three in api/auth.js cannot drift apart
+    // again. Behaviour note: the old test was `!user.is_active`, which blocked
+    // a NULL is_active. Every other consumer of that column reads NULL as
+    // active (COALESCE(u.is_active, true) — doctor.js:125, assign.js:20,
+    // auto_assign.js:74), so a NULL doctor could be assigned cases and then be
+    // unable to sign in to work them. loginBlockReason() blocks on a strict
+    // `false` only, which makes login agree with routing.
+    {
+      const _block = loginBlockReason(user);
+      if (_block === LOGIN_BLOCKED.PENDING_APPROVAL) {
         return res.redirect('/doctor/pending-approval');
       }
-      if (!user.is_active) {
+      if (_block === LOGIN_BLOCKED.INACTIVE) {
         const c = authCopy(req);
         return renderLogin(req, res, { error: c.login_doctor_inactive });
       }
@@ -541,10 +551,16 @@ router.post('/login/otp/verify', parseOtpPhone, otpIpLimiter, otpVerifyCap, asyn
       return res.status(500).json({ ok: false, error: c.login_unexpected });
     }
 
-    // Replay the SAME post-auth gates as password login.
-    if (user.role === 'doctor') {
-      if (user.pending_approval) return res.json({ ok: true, redirect: '/doctor/pending-approval' });
-      if (!user.is_active) return res.status(403).json({ ok: false, error: c.login_doctor_inactive });
+    // Replay the SAME post-auth gates as password login — now literally the
+    // same function rather than a hand-kept copy (AUDIT 2026-09-06, BLOCKER 1).
+    {
+      const _block = loginBlockReason(user);
+      if (_block === LOGIN_BLOCKED.PENDING_APPROVAL) {
+        return res.json({ ok: true, redirect: '/doctor/pending-approval' });
+      }
+      if (_block === LOGIN_BLOCKED.INACTIVE) {
+        return res.status(403).json({ ok: false, error: c.login_doctor_inactive });
+      }
     }
 
     establishWebSession(res, user);
@@ -738,6 +754,24 @@ router.get('/magic-login/:token', welcomeTokenIpLimiter, async (req, res) => {
     return renderLogin(req, res, { error: c.login_invalid });
   }
 
+  // AUDIT 2026-09-06 (BLOCKER 4) — a magic link is a credential, and this
+  // route checked only that the token was valid and the role was patient or
+  // doctor. It set a 7-day session cookie for a DEACTIVATED or REJECTED
+  // account and sent it to /set-password, whose handler then wrote
+  // is_active = true. That was the whole loop: a doctor you rejected could
+  // click the welcome email you had already sent and put themselves back in
+  // the live assignment pool.
+  //
+  // Checked here as well as at the write, because this route hands out a
+  // session before /set-password is ever reached. rejection_reason is included
+  // because it is the durable record of a rejection — is_active alone can be
+  // flipped back by an operator re-activating, and we want a REJECTED row to
+  // stay refused until someone re-approves it properly.
+  if (user.is_active === false || (user.rejection_reason && String(user.rejection_reason).trim())) {
+    const c = authCopy(req);
+    return renderLogin(req, res, { error: c.login_invalid });
+  }
+
   const nowIso = new Date().toISOString();
   // Single-use: burn the token unconditionally BEFORE any branch, so a leaked
   // welcome link can't be replayed even down the password-holder reject path.
@@ -840,8 +874,27 @@ router.post('/set-password', welcomeTokenIpLimiter, async (req, res) => {
 
   await withTransaction(async (client) => {
     await client.query(
+      // AUDIT 2026-09-06 (BLOCKER 4) — was an unconditional
+      // `is_active = true`, with no filter on who was setting the password.
+      // That made every password-set a REACTIVATION: a doctor who had been
+      // deactivated or rejected, holding any unused welcome/admin link, could
+      // restore their own account by clicking it and choosing a password, and
+      // reappear in the assignment pool (doctor.js:125 gates on
+      // COALESCE(is_active, true)).
+      //
+      // The flag still has a legitimate job — activating an INVITED account on
+      // first setup (admin-created doctors and the welcome flow start life with
+      // no password). So it now fires only for that case:
+      //   password_hash IS NULL   — genuinely a first-time setup, not a reset
+      //   rejection_reason IS NULL — never rejected
+      // Anyone else keeps whatever is_active they already had. A reset is a
+      // password operation; it is not an appeal.
       `UPDATE users
-       SET password_hash = $1, is_active = true
+       SET password_hash = $1,
+           is_active = CASE
+             WHEN password_hash IS NULL AND rejection_reason IS NULL THEN true
+             ELSE is_active
+           END
        WHERE id = $2`,
       [passwordHash, user.id]
     );
@@ -922,8 +975,27 @@ router.post('/reset-password/:token', welcomeTokenIpLimiter, async (req, res) =>
 
   await withTransaction(async (client) => {
     await client.query(
+      // AUDIT 2026-09-06 (BLOCKER 4) — was an unconditional
+      // `is_active = true`, with no filter on who was setting the password.
+      // That made every password-set a REACTIVATION: a doctor who had been
+      // deactivated or rejected, holding any unused welcome/admin link, could
+      // restore their own account by clicking it and choosing a password, and
+      // reappear in the assignment pool (doctor.js:125 gates on
+      // COALESCE(is_active, true)).
+      //
+      // The flag still has a legitimate job — activating an INVITED account on
+      // first setup (admin-created doctors and the welcome flow start life with
+      // no password). So it now fires only for that case:
+      //   password_hash IS NULL   — genuinely a first-time setup, not a reset
+      //   rejection_reason IS NULL — never rejected
+      // Anyone else keeps whatever is_active they already had. A reset is a
+      // password operation; it is not an appeal.
       `UPDATE users
-       SET password_hash = $1, is_active = true
+       SET password_hash = $1,
+           is_active = CASE
+             WHEN password_hash IS NULL AND rejection_reason IS NULL THEN true
+             ELSE is_active
+           END
        WHERE id = $2`,
       [passwordHash, user.id]
     );

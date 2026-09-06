@@ -11,6 +11,7 @@ const { randomUUID, randomInt } = require('crypto');
 const { coerceCountry, marketFromDialCode } = require('../../launch-market');
 const { logErrorToDb } = require('../../logger');
 const { normalizePhone } = require('../../validators/phone_identity');
+const { loginBlockReason, LOGIN_BLOCKED } = require('../../services/login_gate');
 // Lazy-load express-validator — top-level require takes ~120s (validator.js regex compilation)
 // and starves the DB connection pool timeout during boot.
 let _ev;
@@ -197,6 +198,18 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
         return res.fail('Invalid email or password.', 401, 'INVALID_CREDENTIALS');
       }
 
+      // AUDIT 2026-09-06 (BLOCKER 1). The SELECT above is role-filtered to
+      // 'patient', so today loginBlockReason() is a no-op on this path. It is
+      // called anyway: the filter is one word from being widened, and when it
+      // is, the gate must already be here rather than be remembered.
+      const _pwBlock = loginBlockReason(user);
+      if (_pwBlock === LOGIN_BLOCKED.PENDING_APPROVAL) {
+        return res.fail('Your account is still awaiting approval.', 403, 'ACCOUNT_PENDING_APPROVAL');
+      }
+      if (_pwBlock === LOGIN_BLOCKED.INACTIVE) {
+        return res.fail('This account is not active. Please contact support.', 403, 'ACCOUNT_INACTIVE');
+      }
+
       const tokens = generateTokens(user);
       await safeRun('UPDATE users SET refresh_token = $1 WHERE id = $2', [tokens.refreshToken, user.id]);
 
@@ -237,6 +250,21 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       [decoded.id, refreshToken]
     );
     if (!user) {
+      return res.fail('Refresh token revoked', 401, 'REFRESH_REVOKED');
+    }
+
+    // AUDIT 2026-09-06 (BLOCKER 1) — the gate has to be here too, not only at
+    // sign-in. Refresh tokens live 30 days and this endpoint re-mints an
+    // access token from one with no reference to account state, so gating only
+    // the login paths would leave a doctor deactivated on Monday still holding
+    // a working credential until the following month. Deliberately reported as
+    // REFRESH_REVOKED rather than ACCOUNT_INACTIVE: the mobile clients already
+    // treat that code as "session over, sign in again" (lib/api.ts), and it is
+    // the honest description — this token is no longer good.
+    if (loginBlockReason(user) !== null) {
+      // Burn the stored token so the 30-day window closes now rather than at
+      // its natural expiry. Without this the client could keep retrying.
+      await safeRun('UPDATE users SET refresh_token = NULL WHERE id = $1', [user.id]);
       return res.fail('Refresh token revoked', 401, 'REFRESH_REVOKED');
     }
 
@@ -418,10 +446,31 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       // requireRole('superadmin') across the whole admin API. Admin and
       // superadmin sign in with a password only. The suffix fallback is gated
       // by the same roles, so it cannot widen that hole.
+      //
+      // AUDIT 2026-09-06 (BLOCKER 2) — the suffix step is no longer an
+      // identity rule. It still finds candidates by the last 9 digits, but each
+      // one must now re-normalise to the SAME full E.164 string before it can
+      // be signed in; `countryCode` is passed so a legacy LOCAL spelling
+      // ('01277399043') still resolves while a different country's number
+      // sharing the same 9 digits no longer can. See phone_identity.js.
       const { findUserByPhone } = require('../../validators/phone_identity');
       const OTP_ROLES = ['patient', 'doctor'];
-      const resolution = await findUserByPhone(safeAll, normalizedPhone, fullPhone, OTP_ROLES);
+      const resolution = await findUserByPhone(
+        safeAll, normalizedPhone, fullPhone, OTP_ROLES, countryCode
+      );
       let user = resolution.user;
+
+      if (resolution.suffixRejected) {
+        // Rows shared the 9-digit key and none was this number. Under the old
+        // code one of them would have been signed in — and then had its phone
+        // overwritten with the caller's. Recorded because it is the signal that
+        // this guard is load-bearing, not theoretical; sign-in continues down
+        // the normal not-found path (auto-create) from here.
+        logErrorToDb(new Error('OTP suffix candidates rejected by full-number verification'), {
+          context: 'api.auth.otp_verify.suffix_rejected',
+          category: 'auth',
+        });
+      }
 
       if (resolution.ambiguous) {
         logErrorToDb(new Error('OTP phone matched multiple accounts'), {
@@ -438,7 +487,26 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
 
       // Heal the stored value so the next sign-in takes the fast exact path and
       // the row stops being a duplicate risk for every other lookup.
-      if (user && user.phone !== normalizedPhone) {
+      //
+      // AUDIT 2026-09-06 (BLOCKER 2) — this write is what turned a one-off
+      // mismatch into a permanent takeover: it overwrote the matched row's
+      // phone with the CALLER's number, so the victim was locked out and every
+      // later sign-in went down the fast exact path. It is safe now only
+      // because findUserByPhone has already proved `user.phone` and
+      // `normalizedPhone` are the same telephone number in different
+      // spellings. The explicit matchedBy allowlist keeps it that way: a future
+      // match kind must be reviewed and added here deliberately rather than
+      // inheriting write access to someone's identity by default.
+      const _healableMatch = ['exact', 'legacy_raw', 'suffix_verified'].includes(resolution.matchedBy);
+      if (user && !_healableMatch && user.phone !== normalizedPhone) {
+        logErrorToDb(new Error('phone heal suppressed for unverified match kind'), {
+          context: 'api.auth.otp_verify.phone_heal_suppressed',
+          category: 'auth',
+          matchedBy: resolution.matchedBy,
+          userId: user.id,
+        });
+      }
+      if (user && _healableMatch && user.phone !== normalizedPhone) {
         try {
           await safeRun('UPDATE users SET phone = $1 WHERE id = $2', [normalizedPhone, user.id]);
           user.phone = normalizedPhone;
@@ -509,6 +577,28 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
 
       if (!user) {
         return res.fail('Could not complete sign-in. Please try again.', 500, 'OTP_USER_LOOKUP_FAILED');
+      }
+
+      // AUDIT 2026-09-06 (BLOCKER 1) — replay the post-auth account-status
+      // gates. This path had none: a deactivated or rejected doctor who still
+      // controlled their phone number could OTP in here and use the returned
+      // accessToken as a portal Bearer credential (src/auth.js:59), because
+      // requireRole('doctor') does not re-check status per request. See
+      // services/login_gate.js for why is_paused is deliberately not a gate.
+      const _otpBlock = loginBlockReason(user);
+      if (_otpBlock === LOGIN_BLOCKED.PENDING_APPROVAL) {
+        return res.fail(
+          'Your account is still awaiting approval.',
+          403,
+          'ACCOUNT_PENDING_APPROVAL'
+        );
+      }
+      if (_otpBlock === LOGIN_BLOCKED.INACTIVE) {
+        return res.fail(
+          'This account is not active. Please contact support.',
+          403,
+          'ACCOUNT_INACTIVE'
+        );
       }
 
       const tokens = generateTokens(user);
