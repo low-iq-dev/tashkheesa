@@ -4660,6 +4660,13 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
   // column. Exactly one of `file_url` or `file_key` is set per upload (the
   // wizard's two scripts are mutually exclusive — see patient_new_case.ejs).
   const { file_url, file_urls, file_key, label } = req.body || {};
+  // 2026-09-06: the wizard uploader only ever sent the CDN url + label, so
+  // order_files.filename/mime_type/size stayed NULL. Case Intelligence bridges
+  // order_files into case_files keyed on filename+size, so three wizard uploads
+  // collapsed into one anonymous "file" of type other and nothing was extracted.
+  const upMime = (req.body && req.body.mime_type) ? String(req.body.mime_type).trim().slice(0, 120) : null;
+  const upSizeN = req.body && req.body.size ? Number(req.body.size) : NaN;
+  const upSize = Number.isFinite(upSizeN) && upSizeN > 0 ? Math.floor(upSizeN) : null;
 
   const uploaderConfigured = String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0;
   const r2DirectEnabled = String(process.env.UPLOAD_R2_DIRECT_ENABLED || '').toLowerCase() === 'true';
@@ -4743,9 +4750,9 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
       for (const u of filtered) {
         if (isDraft) {
           await client.query(
-            `INSERT INTO order_files (id, order_id, url, label, created_at)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [randomUUID(), orderId, u, cleanLabel, now]
+            `INSERT INTO order_files (id, order_id, url, label, filename, mime_type, size, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [randomUUID(), orderId, u, cleanLabel, cleanLabel || null, upMime, upSize, now]
           );
         } else {
           // Theme 13 Sub-issue C2.F — `filtered` mixes HTTP URLs (legacy

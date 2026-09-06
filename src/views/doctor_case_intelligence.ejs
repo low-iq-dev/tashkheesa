@@ -410,7 +410,7 @@ body.doctor-theme.portal-v2[dir="rtl"] .doctor-case-intelligence-page .ci-action
     <div class="ci-meta">
       <div class="ci-meta-item">
         <span class="ci-meta-label" data-en="Case ID" data-ar="رقم الحالة"><%= isAr ? 'رقم الحالة' : 'Case ID' %></span>
-        <span class="ci-meta-value"><%= orderId %></span>
+        <span class="ci-meta-value"><%= order.reference_id || orderId %></span>
       </div>
       <% if (patientName) { %>
       <div class="ci-meta-item">

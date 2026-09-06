@@ -260,6 +260,8 @@
           <input type="hidden" name="file_url" id="file_url_input" />
           <input type="hidden" name="file_key" id="file_key_input" />
           <input type="hidden" name="label" id="label_input" />
+          <input type="hidden" name="mime_type" id="mime_input" />
+          <input type="hidden" name="size" id="size_input" />
           <%- include('partials/patient/icon', { name: 'upload', size: 22, color: 'var(--primary-dark)' }) %>
           <div style="font-size:14px;font-weight:600;margin-top:8px;"><%= tt('Drop a file or click to choose', 'Drop a file or click to choose', 'أفلت ملفاً أو انقر للاختيار') %></div>
           <div style="font-size:12px;color:var(--muted);margin-top:4px;"><%= tt('PDF, DICOM, JPG, PNG · up to 500 MB each', 'PDF, DICOM, JPG, PNG · up to 500 MB each', 'PDF، DICOM، JPG، PNG · حتى 500 ميغابايت لكل ملف') %></div>
@@ -1467,6 +1469,9 @@
       function doUpload(file) {
         if (!file) return;
         setLabel(file.name);
+        var mi = document.getElementById('mime_input'), si = document.getElementById('size_input');
+        if (mi) mi.value = String(file.type || '').slice(0, 120);
+        if (si) si.value = String(file.size || '');
         waitFor(function(ok) {
           if (!ok) { showProgress(statusMsg.failed); return; }
           showProgress(statusMsg.uploading);

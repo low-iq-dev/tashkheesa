@@ -64,6 +64,7 @@
      is rendered only to the doctor who accepted the case; everyone else gets
      the case reference, which is what they would quote to support anyway. */
   function _caseRef() {
+    if (_order && _order.reference_id) return '#' + String(_order.reference_id);
     return (_order && _order.id) ? ('#' + String(_order.id).slice(0, 8).toUpperCase()) : '—';
   }
   function _headerTitle() {
@@ -193,7 +194,7 @@
 
 <%- include('partials/doctor/topbar', {
   isAr: _isAr,
-  topbarTitle: tt('Case ', 'Case ', 'الحالة ') + (_order && _order.id ? '#' + String(_order.id).slice(0, 8).toUpperCase() + '…' : ''),
+  topbarTitle: tt('Case ', 'Case ', 'الحالة ') + (_order && _order.reference_id ? '#' + String(_order.reference_id) : (_order && _order.id ? '#' + String(_order.id).slice(0, 8).toUpperCase() + '…' : '')),
   topbarSub: (_cd ? (_cd.kind === 'breached'
                       ? tt('Overdue · ' + _cd.h + 'h past due', 'Overdue · ' + _cd.h + 'h past due', 'متأخر · ' + _cd.h + 'س')
                       : tt(_cd.h + 'h ' + _cd.m + 'm remaining', _cd.h + 'h ' + _cd.m + 'm remaining', 'متبقي ' + _cd.h + 'س ' + _cd.m + 'د'))
@@ -291,9 +292,9 @@
           <div class="v2-case-header__meta-item">
             <div class="k"><%= tt('Case ID', 'Case ID', 'رقم الحالة') %></div>
             <div class="v" style="display:inline-flex;align-items:center;gap:6px;">
-              <span data-numeric>#<%= String(_order.id).slice(0, 8).toUpperCase() %>…</span>
+              <span data-numeric><%= _order.reference_id ? ('#' + _order.reference_id) : ('#' + String(_order.id).slice(0, 8).toUpperCase() + '…') %></span>
               <button type="button" class="v2-iconbtn v2-iconbtn--sm" style="width:24px;height:24px;padding:0;color:var(--v2-muted);"
-                      data-copy-id="<%= _order.id %>"
+                      data-copy-id="<%= _order.reference_id || _order.id %>"
                       aria-label="<%= tt('Copy full case ID', 'Copy full case ID', 'نسخ رقم الحالة كاملاً') %>"
                       title="<%= tt('Copy full case ID', 'Copy full case ID', 'نسخ رقم الحالة كاملاً') %>">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
