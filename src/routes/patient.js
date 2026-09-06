@@ -2845,7 +2845,7 @@ router.get('/portal/patient/orders/:id/payment-success', requireRole('patient'),
   // Ownership check.
   let order = await queryOne(
     `SELECT o.id, o.status, o.payment_status, o.paid_at, o.deadline_at, o.sla_hours,
-            o.specialty_id, o.service_id, o.doctor_id, o.draft_step,
+            o.specialty_id, o.service_id, o.doctor_id, o.draft_step, o.reference_id,
             s.name AS specialty_name, s.name_ar AS specialty_name_ar, sv.name AS service_name,
             d.name AS doctor_name
      FROM orders_active o

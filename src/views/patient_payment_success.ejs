@@ -24,7 +24,7 @@
     } catch (_) { return ''; }
   }
   const expectedBy = __order.deadline_at ? fmtDayDate(__order.deadline_at) : '';
-  const caseRef = __order.reference_code || (__order.id ? ('#' + String(__order.id).substring(0, 8).toUpperCase()) : '');
+  const caseRef = __order.reference_id ? ('#' + __order.reference_id) : (__order.reference_code || (__order.id ? ('#' + String(__order.id).substring(0, 8).toUpperCase()) : ''));
 %>
 <%- include('partials/patient/head', {
   title: __isPaid ? tt('Payment received', 'Payment received', 'تم استلام الدفع') : tt('Confirming payment', 'Confirming payment', 'تأكيد الدفع'),
@@ -62,7 +62,7 @@
       <div class="p-card__header">
         <div class="p-card__title"><%= tt('Your case', 'Your case', 'حالتك') %></div>
         <% if (caseRef) { %>
-          <div class="p-card__sub" style="font-family:var(--font-mono);font-size:11px;"><%= caseRef %></div>
+          <div class="p-card__sub" style="font-family:var(--font-mono);font-size:11px;"><bdi><%= caseRef %></bdi></div>
         <% } %>
       </div>
       <div class="p-card__body" style="display:flex;flex-direction:column;gap:12px;">
