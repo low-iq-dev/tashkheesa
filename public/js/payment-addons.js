@@ -93,7 +93,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     if (totalPrice) {
-      totalPrice.innerHTML = '<strong>' + Math.round(total) + ' ' + currency + '</strong>';
+      // Number only: the template already renders the currency code in the sibling
+      // <span> next to #total-price, so writing "7935 EGP" here showed "7935 EGP EGP".
+      totalPrice.textContent = Math.round(total).toLocaleString('en-GB');
     }
     // Keep the "billed in EGP (≈ X)" disclosure in sync (intl orders only).
     if (egpChargeAmountEl) {
