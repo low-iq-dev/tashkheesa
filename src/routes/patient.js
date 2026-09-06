@@ -29,6 +29,22 @@ const toCanonStatus = caseLifecycle.toCanonStatus;
 const toDbStatus = caseLifecycle.toDbStatus;
 const dbStatusValuesFor = caseLifecycle.dbStatusValuesFor;
 
+// AUDIT-SWEEP-2026-09-06 — draft retention has ONE definition, and it is
+// case_lifecycle.UNPAID_CASE_TTL (the table the unpaid sweep expires from). Two
+// queries in this file used to hardcode `INTERVAL '30 days'` next to a sweep
+// that killed drafts at 24h, so the number they carried had been fiction for as
+// long as it had been written down. Interpolated, not bound, because it is an
+// interval literal — the value is an integer straight out of a frozen table and
+// is re-checked here rather than trusted.
+const DRAFT_RETENTION_HOURS = (function () {
+  const h = caseLifecycle.unpaidTtlHoursFor(caseLifecycle.CASE_STATUS.DRAFT);
+  if (!Number.isInteger(h) || h <= 0) {
+    throw new Error('[patient] no DRAFT entry in case_lifecycle.UNPAID_CASE_TTL — refusing to guess a retention window');
+  }
+  return h;
+})();
+const DRAFT_RETENTION_SQL_INTERVAL = `INTERVAL '${DRAFT_RETENTION_HOURS} hours'`;
+
 let geoip = null;
 try {
   geoip = require('geoip-lite');
@@ -499,10 +515,25 @@ router.post('/patient/profile', requireRole('patient'), async function(req, res)
     }
     const phone = phoneCheck.normalized;
 
-    await execute(
-      'UPDATE users SET name = $1, phone = $2, lang = $3, notify_whatsapp = $4, email_marketing_opt_out = $5, date_of_birth = $6, gender = $7, country_code = $8 WHERE id = $9',
-      [name, phone, prefLang, notifyWhatsapp, emailOptOut, dateOfBirth, gender, countryCode, userId]
-    );
+    // AUDIT-PHONE-UNIQUE-2026-09-06 — users_phone_unique_idx is global across
+    // roles, and nothing above checks it. Without this the violation fell into
+    // the handler's generic catch and the patient was told "Error saving
+    // changes" for a number that is simply already registered — a message that
+    // is both wrong and unactionable, since every retry raises the same error.
+    // Caught here rather than in the outer catch so a genuine write failure
+    // still reaches logErrorToDb.
+    try {
+      await execute(
+        'UPDATE users SET name = $1, phone = $2, lang = $3, notify_whatsapp = $4, email_marketing_opt_out = $5, date_of_birth = $6, gender = $7, country_code = $8 WHERE id = $9',
+        [name, phone, prefLang, notifyWhatsapp, emailOptOut, dateOfBirth, gender, countryCode, userId]
+      );
+    } catch (writeErr) {
+      const { isPhoneTakenError, phoneTakenMessage } = require('../validators/phone');
+      if (isPhoneTakenError(writeErr)) {
+        return renderPatientProfile(req, res, { error: phoneTakenMessage(lang) });
+      }
+      throw writeErr;
+    }
 
     // P0-FORM-1: re-sign cookie with fresh phone/name/lang/country so
     // requirePhone() gate sees the updated value on the next request.
@@ -1472,7 +1503,9 @@ router.get('/dashboard', requireRole('patient'), async (req, res) => {
   );
 
   // 3. Most recent DRAFT — surfaced as "Continue your case" tile in the empty state.
-  // Hygiene: only resurface drafts touched in the last 30 days. Older = patient won't come back.
+  // Hygiene: only resurface drafts still inside the retention window. Older =
+  // the sweep has already released them (case_lifecycle.UNPAID_CASE_TTL), so the
+  // cutoff here is generated from that table rather than repeating its number.
   const draftPromise = queryOne(
     `SELECT o.id, o.created_at, o.updated_at, s.name AS specialty_name, s.name_ar AS specialty_name_ar, sv.name AS service_name
      FROM orders_active o
@@ -1480,7 +1513,7 @@ router.get('/dashboard', requireRole('patient'), async (req, res) => {
      LEFT JOIN services sv ON sv.id = o.service_id
      WHERE o.patient_id = $1
        AND UPPER(COALESCE(o.status, '')) = 'DRAFT'
-       AND COALESCE(o.updated_at, o.created_at) > NOW() - INTERVAL '30 days'
+       AND COALESCE(o.updated_at, o.created_at) > NOW() - ${DRAFT_RETENTION_SQL_INTERVAL}
      ORDER BY COALESCE(o.updated_at, o.created_at) DESC
      LIMIT 1`,
     [patientId]
@@ -1514,17 +1547,36 @@ router.get('/dashboard', requireRole('patient'), async (req, res) => {
     } catch (_) {}
   }
 
-  // Attach unread message count for the active case (sidebar/tabbar badges + dashboard CTA).
+  // Attach unread message count for the active case (dashboard CTA).
+  //
+  // AUDIT-UNREAD-2026-09-06 — this query named `messages.case_id` and
+  // `messages.read_at`. Neither column exists: messages carries
+  // `conversation_id` and `is_read`, and the case id lives on
+  // `conversations.order_id`. Production raises `column "case_id" does not
+  // exist` on every execution, and the bare `catch (_) {}` that used to sit here
+  // turned that into a permanent, invisible zero — so no patient has ever seen
+  // the badge that says their consultant replied.
+  //
+  // The query now lives in services/patient_unread (one definition, shared with
+  // the middleware that feeds the sidebar badge) and the catch LOGS. A silent
+  // catch around a schema-dependent query is the bug, not the safety net.
   let activeUnreadMessages = 0;
   if (activeOrder && activeOrder.id) {
     try {
-      const row = await queryOne(
-        `SELECT COUNT(*) AS c FROM messages
-         WHERE case_id = $1 AND COALESCE(sender_id, '') <> $2 AND read_at IS NULL`,
-        [activeOrder.id, String(patientId)]
-      );
-      activeUnreadMessages = row ? Number(row.c) || 0 : 0;
-    } catch (_) { /* messages table or column may not exist in some envs */ }
+      const { countPatientUnreadMessagesForCase } = require('../services/patient_unread');
+      activeUnreadMessages = await countPatientUnreadMessagesForCase(patientId, activeOrder.id);
+    } catch (e) {
+      logErrorToDb(e, {
+        context: 'patient.dashboard_unread_messages',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'patient_case',
+        orderId: activeOrder.id
+      });
+      console.error('[dashboard] unread message count failed', e && e.message ? e.message : e);
+    }
   }
 
   // State precedence: active > report-ready > empty.
@@ -1703,7 +1755,7 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
           `SELECT id FROM orders_active
            WHERE patient_id = $1
              AND UPPER(COALESCE(status, '')) = 'DRAFT'
-             AND COALESCE(updated_at, created_at) > NOW() - INTERVAL '30 days'
+             AND COALESCE(updated_at, created_at) > NOW() - ${DRAFT_RETENTION_SQL_INTERVAL}
            ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 1`,
           [patientId]
         );
@@ -1948,9 +2000,23 @@ router.get('/portal/patient/orders',  requireRole('patient'), (req, res) => res.
 // issue #83). Renders the same patient/ chrome as /dashboard but with the
 // sidebar's "cases" key active. Until this landed, the sidebar's "My cases"
 // nav entry routed back to /dashboard and the patient effectively had no
-// per-case list view. Filters: drop EXPIRED_UNPAID + EXPIRED_DRAFT (terminal
-// hygiene) and drop DRAFT rows older than 30 days (matches the dashboard
-// resume-tile cutoff at patient.js:1069).
+// per-case list view.
+//
+// AUDIT-SWEEP-2026-09-06 — this list NO LONGER FILTERS BY STATUS OR AGE.
+//
+// It used to drop EXPIRED_UNPAID (and a never-written 'EXPIRED_DRAFT') as
+// "terminal hygiene", plus DRAFT rows older than 30 days. Combined with the
+// unpaid sweep expiring every case at 24h, the effect was that a patient's own
+// case list was empty within a day of starting a case, with nothing anywhere
+// saying what had happened to it — the list did the hiding, and the sweep did
+// the killing, and neither on its own looked wrong.
+//
+// A case the patient created is a case the patient gets to see. EXPIRED_UNPAID
+// already has patient-facing copy ("Payment window closed", see
+// case_lifecycle.CASE_STATUS_UI) and is revivable by paying, so hiding it threw
+// away both the explanation and the recovery. The 30-day DRAFT cutoff is now
+// enforced where it belongs — in the sweep, by UNPAID_CASE_TTL — so repeating it
+// here could only ever hide a draft that is still live.
 router.get('/patient/cases', requireRole('patient'), async (req, res) => {
   const patientId = req.user.id;
   const langCode = (res.locals && res.locals.lang === 'ar') ? 'ar' : 'en';
@@ -1978,11 +2044,6 @@ router.get('/patient/cases', requireRole('patient'), async (req, res) => {
        LEFT JOIN services sv ON sv.id = o.service_id
        LEFT JOIN users d ON d.id = o.doctor_id
        WHERE o.patient_id = $1
-         AND UPPER(COALESCE(o.status, '')) NOT IN ('EXPIRED_UNPAID', 'EXPIRED_DRAFT')
-         AND NOT (
-           UPPER(COALESCE(o.status, '')) = 'DRAFT'
-           AND COALESCE(o.updated_at, o.created_at) <= NOW() - INTERVAL '30 days'
-         )
        ORDER BY o.created_at DESC
        LIMIT 100`,
       [patientId]
@@ -2681,17 +2742,30 @@ router.post('/patient/new-case/step5', requireRole('patient'), newCaseSubmitLimi
 // order_id / id / merchant_order. First match wins. The full query string is
 // logged so we can tighten the handler once a real transaction is observed.
 //
-// success=true|"success"|"approved" → bounce to /payment-success (which
-// re-queries DB and handles the "we're confirming your payment" interim state
-// if the webhook hasn't fired yet).
-// success=false|other status → bounce to wizard Step 5 with ?failed=1 so the
-// patient sees the warm "let's try again" framing. Draft is preserved.
-// P1-PATIENT-3: Paymob's redirect query string is NOT trusted. The webhook
-// at POST /payments/callback is the sole source of truth for payment
-// status; this handler simply resolves which order the patient came back
-// for and bounces them to /payment-success, which re-queries the DB and
-// renders the correct state (paid / "we're confirming your payment"
-// interim / unpaid retry path).
+// P1-PATIENT-3: Paymob's redirect query string is NOT trusted for MONEY. The
+// webhook at POST /payments/callback remains the sole source of truth for
+// payment status — nothing below writes payment_status, paid_at or a case
+// status from a query parameter.
+//
+// AUDIT-RETURN-2026-09-06 — but it is trusted for CHOOSING A PAGE, and that
+// distinction had been lost. The handler ignored every parameter Paymob sends
+// and unconditionally redirected to /payment-success, which has no failure
+// state: it says "We're confirming your payment", polls for three minutes and
+// ends on "you can safely close this page". A patient whose card was declined
+// was told, for three minutes, that their payment was going through, and then
+// told to close the tab. The header above this handler had described the
+// success/failure branch as if it existed since the day the route was written;
+// the code never had it, and `failed=1` — the flag the retry banner keys on —
+// was emitted nowhere in src/ or public/.
+//
+// A failed return goes to the PAY PAGE with ?failed=1, not to the wizard: by
+// this point the case is SUBMITTED (step 5 submits before redirecting to
+// Paymob), and the wizard refuses to load a non-DRAFT order, so a wizard
+// redirect would have bounced to /dashboard and shown nothing at all.
+// 'pending' (3DS still in flight) and 'unknown' both go to /payment-success,
+// which re-queries the database — the interim "confirming" state is exactly
+// right for those, and an unrecognised shape degrades to the old behaviour
+// rather than to a false failure notice.
 router.get('/portal/patient/payment-return', requireRole('patient'), async (req, res) => {
   const q = req.query || {};
   // Defensive: log entire query (no PII; Paymob params are order ids/status).
@@ -2713,12 +2787,23 @@ router.get('/portal/patient/payment-return', requireRole('patient'), async (req,
   );
   if (!owned) return res.redirect('/dashboard');
 
-  // Always send the patient to /payment-success. That route re-queries the
-  // DB and renders one of three states based on actual payment_status:
-  //   - 'paid'      → success card
-  //   - 'unpaid'    → "we're confirming your payment" interim with auto-refresh
-  //                   (covers the legitimate case where the webhook hasn't fired yet)
-  //   - never paid  → patient eventually links back to the wizard themselves
+  const { readPaymobReturnOutcome } = require('./payments');
+  const outcome = readPaymobReturnOutcome(q);
+
+  if (outcome === 'failed') {
+    // The pay page renders the "your previous payment didn't go through — your
+    // case is still saved" banner off ?failed=1 and puts the Pay button
+    // directly under it. Nothing about the order is changed here; the case is
+    // still SUBMITTED and still unpaid, which is the truth.
+    return res.redirect('/portal/patient/pay/' + encodeURIComponent(orderId) + '?failed=1');
+  }
+
+  // success / pending / unknown → /payment-success, which re-queries the DB and
+  // renders one of:
+  //   - 'paid'   → success card
+  //   - not yet  → "we're confirming your payment" interim with auto-refresh
+  //                (the legitimate case where the webhook hasn't landed yet),
+  //                which now ends on a retry action rather than a dead end.
   return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId) + '/payment-success');
 });
 
@@ -3399,6 +3484,7 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
   // Expanded query: include service/specialty/price details for payment page
   const order = await queryOne(
     `SELECT o.id,
+            o.status,
             o.payment_status,
             o.payment_link,
             o.display_price,
@@ -3423,6 +3509,23 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
 
   if (order.payment_status === 'paid') {
     return res.redirect(`/portal/patient/orders/${orderId}`);
+  }
+
+  // AUDIT-PAY-DRAFT-2026-09-06 — a case that cannot legally become PAID must not
+  // be able to reach a Pay button. See case_lifecycle.isPayableStatus for the
+  // full failure: the webhook writes payment_status='paid' BEFORE markCasePaid,
+  // so a DRAFT that got here was charged and then stranded.
+  //
+  // A draft is not an error, it is unfinished — the patient is sent back into
+  // the wizard, which resumes at the step they stopped on. Anything else that
+  // cannot be paid for (cancelled, refunded, already completed) has no useful
+  // action on this page at all and goes to the dashboard, which renders the
+  // real state.
+  if (!caseLifecycle.isPayableStatus(order.status)) {
+    if (toCanonStatus(order.status) === caseLifecycle.CASE_STATUS.DRAFT) {
+      return res.redirect('/patient/new-case?resume=' + encodeURIComponent(orderId));
+    }
+    return res.redirect('/dashboard');
   }
 
   // Payment link logic: prevent infinite loop if link is just the fallback
@@ -3578,6 +3681,15 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
     videoEnabled,
     serviceDetails: service,
     error: null,
+    // AUDIT-RETURN-2026-09-06 — set by GET /portal/patient/payment-return when
+    // Paymob's redirect says the transaction failed. Display only: the order is
+    // untouched, and the view renders "your previous payment didn't go through
+    // — your case is still saved" above the Pay button. Mirrors the wizard
+    // Step-5 local of the same name (this file, GET /patient/new-case), which
+    // was the only reader of ?failed=1 and could never be reached with it,
+    // because a case is SUBMITTED by the time it can fail a payment and the
+    // wizard refuses to load anything but a DRAFT.
+    paymentFailed: !!(req.query && req.query.failed),
   };
 
   // If payment link is missing OR is only the internal fallback OR the service
@@ -3679,7 +3791,17 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
   if (!order) return res.redirect('/dashboard');
 
   // Pre-payment: redirect to the existing payment page (preserved behavior).
+  //
+  // AUDIT-PAY-DRAFT-2026-09-06 — except for a DRAFT. This redirect is the third
+  // click in the "pay for a draft" path: patient_cases.ejs links every row here,
+  // and this line forwarded anything unpaid to the pay page, which rendered
+  // "EGP 0" and a working Pay button for a case that had not been submitted.
+  // The wizard resumes at the step the patient stopped on, which is the page
+  // they were actually looking for.
   if (order.payment_status !== 'paid') {
+    if (toCanonStatus(order.status) === caseLifecycle.CASE_STATUS.DRAFT) {
+      return res.redirect('/patient/new-case?resume=' + encodeURIComponent(orderId));
+    }
     return res.redirect('/portal/patient/pay/' + encodeURIComponent(orderId));
   }
 

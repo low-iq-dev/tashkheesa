@@ -1035,6 +1035,25 @@ router.post('/register', async (req, res) => {
     `, [id, normalizedEmail, passwordHash, name, lang, normalizedCountry, normalizedPhone, new Date().toISOString()]);
   } catch (dbErr) {
     console.error('[REGISTER] DB insert failed:', dbErr.message);
+    // AUDIT-PHONE-UNIQUE-2026-09-06 — a duplicate phone is not a system error.
+    //
+    // users_phone_unique_idx is global across roles. The email uniqueness check
+    // 20 lines above has no phone equivalent, so this INSERT raised a plain
+    // unique_violation and fell into the generic 500 below — telling the
+    // patient to "try again", which can never work, and never naming the field.
+    // The number stays in `form`, so the re-render shows them exactly which
+    // value is the problem. 400, not 500: the request is refusable, not broken.
+    const { isPhoneTakenError, phoneTakenMessage } = require('../validators/phone');
+    if (isPhoneTakenError(dbErr)) {
+      return res.status(400).render('register', {
+        error: phoneTakenMessage(langForMsg),
+        form,
+        lang: langForMsg,
+        _lang: langForMsg,
+        isAr: c.isAr,
+        copy: c
+      });
+    }
     return res.status(500).render('register', {
       error: c.isAr ? 'حدث خطأ أثناء إنشاء الحساب. حاول مرة أخرى.' : 'Error creating account. Please try again.',
       form,

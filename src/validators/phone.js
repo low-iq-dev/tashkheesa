@@ -83,7 +83,65 @@ function validatePhoneE164(input, lang) {
   return { ok: true, normalized: withPlus };
 }
 
+// ---------------------------------------------------------------------------
+// AUDIT-PHONE-UNIQUE-2026-09-06 — the duplicate-phone lockout.
+//
+// `users_phone_unique_idx` is `UNIQUE (phone) WHERE phone IS NOT NULL`, GLOBAL
+// across roles: one number, one account, patient or doctor. Three write paths
+// checked email uniqueness before inserting and none of them checked phone, so
+// the constraint surfaced as a bare unique_violation into a generic catch:
+//
+//   * routes/auth.js POST /register     → "Error creating account. Please try
+//                                          again." Retrying never works.
+//   * routes/onboarding.js /profile     → 500 "Server error". This one is a
+//                                          TOTAL LOCKOUT: requirePhone() is
+//                                          mounted globally, so a patient with
+//                                          no phone is redirected to onboarding
+//                                          on every path, and onboarding is the
+//                                          only place that can save one. 14 of
+//                                          25 production patients pass through
+//                                          that gate.
+//   * routes/patient.js POST /profile   → "Error saving changes".
+//
+// In all three the patient is told the system failed, when in fact the system
+// worked and the number is simply already registered. Nothing they can type
+// will ever succeed, and nothing tells them which field to change.
+//
+// The detection lives HERE, next to the validator every one of those sites
+// already calls, so there is one definition of "this error means the phone is
+// taken" rather than three near-misses. The constraint itself is NOT weakened.
+//
+// Matching is by SQLSTATE 23505 plus evidence that the offending index is the
+// phone one: node-pg populates `constraint` on most builds, but a violation
+// raised through some pooler/driver paths carries only `detail`
+// ("Key (phone)=(+2010…) already exists."), so both are accepted. `column` is
+// checked too because a future partial index may be renamed. Deliberately NOT
+// a bare 23505 test: users_email_key is the same SQLSTATE, and reporting a
+// duplicate email as a duplicate phone would be its own dead end.
+const PHONE_UNIQUE_INDEX = 'users_phone_unique_idx';
+
+function isPhoneTakenError(err) {
+  if (!err || String(err.code) !== '23505') return false;
+  const constraint = String(err.constraint || '').toLowerCase();
+  if (constraint === PHONE_UNIQUE_INDEX) return true;
+  if (constraint.includes('phone')) return true;
+  if (String(err.column || '').toLowerCase() === 'phone') return true;
+  return /\bkey\s*\(\s*phone\s*\)/i.test(String(err.detail || ''));
+}
+
+var TAKEN_MESSAGES = {
+  en: 'This phone number is already registered to another account. Use a different number, or sign in to the account that has it.',
+  ar: 'رقم الهاتف ده مسجل بالفعل على حساب تاني. استخدم رقم مختلف، أو سجّل دخول بالحساب اللي عليه الرقم.'
+};
+
+function phoneTakenMessage(lang) {
+  return (lang === 'ar') ? TAKEN_MESSAGES.ar : TAKEN_MESSAGES.en;
+}
+
 module.exports = {
   validatePhoneE164: validatePhoneE164,
-  E164_RE: E164_RE
+  E164_RE: E164_RE,
+  PHONE_UNIQUE_INDEX: PHONE_UNIQUE_INDEX,
+  isPhoneTakenError: isPhoneTakenError,
+  phoneTakenMessage: phoneTakenMessage
 };

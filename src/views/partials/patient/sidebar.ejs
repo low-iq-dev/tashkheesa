@@ -4,14 +4,22 @@
   //   active        — string nav key: 'dashboard'|'new_case'|'cases'|'messages'|'profile'
   //   variant       — 'dark' (default) | 'light'
   //   trustDensity  — 'light'|'medium'|'heavy' (default 'medium'); controls trust-row count
-  //   unreadCount   — number, badge count next to "Messages"
+  //   unreadCount   — number, badge count next to "Messages". OPTIONAL: when a
+  //                   view does not pass it, the count comes from
+  //                   res.locals.patientUnreadMessages (middleware/patient_unread).
+  //                   AUDIT-UNREAD-2026-09-06 — six views used to pass a literal
+  //                   0 here, so the badge was hardcoded off portal-wide; the
+  //                   fallback exists so a view that says nothing gets the real
+  //                   number rather than silently getting none.
   //   caseCount     — number, badge count next to "My cases"
   //   isAr          — boolean for Arabic labels
   //   user          — { name, email, initials } (initials optional, derived if missing)
   const __active = (typeof active === 'string') ? active : 'dashboard';
   const __variant = (typeof variant === 'string' && variant === 'light') ? 'light' : 'dark';
   const __trust = (typeof trustDensity === 'string') ? trustDensity : 'medium';
-  const __unread = Number(typeof unreadCount === 'number' ? unreadCount : 0);
+  const __unread = Number(typeof unreadCount === 'number'
+    ? unreadCount
+    : (typeof patientUnreadMessages === 'number' ? patientUnreadMessages : 0));
   const __caseCount = Number(typeof caseCount === 'number' ? caseCount : 0);
   const __isAr = !!(typeof isAr !== 'undefined' && isAr);
   const __user = (typeof user === 'object' && user) ? user : {};

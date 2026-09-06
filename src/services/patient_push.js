@@ -64,6 +64,10 @@ const PUSH_TEMPLATES = Object.freeze({
   order_status_accepted_patient:     { screen: 'case-detail' },
   case_cancelled_patient:            { screen: 'case-detail' },
   case_auto_deleted_unpaid_patient:  { screen: 'case-detail' },
+  // AUDIT-SWEEP-2026-09-06 — the released-but-still-payable case. 'payment',
+  // not 'case-detail': the only useful action left is to pay, and
+  // EXPIRED_UNPAID -> PAID revives the case.
+  case_expired_unpaid_patient:       { screen: 'payment' },
   additional_files_requested_patient:{ screen: 'case-detail' },
   prescription_uploaded_patient:     { screen: 'case-detail' },
   prescription_recommended_patient:  { screen: 'case-detail' },

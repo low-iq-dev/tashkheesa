@@ -411,6 +411,15 @@ baseMiddlewares(app);
 var { requirePhone } = require('./middleware/requirePhone');
 app.use(requirePhone());
 
+// AUDIT-UNREAD-2026-09-06: unread-message count for the patient chrome's
+// "Messages" badge, as res.locals.patientUnreadMessages. Self-gates on
+// req.user.role === 'patient' + GET + a non-API path, so it is a no-op for
+// everyone else; mounted here because the badge is drawn by a partial that
+// every patient page includes and six of those pages used to hardcode it to 0.
+// See src/middleware/patient_unread.js.
+var { patientUnreadMessages } = require('./middleware/patient_unread');
+app.use(patientUnreadMessages());
+
 // CSP nonce — and, since helmet's contentSecurityPolicy is now `false`
 // (src/middleware.js), the SINGLE source of truth for Content-Security-Policy.
 //

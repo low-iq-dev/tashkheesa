@@ -49,7 +49,6 @@
   active: 'messages',
   variant: 'dark',
   trustDensity: 'light',
-  unreadCount: 0,
   user: _user,
   bodyClass: 'messages-view',
   lang: _lang,
@@ -373,7 +372,6 @@ document.addEventListener('click', function(e) {
 <%- include('partials/patient/foot', {
   active: 'messages',
   isAr: _isAr,
-  unreadCount: 0,
   user: _user,
   cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>

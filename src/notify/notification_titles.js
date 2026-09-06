@@ -63,6 +63,13 @@ const TEMPLATE_TITLES = {
   order_sla_pre_breach_doctor: { en: 'Action needed: case approaching deadline', ar: 'إجراء مطلوب: حالة تقترب من الموعد النهائي' },
   order_breached_doctor: { en: 'SLA breached', ar: 'تم تجاوز مهلة المراجعة' },
   case_auto_deleted_unpaid_patient: { en: 'Case removed', ar: 'تم حذف الحالة' },
+  // AUDIT-SWEEP-2026-09-06 — what the unpaid sweep now emits. It no longer
+  // deletes anything (case_lifecycle UNPAID_CASE_TTL): the case is released but
+  // stays visible and a late payment still revives it, so the title says the
+  // payment window closed rather than that the case is gone.
+  // case_auto_deleted_unpaid_patient is kept registered for the historical rows
+  // already in the notifications table; nothing emits it any more.
+  case_expired_unpaid_patient: { en: 'Payment window closed', ar: 'انتهت مهلة الدفع' },
   payment_success_patient: { en: 'Payment confirmed — case in motion', ar: 'تم تأكيد الدفع — تشخيصة بدأت العمل' },
   payment_success_doctor: { en: 'Payment received', ar: 'تم استلام الدفع' },
   // AUDIT-P1-2: chat-moderation conduct warning (routes/admin.js,

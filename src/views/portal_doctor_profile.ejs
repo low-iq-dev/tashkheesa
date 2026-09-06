@@ -305,12 +305,16 @@
         <div class="prow">
           <label class="field">
             <div class="field__labelrow"><span class="field__label"><%= tt('Specialty', 'Specialty', 'التخصص') %></span></div>
-            <select class="field__select" name="specialty_id">
+            <select class="field__select" name="specialty_id" required>
               <option value=""><%= tt('— select —', '— select —', '— اختر —') %></option>
               <% _specialties.forEach(function(s){ %>
                 <option value="<%= s.id %>" <%= String(_doctor.specialty_id || '') === String(s.id) ? 'selected' : '' %>><%= _isAr && s.name_ar ? s.name_ar : s.name %></option>
               <% }); %>
             </select>
+            <%# AUDIT-2026-09-06 (D2): the server now rejects a blank or
+                unknown specialty_id, and a rejection the doctor cannot see is
+                a form that silently refuses to save. %>
+            <% if (_fe.specialty_id) { %><div class="field__error"><%= _fe.specialty_id %></div><% } %>
           </label>
           <label class="field">
             <div class="field__labelrow"><span class="field__label"><%= tt('Years of experience', 'Years of experience', 'سنوات الخبرة') %></span></div>

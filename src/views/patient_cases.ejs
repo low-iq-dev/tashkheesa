@@ -79,8 +79,18 @@
       <% __cases.forEach(function(c) {
         const statusTitle = (c.statusUi && c.statusUi.title) ? c.statusUi.title : (c.status || '');
         const statusTone  = (c.statusUi && c.statusUi.tone)  ? c.statusUi.tone  : 'neutral';
+        // AUDIT-PAY-DRAFT-2026-09-06 — a draft goes to the WIZARD, not the case
+        // page. Every row used to link to /portal/patient/orders/:id, which
+        // redirects anything unpaid to the pay page — so a step-1 draft with no
+        // specialty and no price rendered a payment screen reading "EGP 0" with
+        // a live Pay button that 400s `invalid_amount` and offers no way back.
+        // The status is already resolved server-side; this just follows it.
+        const isDraft = String(c.status || '').trim().toUpperCase() === 'DRAFT';
+        const caseHref = isDraft
+          ? ('/patient/new-case?resume=' + encodeURIComponent(c.id))
+          : ('/portal/patient/orders/' + encodeURIComponent(c.id));
       %>
-        <a href="/portal/patient/orders/<%= encodeURIComponent(c.id) %>"
+        <a href="<%= caseHref %>"
            class="p-card"
            style="display:block;padding:18px 20px;text-decoration:none;color:inherit;border:1px solid var(--rule);border-radius:12px;transition:border-color var(--t-fast, 0.15s) var(--ease, ease), background var(--t-fast, 0.15s) var(--ease, ease);">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
@@ -125,7 +135,6 @@
 <%- include('partials/patient/foot', {
   active: 'cases',
   isAr: __isAr,
-  unreadCount: 0,
   user: __user,
   cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>

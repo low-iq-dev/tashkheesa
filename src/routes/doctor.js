@@ -5,6 +5,11 @@ const { acceptOrder, markOrderCompleted } = require('../db');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { logErrorToDb } = require('../logger');
 const { requireRole } = require('../middleware');
+// AUDIT-2026-09-06 (D2): src/auth.js:33 — "Routes that mutate
+// users.specialty_id MUST call refreshSessionCookie." POST
+// /portal/doctor/profile mutates it and did not, so the queue kept filtering
+// on the OLD specialty for up to the 7-day JWT TTL.
+const { refreshSessionCookie } = require('../auth');
 const { queueNotification, queueMultiChannelNotification, notifyAdmins, doctorNotify } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
 const { logOrderEvent } = require('../audit');
@@ -58,6 +63,28 @@ const UNACCEPTED_STATUSES = ['new', 'submitted', 'paid', 'assigned', 'accepted']
 // ---- Doctor capacity guardrails ----
 const MAX_ACTIVE_CASES = 4;
 
+// AUDIT-2026-09-06 (D2) — fail-closed specialty matching.
+//
+// Every unassigned-pool query in this file used to carry the shape
+// `($1 = '' OR o.specialty_id = $2)`: a filter that DISABLES ITSELF when the
+// value it filters on is missing. So a doctor whose users.specialty_id was
+// NULL — a state the profile form happily wrote, see POST /portal/doctor/
+// profile — was not shown "no cases"; they were shown EVERY unassigned paid
+// case on the platform, in every specialty, and could accept any of them.
+//
+// A missing specialty is an unanswered question, not a wildcard. This helper
+// renders the predicate as literal FALSE in that case, so the pool is empty
+// until someone gives the doctor a real specialty.
+//
+// `bind` is the caller's push-a-parameter closure. It is called ONLY on the
+// matching branch: Postgres rejects a bind message that supplies a parameter
+// the statement never references, so the FALSE branch must not reserve one.
+function specialtyMatchSql(specialtyId, column, bind) {
+  const spec = specialtyId == null ? '' : String(specialtyId).trim();
+  if (!spec) return 'FALSE';
+  return `${column} = ${bind(spec)}`;
+}
+
 async function countActiveCasesForDoctor(doctorId) {
   const row = await queryOne(`
     SELECT COUNT(*) AS c
@@ -82,6 +109,15 @@ async function findNextAvailableDoctor(specialtyId, excludeDoctorId) {
   // still awaiting approval. is_paused is set automatically by the SLA-breach
   // threshold in services/doctor_pause.js, so the worst offenders were exactly
   // the ones eligible here.
+  //
+  // AUDIT-2026-09-06 (D2) — here the fail-closed value is the CASE's
+  // specialty, not the doctor's: a case with no specialty on it used to match
+  // every doctor on the platform, so the capacity-overflow path could hand a
+  // cardiology study to a dermatologist. It now matches nobody, the caller
+  // finds no next doctor and bounces the accept with ?msg=capacity, and the
+  // case stays where it is until someone routes it deliberately.
+  if (!spec) return null;
+
   return await queryOne(`
     SELECT u.id
     FROM users u
@@ -89,17 +125,17 @@ async function findNextAvailableDoctor(specialtyId, excludeDoctorId) {
       AND COALESCE(u.is_active, true) = true
       AND COALESCE(u.is_paused, false) = false
       AND COALESCE(u.pending_approval, false) = false
-      AND ($1 = '' OR u.specialty_id = $2)
-      AND u.id != $3
+      AND u.specialty_id = $1
+      AND u.id != $2
       AND (
         SELECT COUNT(*)
         FROM orders_active o
         WHERE o.doctor_id = u.id
           AND LOWER(o.status) IN ('assigned','in_review','rejected_files','breached','sla_breach')
-      ) < $4
+      ) < $3
     ORDER BY COALESCE(u.created_at, '1970-01-01')::timestamp ASC
     LIMIT 1
-  `, [spec, spec, exclude, MAX_ACTIVE_CASES]);
+  `, [spec, exclude, MAX_ACTIVE_CASES]);
 }
 function stripPricingFields(order) {
   if (!order || typeof order !== 'object') return order;
@@ -2084,7 +2120,14 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
     ? (isAr
         ? 'لقد وصلت للحد الأقصى للحالات النشطة (4). أكمل حالاتك أولاً ثم حاول مرة أخرى.'
         : 'Active case limit reached (4). Complete cases first, then try accepting again.')
-    : null;
+    // AUDIT-2026-09-06 (D2): outcome of the accept-time specialty check. A
+    // silent bounce back to a page still showing an Accept button would read
+    // as a platform fault, so the refusal names the reason and the remedy.
+    : msg === 'specialty'
+      ? (isAr
+          ? 'هذه الحالة خارج تخصصك المسجَّل، لذا لا يمكن قبولها. إن كان تخصصك غير صحيح فحدِّثه من ملفك الشخصي أو تواصل مع الدعم.'
+          : 'This case is outside your registered specialty, so it cannot be accepted. If your specialty is wrong, update it in your profile or contact support.')
+      : null;
   // Guardrail: never render or redirect with an undefined case id.
   if (!orderId) return res.redirect('/portal/doctor/dashboard');
 
@@ -2185,16 +2228,29 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
   const isAcceptedByThisDoctor = (isAcceptedStatus || isCompleted) && assignedDoctorId && assignedDoctorId === doctorId;
   const isAssignedToOtherDoctor = assignedDoctorId && assignedDoctorId !== doctorId;
 
-  // Defensive: always strip pricing fields
-  const order = stripPricingFields(rawOrder);
-  if (!order) {
-    return res.status(404).render('404', {
-      message: 'Case not found'
-    });
-  }
+  // AUDIT-2026-09-06 (D1) — this guard used to be FAIL-OPEN.
+  //
+  // The three buckets below (accepted-by-me / unaccepted / assigned-to-someone
+  // -else) do not cover the status space. A status in NEITHER list, on a case
+  // with doctor_id IS NULL, matched none of them: no 403 was raised, and the
+  // payload branch further down fell to its `else` and shipped the ENTIRE
+  // orders row — patient name, date of birth, clinical question, medical
+  // history, medications — to any of the 31 doctors who typed the case id.
+  // Production reaches that state today: `expired_unpaid` and `cancelled`
+  // are in neither list — 39 rows, 10 of them carrying a real patient name
+  // and clinical question, 9 with a date of birth.
+  //
+  // A doctor may see a case for exactly two reasons: they have accepted it,
+  // or it is on offer to them and they are deciding. Anything else — an
+  // abandoned case, a refunded one, a status invented by a future migration —
+  // is not theirs to read. Recognise those two positively and deny the rest,
+  // so the next status added to the lifecycle is safe on the day it lands
+  // rather than on the day someone notices.
+  const isViewableByThisDoctor = isAcceptedByThisDoctor || isUnaccepted;
 
-  // If assigned to another doctor, deny access
-  if (isAssignedToOtherDoctor) {
+  // Shared refusal screen. `reason` is a code the template maps to copy —
+  // never a message assembled here, and never anything read off the row.
+  async function renderAccessDenied(reason, bodyText) {
     try {
       assertRenderableView('portal_doctor_case');
       const streakCount = await computeDoctorStreakCount(doctorId);
@@ -2211,7 +2267,7 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
         blurred: false,
         canViewDetails: false,
         accessDenied: true,
-        reason: 'assigned_to_other_doctor',
+        reason,
         activeTab: 'cases',
         nextPath: `/portal/doctor/case/${orderId}`,
         acceptActionUrl: `/portal/doctor/case/${orderId}/accept`,
@@ -2229,13 +2285,39 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
           <body>
             <div class="container" style="max-width:900px;margin:32px auto;">
               <h1>Access Denied</h1>
-              <p>This case is assigned to another doctor.</p>
+              <p>${bodyText}</p>
               <p><a href="/portal/doctor">Back to dashboard</a></p>
             </div>
           </body>
         </html>
       `);
     }
+  }
+
+  // Defensive: always strip pricing fields
+  const order = stripPricingFields(rawOrder);
+  if (!order) {
+    return res.status(404).render('404', {
+      message: 'Case not found'
+    });
+  }
+
+  // If assigned to another doctor, deny access
+  if (isAssignedToOtherDoctor) {
+    return await renderAccessDenied(
+      'assigned_to_other_doctor',
+      'This case is assigned to another doctor.'
+    );
+  }
+
+  // AUDIT-2026-09-06 (D1) — the fail-closed arm. Unassigned, but in a status
+  // that is neither "on offer" nor "accepted by you": nothing about this case
+  // is this doctor's to read, so nothing is loaded into a payload at all.
+  if (!isViewableByThisDoctor) {
+    return await renderAccessDenied(
+      'case_not_available',
+      'This case is no longer available for review.'
+    );
   }
 
   // Accept eligibility logic
@@ -2338,7 +2420,13 @@ const canAccept =
     ? { ok: rxFlashEntry.ok, text: isAr ? rxFlashEntry.ar : rxFlashEntry.en }
     : null;
 
-  const viewStatus = isUnaccepted ? normalizedStatus : 'in_review';
+  // AUDIT-2026-09-06 (D1) — every "how much of this case do we render?"
+  // decision below hangs off this one positive fact, not off the absence of a
+  // negative. Full detail is granted only to the doctor who accepted the case;
+  // anything else renders the redacted pre-accept brief.
+  const showFullCase = !!isAcceptedByThisDoctor;
+
+  const viewStatus = showFullCase ? 'in_review' : normalizedStatus;
   const viewReportUrl = reportAvailable ? reportUrl : null;
 
   // The case LIST gets its countdown from enrichOrders(); this handler never
@@ -2419,7 +2507,12 @@ const canAccept =
   // patient age and sex, report language, submission time and the clinical
   // question. None of them identify the patient: name, contact details and the
   // files themselves stay locked until accept.
-  const viewOrder = isUnaccepted
+  //
+  // AUDIT-2026-09-06 (D1) — the branch condition was `isUnaccepted`, i.e. the
+  // full row was handed out whenever the status was not one of the five names
+  // in UNACCEPTED_STATUSES. Redaction is now the default and the full row the
+  // exception, so an unrecognised status can never again select it.
+  const viewOrder = !showFullCase
     ? {
         id: orderId,
         status: viewStatus,
@@ -2654,8 +2747,8 @@ const canAccept =
     order: viewOrder,
     files,
     annotatedFiles,
-    blurred: isUnaccepted,
-    canViewDetails: isAcceptedByThisDoctor,
+    blurred: !showFullCase,
+    canViewDetails: showFullCase,
     accessDenied: false,
     activeTab: 'cases',
     nextPath: `/portal/doctor/case/${orderId}`,
@@ -3046,6 +3139,51 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
   if (!UNACCEPTED_STATUSES.includes(normalizedStatus)) {
     // Guardrail: accept flow only applies to new/submitted cases.
     return res.redirect(`/portal/doctor/case/${orderId}`);
+  }
+
+  // Guardrail 3b (AUDIT-2026-09-06, D2): specialty.
+  //
+  // Accept had NO specialty check of any kind. Every defence lived in the
+  // queue query, so anything that put a case id in a doctor's hands — a
+  // self-served specialty change on the profile form, a leaked link, a typed
+  // URL — was enough to take a case in a field they do not practise. On a
+  // medical platform the authorisation has to sit on the action, not on the
+  // listing that leads to it.
+  //
+  // Read from the users row rather than req.user: the JWT's copy is up to
+  // seven days stale (auth.js:33) and this is a write, so it is worth one
+  // query to authorise against what the database actually says.
+  //
+  // Scope — this guards the POOL accept, which is the one nobody authorised
+  // case by case:
+  //   * skipped when the case carries no specialty (most production rows), as
+  //     there is nothing to match against and such cases never appear in a
+  //     specialty pool;
+  //   * skipped when the case is already assigned to THIS doctor, because an
+  //     admin or the router put it there deliberately and a cross-specialty
+  //     assignment is then a human decision, not a self-service one.
+  const orderSpecialtyId = order.specialty_id == null ? '' : String(order.specialty_id).trim();
+  if (orderSpecialtyId && !assignedDoctorId) {
+    let doctorSpecialtyId = '';
+    try {
+      const doctorRow = await queryOne('SELECT specialty_id FROM users WHERE id = $1', [doctorId]);
+      doctorSpecialtyId = (doctorRow && doctorRow.specialty_id != null) ? String(doctorRow.specialty_id).trim() : '';
+    } catch (e) {
+      // Fail closed: an unreadable specialty is not a matching one.
+      logErrorToDb(e, {
+        context: 'doctor.accept_specialty_check',
+        requestId: req.requestId,
+        userId: doctorId,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_case',
+        orderId
+      });
+      doctorSpecialtyId = '';
+    }
+    if (doctorSpecialtyId !== orderSpecialtyId) {
+      return res.redirect(`/portal/doctor/case/${orderId}?msg=specialty`);
+    }
   }
 
   // Guardrail 4: Doctor capacity (max active cases)
@@ -3758,6 +3896,53 @@ router.post('/portal/doctor/profile', requireDoctor, async function(req, res) {
     gradYear = null;
   }
 
+  // AUDIT-2026-09-06 (D2) — specialty_id was written straight off the body.
+  //
+  // `strN(body.specialty_id)` accepted any string at all, and the <select>
+  // that feeds it is a plain form field: a doctor could POST another
+  // specialty's id, or the blank option, with no check of either the value or
+  // their credentials. Both directions escalated. Choosing another specialty
+  // put THAT specialty's unassigned paid cases in this doctor's queue, and
+  // POST .../case/:id/accept performs no specialty check of its own. Choosing
+  // the blank option nulled the column, and the pool filter's old
+  // `($1 = '' OR o.specialty_id = $2)` shape read a missing specialty as "no
+  // filter" — one click from every unassigned paid case on the platform.
+  //
+  // Founder's decision: the field stays doctor-editable, so it is validated
+  // rather than removed. It must be present, and it must name a real row in
+  // `specialties`. A lookup that fails is treated as NOT valid — the whole
+  // point of this check is that an unverified id never reaches the column.
+  if (!specialtyId) {
+    fieldErrors.specialty_id = isAr
+      ? 'التخصص مطلوب. اختر تخصصك من القائمة.'
+      : 'Specialty is required. Choose your specialty from the list.';
+  } else {
+    let specialtyRow = null;
+    let specialtyLookupFailed = false;
+    try {
+      specialtyRow = await queryOne('SELECT id FROM specialties WHERE id = $1', [specialtyId]);
+    } catch (e) {
+      specialtyLookupFailed = true;
+      logErrorToDb(e, {
+        context: 'doctor.profile_specialty_validate',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_case'
+      });
+    }
+    if (!specialtyRow) {
+      fieldErrors.specialty_id = specialtyLookupFailed
+        ? (isAr
+            ? 'تعذّر التحقق من التخصص الآن. حاول مرة أخرى بعد قليل.'
+            : 'We could not verify your specialty right now. Please try again in a moment.')
+        : (isAr
+            ? 'التخصص المحدد غير معروف. اختر تخصصاً من القائمة.'
+            : 'That specialty is not recognised. Choose one from the list.');
+    }
+  }
+
   async function rerender(opts) {
     // Load the current user row so we can preserve fields we didn't touch
     // (primary affiliation, profile_photo_url, etc.) while overriding with
@@ -3878,6 +4063,33 @@ router.post('/portal/doctor/profile', requireDoctor, async function(req, res) {
         req.user.id
       ]
     );
+
+    // AUDIT-2026-09-06 (D2) — the JWT carries specialty_id (auth.js:33) and
+    // the queue filters on the COPY IN THE TOKEN, not on the column. Without
+    // this re-sign a doctor who corrected their specialty kept being served
+    // the old specialty's pool until the token expired — up to seven days —
+    // while the profile page showed the new one. `phone` is re-signed here
+    // for the same reason (P0-FORM-1): both are edited by this one form.
+    try {
+      refreshSessionCookie(res, Object.assign({}, req.user, {
+        name: name,
+        phone: phone,
+        country_code: countryCode,
+        specialty_id: specialtyId
+      }));
+    } catch (e) {
+      // A stale cookie is a wrong queue, not a lost save. The write above has
+      // already committed, so never turn this into an error for the doctor.
+      logErrorToDb(e, {
+        context: 'doctor.profile_refresh_session',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_case'
+      });
+    }
+
     return res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تم تحديث الملف الشخصي' : 'Profile updated'));
   } catch (err) {
     logErrorToDb(err, {
@@ -4414,8 +4626,10 @@ async function countPortalCasesUnassigned(doctorSpecialtyId, statuses, q = '') {
   const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
   let paramIdx = 1;
   const params = [];
-  params.push(doctorSpecialtyId); const pSpecId1 = `$${paramIdx++}`;
-  params.push(doctorSpecialtyId); const pSpecId2 = `$${paramIdx++}`;
+  // AUDIT-2026-09-06 (D2): fail-closed — a doctor with no specialty gets an
+  // empty pool, not the whole platform's. See specialtyMatchSql.
+  const specClause = specialtyMatchSql(doctorSpecialtyId, 'o.specialty_id',
+    (v) => { params.push(v); return `$${paramIdx++}`; });
   const statusPlaceholders = normalizedStatuses.map((s) => { params.push(s); return `$${paramIdx++}`; }).join(',');
   params.push(textQuery); const pText = `$${paramIdx++}`;
   params.push(like); const pLike = `$${paramIdx++}`;
@@ -4423,7 +4637,7 @@ async function countPortalCasesUnassigned(doctorSpecialtyId, statuses, q = '') {
     `SELECT COUNT(*) AS c
      FROM orders_active o
      WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
-       AND (${pSpecId1} = '' OR o.specialty_id = ${pSpecId2})
+       AND ${specClause}
        AND (
              LOWER(o.status) IN (${statusPlaceholders})
              OR (
@@ -4466,8 +4680,10 @@ async function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6
   const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
   let paramIdx = 1;
   const params = [];
-  params.push(doctorSpecialtyId); const pSpecId1 = `$${paramIdx++}`;
-  params.push(doctorSpecialtyId); const pSpecId2 = `$${paramIdx++}`;
+  // AUDIT-2026-09-06 (D2): fail-closed — a doctor with no specialty gets an
+  // empty pool, not the whole platform's. See specialtyMatchSql.
+  const specClause = specialtyMatchSql(doctorSpecialtyId, 'o.specialty_id',
+    (v) => { params.push(v); return `$${paramIdx++}`; });
   const statusPlaceholders = normalizedStatuses.map((s) => { params.push(s); return `$${paramIdx++}`; }).join(',');
   params.push(textQuery); const pText = `$${paramIdx++}`;
   params.push(like); const pLike = `$${paramIdx++}`;
@@ -4483,7 +4699,7 @@ async function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6
      LEFT JOIN specialties s ON o.specialty_id = s.id
      LEFT JOIN services sv ON o.service_id = sv.id
      WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
-       AND (${pSpecId1} = '' OR o.specialty_id = ${pSpecId2})
+       AND ${specClause}
        AND (
              LOWER(o.status) IN (${statusPlaceholders})
              OR (
@@ -4593,8 +4809,10 @@ async function countQueueNewCases(doctorId, doctorSpecialtyId, statuses, q = '')
   params.push(doctorId); const pDoctorId = `$${paramIdx++}`;
   params.push(textQuery); const pText1 = `$${paramIdx++}`;
   params.push(like); const pLike1 = `$${paramIdx++}`;
-  params.push(doctorSpecialtyId); const pSpecId1 = `$${paramIdx++}`;
-  params.push(doctorSpecialtyId); const pSpecId2 = `$${paramIdx++}`;
+  // AUDIT-2026-09-06 (D2): fail-closed — a doctor with no specialty gets an
+  // empty pool, not the whole platform's. See specialtyMatchSql.
+  const specClause = specialtyMatchSql(doctorSpecialtyId, 'o.specialty_id',
+    (v) => { params.push(v); return `$${paramIdx++}`; });
   const statusPlaceholders = normalizedStatuses.map((s) => { params.push(s); return `$${paramIdx++}`; }).join(',');
   params.push(textQuery); const pText2 = `$${paramIdx++}`;
   params.push(like); const pLike2 = `$${paramIdx++}`;
@@ -4612,7 +4830,7 @@ async function countQueueNewCases(doctorId, doctorSpecialtyId, statuses, q = '')
        SELECT o.id
        FROM orders_active o
        WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
-         AND (${pSpecId1} = '' OR o.specialty_id = ${pSpecId2})
+         AND ${specClause}
          AND (
                LOWER(o.status) IN (${statusPlaceholders})
                OR (
@@ -4638,8 +4856,10 @@ async function buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, statuses, li
   params.push(doctorId); const pDoctorId = `$${paramIdx++}`;
   params.push(textQuery); const pText1 = `$${paramIdx++}`;
   params.push(like); const pLike1 = `$${paramIdx++}`;
-  params.push(doctorSpecialtyId); const pSpecId1 = `$${paramIdx++}`;
-  params.push(doctorSpecialtyId); const pSpecId2 = `$${paramIdx++}`;
+  // AUDIT-2026-09-06 (D2): fail-closed — a doctor with no specialty gets an
+  // empty pool, not the whole platform's. See specialtyMatchSql.
+  const specClause = specialtyMatchSql(doctorSpecialtyId, 'o.specialty_id',
+    (v) => { params.push(v); return `$${paramIdx++}`; });
   const statusPlaceholders = normalizedStatuses.map((s) => { params.push(s); return `$${paramIdx++}`; }).join(',');
   params.push(textQuery); const pText2 = `$${paramIdx++}`;
   params.push(like); const pLike2 = `$${paramIdx++}`;
@@ -4662,7 +4882,7 @@ async function buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, statuses, li
        SELECT o.*
        FROM orders_active o
        WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
-         AND (${pSpecId1} = '' OR o.specialty_id = ${pSpecId2})
+         AND ${specClause}
          AND (
                LOWER(o.status) IN (${statusPlaceholders})
                OR (

@@ -10,7 +10,9 @@
   //                 pollute logs at launch hour.
   const __active = (typeof active === 'string') ? active : 'dashboard';
   const __isAr = !!(typeof isAr !== 'undefined' && isAr);
-  const __unread = Number(typeof unreadCount === 'number' ? unreadCount : 0);
+  const __unread = Number(typeof unreadCount === 'number'
+    ? unreadCount
+    : (typeof patientUnreadMessages === 'number' ? patientUnreadMessages : 0));
   const __hideBell = !!(typeof hideBell !== 'undefined' && hideBell);
   // P2-VIEW-1 defensive nonce read — same pattern as patient_new_case.ejs.
   // Inline scripts below need a CSP nonce or they get blocked silently.

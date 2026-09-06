@@ -117,12 +117,29 @@ document.addEventListener('DOMContentLoaded', function() {
       refBtn.disabled = true;
       refBtn.textContent = '...';
 
-      var csrfMeta = document.querySelector('meta[name="csrf-token"]');
-      var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
+      // AUDIT-REFERRAL-CSRF-2026-09-06 — this read the token from
+      // <meta name="csrf-token">, which does not exist in ANY view in this repo.
+      // csrfToken was therefore always the empty string, and under
+      // CSRF_MODE=enforce every referral redemption 403'd: referral codes could
+      // not be applied at all. The token now comes off the same element this
+      // script already reads every other page value from, populated by the EJS
+      // local (see patient_payment_required.ejs) exactly as the Pay button on
+      // the same page does it.
+      var csrfToken = portalGrid ? (portalGrid.getAttribute('data-csrf-token') || '') : '';
 
       fetch('/api/referral/apply', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+        // Accept matters, and was the second half of the bug. src/middleware/csrf.js
+        // only answers a rejected request with JSON when the caller asked for
+        // JSON; without this header the 403 came back as text/plain, r.json()
+        // threw, and the patient saw "Network error" — so even after the token
+        // was fixed, a real CSRF failure would have been reported as a network
+        // problem. Any non-2xx from this endpoint is now readable.
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'x-csrf-token': csrfToken
+        },
         credentials: 'same-origin',
         body: JSON.stringify({ code: code, order_id: orderId })
       })

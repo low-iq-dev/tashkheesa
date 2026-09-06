@@ -126,6 +126,32 @@
   }) %>
 <% } %>
 
+<%
+  // AUDIT-RETURN-2026-09-06 — the declined-card banner.
+  //
+  // Word-for-word the copy that already existed at patient_new_case.ejs (wizard
+  // Step 5), because it is the right copy and there is no reason for a patient
+  // to meet two different sentences for the same event. It lives here as well
+  // because this — not the wizard — is the page a failed payment can actually
+  // land on: by the time Paymob can decline a card the case is SUBMITTED, and
+  // the wizard only loads DRAFTs.
+  //
+  // Purely a display of ?failed=1. The route sets `paymentFailed` from the query
+  // string and changes nothing about the order, so the worst a forged
+  // ?failed=1 can do is show a patient a retry prompt on a page that is already
+  // a retry prompt.
+%>
+<% if (typeof paymentFailed !== 'undefined' && paymentFailed) { %>
+  <div role="alert" class="p-card" style="padding:16px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;">
+    <div style="font-size:13px;font-weight:600;margin-bottom:4px;">
+      <%= tt('Your previous payment didn’t go through.', 'Your previous payment didn’t go through.', 'لم يكتمل الدفع في المرة السابقة.') %>
+    </div>
+    <div style="font-size:12.5px;color:var(--ink-2);line-height:1.5;">
+      <%= tt('Your case is still saved — let’s try the payment again. Your details are still here.', 'Your case is still saved — let’s try the payment again. Your details are still here.', 'حالتك محفوظة — لنُعد المحاولة. تفاصيلك لا تزال هنا.') %>
+    </div>
+  </div>
+<% } %>
+
 <div class="p-pay-cols"
      data-video-price="<%= typeof videoConsultationPrice !== 'undefined' ? videoConsultationPrice : 0 %>"
      data-sla-price="<%= typeof sla24hrPrice !== 'undefined' ? sla24hrPrice : 0 %>"
@@ -133,6 +159,19 @@
      data-base-price="<%= basePrice %>"
      data-currency="<%= currencyCode %>"
      data-order-id="<%= __order.id || '' %>"
+     <%#
+       AUDIT-REFERRAL-CSRF-2026-09-06 — public/js/payment-addons.js read the
+       token from <meta name="csrf-token">, a tag that exists in NO view in this
+       repo. Under CSRF_MODE=enforce every referral redemption therefore 403'd,
+       and because the fetch sent no Accept header the 403 came back as
+       text/plain, r.json() threw, and the patient was shown "Network error" for
+       a working code. The token is threaded the same way the Pay button on this
+       very page already threads it — from the res.locals.csrfToken EJS local
+       (src/middleware/csrf.js) — rather than by inventing a second mechanism.
+       It rides on .p-pay-cols because that element is already this script's
+       single source of page data.
+     %>
+     data-csrf-token="<%= typeof csrfToken !== 'undefined' && csrfToken ? csrfToken : '' %>"
      data-intl="<%= __isIntlPrice ? '1' : '0' %>"
      data-base-price-egp="<%= Math.round(__egpBase) %>"
      data-video-price-egp="<%= __videoEgp %>"
@@ -504,6 +543,13 @@
         } else if (code === 'already_paid') {
           // Concurrent payment landed — bounce to success page to render correct state.
           window.location.href = '/portal/patient/orders/' + encodeURIComponent(orderId) + '/payment-success';
+          return;
+        } else if (code === 'case_not_submitted') {
+          // AUDIT-PAY-DRAFT-2026-09-06 — the case went back to DRAFT (or was
+          // never submitted) between this page rendering and the click. There is
+          // nothing to pay for yet and no message that would help: send them to
+          // the wizard, which resumes at the step they stopped on.
+          window.location.href = '/patient/new-case?resume=' + encodeURIComponent(orderId);
           return;
         } else {
           showErr(L.generic);

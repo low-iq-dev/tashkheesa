@@ -190,7 +190,13 @@
             <th><%= isAr ? 'المريض' : 'Patient' %></th>
             <th><%= isAr ? 'الخدمة' : 'Service' %></th>
             <th><%= isAr ? 'الحالة' : 'Status' %></th>
-            <th><%= isAr ? 'المبلغ' : 'Amount' %></th>
+            <%# AUDIT-2026-09-06 (D3): this column is appointments.price — what
+                the PATIENT pays, not what the doctor earns. Under a bare
+                "Amount" header, next to that doctor's own earnings tiles, it
+                read as their fee. Labelled the way portal_doctor_services.ejs
+                already labels the same figure. The doctor's own number for
+                these appointments is in the earnings tiles above. %>
+            <th><%= isAr ? 'يدفع المريض' : 'Patient pays' %></th>
             <th><%= isAr ? 'إجراءات' : 'Actions' %></th>
           </tr>
         </thead>

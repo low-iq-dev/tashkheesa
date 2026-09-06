@@ -9,7 +9,13 @@
   //   activeOrder          — non-null only when state === 'active'
   //   reportReadyOrder     — non-null only when state === 'ready' (NEVER contains report text)
   //   draftOrder           — optional; surfaces "Continue your case" tile in empty state
-  //   activeUnreadMessages — number, drives sidebar/tabbar badge
+  //   activeUnreadMessages — number, unread messages on the ACTIVE case.
+  //   AUDIT-UNREAD-2026-09-06: this no longer drives the sidebar/tabbar badge.
+  //   That badge links to the whole inbox at /portal/messages, so it must count
+  //   the whole inbox — which is what res.locals.patientUnreadMessages holds
+  //   (middleware/patient_unread) and what the chrome now falls back to on every
+  //   other patient page. Scoping it to one case here made the dashboard the one
+  //   page whose badge disagreed with the page it opens.
   //   isLimbo              — boolean, when activeOrder is paid but unassigned
   //
   // Privacy invariant: this template MUST NOT render any field that could carry report
@@ -52,6 +58,12 @@
   const __activeOrder = activeOrder || null;
   const __reportReadyOrder = reportReadyOrder || null;
   const __draftOrder = draftOrder || null;
+  // Case-scoped (see the locals note above): this number labels the two
+  // "Message <doctor>" buttons, which open THIS case's messages tab. The
+  // portal-wide sidebar badge is a different question and comes from the
+  // middleware. AUDIT-UNREAD-2026-09-06 — until this, the count was produced by
+  // a query against two columns that do not exist and was therefore always 0,
+  // so neither the buttons nor the badge could ever say a doctor had replied.
   const __unread = Number(activeUnreadMessages) || 0;
   const __limbo = !!isLimbo;
 
@@ -163,7 +175,6 @@
   active: 'dashboard',
   variant: 'dark',
   trustDensity: 'heavy',
-  unreadCount: __unread,
   caseCount: __activeOrder ? 1 : 0,
   user: __user,
   lang: lang,
@@ -264,7 +275,7 @@
         <% if (activeDoctorName && !__limbo) { %>
           <a class="p-btn p-btn--ghost" href="/portal/patient/orders/<%= __activeOrder.id %>?tab=messages">
             <%- include('partials/patient/icon', { name: 'message', size: 14 }) %>
-            <%= tt('Message ' + activeDoctorShort, 'Message ' + activeDoctorShort, 'راسل ' + activeDoctorShort) %>
+            <%= tt('Message ' + activeDoctorShort, 'Message ' + activeDoctorShort, 'راسل ' + activeDoctorShort) %><%= __unread > 0 ? ' (' + __unread + ')' : '' %>
           </a>
         <% } %>
       </div>
@@ -333,7 +344,7 @@
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
               <a class="p-btn p-btn--secondary p-btn--sm" href="/portal/patient/orders/<%= __activeOrder.id %>?tab=messages">
                 <%- include('partials/patient/icon', { name: 'message', size: 13 }) %>
-                <%= tt('Message', 'Message', 'مراسلة') %>
+                <%= tt('Message', 'Message', 'مراسلة') %><%= __unread > 0 ? ' (' + __unread + ')' : '' %>
               </a>
               <a class="p-btn p-btn--ghost p-btn--sm" href="/portal/patient/orders/<%= __activeOrder.id %>">
                 <%- include('partials/patient/icon', { name: 'eye', size: 13 }) %>
@@ -526,6 +537,5 @@
 <%- include('partials/patient/foot', {
   active: 'dashboard',
   isAr: __isAr,
-  unreadCount: __unread,
   cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>

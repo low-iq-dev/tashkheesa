@@ -27,6 +27,64 @@ function normalizeStatus(input) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// AUDIT-RETURN-2026-09-06 — reading the Paymob BROWSER REDIRECT.
+//
+// Paymob redirects the patient back to `redirection_url` with the transaction
+// flattened into the query string: success, pending, error_occured,
+// txn_response_code, data.message, is_refunded, is_voided, plus its own hmac.
+// GET /portal/patient/payment-return read none of them and sent every patient
+// to the success page, which then told a patient whose card had just been
+// declined "We're confirming your payment", polled for three minutes, and
+// finished with "you can safely close this page".
+//
+// WHAT THIS IS AND IS NOT. It is a DISPLAY decision — which page to show
+// someone whose browser just came back. It is NOT a payment decision: nothing
+// downstream of this may write payment_status, paid_at or a case status from
+// it. The redirect is attacker-controlled (it is a URL in the patient's own
+// address bar) and the HMAC on it is computed over a DIFFERENT field layout
+// than the webhook's, so it is not verified here. POST /payments/callback
+// remains the sole source of truth for money, exactly as before.
+//
+// The precedence deliberately mirrors the webhook's `status` ladder below, for
+// the same reason it has that order: Paymob sends success=false together with
+// pending=true while a 3DS challenge is still in flight, so testing success
+// first would show a "payment failed" page to someone mid-authentication.
+// Anything unrecognised returns 'unknown', which the caller treats as "not a
+// failure" — the success page re-queries the database and renders the truth, so
+// an unknown shape degrades to today's behaviour rather than to a false
+// failure notice.
+//
+// Values arrive as STRINGS in a query string ('true'/'false'), never booleans.
+function _isTrueParam(v) {
+  return String(v == null ? '' : v).trim().toLowerCase() === 'true';
+}
+function _isFalseParam(v) {
+  return String(v == null ? '' : v).trim().toLowerCase() === 'false';
+}
+
+function readPaymobReturnOutcome(query) {
+  const q = query || {};
+
+  if (_isTrueParam(q.pending)) return 'pending';
+  if (_isTrueParam(q.error_occured)) return 'failed';
+  // A refund or void arriving on the redirect is not money the patient just
+  // paid, whatever `success` says — same reasoning as AUDIT 2026-08-17 (FIX 2)
+  // in the webhook.
+  if (_isTrueParam(q.is_refunded) || _isTrueParam(q.is_voided)) return 'failed';
+  if (_isTrueParam(q.success)) return 'success';
+  if (_isFalseParam(q.success)) return 'failed';
+
+  // No `success` at all: fall back to the response code. Paymob's approved
+  // codes are 'APPROVED' and the numeric '00'; every other value is a decline
+  // reason. Only treated as a FAILURE signal — an unknown code must not be able
+  // to claim success.
+  const code = String(q.txn_response_code == null ? '' : q.txn_response_code).trim().toUpperCase();
+  if (code && code !== 'APPROVED' && code !== '00') return 'failed';
+
+  return 'unknown';
+}
+
 // Add-on settlement, shared with the operator-initiated path in routes/admin.js
 // and routes/superadmin.js so the three cannot drift apart.
 //
@@ -101,6 +159,8 @@ async function getOrCreatePaymentUrl(order) {
 //
 //   400 patient_profile_incomplete  → patient missing name/email/phone or
 //                                      malformed format. Includes `fields`.
+//   400 case_not_submitted          → status cannot legally become PAID
+//                                      (a DRAFT — finish the wizard first)
 //   400 invalid_amount              → order has no locked_price > 0
 //   400 unsupported_currency        → not EGP (test mode)
 //   404 order_not_found             → not owned by patient or absent
@@ -122,7 +182,7 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
     // the legacy locked_price/locked_currency columns added via
     // migrate_mobile_api.js are not used here to avoid env-specific drift.
     const order = await queryOne(
-      `SELECT id, patient_id, payment_status, price, currency, paymob_intention_id,
+      `SELECT id, patient_id, status, payment_status, price, currency, paymob_intention_id,
               payment_link, service_id
          FROM orders_active
         WHERE id = $1 AND patient_id = $2`,
@@ -133,6 +193,21 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
     }
     if (String(order.payment_status || '').toLowerCase() === 'paid') {
       return res.status(409).json({ ok: false, error: 'already_paid' });
+    }
+
+    // AUDIT-PAY-DRAFT-2026-09-06 — `status` was not in the SELECT, let alone
+    // checked. Ownership and "not already paid" were the whole gate, so a DRAFT
+    // could mint a real Paymob intention. This is the SERVER half of the fix
+    // (routes/patient.js redirects the pay page away from a draft); it has to
+    // exist independently, because this endpoint is a JSON POST that any client
+    // can call directly with an order id it owns.
+    //
+    // Payability is asked of the state machine — the same question
+    // transitionCase asks in markCasePaid, which today is asked only AFTER the
+    // webhook has already written payment_status='paid'.
+    const { isPayableStatus } = require('../case_lifecycle');
+    if (!isPayableStatus(order.status)) {
+      return res.status(400).json({ ok: false, error: 'case_not_submitted' });
     }
 
     const amount = Number(order.price);
@@ -1507,3 +1582,7 @@ router.post('/callback', async (req, res, next) => {
 
 module.exports = router;
 module.exports.getOrCreatePaymentUrl = getOrCreatePaymentUrl;
+// AUDIT-RETURN-2026-09-06 — exported so the redirect landing in routes/patient.js
+// reads Paymob's parameters with the SAME precedence the webhook uses, and so
+// the guard test can pin that precedence without booting the app.
+module.exports.readPaymobReturnOutcome = readPaymobReturnOutcome;

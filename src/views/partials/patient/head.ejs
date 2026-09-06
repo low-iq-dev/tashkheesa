@@ -33,7 +33,9 @@
   const __active = (typeof active === 'string') ? active : 'dashboard';
   const __variant = (typeof variant === 'string' && variant === 'light') ? 'light' : 'dark';
   const __trustDensity = (typeof trustDensity === 'string') ? trustDensity : 'medium';
-  const __unread = Number(typeof unreadCount === 'number' ? unreadCount : 0);
+  const __unread = Number(typeof unreadCount === 'number'
+    ? unreadCount
+    : (typeof patientUnreadMessages === 'number' ? patientUnreadMessages : 0));
   const __caseCount = Number(typeof caseCount === 'number' ? caseCount : 0);
   const __user = (typeof user === 'object' && user) ? user
     : ((typeof locals !== 'undefined' && locals && locals.user) ? locals.user : {});

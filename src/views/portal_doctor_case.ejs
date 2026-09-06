@@ -6,6 +6,7 @@
   var _order = (typeof order !== 'undefined' && order) ? order : null;
   var _files = Array.isArray(typeof files !== 'undefined' ? files : []) ? files : [];
   var _accessDenied = !!(typeof accessDenied !== 'undefined' && accessDenied);
+  var _reason = (typeof reason !== 'undefined' && reason) ? String(reason) : '';
   var _blurred = !!(typeof blurred !== 'undefined' && blurred);
   var _canView = !!(typeof canViewDetails !== 'undefined' && canViewDetails);
   var _showAccept = !!(typeof showAcceptButton !== 'undefined' && showAcceptButton);
@@ -50,6 +51,28 @@
       return tt('Anonymous patient', 'Anonymous patient', 'مريض مجهول الهوية');
     }
     return raw;
+  }
+
+  /* AUDIT-2026-09-06 (D1) — defence in depth for the patient's identity.
+     The <h2> below printed _patientName() unconditionally, OUTSIDE the
+     `if (_canView)` gate that opens on the very next line. So any payload
+     carrying a full orders row — which the route's fail-open status guard
+     produced for every `expired_unpaid` / `cancelled` case — put a real
+     patient's name at the top of the page for a doctor with no right to it.
+     The route is fail-closed now, but a view that prints identity without
+     checking permission is one payload bug away from the same leak. The name
+     is rendered only to the doctor who accepted the case; everyone else gets
+     the case reference, which is what they would quote to support anyway. */
+  function _caseRef() {
+    return (_order && _order.id) ? ('#' + String(_order.id).slice(0, 8).toUpperCase()) : '—';
+  }
+  function _headerTitle() {
+    return _canView ? _patientName() : _caseRef();
+  }
+  function _headerBadge() {
+    if (_canView) return _initials(_patientName());
+    var id = (_order && _order.id) ? String(_order.id).replace(/[^A-Za-z0-9]/g, '') : '';
+    return id ? id.slice(0, 2).toUpperCase() : '—';
   }
 
   // SLA / countdown calc
@@ -207,7 +230,15 @@
       <div class="v2-empty">
         <div class="v2-locked__glyph" style="margin:0 auto 14px;">🔒</div>
         <div class="v2-empty__title"><%= tt('Access denied', 'Access denied', 'لا توجد صلاحية') %></div>
-        <div class="v2-empty__msg"><%= tt('This case is assigned to another specialist. You will not be able to view its files or details.', 'This case is assigned to another specialist. You will not be able to view its files or details.', 'هذه الحالة مخصصة لاستشاري آخر، ولا يمكنك الاطلاع على ملفاتها أو تفاصيلها.') %></div>
+        <%# AUDIT-2026-09-06 (D1): the refusal now has two causes, and telling a
+            doctor "assigned to another specialist" about a case that was simply
+            abandoned by its patient would send them to support over nothing.
+            Driven off the `reason` code the route already passes. %>
+        <% if (_reason === 'case_not_available') { %>
+          <div class="v2-empty__msg"><%= tt('This case is not open for review. It was never taken up — the patient cancelled it or the payment window closed — so its details are not available.', 'This case is not open for review. It was never taken up — the patient cancelled it or the payment window closed — so its details are not available.', 'هذه الحالة ليست متاحة للمراجعة. لم تُستكمل — إمّا ألغاها المريض أو انتهت مهلة الدفع — لذا لا تتوفر تفاصيلها.') %></div>
+        <% } else { %>
+          <div class="v2-empty__msg"><%= tt('This case is assigned to another specialist. You will not be able to view its files or details.', 'This case is assigned to another specialist. You will not be able to view its files or details.', 'هذه الحالة مخصصة لاستشاري آخر، ولا يمكنك الاطلاع على ملفاتها أو تفاصيلها.') %></div>
+        <% } %>
         <div class="v2-empty__actions">
           <a class="v2-btn v2-btn--primary" href="/portal/doctor/cases"><%= tt('Back to cases', 'Back to cases', 'العودة للحالات') %></a>
         </div>
@@ -220,10 +251,10 @@
 <!-- Case header card -->
 <div class="v2-card v2-mb-4">
   <div class="v2-case-header">
-    <div class="v2-case-header__badge"><%= _initials(_patientName()) %></div>
+    <div class="v2-case-header__badge"><%= _headerBadge() %></div>
     <div class="v2-case-header__main">
       <div class="v2-case-header__title-line">
-        <h2 class="v2-case-header__title"><%= _patientName() %></h2>
+        <h2 class="v2-case-header__title" <% if (!_canView) { %>data-numeric<% } %>><%= _headerTitle() %></h2>
         <% if (_canView) { %>
           <span class="v2-chip v2-chip--<%= _statusChip.kind %>"><%= _statusChip.label %></span>
         <% } else { %>

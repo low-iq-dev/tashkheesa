@@ -661,7 +661,7 @@ function getPaymentUrlFromOrder(orderRow) {
   return (orderRow && (orderRow.payment_link || orderRow.payment_url)) || null;
 }
 
-async function queuePaymentReminder({ caseId, level, toUserId, channel, paymentUrl, elapsedSeconds }) {
+async function queuePaymentReminder({ caseId, level, toUserId, channel, paymentUrl, elapsedSeconds, hoursRemaining }) {
   const userId = safeUserId(toUserId);
   if (!userId) return { ok: false, skipped: 'missing_toUserId' };
 
@@ -672,13 +672,17 @@ async function queuePaymentReminder({ caseId, level, toUserId, channel, paymentU
 
   try {
     const { queueNotification, buildPaymentReminderPayload } = require('./notify');
-    // #66: hours_remaining = 48h hard-stop (soft-delete) minus elapsed.
-    // Templates read this to show patients the actual final-release
-    // window rather than inventing a number. Floored to whole hours;
-    // clamped to 0 so a late sweep never produces a negative.
-    const hoursRemaining = Number.isFinite(elapsedSeconds)
-      ? Math.max(0, 48 - Math.floor(elapsedSeconds / 3600))
-      : null;
+    // #66: hours_remaining is what the copy interpolates — "we hold cases for a
+    // final {{hoursRemaining}} hours" (notify/openclawTemplates,
+    // notify/whatsappTemplateMap).
+    //
+    // AUDIT-SWEEP-2026-09-06 — it used to be computed HERE as `48 - elapsed/3600`
+    // against the deleted 48h soft-delete. With per-status TTLs that constant is
+    // simply wrong in both directions: it would tell a patient holding a 30-day
+    // draft that they had zero hours left, and it never knew which status it was
+    // describing. The caller now derives it from UNPAID_CASE_TTL and passes it
+    // in. null (no TTL for this status) is what the composers already fall back
+    // on.
     return queueNotification({
       channel,
       toUserId: userId,
@@ -745,12 +749,25 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
       ])];
       const placeholders = terminalStatuses.map((_, i) => `$${i + 1}`).join(', ');
 
+      // AUDIT-SWEEP-2026-09-06 — only rows with work to do.
+      //
+      // Every row this selects costs nine dedupe lookups (3 levels x 3
+      // channels), and the page is `ORDER BY created_at ASC LIMIT 200`. While
+      // cases died at 24h that page stayed small by accident. With TTLs measured
+      // in days it would fill with unpaid drafts that have already had all three
+      // reminders and are weeks from expiring — sitting at the HEAD of the page,
+      // pushing newly created cases off the end, so the newest patients would be
+      // the ones who got no payment reminder at all. Generated from
+      // UNPAID_CASE_TTL, so it cannot disagree with the per-row decision below.
+      // `force` skips it: an operator forcing a re-send means every row.
+      const workClause = force ? '' : `\n           AND (${buildUnpaidSweepWorkPredicateSql()})`;
+
       const rows = await queryAll(
         `SELECT *
          FROM ${CASE_TABLE}
          WHERE created_at IS NOT NULL${paymentClause}
            AND COALESCE(status, '') NOT IN (${placeholders})
-           AND deleted_at IS NULL
+           AND deleted_at IS NULL${workClause}
          ORDER BY created_at ASC
          LIMIT $${terminalStatuses.length + 1}`,
         [...terminalStatuses, limit]
@@ -791,58 +808,47 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
   if (elapsedSeconds == null) {
     return { ok: true, sentCount: 0, skipped: 'missing_created_at' };
   }
-  // HARD STOP #1: expire unpaid cases between 24h and 48h
+  // HARD STOP: expire the case when its status TTL runs out (UNPAID_CASE_TTL).
   //
-  // REGRESSION FIX (F12) — the predicate was `payment_status != 'paid'`, which
-  // is true for 'refunded'. These two HARD STOP statements are the last line of
-  // defence: they re-assert the unpaid condition inside the UPDATE so a stale
-  // in-memory orderRow cannot expire or delete a case that has since been paid.
-  // That guarantee only holds if the predicate agrees with
-  // isUnpaidReminderEligible — it now does, on both gates.
+  // ONE stop, not two. It replaces "expire at 24h, soft-delete at 48h", both
+  // clocked on created_at and both applied to any status that was not on a
+  // terminal exclusion list — which is how every DRAFT the platform ever made
+  // was destroyed a day after it was started. What is expired, and when, is now
+  // decided entirely by UNPAID_CASE_TTL; a status absent from that table reaches
+  // this line and does nothing.
   //
-  // AUDIT-2026-08-22 — the status test is `LOWER(status) NOT IN (...)`. It was
-  // written unfolded, and orders.status holds BOTH cases (the canonical writer
-  // stores 'COMPLETED', raw SQL stores 'completed'), so an already-COMPLETED
-  // row passed the guard and could be stamped expired_unpaid. LOWER(), not
-  // LOWER(COALESCE(...)): a NULL status must keep behaving exactly as before
-  // (predicate NULL -> no update), which the COALESCE form would change.
-  if (!force && elapsedSeconds >= 24 * 60 * 60 && elapsedSeconds < 48 * 60 * 60) {
-    await execute(`
-      UPDATE ${CASE_TABLE}
-      SET status = 'expired_unpaid'
-      WHERE id = $1
-        AND paid_at IS NULL
-        AND (payment_status IS NULL OR LOWER(TRIM(payment_status)) NOT IN (${UNPAID_SWEEP_STATUS_SQL_LIST}))
-        AND LOWER(status) NOT IN ('completed','expired_unpaid')
-    `, [orderRow.id]);
-
-    return { ok: true, sentCount: 0, skipped: 'expired_unpaid' };
-  }
-
-  // HARD STOP #2: soft-delete unpaid cases at 48h, notify patient once.
-  // Idempotent — `deleted_at IS NULL` guard makes re-runs no-ops.
+  // REGRESSION FIX (F12) — this UPDATE is the last line of defence: it
+  // re-asserts the unpaid condition so a stale in-memory orderRow cannot expire
+  // a case that has since been paid. That guarantee only holds if the predicate
+  // agrees with isUnpaidReminderEligible — it does, on both gates.
   //
-  // TECH DEBT: orders.deleted_at is `timestamp with time zone` while orders.updated_at
-  // is `timestamp without time zone`. Binding the same $1 to both made Postgres deduce
-  // two conflicting types ("inconsistent types deduced for parameter $1"), failing every
-  // sweep. We pass the timestamp as TWO separate parameters here so each casts cleanly
-  // against its column type. A schema migration to align deleted_at to tz-naive (or
-  // updated_at to tz-aware) is the proper fix but is deferred — touching every order
-  // every time would be a heavy migration.
-  if (!force && elapsedSeconds >= 48 * 60 * 60) {
+  // AUDIT-2026-08-22 — the status test used to be an unfolded
+  // `LOWER(status) NOT IN ('completed','expired_unpaid')`, a blacklist, so any
+  // status the author had not thought of was expirable. It is now a WHITELIST of
+  // the exact spellings of the status the TTL decision was made against, folded
+  // with UPPER(COALESCE(...)) because orders.status holds both cases. That also
+  // closes a race the blacklist could not: a draft that the patient submits
+  // between the SELECT and this UPDATE is no longer expired on the draft's
+  // 30-day clock, because it is no longer a draft.
+  const ttl = unpaidTtlFor(orderRow.status);
+  if (!force && ttl && isUnpaidExpiryDue(orderRow)) {
     const ts = nowIso();
     const result = await execute(`
       UPDATE ${CASE_TABLE}
-      SET deleted_at = $1,
-          status = 'expired_unpaid',
+      SET status = 'expired_unpaid',
           updated_at = $2
-      WHERE id = $3
-        AND deleted_at IS NULL
+      WHERE id = $1
         AND paid_at IS NULL
         AND (payment_status IS NULL OR LOWER(TRIM(payment_status)) NOT IN (${UNPAID_SWEEP_STATUS_SQL_LIST}))
-    `, [ts, ts, orderRow.id]);
+        AND UPPER(COALESCE(status, '')) IN (${upperStatusVariantsSqlFor(orderRow.status)})
+    `, [orderRow.id, ts]);
 
     if (result && result.rowCount > 0) {
+      // The notification the patient never got. It lived inside the 48h
+      // soft-delete, which the 24h expiry made unreachable — the row stopped
+      // being eligible the moment it was stamped expired_unpaid, so nothing
+      // ever re-selected it and no one was ever told. Telling them is now part
+      // of the same stop that acts.
       const toPatientId = getPatientUserIdFromOrder(orderRow);
       if (toPatientId) {
         try {
@@ -851,28 +857,31 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
             orderId: orderRow.id,
             toUserId: toPatientId,
             channel: 'internal',
-            template: 'case_auto_deleted_unpaid_patient',
+            template: 'case_expired_unpaid_patient',
             status: 'queued',
-            dedupeKey: `auto_delete:${orderRow.id}`,
+            dedupeKey: `case_expired:${orderRow.id}`,
             response: {
               case_id: orderRow.id,
               reference_id: orderRow.reference_id || null,
-              reason: 'unpaid_48h'
+              reason: 'unpaid_ttl',
+              held_hours: ttl.expireAfterHours
             }
           });
         } catch (e) {
-          // Best-effort: notification failure must not roll back the soft-delete.
-          console.error('[unpaid-reminder] auto-delete notification failed', e && e.message);
+          // Best-effort: a notification failure must not undo the expiry.
+          console.error('[unpaid-reminder] expiry notification failed', e && e.message);
         }
       }
       try {
-        await logCaseEvent(orderRow.id, 'CASE_AUTO_DELETED_UNPAID', {
-          elapsed_hours: Math.floor(elapsedSeconds / 3600)
+        await logCaseEvent(orderRow.id, 'CASE_EXPIRED_UNPAID', {
+          status: normalizeStatus(orderRow.status),
+          held_hours: ttl.expireAfterHours,
+          clock: ttl.clock
         });
       } catch (_) {}
     }
 
-    return { ok: true, sentCount: 0, skipped: 'auto_deleted' };
+    return { ok: true, sentCount: 0, skipped: 'expired_unpaid' };
   }
 
   const toPatientId = getPatientUserIdFromOrder(orderRow);
@@ -881,6 +890,14 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
   }
 
   const paymentUrl = getPaymentUrlFromOrder(orderRow);
+
+  // How long this case is still held, from UNPAID_CASE_TTL — see
+  // queuePaymentReminder for why this number is no longer a constant. Measured
+  // on the TTL's own clock (updated_at for DRAFT/SUBMITTED), NOT on
+  // elapsedSeconds: the reminder LADDER asks "how long since you started" and
+  // the release window asks "how long since you last touched it", and they are
+  // different questions with different answers.
+  const hoursRemaining = unpaidTtlHoursRemaining(orderRow);
 
   const thresholds = [
     { level: '30m', seconds: 30 * 60 },
@@ -897,7 +914,8 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
         toUserId: toPatientId,
         channel: 'whatsapp',
         paymentUrl,
-        elapsedSeconds
+        elapsedSeconds,
+        hoursRemaining
       }));
       sent.push(await queuePaymentReminder({
         caseId,
@@ -905,7 +923,8 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
         toUserId: toPatientId,
         channel: 'email',
         paymentUrl,
-        elapsedSeconds
+        elapsedSeconds,
+        hoursRemaining
       }));
       // NOTIFICATIONS 2026-08-25 — the internal channel, which is what the
       // patient app's list reads.
@@ -922,7 +941,8 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
         toUserId: toPatientId,
         channel: 'internal',
         paymentUrl,
-        elapsedSeconds
+        elapsedSeconds,
+        hoursRemaining
       }));
     }
   }
@@ -1218,6 +1238,186 @@ const STATUS_TRANSITIONS = Object.freeze({
   // awaiting ops triage, which either prices and submits it or closes it.
   [CASE_STATUS.PENDING_REVIEW]: [CASE_STATUS.SUBMITTED, CASE_STATUS.PAID, CASE_STATUS.CANCELLED]
 });
+
+// ---------------------------------------------------------------------------
+// UNPAID_CASE_TTL — how long an unpaid case is held, per status. ONE TABLE.
+//
+// AUDIT-SWEEP-2026-09-06. This is the third fix to the unpaid sweep (see
+// AUDIT-P1-4 and AUDIT-2026-08-22 above); the first two corrected which rows it
+// re-selected, and neither questioned WHICH STATUSES it was entitled to destroy
+// in the first place. It decided that by EXCLUSION: anything not COMPLETED,
+// CANCELLED or EXPIRED_UNPAID was expired at 24h and soft-deleted at 48h, both
+// clocked on created_at. DRAFT is not terminal, so every wizard draft was
+// expired one day after the patient started it — and an expired_unpaid row is
+// excluded from /patient/cases, refused by loadOwnedDraft and skipped by the
+// dashboard resume tile, so the case did not merely stop, it vanished with no
+// way back. Production said so exactly: 41 orders, 36 expired_unpaid, and not
+// one row left in DRAFT, SUBMITTED, PAID, ASSIGNED or IN_REVIEW. PENDING_REVIEW
+// — anonymous marketing-site intake sitting in the ops triage queue — was being
+// destroyed on the same timer, unnoticed for the same reason.
+//
+// An exclusion list fails OPEN: a status added tomorrow inherits "destroy at
+// 24h" by saying nothing at all. This table fails CLOSED — a status with no
+// entry here is NEVER expired — and every canonical status must appear in
+// exactly one of the two tables below, which tests/core/unpaid-sweep-ttl
+// asserts. Add a status and the test makes you answer the question.
+//
+// `clock` names the column the age is measured from. DRAFT and SUBMITTED are
+// both clocked on updated_at (LAST ACTIVITY) rather than created_at: a patient
+// who came back yesterday to add a file has a live case, whatever its birthday
+// says. created_at remains what the payment-reminder ladder below uses — "you
+// started a case and have not paid" is a question about the start.
+//
+// There is deliberately NO second, deleting stop. The 48h soft-delete this
+// replaces set orders.deleted_at, which drops the row out of orders_active and
+// therefore out of every patient-facing query at once — invisible AND
+// unrecoverable — and the single notification that would have told the patient
+// lived inside that stop, unreachable because the 24h stop had already made the
+// row ineligible for re-selection. Expiry itself now notifies, and the row
+// stays visible as EXPIRED_UNPAID ("Payment window closed"), which is revivable:
+// a late payment transitions EXPIRED_UNPAID -> PAID (see STATUS_TRANSITIONS).
+// ---------------------------------------------------------------------------
+const UNPAID_CASE_TTL = Object.freeze({
+  // 30 days. This is the retention window the patient app ALREADY advertises in
+  // two places — the dashboard "Continue your case" tile and the wizard's
+  // auto-resume query, both `> NOW() - INTERVAL '30 days'` — and both were dead
+  // code, because nothing survived 24h to be resumed.
+  [CASE_STATUS.DRAFT]: Object.freeze({ expireAfterHours: 30 * 24, clock: 'updated_at' }),
+  // 7 days. The patient finished the wizard and has been shown a price, so the
+  // hold is shorter than a draft's — but a week, not a day, because the most
+  // common reason a submitted case sits unpaid past 24h is a card that needs a
+  // second attempt from a different device, not abandonment.
+  [CASE_STATUS.SUBMITTED]: Object.freeze({ expireAfterHours: 7 * 24, clock: 'updated_at' })
+});
+
+// The other half of the same decision: every canonical status the unpaid sweep
+// must NEVER expire, each with the reason it is exempt. The regression test
+// asserts CASE_STATUS is exactly the union of this map's keys and
+// UNPAID_CASE_TTL's, so neither table can quietly fall behind the enum.
+const UNPAID_TTL_NEVER_EXPIRES = Object.freeze({
+  [CASE_STATUS.PAID]:           'money moved — the sweep never sees it (paid_at is set)',
+  [CASE_STATUS.ASSIGNED]:       'paid and with a doctor',
+  [CASE_STATUS.IN_REVIEW]:      'paid and being worked on',
+  [CASE_STATUS.REJECTED_FILES]: 'paid; waiting on the patient, which is the opposite of abandoned',
+  [CASE_STATUS.SLA_BREACH]:     'paid and already late — expiring it would hide the breach',
+  [CASE_STATUS.REASSIGNED]:     'paid, between doctors',
+  [CASE_STATUS.COMPLETED]:      'terminal — work delivered',
+  [CASE_STATUS.CANCELLED]:      'terminal — closed deliberately',
+  [CASE_STATUS.REFUNDED]:       'terminal — money returned',
+  [CASE_STATUS.EXPIRED_UNPAID]: 'already expired; re-expiring it would restart the clock and re-notify',
+  // The one genuinely non-obvious entry, and the one the old exclusion list got
+  // wrong: an anonymous website intake is waiting on OPS to price and submit it,
+  // not on the patient to pay. Nobody has been asked for money yet, so there is
+  // no payment window to close — the sweep destroyed these purely because they
+  // were unpaid and not on its terminal list.
+  [CASE_STATUS.PENDING_REVIEW]: 'awaiting ops triage — the patient has not been asked to pay yet'
+});
+
+function unpaidTtlFor(status) {
+  const key = normalizeStatus(status);
+  return Object.prototype.hasOwnProperty.call(UNPAID_CASE_TTL, key)
+    ? UNPAID_CASE_TTL[key]
+    : null;
+}
+
+// Age of the row on the clock its TTL nominates, in seconds. updated_at falls
+// back to created_at: a row that has never been touched since creation is
+// legitimately as old as it looks, and NULL must not read as "age zero,
+// therefore immortal".
+function unpaidTtlAgeSeconds(orderRow, ttl, nowMs) {
+  if (!orderRow || !ttl) return null;
+  const raw = (ttl.clock === 'updated_at')
+    ? (orderRow.updated_at || orderRow.created_at)
+    : orderRow.created_at;
+  if (!raw) return null;
+  const ms = new Date(raw).getTime();
+  if (!Number.isFinite(ms)) return null;
+  return Math.floor(((Number.isFinite(nowMs) ? nowMs : Date.now()) - ms) / 1000);
+}
+
+// Pure predicate, exported so the guard test can pin the TTL per status without
+// a database: does this row's status have a TTL, and has it run out?
+function isUnpaidExpiryDue(orderRow, nowMs) {
+  const ttl = unpaidTtlFor(orderRow && orderRow.status);
+  if (!ttl) return false;
+  const ageSeconds = unpaidTtlAgeSeconds(orderRow, ttl, nowMs);
+  if (ageSeconds == null) return false;
+  return ageSeconds >= ttl.expireAfterHours * 3600;
+}
+
+// Hours left before this row expires — the number the payment-reminder copy
+// interpolates ("we hold cases for a final {{hoursRemaining}} hours"). It used
+// to be `48 - elapsed/3600` hardcoded against the deleted 48h soft-delete; with
+// per-status TTLs that constant would have told a patient with 29 days left
+// that they had none. null when the status has no TTL, which the composers
+// already handle.
+function unpaidTtlHoursRemaining(orderRow, nowMs) {
+  const ttl = unpaidTtlFor(orderRow && orderRow.status);
+  if (!ttl) return null;
+  const ageSeconds = unpaidTtlAgeSeconds(orderRow, ttl, nowMs);
+  if (ageSeconds == null) return null;
+  return Math.max(0, ttl.expireAfterHours - Math.floor(ageSeconds / 3600));
+}
+
+// TTL in hours for a canonical status, or null. Exported so the patient-facing
+// draft-retention windows in routes/patient.js are generated from this table
+// instead of repeating a literal '30 days' that can silently drift away from it.
+function unpaidTtlHoursFor(status) {
+  const ttl = unpaidTtlFor(status);
+  return ttl ? ttl.expireAfterHours : null;
+}
+
+// ── SQL generated from the table above, so the pre-filter and the per-row
+// decision cannot disagree (the failure mode BOTH previous sweep fixes were).
+//
+// Values are interpolated, not bound, because they are interval literals and
+// IN-list members rather than comparands — so both are validated first and the
+// module refuses to load on anything unexpected. Status spellings come from
+// DB_STATUS_VARIANTS (orders.status holds both cases and several legacy
+// aliases); they are upper-cased and de-duplicated, and compared against
+// UPPER(COALESCE(status, '')) so the comparison folds case.
+function assertSqlSafeStatus(value) {
+  if (!/^[A-Z0-9_]+$/.test(value)) {
+    throw new Error('[unpaid-sweep] refusing to build SQL for status literal ' + JSON.stringify(value));
+  }
+  return value;
+}
+
+function upperStatusVariantsSqlFor(canonKey) {
+  const variants = [...new Set(dbStatusValuesFor(canonKey).map((v) => String(v).toUpperCase()))];
+  return variants.map((v) => `'${assertSqlSafeStatus(v)}'`).join(', ');
+}
+
+function assertSqlSafeHours(hours) {
+  if (!Number.isInteger(hours) || hours <= 0) {
+    throw new Error('[unpaid-sweep] refusing to build SQL for TTL hours ' + JSON.stringify(hours));
+  }
+  return hours;
+}
+
+// The longest a row can still be inside the payment-reminder ladder (30m / 6h /
+// 24h), plus an hour of slack for a late tick. Rows past it that are not yet due
+// to expire have no work left, and the sweep's `ORDER BY created_at ASC LIMIT`
+// makes them actively harmful: with TTLs measured in days rather than hours,
+// unpaid drafts accumulate at the HEAD of that page and would starve newly
+// created cases of their reminders entirely.
+const UNPAID_REMINDER_WINDOW_HOURS = 25;
+
+// `(still in the reminder ladder) OR (due to expire, per status)`.
+function buildUnpaidSweepWorkPredicateSql() {
+  const arms = [
+    `created_at > NOW() - INTERVAL '${assertSqlSafeHours(UNPAID_REMINDER_WINDOW_HOURS)} hours'`
+  ];
+  for (const canonKey of Object.keys(UNPAID_CASE_TTL)) {
+    const ttl = UNPAID_CASE_TTL[canonKey];
+    const clock = ttl.clock === 'updated_at' ? 'COALESCE(updated_at, created_at)' : 'created_at';
+    arms.push(
+      `(UPPER(COALESCE(status, '')) IN (${upperStatusVariantsSqlFor(canonKey)})` +
+      ` AND ${clock} <= NOW() - INTERVAL '${assertSqlSafeHours(ttl.expireAfterHours)} hours')`
+    );
+  }
+  return arms.join('\n              OR ');
+}
 
 // -----------------------------------------------------------------------------
 // Status → UI mapping (single source of truth)
@@ -1690,6 +1890,30 @@ function toDbStatus(canonKey) {
 function dbStatusValuesFor(canonKey) {
   const k = normalizeStatus(canonKey);
   return DB_STATUS_VARIANTS[k] || [k];
+}
+
+// ---------------------------------------------------------------------------
+// AUDIT-PAY-DRAFT-2026-09-06 — is this case allowed to be paid for?
+//
+// Derived from STATUS_TRANSITIONS rather than written as its own list, because
+// a second list is a second thing to forget: a case is payable exactly when
+// PAID is a permitted next state, which is the same question markCasePaid's
+// transitionCase will ask AFTER the money has been taken.
+//
+// It was asked nowhere before. GET /portal/patient/pay/:id and
+// POST /paymob/create-intention both filtered on patient_id and
+// `payment_status <> 'paid'` and never looked at `status`, so a DRAFT — a case
+// still inside the wizard, with no submitted files and no locked price — was
+// payable in three clicks from /patient/cases. The webhook commits
+// payment_status='paid' FIRST and only then calls markCasePaid, whose
+// DRAFT -> PAID throws against STATUS_TRANSITIONS[DRAFT] = [SUBMITTED]. The
+// throw is caught and logged as an idempotent skip. Money captured, no
+// assignment, no SLA, and a dashboard that shows the patient nothing.
+// ---------------------------------------------------------------------------
+function isPayableStatus(status) {
+  const from = normalizeStatus(status);
+  const allowed = STATUS_TRANSITIONS[from];
+  return Array.isArray(allowed) && allowed.includes(CASE_STATUS.PAID);
 }
 
 function isUnacceptedStatus(dbValue) {
@@ -3136,11 +3360,22 @@ module.exports = {
   dispatchSlaReminders,
   runSlaReminderSweep,
   dispatchUnpaidCaseReminders,
+  // AUDIT-SWEEP-2026-09-06 — the unpaid-expiry policy, exported so it has
+  // exactly one definition. The guard test pins the TTL per status against
+  // these; routes/patient.js builds its draft-retention SQL window from
+  // unpaidTtlHoursFor rather than repeating the literal '30 days'.
+  UNPAID_CASE_TTL,
+  UNPAID_TTL_NEVER_EXPIRES,
+  unpaidTtlFor,
+  unpaidTtlHoursFor,
+  unpaidTtlHoursRemaining,
+  isUnpaidExpiryDue,
   DB_STATUS,
   toCanonStatus,
   toDbStatus,
   dbStatusValuesFor,
   isUnacceptedStatus,
+  isPayableStatus,
   isTerminalStatus,
   ensureColumnCache,
   sweepSlaBreaches,

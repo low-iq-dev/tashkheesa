@@ -135,10 +135,30 @@ router.post('/portal/patient/onboarding/profile', requireRole('patient'), async 
     // AUDIT-2026-08-22 (L8): dateOfBirth and gender are validated non-empty
     // above, so the `|| null` fallbacks can no longer quietly blank a column
     // that a diagnostic report depends on.
-    await execute(
-      'UPDATE users SET name = $1, phone = $2, date_of_birth = $3, gender = $4, lang = $5 WHERE id = $6',
-      [name, phone, dateOfBirth, gender, preferredLang, userId]
-    );
+    //
+    // AUDIT-PHONE-UNIQUE-2026-09-06 — the duplicate-phone case is caught HERE
+    // rather than in the handler's outer catch, and this is the site where it
+    // matters most. requirePhone() is mounted globally (server.js), so a patient
+    // with no phone is redirected to this wizard on every path, and this UPDATE
+    // is the only way out of it. When the number they type already belongs to
+    // another account, users_phone_unique_idx raises unique_violation, the outer
+    // catch returns 500 "Server error", and the patient is left circling between
+    // a gate they cannot pass and a form that will not tell them why — a
+    // complete lockout from their own medical records. 409 with a specific,
+    // translated message in the same `errors` array the field validation uses,
+    // so the wizard renders it under the phone field like any other error.
+    try {
+      await execute(
+        'UPDATE users SET name = $1, phone = $2, date_of_birth = $3, gender = $4, lang = $5 WHERE id = $6',
+        [name, phone, dateOfBirth, gender, preferredLang, userId]
+      );
+    } catch (writeErr) {
+      const { isPhoneTakenError, phoneTakenMessage } = require('../validators/phone');
+      if (isPhoneTakenError(writeErr)) {
+        return res.status(409).json({ ok: false, errors: [phoneTakenMessage(lang)] });
+      }
+      throw writeErr;
+    }
 
     // P0-FORM-1: re-sign the session cookie with the freshly saved phone
     // so the requirePhone() gate clears on the very next request. Without

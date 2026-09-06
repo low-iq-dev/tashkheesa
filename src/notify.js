@@ -494,6 +494,17 @@ function renderNotificationMessage(template, payload, lang) {
       if (isAr) return `تم حذف ${arCase || 'حالتك'} لعدم إتمام الدفع خلال 48 ساعة. يمكنك تقديم حالة جديدة في أي وقت.`;
       return `${caseLabel || 'Your case'} was removed because payment wasn't completed within 48 hours. You can submit a new case anytime.`;
 
+    // AUDIT-SWEEP-2026-09-06 — replaces case_auto_deleted_unpaid_patient as the
+    // thing the unpaid sweep actually sends. Two facts the old copy got wrong
+    // and a patient acts on: the case is NOT deleted (it stays in "My cases"),
+    // and paying still works — EXPIRED_UNPAID -> PAID is a permitted transition,
+    // so a late payment revives this exact case rather than requiring a new one.
+    // No hour count: the hold is now per-status (30 days for a draft, 7 for a
+    // submitted case) and a number baked into copy is how the last one went stale.
+    case 'case_expired_unpaid_patient':
+      if (isAr) return `انتهت مهلة الدفع الخاصة بـ${arCase || 'حالتك'} وتم إخلاء المكان. الحالة لسه محفوظة عندك — لو أتممت الدفع هنكمل من نفس النقطة.`;
+      return `The payment window for ${caseLabel || 'your case'} has closed and the spot was released. Your case is still saved — complete the payment and we pick up exactly where you left off.`;
+
     // AUDIT-PAY-1 (regression F2) — urgent case confirmed outside the Cairo
     // urgent window (07:00–19:00). This body is the ONLY thing that explains to
     // someone who paid an urgency premium at 19:02 why their deadline reads as

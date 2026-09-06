@@ -28,7 +28,7 @@
 <%- include('partials/doctor/topbar', {
   isAr: isAr,
   topbarTitle: tt('Analytics', 'Analytics', 'الأداء'),
-  topbarSub: tt('Track your performance and revenue', 'Track your performance and revenue', 'تتبع أدائك وإيراداتك'),
+  topbarSub: tt('Track your performance and earnings', 'Track your performance and earnings', 'تتبع أدائك وأرباحك'),
   topbarShowSearch: false
 }) %>
 
@@ -55,9 +55,14 @@
       <div class="dan-kpi-value"><%= fmtNum(kpis.completedCases) %></div>
     </div>
     <div class="dan-kpi">
-      <div class="dan-kpi-label"><%= isAr ? 'إيراداتي' : 'My revenue' %></div>
+      <%# AUDIT-2026-09-06 (D3): this said "My revenue" over a SUM of
+          orders.price — the patient's price, five times the doctor's own fee
+          on every service in the catalogue. It now reads the doctor's ledger
+          (doctor_earnings), the same figure as the Earnings page, and is
+          labelled for what it is. %>
+      <div class="dan-kpi-label"><%= isAr ? 'أرباحي' : 'My earnings' %></div>
       <div class="dan-kpi-value">
-        <%= fmtMoney(kpis.totalRevenue) %>
+        <%= fmtMoney(kpis.totalEarnings) %>
         <span class="dan-kpi-unit">EGP</span>
       </div>
     </div>
@@ -75,11 +80,11 @@
     <section class="dan-sec">
       <header class="dan-sec-head">
         <span class="dan-sec-num">01</span>
-        <span class="dan-sec-label"><%= isAr ? 'الإيرادات الشهرية' : 'Monthly revenue' %></span>
+        <span class="dan-sec-label"><%= isAr ? 'الأرباح الشهرية' : 'Monthly earnings' %></span>
       </header>
       <div class="dan-chart-wrap">
-        <% if (charts.monthlyRevenue && charts.monthlyRevenue.length) { %>
-          <canvas id="monthlyRevenueChart"></canvas>
+        <% if (charts.monthlyEarnings && charts.monthlyEarnings.length) { %>
+          <canvas id="monthlyEarningsChart"></canvas>
         <% } else { %>
           <div class="dan-chart-empty"><%= isAr ? 'لا توجد بيانات بعد' : 'No data yet' %></div>
         <% } %>
@@ -116,7 +121,9 @@
             <th><%= isAr ? 'المريض' : 'Patient' %></th>
             <th><%= isAr ? 'الخدمة' : 'Service' %></th>
             <th><%= isAr ? 'الحالة' : 'Status' %></th>
-            <th><%= isAr ? 'المبلغ' : 'Amount' %></th>
+            <%# AUDIT-2026-09-06 (D3): "Amount" was the patient's price.
+                This column is the doctor's own fee for the case. %>
+            <th><%= isAr ? 'أتعابي' : 'My fee' %></th>
             <th><%= isAr ? 'التاريخ' : 'Date' %></th>
           </tr>
         </thead>
@@ -137,7 +144,7 @@
                 <td><%= c.patient_name || '—' %></td>
                 <td class="dan-cell-muted"><%= c.service_name || '—' %></td>
                 <td><span class="<%= statusBadgeClass(c.status) %>"><%= c.status %></span></td>
-                <td class="dan-cell-strong"><%= c.price || 0 %> <span class="dan-cell-muted">EGP</span></td>
+                <td class="dan-cell-strong"><%= c.doctor_fee_egp || 0 %> <span class="dan-cell-muted">EGP</span></td>
                 <td class="dan-cell-muted"><%= c.created_at ? new Date(c.created_at).toLocaleDateString('en-GB') : '—' %></td>
               </tr>
             <% }); %>
@@ -177,16 +184,16 @@
     _v2('accent-dk')
   ];
 
-  // Monthly Revenue
-  var revData = <%- JSON.stringify(charts.monthlyRevenue || []) %>;
-  if (revData.length && document.getElementById('monthlyRevenueChart')) {
-    new Chart(document.getElementById('monthlyRevenueChart'), {
+  // Monthly earnings (the doctor's own fees, not the patient's price)
+  var revData = <%- JSON.stringify(charts.monthlyEarnings || []) %>;
+  if (revData.length && document.getElementById('monthlyEarningsChart')) {
+    new Chart(document.getElementById('monthlyEarningsChart'), {
       type: 'bar',
       data: {
         labels: revData.map(function(r) { return r.month; }),
         datasets: [{
-          label: '<%= isAr ? "الإيرادات" : "Revenue" %>',
-          data: revData.map(function(r) { return r.revenue; }),
+          label: '<%= isAr ? "الأرباح" : "Earnings" %>',
+          data: revData.map(function(r) { return r.earnings; }),
           backgroundColor: _v2('brand'),
           borderRadius: 4
         }]

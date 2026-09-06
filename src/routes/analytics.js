@@ -287,8 +287,18 @@ router.get(
         [doctorId, startDate], { c: 0 }
       ) || {}).c || 0;
 
-      var totalRevenue = (await safeGet(
-        "SELECT COALESCE(SUM(price), 0) as t FROM orders_active WHERE doctor_id = $1 AND payment_status IN ('paid','captured') AND created_at >= $2",
+      // AUDIT-2026-09-06 (D3) — this summed orders.price, the PATIENT's price,
+      // and doctor_analytics.ejs rendered it as "My revenue" / "إيراداتي".
+      // Every one of the 183 production services sets doctor_fee at 20% of
+      // base, so a doctor was shown five times what they will ever be paid.
+      // It also flatly contradicted stripPricingFields() in routes/doctor.js,
+      // which exists precisely to keep orders.price away from doctors.
+      //
+      // doctor_earnings is the doctor's own ledger and the same source the
+      // earnings page reads, so the two screens can no longer disagree.
+      // `appointment_id` is the order id (see services/earnings_writer.js).
+      var totalEarnings = (await safeGet(
+        "SELECT COALESCE(SUM(earned_amount), 0) as t FROM doctor_earnings WHERE doctor_id = $1 AND created_at >= $2",
         [doctorId, startDate], { t: 0 }
       ) || {}).t || 0;
 
@@ -299,9 +309,9 @@ router.get(
 
       var slaCompliance = completedCases > 0 ? Math.round((onTimeCases / completedCases) * 100 * 10) / 10 : 100;
 
-      // Monthly revenue
-      var monthlyRevenue = await safeAll(
-        "SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM orders_active WHERE doctor_id = $1 AND payment_status IN ('paid','captured') AND created_at >= $2 GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month ASC",
+      // Monthly earnings — same correction as totalEarnings above.
+      var monthlyEarnings = await safeAll(
+        "SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COALESCE(SUM(earned_amount), 0) as earnings, COUNT(*) as cases FROM doctor_earnings WHERE doctor_id = $1 AND created_at >= $2 GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month ASC",
         [doctorId, startDate]
       );
 
@@ -313,7 +323,11 @@ router.get(
 
       // Recent cases
       var recentCases = await safeAll(
-        "SELECT o.id, o.status, o.price, o.created_at, o.completed_at, COALESCE(sv.name, 'Service') as service_name, COALESCE(u.name, 'Patient') as patient_name FROM orders_active o LEFT JOIN services sv ON sv.id = o.service_id LEFT JOIN users u ON u.id = o.patient_id WHERE o.doctor_id = $1 ORDER BY o.created_at DESC LIMIT 20",
+        // AUDIT-2026-09-06 (D3): the per-case column was o.price under an
+        // "Amount" header — the patient's price again. It now carries the
+        // doctor's own earning for that case, and o.price is not selected at
+        // all so it cannot reach the template by accident.
+        "SELECT o.id, o.status, o.created_at, o.completed_at, COALESCE(sv.name, 'Service') as service_name, COALESCE(u.name, 'Patient') as patient_name, COALESCE(de.earned_amount, 0) as doctor_fee_egp FROM orders_active o LEFT JOIN services sv ON sv.id = o.service_id LEFT JOIN users u ON u.id = o.patient_id LEFT JOIN doctor_earnings de ON de.appointment_id = o.id AND de.doctor_id = o.doctor_id WHERE o.doctor_id = $1 ORDER BY o.created_at DESC LIMIT 20",
         [doctorId]
       );
 
@@ -340,12 +354,15 @@ router.get(
         kpis: {
           totalCases: totalCases,
           completedCases: completedCases,
-          totalRevenue: totalRevenue,
+          // AUDIT-2026-09-06 (D3): renamed from totalRevenue / monthlyRevenue.
+          // The old names were half the bug — "revenue" invited the view to
+          // print the platform's takings under the doctor's name.
+          totalEarnings: totalEarnings,
           slaCompliance: slaCompliance,
           upcomingAppts: upcomingAppts
         },
         charts: {
-          monthlyRevenue: monthlyRevenue,
+          monthlyEarnings: monthlyEarnings,
           casesBySpecialty: casesBySpecialty
         },
         recentCases: recentCases

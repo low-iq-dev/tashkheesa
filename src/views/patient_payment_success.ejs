@@ -137,6 +137,27 @@
     <div id="confirm-progress" style="margin-top:18px;font-size:11.5px;color:var(--muted);">
       <%= tt('Checking again in a few seconds…', 'Checking again in a few seconds…', 'إعادة المحاولة خلال ثوانٍ…') %>
     </div>
+
+    <%
+      // AUDIT-RETURN-2026-09-06 — the way out.
+      //
+      // After ~3 minutes the poller stopped and the page said "you can safely
+      // close this page". For the common reason a patient is sitting on this
+      // screen — the payment did not go through and no webhook is ever coming —
+      // that sentence is an instruction to give up, on the one screen in the
+      // funnel where the money is still unspent. There was no retry anywhere on
+      // the page.
+      //
+      // Hidden until the poller gives up, because while we are still confirming,
+      // a "try again" button invites a SECOND charge on a payment that is about
+      // to succeed. The pay page it links to is idempotent about this: it
+      // redirects to the order once payment_status is 'paid'.
+    %>
+    <div id="confirm-retry" hidden style="margin-top:14px;">
+      <a class="p-btn p-btn--primary" href="/portal/patient/pay/<%= encodeURIComponent(__order.id || '') %>">
+        <%= tt('Try the payment again', 'Try the payment again', 'حاول الدفع مرة أخرى') %>
+      </a>
+    </div>
   </div>
 
   <script<%- (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
@@ -151,7 +172,12 @@
       //   90–180s → every 15s
       //   >180s   → stop polling, show "you can safely close" + WhatsApp CTA
       var startedAt = Date.now();
-      var giveUpMsg = <%- JSON.stringify(tt('Still confirming your payment. This sometimes takes a few minutes — we’ll notify you on WhatsApp the moment it confirms. You can safely close this page.', 'Still confirming your payment. This sometimes takes a few minutes — we’ll notify you on WhatsApp the moment it confirms. You can safely close this page.', 'لا يزال التأكيد جارياً. أحياناً يستغرق ذلك بضع دقائق — سنبلغك عبر واتساب فور التأكيد. يمكنك إغلاق هذه الصفحة بأمان.')) %>;
+      // AUDIT-RETURN-2026-09-06 — this used to end on "You can safely close this
+      // page", which is only true if the payment is in fact on its way. When it
+      // is not — a declined card, an abandoned 3DS challenge — it told the
+      // patient to walk away from an unpaid case. The copy now names both
+      // possibilities and the button below it makes the second one actionable.
+      var giveUpMsg = <%- JSON.stringify(tt('Still confirming your payment. If it went through we’ll notify you on WhatsApp — nothing else is needed. If it didn’t, you can try the payment again below; your case is saved either way.', 'Still confirming your payment. If it went through we’ll notify you on WhatsApp — nothing else is needed. If it didn’t, you can try the payment again below; your case is saved either way.', 'لا يزال التأكيد جارياً. لو تمت العملية هنبلغك على واتساب ومش محتاج تعمل حاجة. ولو ما تمتش، تقدر تعيد المحاولة من الزر تحت — حالتك محفوظة في الحالتين.')) %>;
 
       function pickInterval(elapsedMs) {
         if (elapsedMs <  30000) return 4000;
@@ -165,6 +191,12 @@
         if (iv === 0) {
           var p = document.getElementById('confirm-progress');
           if (p) p.textContent = giveUpMsg;
+          // AUDIT-RETURN-2026-09-06 — reveal the retry now, and only now. Before
+          // this the terminal state of the page was "you can safely close this
+          // page" with nothing to click; a patient whose payment had failed was
+          // told to close the tab.
+          var r = document.getElementById('confirm-retry');
+          if (r) r.hidden = false;
           return;
         }
         setTimeout(function() { window.location.reload(); }, iv);
@@ -177,6 +209,5 @@
 <%- include('partials/patient/foot', {
   active: 'cases',
   isAr: __isAr,
-  unreadCount: 0,
   cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>

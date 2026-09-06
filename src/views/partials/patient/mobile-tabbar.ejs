@@ -12,7 +12,9 @@
   //   user          — req.user-equivalent (passed through to the sheet)
   const __active = (typeof active === 'string') ? active : 'dashboard';
   const __isAr = !!(typeof isAr !== 'undefined' && isAr);
-  const __unread = Number(typeof unreadCount === 'number' ? unreadCount : 0);
+  const __unread = Number(typeof unreadCount === 'number'
+    ? unreadCount
+    : (typeof patientUnreadMessages === 'number' ? patientUnreadMessages : 0));
   const __user = (typeof user === 'object' && user) ? user : {};
 
   const __labels = __isAr
