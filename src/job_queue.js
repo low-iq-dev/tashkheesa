@@ -192,7 +192,16 @@ async function handleSpecialtyClassify(batch) {
 // Enqueue helpers — used by route handlers instead of fire-and-forget
 // ---------------------------------------------------------------------------
 
-async function enqueueCaseIntelligence(orderId) {
+// 2026-09-06: uploads come in bursts (the wizard posts one file per submit,
+// a few seconds apart). The singleton window de-duplicated the burst into ONE
+// job that ran immediately on the first upload, so files 2..n were never
+// bridged into case_files and Case Intelligence saw a single file. Two fixes:
+//   * the upload-triggered job waits 20s before running (startAfter) so a
+//     burst is bridged in one pass;
+//   * `phase: 'final'` (called at submit) uses its own singleton key so it can
+//     never be swallowed by the upload window and always does a last sweep.
+async function enqueueCaseIntelligence(orderId, opts) {
+  var phase = (opts && opts.phase) || 'upload';
   if (!boss) {
     // Fallback: run directly if pg-boss isn't started
     var { processCaseIntelligence } = require('./case-intelligence');
@@ -201,9 +210,17 @@ async function enqueueCaseIntelligence(orderId) {
     });
     return;
   }
+  if (phase === 'final') {
+    await boss.send('case-intelligence', { orderId: orderId }, {
+      singletonKey: 'ci-final:' + orderId,
+      singletonSeconds: 30
+    });
+    return;
+  }
   await boss.send('case-intelligence', { orderId: orderId }, {
     singletonKey: 'ci:' + orderId,
-    singletonSeconds: 60
+    singletonSeconds: 60,
+    startAfter: 20
   });
 }
 

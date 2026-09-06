@@ -2730,6 +2730,10 @@ router.post('/patient/new-case/step5', requireRole('patient'), newCaseSubmitLimi
       );
     }
     await caseLifecycle.submitCase(orderId);
+    // Final Case Intelligence sweep now that every upload is in (see job_queue).
+    enqueueCaseIntelligence(orderId, { phase: 'final' }).catch(function (err) {
+      console.error('[new-case step5] case intelligence enqueue failed:', err && err.message);
+    });
   } catch (e) {
     logErrorToDb(e, {
       context: 'patient.new_case_step5_submit',
