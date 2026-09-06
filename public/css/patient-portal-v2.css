@@ -811,6 +811,17 @@ html[dir="rtl"] .p-crumbs svg.chev { transform: scaleX(-1); }
   /* Messages tab grid collapses to single column. */
   .p-msg-grid { grid-template-columns: 1fr !important; }
 
+  /* 2026-09-06: the two-column layouts on the dashboard, wizard, case and
+     payment-success pages set their columns inline (2fr 1fr), so they never
+     collapsed on phones — the right column was pushed off-screen and the
+     page scrolled sideways. Stack them. The wizard's five-step track also
+     overflowed; let it shrink and keep the labels legible. */
+  .p-dash-cols { grid-template-columns: 1fr !important; }
+  .p-dash-cols > * { min-width: 0; }
+  .p-track { min-width: 0; }
+  .p-track__step { min-width: 0; }
+  .p-main { overflow-x: hidden; }
+
   /* Report viewer fits the narrower viewport. */
   .p-report-document { padding: 22px 18px !important; }
   .p-report-header { grid-template-columns: 1fr !important; padding: 18px !important; }
