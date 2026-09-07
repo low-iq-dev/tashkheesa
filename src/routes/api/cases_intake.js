@@ -9,6 +9,7 @@ const { logErrorToDb } = require('../../logger');
 const emailService = require('../../services/emailService');
 const { coerceCountry } = require('../../launch-market');
 
+const { captureSignup } = require('../../services/analytics');
 const router = express.Router();
 router.use(express.json());
 
@@ -97,6 +98,10 @@ router.post('/intake', async (req, res) => {
     // endpoint to patient rows, which is the only kind of row it is allowed to
     // create in the else-branch below.
     let userId;
+    // Whether THIS request created the account, as opposed to reusing an
+    // existing one or losing an ON CONFLICT race. Only a true here becomes a
+    // signup event, and only after COMMIT.
+    let accountCreated = false;
     const existing = await client.query(
       "SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND role = 'patient' LIMIT 1",
       [email]
@@ -170,6 +175,10 @@ router.post('/intake', async (req, res) => {
         // the lead detail is not thrown away while the date column stays clean.
         [userId, email, full_name, insertPhone, country, date_of_birth, signupNotes]
       );
+
+      if (ins.rows.length) {
+        accountCreated = true;
+      }
 
       if (!ins.rows.length) {
         // The address is taken. Re-read WITHOUT the role filter to find out by
@@ -249,6 +258,16 @@ router.post('/intake', async (req, res) => {
     );
 
     await client.query('COMMIT');
+
+    // Committed — the account (if this request created one) is durable.
+    //
+    // This endpoint is anonymous case intake, not a registration form, but it
+    // does mint a real patient account that the person can later claim. It is
+    // reported under its own signup_method so it can be separated from
+    // self-service signups in PostHog rather than silently inflating them.
+    if (accountCreated) {
+      captureSignup({ userId: userId, signupMethod: 'case_intake', role: 'patient', surface: 'api' });
+    }
 
     // Phase 4: send the "case received" email to the patient. Fire-and-forget
     // — a failed email must NEVER cause the API to report failure for a case

@@ -13,6 +13,7 @@ const { sendOtpViaTwilio, verifyOtpCode } = require('../services/twilio_verify')
 const { validatePhoneE164 } = require('../validators/phone');
 const { resolveDoctorLanding } = require('../services/doctor_landing');
 const { buildDoctorWelcomePayload, WELCOME_EXPIRY_HOURS, SERVICES_READY_SQL } = require('../services/doctor_welcome_payload');
+const { captureSignup } = require('../services/analytics');
 require('dotenv').config();
 
 const NODE_ENV = String(process.env.NODE_ENV || '').toLowerCase();
@@ -507,18 +508,33 @@ router.post('/login/otp/verify', parseOtpPhone, otpIpLimiter, otpVerifyCap, asyn
         [phone]
       );
       if (!staffOwned) {
-        await execute(
+        // RETURNING id is what separates a real signup from an ON CONFLICT
+        // skip. This branch is reached on EVERY first-time-looking OTP verify,
+        // and the ON CONFLICT exists because two concurrent verifies can race
+        // for one number — so without RETURNING there is no way to tell "we
+        // created this patient" from "someone else created them a millisecond
+        // ago", and the loser of the race would be counted as a signup too.
+        const created = await execute(
           // country_code='EG' (not just country) so signUserToken() embeds it in the JWT,
           // matching password-registered patients (FIX #12 — avoids a per-request lookup).
           `INSERT INTO users (id, phone, role, country, country_code, lang, created_at)
            VALUES ($1, $2, 'patient', 'EG', 'EG', $3, NOW())
-           ON CONFLICT (phone) WHERE phone IS NOT NULL DO NOTHING`,
+           ON CONFLICT (phone) WHERE phone IS NOT NULL DO NOTHING
+           RETURNING id`,
           [randomUUID(), phone, getReqLang(req)]
         );
         user = await queryOne(
           "SELECT * FROM users WHERE phone = $1 AND role IN ('patient', 'doctor')",
           [phone]
         );
+        if (created && created.rows && created.rows.length) {
+          captureSignup({
+            userId: created.rows[0].id,
+            signupMethod: 'otp_web',
+            role: 'patient',
+            surface: 'web'
+          });
+        }
       }
     }
     if (!user) {
@@ -1064,6 +1080,11 @@ router.post('/register', async (req, res) => {
     });
   }
 
+  // The INSERT above committed (execute() is auto-commit and did not throw),
+  // so this account exists. Fire-and-forget, never awaited — same shape as the
+  // post-transaction pushOpsEvent in the doctor signup below.
+  captureSignup({ userId: id, signupMethod: 'password_web', role: 'patient', surface: 'web' });
+
   const user = {
     id,
     email: normalizedEmail,
@@ -1405,6 +1426,10 @@ router.post('/doctor/signup', async (req, res) => {
       n
     );
   }
+
+  // withTransaction() COMMITs before it resolves and rethrows on failure — the
+  // catch above returns, so reaching this line means the doctor row is durable.
+  captureSignup({ userId: newDoctorId, signupMethod: 'doctor_signup_web', role: 'doctor', surface: 'web' });
 
   // ─── 5. Notify a superadmin/admin (existing pattern) ───────────────
   const superadmin = await queryOne("SELECT id FROM users WHERE role = 'superadmin' ORDER BY created_at ASC LIMIT 1");

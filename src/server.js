@@ -1763,10 +1763,34 @@ function gracefulShutdown(signal) {
   catch (e) { jobQueueStopped = Promise.resolve(); }
   jobQueueStopped = jobQueueStopped.catch(function () { /* never block shutdown */ });
 
+  // Flush queued PostHog events. posthog-node batches in memory (flushAt 20 /
+  // flushInterval 10s), so a redeploy inside that window would otherwise drop
+  // whatever had not been sent — and Render redeploys are exactly when a burst
+  // of signups is most likely to be in the buffer.
+  //
+  // Raced against a 3s cap and folded into the SAME promise the pool close
+  // already awaits. The cap is the point: shutdownAnalytics() never rejects,
+  // but "never rejects" is not "always returns", and a hung HTTPS socket to a
+  // third party must not be what turns a clean redeploy into the 10-second
+  // force-exit path above.
+  var analyticsFlushed;
+  try {
+    var { shutdownAnalytics } = require('./services/analytics');
+    analyticsFlushed = Promise.race([
+      Promise.resolve(shutdownAnalytics()),
+      new Promise(function (resolve) {
+        var t = setTimeout(resolve, 3000);
+        if (t.unref) t.unref();
+      })
+    ]);
+  } catch (e) { analyticsFlushed = Promise.resolve(); }
+  analyticsFlushed = analyticsFlushed.catch(function () { /* never block shutdown */ });
+
   var server = module.exports._server;
   if (server) {
     server.close(async function() {
       try { await jobQueueStopped; } catch (e) {}
+      try { await analyticsFlushed; } catch (e) {}
       try { if (pool && typeof pool.end === 'function') await pool.end(); } catch (e) { logFatal('Error closing DB pool during shutdown', e); }
       logMajor('Graceful shutdown complete');
       process.exit(0);

@@ -72,6 +72,8 @@ const otpVerifyCap = _otpRateLimit({
 const RESET_EXPIRY_HOURS = 2; // matches src/routes/auth.js portal flow — keep in sync
 const APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
 
+const { captureSignup } = require('../../services/analytics');
+
 module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) {
   // ─── POST /register ──────────────────────────────────────
 
@@ -150,6 +152,10 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
         INSERT INTO users (id, name, email, phone, password_hash, country, country_code, lang, role, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $6, $7, 'patient', NOW())
       `, [userId, name, email, normalizedPhone, hashedPassword, coerceCountry(country), lang || 'en']);
+
+      // safeRun IS execute() (server.js:1203) — auto-commit, and it did not
+      // throw, so the row is durable.
+      captureSignup({ userId: userId, signupMethod: 'password_mobile', role: 'patient', surface: 'mobile' });
 
       const user = await safeGet('SELECT * FROM users WHERE id = $1', [userId]);
       const tokens = generateTokens(user);
@@ -476,15 +482,29 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
         // anything outside the 9 launch markets back to EG.
         const seededCountry = coerceCountry(marketFromDialCode(countryCode));
         const userId = randomUUID();
-        await safeRun(`
+        // RETURNING id distinguishes a real signup from an ON CONFLICT skip.
+        // This is the app's PRIMARY signup path and it is also the app's login
+        // path — every returning patient passes through here. Counting the
+        // insert rather than the branch is the only thing that keeps
+        // `user_signed_up` meaning "new account".
+        const created = await safeRun(`
           INSERT INTO users (id, phone, role, country, country_code, lang, created_at)
           VALUES ($1, $2, 'patient', $3, $3, 'en', NOW())
           ON CONFLICT (phone) WHERE phone IS NOT NULL DO NOTHING
+          RETURNING id
         `, [userId, normalizedPhone, seededCountry]);
         user = await safeGet(
           "SELECT * FROM users WHERE phone = $1 AND role IN ('patient', 'doctor')",
           [normalizedPhone]
         );
+        if (created && created.rows && created.rows.length) {
+          captureSignup({
+            userId: created.rows[0].id,
+            signupMethod: 'otp_mobile',
+            role: 'patient',
+            surface: 'mobile'
+          });
+        }
       }
 
       if (!user) {

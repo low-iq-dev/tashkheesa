@@ -129,6 +129,20 @@ Static analysis of `package.json` dependencies, `src/` imports, and `.env.exampl
 
 ---
 
+## PostHog (product analytics)
+**Package:** `posthog-node` (^4.18.0)
+**Status:** WIRED — active only where `POSTHOG_PROJECT_TOKEN` is set (Render). Disabled and silent in local dev, CI and the test suite.
+**Powers:** A single event, `user_signed_up`, emitted once per account that actually reaches the database. No page views, no client-side snippet, no session recording.
+**Required env vars:**
+- `POSTHOG_PROJECT_TOKEN` — project write key. Absent = analytics off (a normal state, logged once at boot).
+- `POSTHOG_HOST` — defaults to `https://us.i.posthog.com`.
+**Files:** `src/services/analytics.js` (the only client), called from `src/routes/auth.js`, `src/routes/api/auth.js`, `src/routes/api/cases_intake.js`; flushed from `gracefulShutdown` in `src/server.js`.
+**Reporting contract:** the signup report shows **patients only** — that is a `role = patient` filter on the `user_signed_up` event in PostHog, **not** a narrower capture. Doctor signups are still sent so the two funnels can be compared later; filtering in the report keeps that option open, filtering at capture time would throw the data away permanently. `role` is therefore never optional: `captureSignup` falls back to the deliberately conspicuous value `unknown` rather than omitting the property, because an event with no role would drop out of the filtered count silently instead of surfacing as something to investigate.
+**Signup methods captured:** `password_web`, `otp_web`, `doctor_signup_web` (web) — `password_mobile`, `otp_mobile` (mobile API) — `case_intake` (anonymous intake that creates an account). Each event carries `signup_method`, `role` and `surface` and nothing else.
+**Notes:** `captureSignup()` is fire-and-forget by design — not async, never awaited, whole body wrapped in try/catch, same shape as the post-transaction `pushOpsEvent` in the doctor signup. Analytics can never fail a registration. Properties pass through a hard **allow-list** (`signup_method`, `role`, `surface`), so no name, email, phone, national ID or medical content can leak even if a caller passes a whole user row; `distinctId` is the internal user UUID. Callers must prove a row was actually inserted before capturing — both OTP paths use `ON CONFLICT … DO NOTHING RETURNING id` and only fire when `RETURNING` yields a row, so an existing user signing in is never counted as a signup. Shutdown flush is capped by `Promise.race` at 3s so a slow vendor cannot stall a redeploy.
+
+---
+
 ## Direct HTTP integrations (no npm SDK)
 
 These hit external services via raw `fetch` / `https.request`. They aren't in `package.json` as named SDKs but are critical to the platform.
