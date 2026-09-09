@@ -4348,6 +4348,13 @@ router.post('/portal/doctor/profile/photo/remove', requireDoctor, async function
 
 router.get('/portal/doctor/profile/photo/:id', requireDoctor, async function(req, res) {
   try {
+    // A12 (AUDIT 2026-09-09) — a doctor may only fetch their OWN profile photo,
+    // matching the sibling signature route (which already had this). Without it
+    // any authenticated doctor could pull a signed URL for any other doctor's
+    // photo by id.
+    if (String(req.params.id) !== String(req.user.id)) {
+      return res.status(403).type('text/plain').send('Forbidden');
+    }
     var row = await queryOne('SELECT profile_photo_url FROM users WHERE id = $1 AND role = $2', [req.params.id, 'doctor']);
     var key = row && row.profile_photo_url;
     if (!key) return res.status(404).type('text/plain').send('Not found');

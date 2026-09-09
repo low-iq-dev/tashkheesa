@@ -46,7 +46,23 @@
   const __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
   const __draft = (typeof draft === 'object' && draft) ? draft : null;
   const __files = Array.isArray(files) ? files : [];
-  const __error = (typeof error === 'object' && error) ? error : null;
+  let __error = (typeof error === 'object' && error) ? error : null;
+  // A12 (AUDIT 2026-09-09) — steps 4 and 5 redirect back with ?err=... on a
+  // pricing/submit failure, but nothing built an error block for those codes, so
+  // the wizard bounced to the step with no message and read as a dead end. Map
+  // the known step-4/5 failure codes to the per-step error the block below
+  // renders. Only when no richer `error` object was already passed.
+  if (!__error && typeof queryErr === 'string' && queryErr) {
+    const __errMap = {
+      unsupported_currency: { step: 4, message: __isAr
+        ? 'العملة المختارة غير مدعومة للدفع. جرّب عملة أخرى أو تواصل مع الدعم.'
+        : 'The selected currency is not supported for payment. Try another currency or contact support.' },
+      submit_failed: { step: 5, message: __isAr
+        ? 'تعذّر إرسال الحالة. راجع بياناتك وحاول مرة أخرى.'
+        : 'We could not submit your case. Please review your details and try again.' }
+    };
+    if (__errMap[queryErr]) __error = __errMap[queryErr];
+  }
   // typeof-guarded — only the happy-path GET handler at routes/patient.js:1315
   // passes these locals; all 7 error-rerender paths in the POST step1/2/3/4/5
   // handlers omit them, which previously caused EJS to throw a ReferenceError
