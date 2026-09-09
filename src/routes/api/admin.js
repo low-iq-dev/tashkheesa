@@ -33,6 +33,14 @@ const {
 } = require('../../middleware/requireJWT');
 const { buildHealthPayload, WORKER_SPECS } = require('../../services/admin_health');
 const { randomUUID } = require('crypto');
+// A1 (AUDIT 2026-09-09) — shared assignment path so a hand-picked doctor from
+// the manual queue opens the doctor_assignments handshake instead of a bare
+// doctor_id write. Lazy internal requires keep this circular-safe at load.
+const {
+  checkHandpickedDoctorEligibility: _checkHandpickedDoctorEligibility,
+  finalizeHandpickedAssignment: _finalizeHandpickedAssignment,
+  REASONS: _ASSIGN_REASONS,
+} = require('../../services/assign_case');
 
 // ─── AUDIT-TZ-3 — revenue bucketing timezone ────────────────────────────────
 // Two SQL fragments, defined once so the KPI tile and the list it links to can
@@ -3398,6 +3406,28 @@ module.exports = function (db, helpers, deploy, deps) {
       throw e;
     };
 
+    // A1 (AUDIT 2026-09-09) — full eligibility gate for a hand-picked doctor,
+    // the same one POST /cases/:id/assign enforces (via services/assign_case):
+    // active, not paused, onboarding complete, specialty AND service matched,
+    // under capacity. Read-only, run before the txn. An ineligible pick is NOT
+    // an error: the case is still routed, it falls back to the open pool
+    // (assignment_status='auto' + broadcast) below, and the response names why.
+    let effectiveDoctorId = '';
+    let assignBlockReason = '';
+    let handpickedDoctorName = '';
+    if (doctorId) {
+      try {
+        const elig = await _checkHandpickedDoctorEligibility(id, doctorId, { specialtyId, serviceId });
+        if (elig.ok) { effectiveDoctorId = doctorId; handpickedDoctorName = elig.doctorName || ''; }
+        else { assignBlockReason = elig.code; }
+      } catch (e) {
+        // An eligibility-check failure is treated as "not eligible" → fall back
+        // to the pool rather than 500 the operator's routing decision.
+        assignBlockReason = 'ASSIGN_FAILED';
+        console.error('[admin/manual-queue-approve] eligibility check failed:', e && e.message);
+      }
+    }
+
     let client;
     let committed = null;
     try {
@@ -3439,20 +3469,10 @@ module.exports = function (db, helpers, deploy, deps) {
         af('Service does not belong to the chosen specialty', 409, 'INVALID_SERVICE');
       }
 
-      // Doctor (only when hand-picked) must be an active doctor carrying the
-      // chosen specialty on the doctor_specialties junction — the same
-      // eligibility model the broadcast flow uses.
-      if (doctorId) {
-        const ok = (await client.query(
-          `SELECT u.id FROM users u
-             JOIN doctor_specialties ds ON ds.doctor_id = u.id
-            WHERE u.id = $1 AND u.role = 'doctor'
-              AND COALESCE(u.is_active, true) = true
-              AND ds.specialty_id = $2 LIMIT 1`,
-          [doctorId, specialtyId]
-        )).rows[0];
-        if (!ok) af('Doctor is not eligible for the chosen specialty', 409, 'INVALID_DOCTOR');
-      }
+      // A1 — the hand-picked doctor's eligibility was resolved before the txn
+      // (full gate via services/assign_case). An ineligible pick does not fail
+      // the approve; `effectiveDoctorId` is already '' in that case and the
+      // routing below falls the case back to the open pool.
 
       // The AI's latest call, recorded alongside the operator's pick.
       const ai = (await client.query(
@@ -3461,18 +3481,18 @@ module.exports = function (db, helpers, deploy, deps) {
         [id]
       )).rows[0] || null;
 
-      const nextAssignmentStatus = doctorId ? 'assigned' : 'auto';
+      const nextAssignmentStatus = effectiveDoctorId ? 'assigned' : 'auto';
 
       // The write. The WHERE re-asserts the queue state (see IDEMPOTENCY note):
       // a 0-row result means another operator got there first.
-      const upd = doctorId
+      const upd = effectiveDoctorId
         ? await client.query(
             `UPDATE orders
                 SET specialty_id = $1, service_id = $2, doctor_id = $3,
                     assignment_status = $4, updated_at = NOW()
               WHERE id = $5 AND assignment_status IN ('manual_queue', 'manual_pending')
             RETURNING id`,
-            [specialtyId, serviceId, doctorId, nextAssignmentStatus, id]
+            [specialtyId, serviceId, effectiveDoctorId, nextAssignmentStatus, id]
           )
         : await client.query(
             `UPDATE orders
@@ -3531,6 +3551,7 @@ module.exports = function (db, helpers, deploy, deps) {
         paymentStatus: String(o.payment_status || '').toLowerCase(),
         ai,
         nextAssignmentStatus,
+        effectiveDoctorId,
       };
     } catch (err) {
       if (client) { try { await client.query('ROLLBACK'); } catch (_) { /* no-op */ } }
@@ -3587,34 +3608,73 @@ module.exports = function (db, helpers, deploy, deps) {
     //     CASE_ROUTING_FAILED. They are NOT awaited — broadcast fans out to
     //     every eligible doctor and must not hold the operator's request open.
     const isPaid = ['paid', 'captured'].includes(committed.paymentStatus);
-    let routing = 'skipped_manual_doctor';
-    if (!doctorId) routing = isPaid ? 'requested' : 'skipped_not_paid';
-    if (!doctorId && isPaid) {
-      const onRoutingError = (stage) => (err) => {
+
+    const onRoutingError = (stage) => (err) => {
+      try {
+        logErrorToDb(err, {
+          context: 'admin_api.manual_queue_approve.' + stage,
+          category: 'assignment',
+          orderId: id,
+          userId: req.user && req.user.id,
+          requestId: req.requestId,
+        });
+      } catch (_) { /* the sink itself must never throw into the response */ }
+      Promise.resolve(logCaseEvent(id, 'CASE_ROUTING_FAILED', {
+        stage, reason: err && err.message, via: 'command_manual_queue_approve',
+      })).catch(function () {});
+    };
+    // Each call is additionally wrapped because a SYNCHRONOUS throw (a bad
+    // require, a missing export) would escape .catch() entirely, reject this
+    // async handler after the transaction had already committed, and — under
+    // express 4, which does not catch async rejections — leave the operator's
+    // request hanging with no response at all.
+    const fire = (fn, stage) => {
+      try { Promise.resolve(fn(id)).catch(onRoutingError(stage)); }
+      catch (e) { onRoutingError(stage)(e); }
+    };
+
+    let routing;
+    if (committed.effectiveDoctorId) {
+      // A1 — complete the handshake the bare doctor_id write never did:
+      // lifecycle transition (PAID → ASSIGNED), acceptance window, the
+      // doctor_assignments row, conversation, patient email, and the doctor's
+      // own notification. Awaited so the response reflects whether it stuck.
+      const fin = await _finalizeHandpickedAssignment(id, committed.effectiveDoctorId, {
+        doctorName: handpickedDoctorName,
+        caseRef: String(id).slice(0, 12).toUpperCase(),
+        deps: { queueMultiChannelNotification },
+      });
+      if (fin.ok) {
+        routing = 'assigned';
+      } else {
+        // A failed hand-pick must NOT strand a paid case: log it loudly, return
+        // it to the open pool (else a doctor_id with no handshake is invisible
+        // even to the A2 sweep, which scans doctor_id IS NULL), and re-engage
+        // broadcast/auto-assign.
+        routing = 'assign_failed_fell_back';
+        onRoutingError('finalize_handpick')(new Error(fin.reason || 'assign failed'));
         try {
-          logErrorToDb(err, {
-            context: 'admin_api.manual_queue_approve.' + stage,
-            category: 'assignment',
-            orderId: id,
-            userId: req.user && req.user.id,
-            requestId: req.requestId,
-          });
-        } catch (_) { /* the sink itself must never throw into the response */ }
-        Promise.resolve(logCaseEvent(id, 'CASE_ROUTING_FAILED', {
-          stage, reason: err && err.message, via: 'command_manual_queue_approve',
-        })).catch(function () {});
-      };
-      // Each call is additionally wrapped because a SYNCHRONOUS throw (a bad
-      // require, a missing export) would escape .catch() entirely, reject this
-      // async handler after the transaction had already committed, and — under
-      // express 4, which does not catch async rejections — leave the operator's
-      // request hanging with no response at all.
-      const fire = (fn, stage) => {
-        try { Promise.resolve(fn(id)).catch(onRoutingError(stage)); }
-        catch (e) { onRoutingError(stage)(e); }
-      };
+          // LOWER(status)='paid' is the race guard: only unwind if the routing
+          // write is still the latest state (status not already walked to
+          // ASSIGNED by a concurrent approve that succeeded).
+          await safeRun(
+            `UPDATE orders SET doctor_id = NULL, assignment_status = 'auto', updated_at = NOW()
+              WHERE id = $1 AND assignment_status = 'assigned' AND LOWER(status) = 'paid'`,
+            [id]
+          );
+        } catch (_) { /* the A2 sweep is the durable net if this reset fails */ }
+        if (isPaid) { fire(enqueueAutoAssign, 'auto_assign'); fire(broadcastOrderToSpecialty, 'broadcast'); }
+      }
+    } else if (isPaid) {
+      // No eligible hand-pick (none chosen, or the pick failed the gate) —
+      // re-engage the post-payment routing flow (the manual_queue gates in
+      // auto_assign.js / notify/broadcast.js released the moment assignment_
+      // status flipped above).
+      routing = 'requested';
       fire(enqueueAutoAssign, 'auto_assign');
       fire(broadcastOrderToSpecialty, 'broadcast');
+    } else {
+      routing = doctorId ? 'skipped_ineligible_not_paid' : 'skipped_not_paid';
     }
 
     return res.ok({
@@ -3623,6 +3683,14 @@ module.exports = function (db, helpers, deploy, deps) {
       specialtyId,
       serviceId,
       doctorId: doctorId || null,
+      // A1 — report the hand-pick outcome WITHOUT failing the request: an
+      // ineligible doctor is a 200 with assignment.ok=false + a named reason,
+      // never a 500. The case was still routed (to the pool).
+      assignment: doctorId
+        ? (committed.effectiveDoctorId
+            ? { ok: true, doctorId: committed.effectiveDoctorId }
+            : { ok: false, reason: assignBlockReason, message: _ASSIGN_REASONS[assignBlockReason] || 'the doctor was not eligible' })
+        : null,
       specialtyChanged,
       ai: committed.ai
         ? {

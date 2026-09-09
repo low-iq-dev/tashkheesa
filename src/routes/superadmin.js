@@ -36,6 +36,10 @@ const { getAiHealth } = require('../services/ai_health');
 // broadcast once admin clears the manual_queue state.
 const { enqueueAutoAssign } = require('../job_queue');
 const { broadcastOrderToSpecialty } = require('../notify/broadcast');
+// A1 (AUDIT 2026-09-09) — shared assignment path for hand-picked doctors, so a
+// manual-queue approve opens the doctor_assignments handshake instead of just
+// writing doctor_id and stopping.
+const { checkHandpickedDoctorEligibility, finalizeHandpickedAssignment, REASONS: ASSIGN_REASONS } = require('../services/assign_case');
 const { sendCriticalAlert } = require('../critical-alert');
 // Refund ceiling — the single source of truth for "how much of this order may
 // be returned to the patient". See services/refund_eligibility.maxRefundableEgp.
@@ -2565,11 +2569,21 @@ router.get('/superadmin/manual-queue', requireSuperadmin, async (req, res) => {
     superadminDashboard.getSidebarBadges().catch(() => ({}))
   ]);
 
+  // A1 — surface the approve outcome. `assigned_fallback` means a hand-picked
+  // doctor failed the eligibility gate and the case fell back to the open pool;
+  // resolve the reason CODE to operator-readable text.
+  const flash = String(req.query.flash || '');
+  const flashReason = req.query.reason
+    ? (ASSIGN_REASONS[String(req.query.reason)] || String(req.query.reason))
+    : '';
+
   res.render('superadmin_manual_queue', {
     user: req.user,
     lang: langCode,
     orders: rows || [],
     sidebarBadges,
+    flash,
+    flashReason,
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
   });
 });
@@ -2726,18 +2740,23 @@ router.post('/superadmin/manual-queue/:id/approve', requireSuperadmin, async (re
     return res.redirect('/superadmin/manual-queue/' + encodeURIComponent(orderId) + '?error=invalid_service');
   }
 
-  // Validate doctor (if picked manually) is in the chosen specialty.
+  // A1 (AUDIT 2026-09-09) — a hand-picked doctor now runs the FULL eligibility
+  // gate (services/assign_case), the same one POST /api/v1/admin/cases/:id/assign
+  // uses: active, not paused, onboarding complete, specialty AND service matched,
+  // under capacity. An ineligible pick is no longer a hard error the operator
+  // must undo — the routing still commits, the case falls back to the open pool
+  // (assignment_status='auto' + broadcast) below, and the operator is told which
+  // rule the doctor failed.
+  let effectiveDoctorId = '';
+  let assignBlockReason = '';
+  let handpickedDoctorName = '';
   if (doctorId) {
-    const doctorOk = await queryOne(
-      `SELECT u.id FROM users u
-         JOIN doctor_specialties ds ON ds.doctor_id = u.id
-        WHERE u.id = $1 AND u.role = 'doctor'
-          AND COALESCE(u.is_active, true) = true
-          AND ds.specialty_id = $2 LIMIT 1`,
-      [doctorId, specialtyId]
-    );
-    if (!doctorOk) {
-      return res.redirect('/superadmin/manual-queue/' + encodeURIComponent(orderId) + '?error=invalid_doctor');
+    const elig = await checkHandpickedDoctorEligibility(orderId, doctorId, { specialtyId, serviceId });
+    if (elig.ok) {
+      effectiveDoctorId = doctorId;
+      handpickedDoctorName = elig.doctorName || '';
+    } else {
+      assignBlockReason = elig.code;
     }
   }
 
@@ -2750,16 +2769,16 @@ router.post('/superadmin/manual-queue/:id/approve', requireSuperadmin, async (re
   );
 
   const nowIso = new Date().toISOString();
-  const nextAssignmentStatus = doctorId ? 'assigned' : 'auto';
+  const nextAssignmentStatus = effectiveDoctorId ? 'assigned' : 'auto';
 
   try {
-    if (doctorId) {
+    if (effectiveDoctorId) {
       await execute(
         `UPDATE orders
             SET specialty_id = $1, service_id = $2, doctor_id = $3,
                 assignment_status = $4, updated_at = $5
           WHERE id = $6`,
-        [specialtyId, serviceId, doctorId, nextAssignmentStatus, nowIso, orderId]
+        [specialtyId, serviceId, effectiveDoctorId, nextAssignmentStatus, nowIso, orderId]
       );
     } else {
       await execute(
@@ -2838,50 +2857,97 @@ router.post('/superadmin/manual-queue/:id/approve', requireSuperadmin, async (re
     } catch (_) { /* best-effort */ }
   }
 
-  // If no doctor was manually picked AND the order is paid, re-engage
-  // the post-payment routing flow (the manual_queue gates in
-  // auto_assign.js / notify/broadcast.js released as soon as we flipped
-  // assignment_status above).
-  if (!doctorId) {
-    const isPaid = ['paid', 'captured'].includes(String(order.payment_status || '').toLowerCase());
-    if (isPaid) {
-      // AUDIT-H1 — these were `.catch(console.error)`. If either rejected, the
-      // redirect below still reported success, nothing reached /ops/errors, and
-      // the case became UNREACHABLE: the acceptance watcher only picks up
-      // orders that have an acceptance_deadline_at (which the failed broadcast
-      // never set), and the SLA sweep only scans IN_REVIEW / REJECTED_FILES. A
-      // paid case would sit forever with no doctor and no signal to anyone.
-      //
-      // Both failures now land in error_logs — surfacing on /ops/errors and in
-      // the silent-failures view — and a CASE_ROUTING_FAILED event goes on the
-      // case timeline so the order itself carries the evidence.
-      enqueueAutoAssign(orderId).catch(function (err) {
-        logErrorToDb(err, {
-          context: 'manual_queue_approve.enqueueAutoAssign',
-          category: 'assignment',
-          orderId: orderId,
-          userId: req.user && req.user.id,
-          requestId: req.requestId
-        });
-        Promise.resolve(caseLifecycle.logCaseEvent(orderId, 'CASE_ROUTING_FAILED', {
-          stage: 'auto_assign', reason: err && err.message, via: 'manual_queue_approve'
-        })).catch(function () {});
+  const isPaid = ['paid', 'captured'].includes(String(order.payment_status || '').toLowerCase());
+
+  if (effectiveDoctorId) {
+    // A1 — complete the handshake the bare doctor_id write never did:
+    // lifecycle transition (PAID → ASSIGNED), acceptance window from the tier,
+    // doctor_assignments row, conversation, patient "assigned" email, and the
+    // doctor's own notification. This is what made a hand-assigned case
+    // invisible to every worker before.
+    const fin = await finalizeHandpickedAssignment(orderId, effectiveDoctorId, {
+      doctorName: handpickedDoctorName,
+      caseRef: String(orderId).slice(0, 12).toUpperCase()
+    });
+    if (!fin.ok) {
+      // A failed hand-pick must NOT strand a paid case. Log it loudly (error_logs
+      // + case timeline) and put the case back in the open pool so broadcast /
+      // auto-assign can place it — otherwise a doctor_id set with no handshake is
+      // invisible even to the A2 sweep (which scans doctor_id IS NULL).
+      logErrorToDb(new Error('finalizeHandpickedAssignment failed: ' + fin.reason), {
+        context: 'manual_queue_approve.finalize',
+        category: 'assignment',
+        orderId: orderId,
+        userId: operatorId,
+        requestId: req.requestId
       });
-      broadcastOrderToSpecialty(orderId).catch(function (err) {
-        logErrorToDb(err, {
-          context: 'manual_queue_approve.broadcast',
-          category: 'assignment',
-          orderId: orderId,
-          userId: req.user && req.user.id,
-          requestId: req.requestId
-        });
-        Promise.resolve(caseLifecycle.logCaseEvent(orderId, 'CASE_ROUTING_FAILED', {
-          stage: 'broadcast', reason: err && err.message, via: 'manual_queue_approve'
-        })).catch(function () {});
-      });
+      Promise.resolve(caseLifecycle.logCaseEvent(orderId, 'CASE_ROUTING_FAILED', {
+        stage: 'finalize_handpick', reason: fin.reason, via: 'manual_queue_approve'
+      })).catch(function () {});
+      try {
+        // LOWER(status)='paid' is the race guard: only unwind if THIS handler's
+        // routing write is still the latest state (status has not been walked to
+        // ASSIGNED by a concurrent approve that DID succeed). Otherwise we would
+        // undo a good assignment another operator just won.
+        await execute(
+          `UPDATE orders SET doctor_id = NULL, assignment_status = 'auto', updated_at = $1
+            WHERE id = $2 AND assignment_status = 'assigned' AND LOWER(status) = 'paid'`,
+          [new Date().toISOString(), orderId]
+        );
+      } catch (_) { /* the A2 sweep is the durable net if this reset fails */ }
+      if (isPaid) {
+        enqueueAutoAssign(orderId).catch(function () {});
+        broadcastOrderToSpecialty(orderId).catch(function () {});
+      }
     }
+  } else if (isPaid) {
+    // No eligible hand-pick (none chosen, or the pick failed the gate) —
+    // re-engage the post-payment routing flow (the manual_queue gates in
+    // auto_assign.js / notify/broadcast.js released as soon as we flipped
+    // assignment_status above).
+    //
+    // AUDIT-H1 — these were `.catch(console.error)`. If either rejected, the
+    // redirect below still reported success, nothing reached /ops/errors, and
+    // the case became UNREACHABLE: the acceptance watcher only picks up
+    // orders that have an acceptance_deadline_at (which the failed broadcast
+    // never set), and the SLA sweep only scans IN_REVIEW / REJECTED_FILES. A
+    // paid case would sit forever with no doctor and no signal to anyone.
+    //
+    // Both failures now land in error_logs — surfacing on /ops/errors and in
+    // the silent-failures view — and a CASE_ROUTING_FAILED event goes on the
+    // case timeline so the order itself carries the evidence.
+    enqueueAutoAssign(orderId).catch(function (err) {
+      logErrorToDb(err, {
+        context: 'manual_queue_approve.enqueueAutoAssign',
+        category: 'assignment',
+        orderId: orderId,
+        userId: req.user && req.user.id,
+        requestId: req.requestId
+      });
+      Promise.resolve(caseLifecycle.logCaseEvent(orderId, 'CASE_ROUTING_FAILED', {
+        stage: 'auto_assign', reason: err && err.message, via: 'manual_queue_approve'
+      })).catch(function () {});
+    });
+    broadcastOrderToSpecialty(orderId).catch(function (err) {
+      logErrorToDb(err, {
+        context: 'manual_queue_approve.broadcast',
+        category: 'assignment',
+        orderId: orderId,
+        userId: req.user && req.user.id,
+        requestId: req.requestId
+      });
+      Promise.resolve(caseLifecycle.logCaseEvent(orderId, 'CASE_ROUTING_FAILED', {
+        stage: 'broadcast', reason: err && err.message, via: 'manual_queue_approve'
+      })).catch(function () {});
+    });
   }
 
+  // A1 — when a hand-pick was refused, name the reason and tell the operator the
+  // case fell back to the open pool. A clean assign (or a no-doctor route) keeps
+  // the existing success flash.
+  if (doctorId && !effectiveDoctorId) {
+    return res.redirect('/superadmin/manual-queue?flash=assigned_fallback&reason=' + encodeURIComponent(assignBlockReason));
+  }
   return res.redirect('/superadmin/manual-queue?flash=approved');
 });
 

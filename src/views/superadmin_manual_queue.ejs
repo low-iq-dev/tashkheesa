@@ -55,6 +55,22 @@
     }) %>
 
 <div class="page-body">
+  <%
+    // A1 (AUDIT 2026-09-09) — approve outcome banner. `assigned_fallback` means a
+    // hand-picked doctor failed the eligibility gate, so the case fell back to
+    // the open pool and its reason is named here (internal ops surface — EN).
+    var _flash = (typeof flash !== 'undefined') ? String(flash) : '';
+    var _flashReason = (typeof flashReason !== 'undefined') ? String(flashReason) : '';
+  %>
+  <% if (_flash === 'assigned_fallback') { %>
+    <div class="c-banner c-banner--warn" role="status" style="margin-bottom:12px;padding:12px 14px;border:1px solid #d9a300;background:#fff8e1;border-radius:8px;">
+      <%= _isAr ? 'تم توجيه الحالة، لكن الطبيب المختار لم يكن مؤهلاً — ' : 'Case routed, but the chosen doctor was not eligible — ' %><strong><%= _flashReason %></strong><%= _isAr ? '. أُعيدت الحالة إلى الطابور المفتوح للتوزيع.' : '. The case was returned to the open pool for assignment.' %>
+    </div>
+  <% } else if (_flash === 'approved') { %>
+    <div class="c-banner c-banner--ok" role="status" style="margin-bottom:12px;padding:12px 14px;border:1px solid #2e7d32;background:#e8f5e9;border-radius:8px;">
+      <%= _isAr ? 'تمت الموافقة على الحالة وتوجيهها.' : 'Case approved and routed.' %>
+    </div>
+  <% } %>
   <div class="section-h standalone">
     <h2><%= _isAr ? 'في انتظار المراجعة' : 'Awaiting review' %> · <%= _orders.length %></h2>
   </div>
