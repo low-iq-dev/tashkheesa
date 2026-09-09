@@ -2913,6 +2913,31 @@ async function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) 
   // get the "case reassigned" email instead, avoiding duplicate notifications.
   const wasInitialAssignment = (currentStatus === CASE_STATUS.PAID);
 
+  // A7 (AUDIT 2026-09-09) — optimistic claim so two doctors accepting the SAME
+  // broadcast cannot both "win" and both email the patient "assigned to Dr X".
+  // Only the FIRST assignment (PAID) races; a REASSIGNED case is a deliberate
+  // hand-off, not a race, so it is exempt. `doctor_id IS NULL OR doctor_id = $1`
+  // also lets a hand-assign that PRE-SET doctor_id (manual queue, A1) pass. A
+  // 0-row result means another doctor claimed it first, so throw BEFORE
+  // finalizePreviousAssignment / the transition / the patient email — the loser
+  // sends nothing and the accept handler shows "already taken". No wrapping txn:
+  // one guarded UPDATE is atomically serialized by Postgres, which is exactly
+  // the deadlock-free optimistic concurrency the accept path's comment claimed
+  // but never actually had (the "doctor_id != $5 check" it named no longer
+  // exists).
+  if (wasInitialAssignment) {
+    const claim = await execute(
+      `UPDATE ${CASE_TABLE} SET doctor_id = $1
+        WHERE id = $2 AND (doctor_id IS NULL OR doctor_id = $1)`,
+      [doctorId, caseId]
+    );
+    if (!claim || claim.rowCount === 0) {
+      const e = new Error('CASE_ALREADY_TAKEN');
+      e.code = 'CASE_ALREADY_TAKEN';
+      throw e;
+    }
+  }
+
   await finalizePreviousAssignment(caseId);
 
   // Doctor must accept within a window proportional to the SLA tier.

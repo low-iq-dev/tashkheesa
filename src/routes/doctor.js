@@ -2127,6 +2127,13 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
       ? (isAr
           ? 'هذه الحالة خارج تخصصك المسجَّل، لذا لا يمكن قبولها. إن كان تخصصك غير صحيح فحدِّثه من ملفك الشخصي أو تواصل مع الدعم.'
           : 'This case is outside your registered specialty, so it cannot be accepted. If your specialty is wrong, update it in your profile or contact support.')
+    // A7 (AUDIT 2026-09-09): the case was accepted by another doctor a moment
+    // before this one — a lost race on a broadcast, not a fault. Name it so the
+    // doctor does not read the silent bounce as a broken Accept button.
+    : msg === 'already_taken'
+      ? (isAr
+          ? 'طبيب تاني قبل الحالة دي قبلك بلحظات. شوف باقي الحالات المتاحة في قائمتك.'
+          : 'Another doctor accepted this case moments before you. Check your queue for other available cases.')
       : null;
   // Guardrail: never render or redirect with an undefined case id.
   if (!orderId) return res.redirect('/portal/doctor/dashboard');
@@ -3333,6 +3340,12 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
       );
     });
   } catch (err) {
+    // A7 (AUDIT 2026-09-09) — the loser of a simultaneous accept of the same
+    // broadcast. Not an error and not accept_failed: another doctor claimed the
+    // case first. Show a clear "already taken" message, no error_logs noise.
+    if (err && err.code === 'CASE_ALREADY_TAKEN') {
+      return res.redirect(`/portal/doctor/case/${orderId}?msg=already_taken`);
+    }
     logErrorToDb(err, {
       context: 'doctor.accept_transition',
       requestId: req.requestId,
