@@ -891,6 +891,7 @@ router.post('/set-password', welcomeTokenIpLimiter, async (req, res) => {
       // password operation; it is not an appeal.
       `UPDATE users
        SET password_hash = $1,
+           tokens_valid_after = NOW(),
            is_active = CASE
              WHEN password_hash IS NULL AND rejection_reason IS NULL THEN true
              ELSE is_active
@@ -992,6 +993,7 @@ router.post('/reset-password/:token', welcomeTokenIpLimiter, async (req, res) =>
       // password operation; it is not an appeal.
       `UPDATE users
        SET password_hash = $1,
+           tokens_valid_after = NOW(),
            is_active = CASE
              WHEN password_hash IS NULL AND rejection_reason IS NULL THEN true
              ELSE is_active

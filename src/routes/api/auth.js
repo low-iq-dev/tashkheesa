@@ -759,7 +759,8 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
 
       await withTransaction(async (client) => {
         await client.query(
-          `UPDATE users SET password_hash = $1 WHERE id = $2`,
+          // A4 — a password change ends old sessions too (tokens_valid_after).
+          `UPDATE users SET password_hash = $1, tokens_valid_after = NOW() WHERE id = $2`,
           [hashed, user.id]
         );
         await client.query(

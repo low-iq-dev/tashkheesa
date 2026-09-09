@@ -1,0 +1,23 @@
+-- 106_users_tokens_valid_after.sql
+--
+-- A4 (AUDIT 2026-09-09) — revoke a doctor's LIVE sessions the moment they are
+-- deactivated or rejected, instead of at cookie/token expiry.
+--
+-- b6d6f89 gated LOGIN and REFRESH, but deliberately did not touch the 7-day
+-- portal session cookie or an already-minted 15-minute access token. So a
+-- doctor deactivated today kept driving the full doctor portal — queue, case
+-- detail, accept, diagnosis, report signing, patient PII — until their cookie
+-- died, up to a week later.
+--
+-- This column is the cut line. Any JWT whose `iat` predates tokens_valid_after
+-- is refused by requireJWT (mobile API) and by the cookie-session attachUser
+-- (portal), through the per-instance, fail-open cache in
+-- src/services/access_revocation.js (same shape as the deleted_users tombstone).
+-- It is stamped NOW() on every deactivate, every reject, and every password
+-- change (a password change should also end old sessions). It is NOT stamped on
+-- pause — migration 040 defines is_paused as routing-only; a paused doctor keeps
+-- working the cases they already hold and must stay signed in to do so.
+--
+-- Nullable, no default: NULL means "no revocation cut", which is every existing
+-- row and every account in good standing — the iat check is a no-op for them.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_valid_after timestamptz;

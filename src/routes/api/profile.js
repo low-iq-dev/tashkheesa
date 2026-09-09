@@ -187,7 +187,8 @@ module.exports = function (db, { safeGet, safeRun }) {
     }
 
     const hashed = await bcrypt.hash(req.body.newPassword, 10);
-    await safeRun('UPDATE users SET password_hash = $1 WHERE id = $2', [hashed, req.user.id]);
+    // A4 — a password change ends old sessions too (tokens_valid_after).
+    await safeRun('UPDATE users SET password_hash = $1, tokens_valid_after = NOW() WHERE id = $2', [hashed, req.user.id]);
 
     return res.ok({ message: 'Password updated successfully' });
   });

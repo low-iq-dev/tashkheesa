@@ -70,6 +70,7 @@ async function setDoctorRejection(client, opts) {
               is_active = false,
               approved_at = NULL,
               refresh_token = NULL,
+              tokens_valid_after = NOW(),
               rejection_reason = $2
         WHERE id = $1
        RETURNING id, is_active, pending_approval, rejection_reason`,

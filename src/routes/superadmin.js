@@ -4134,7 +4134,7 @@ router.post('/superadmin/doctors/outreach/state', requireSuperadmin, async (req,
     // doctor (migrations/040 — "excluded from open-pool broadcasts", not
     // logged out), and pause is set AUTOMATICALLY on SLA breach with no human
     // in the loop, so signing them out would be a silent lockout.
-    if (action === 'deactivate')      sql = "UPDATE users SET is_active = false, refresh_token = NULL WHERE id = $1 AND role = 'doctor'";
+    if (action === 'deactivate')      sql = "UPDATE users SET is_active = false, refresh_token = NULL, tokens_valid_after = NOW() WHERE id = $1 AND role = 'doctor'";
     else if (action === 'activate')   sql = "UPDATE users SET is_active = true  WHERE id = $1 AND role = 'doctor'";
     else if (action === 'pause')      sql = "UPDATE users SET is_paused = true,  paused_at = NOW() WHERE id = $1 AND role = 'doctor'";
     else if (action === 'unpause')    sql = "UPDATE users SET is_paused = false, paused_at = NULL   WHERE id = $1 AND role = 'doctor'";
@@ -4772,6 +4772,7 @@ router.post('/superadmin/doctors/:id/reject', requireSuperadmin, async (req, res
          is_active = false,
          approved_at = NULL,
          refresh_token = NULL,
+         tokens_valid_after = NOW(),
          rejection_reason = $1
      WHERE id = $2 AND role = 'doctor'`,
     [rejection_reason || 'Not approved', doctorId]

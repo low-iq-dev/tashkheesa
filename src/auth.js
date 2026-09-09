@@ -85,7 +85,18 @@ function getTokenFromRequest(req) {
 function attachUser(req, res, next) {
   try {
     const token = getTokenFromRequest(req);
-    const payload = token ? verify(token) : null;
+    let payload = token ? verify(token) : null;
+    // A4 (AUDIT 2026-09-09) — a token minted BEFORE the account's revocation cut
+    // (deactivate / reject / password change) is not a session; drop it so the
+    // request is treated as logged-out. Fail-open: a lookup that cannot run
+    // leaves the payload intact.
+    if (payload && typeof payload === 'object') {
+      try {
+        if (require('./services/access_revocation').isTokenStale(payload.id, payload.iat)) {
+          payload = null;
+        }
+      } catch (_) { /* fail open */ }
+    }
     if (payload && typeof payload === 'object') {
       req.user = payload;
 

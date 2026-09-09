@@ -385,6 +385,19 @@ function requireRole(...roles) {
       return res.redirect('/account-deleted');
     }
 
+    // A4 (AUDIT 2026-09-09) — a deactivated or rejected doctor loses the portal
+    // NOW, not when their 7-day cookie expires. login_gate (via the fail-open
+    // access_revocation cache, same shape as the tombstone above) blocks
+    // is_active=false / pending doctors; pause is deliberately NOT a gate, so a
+    // paused doctor keeps working the cases they already hold.
+    try {
+      const _block = require('./services/access_revocation').doctorBlockReason(req.user.id);
+      if (_block) {
+        res.clearCookie(SESSION_COOKIE, { path: '/' });
+        return res.redirect('/login?blocked=' + encodeURIComponent(_block));
+      }
+    } catch (_) { /* fail open — a lookup that cannot run must not lock anyone out */ }
+
     if (allowed.length === 0) return next();
 
     const role = String(req.user.role || '').toLowerCase();

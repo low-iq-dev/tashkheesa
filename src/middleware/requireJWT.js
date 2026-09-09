@@ -36,6 +36,15 @@ function requireJWT(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
+    // A4 (AUDIT 2026-09-09) — refuse a token minted BEFORE the account's
+    // revocation cut (deactivate / reject / password change). Fail-open cache
+    // (src/services/access_revocation) — a lookup that cannot run never blocks a
+    // valid session.
+    try {
+      if (require('../services/access_revocation').isTokenStale(decoded.id, decoded.iat)) {
+        return res.fail('Session revoked', 401, 'TOKEN_REVOKED');
+      }
+    } catch (_) { /* fail open */ }
     req.user = decoded;
     next();
   } catch (err) {
