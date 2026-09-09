@@ -331,7 +331,11 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
     <div class="dd-stat dd-stat--teal">
       <div class="dd-stat-label"><%= _isAr ? 'أرباح هذا الشهر' : 'Earnings this month' %></div>
       <div class="dd-stat-value"><span class="dd-stat-currency"><%= _month.currency || 'EGP' %></span><%= _fmtEgp(_month.earningsThisMonth) %></div>
-      <div class="dd-stat-sub"><%= _fmtNum(_num(_month.completedThisMonth, 0)) %> <%= _isAr ? 'حالة أُكملت' : 'cases completed' %></div>
+      <%# A10 — the honest split from doctor_earnings (+ add-ons), matching the
+          earnings page's "Approved / Not yet approved" wording. Never "paid
+          out" / "transferred": doctor_earnings.status flips to 'paid' at report
+          submission, not when money moves. %>
+      <div class="dd-stat-sub"><%= _fmtEgp(_month.earningsApproved) %> <%= _isAr ? 'معتمدة' : 'approved' %> &middot; <%= _fmtEgp(_month.earningsNotYetApproved) %> <%= _isAr ? 'غير معتمدة بعد' : 'not yet approved' %></div>
     </div>
     <div class="dd-stat dd-stat--amber">
       <div class="dd-stat-label"><%= _isAr ? 'حالات نشطة' : 'Active cases' %></div>

@@ -273,21 +273,46 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
 
   // Q2: KPI month metrics — completed this month + earnings this month.
   // Uses COALESCE(completed_at, updated_at) per data plan Q4.
-  var monthMetrics = { completedThisMonth: 0, earningsThisMonth: 0, currency: 'EGP' };
+  var monthMetrics = { completedThisMonth: 0, earningsThisMonth: 0, earningsApproved: 0, earningsNotYetApproved: 0, currency: 'EGP' };
   try {
     var mRow = await queryOne(
-      `SELECT
-         COUNT(*) FILTER (WHERE LOWER(COALESCE(status, '')) = 'completed') AS completed_this_month,
-         COALESCE(SUM(doctor_fee) FILTER (WHERE LOWER(COALESCE(status, '')) = 'completed'), 0) AS earnings_this_month
+      `SELECT COUNT(*) FILTER (WHERE LOWER(COALESCE(status, '')) = 'completed') AS completed_this_month
        FROM orders_active
        WHERE doctor_id = $1
          AND COALESCE(completed_at, updated_at) >= date_trunc('month', NOW())
          AND COALESCE(completed_at, updated_at) <  date_trunc('month', NOW()) + INTERVAL '1 month'`,
       [doctorId]
     );
-    if (mRow) {
-      monthMetrics.completedThisMonth = Number(mRow.completed_this_month) || 0;
-      monthMetrics.earningsThisMonth  = Number(mRow.earnings_this_month)  || 0;
+    if (mRow) monthMetrics.completedThisMonth = Number(mRow.completed_this_month) || 0;
+
+    // A10 (AUDIT 2026-09-09) — HONEST earnings. This tile used to SUM
+    // orders.doctor_fee for completed cases: the full fee, ignoring the uplift
+    // share, add-ons and clawbacks, so it showed money the doctor will not be
+    // paid — 5x the reality on some rows. Read earned_amount (the net figure,
+    // already computed by earnings_writer) from the SAME doctor_earnings +
+    // addon_earnings source the /portal/doctor/earnings page uses, with the SAME
+    // 'Approved' (paid) / 'Not yet approved' (pending + reassigned) split, month
+    // by created_at to match that page. Do not reimplement the arithmetic here.
+    var eRow = await queryOne(
+      `SELECT
+         COALESCE((SELECT SUM(earned_amount) FILTER (WHERE status = 'paid') FROM doctor_earnings
+            WHERE doctor_id = $1 AND created_at >= date_trunc('month', NOW())
+              AND created_at < date_trunc('month', NOW()) + INTERVAL '1 month'), 0)
+       + COALESCE((SELECT SUM(earned_amount_egp) FILTER (WHERE status = 'paid') FROM addon_earnings
+            WHERE doctor_id = $1 AND created_at >= date_trunc('month', NOW())
+              AND created_at < date_trunc('month', NOW()) + INTERVAL '1 month'), 0) AS approved,
+         COALESCE((SELECT SUM(earned_amount) FILTER (WHERE status IN ('pending', 'reassigned')) FROM doctor_earnings
+            WHERE doctor_id = $1 AND created_at >= date_trunc('month', NOW())
+              AND created_at < date_trunc('month', NOW()) + INTERVAL '1 month'), 0)
+       + COALESCE((SELECT SUM(earned_amount_egp) FILTER (WHERE status IN ('pending', 'reassigned')) FROM addon_earnings
+            WHERE doctor_id = $1 AND created_at >= date_trunc('month', NOW())
+              AND created_at < date_trunc('month', NOW()) + INTERVAL '1 month'), 0) AS not_yet_approved`,
+      [doctorId]
+    );
+    if (eRow) {
+      monthMetrics.earningsApproved = Number(eRow.approved) || 0;
+      monthMetrics.earningsNotYetApproved = Number(eRow.not_yet_approved) || 0;
+      monthMetrics.earningsThisMonth = monthMetrics.earningsApproved + monthMetrics.earningsNotYetApproved;
     }
   } catch (e) {
     logErrorToDb(e, {
