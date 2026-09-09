@@ -117,6 +117,23 @@
     }) %>
 
 <div class="page-body">
+  <%
+    // A8 (AUDIT 2026-09-09) — honest failure banners. A silently-failed action
+    // used to redirect here with a code nothing rendered; now the operator sees
+    // it and knows to act (internal ops surface — EN).
+    var _flashError = (typeof flashError !== 'undefined' && flashError) ? String(flashError) : '';
+    var _paymentNotice = (typeof paymentNotice !== 'undefined' && paymentNotice) ? String(paymentNotice) : '';
+    var _errMsg = _flashError === 'unlock_failed'
+      ? 'Could not unlock uploads — the patient still cannot add files and the SLA stays paused. Retry the manual unlock.'
+      : (_paymentNotice === 'paid_but_unrouted'
+          ? 'Payment recorded, but the case did NOT enter the assignment pipeline. Route it by hand from the manual queue.'
+          : '');
+  %>
+  <% if (_errMsg) { %>
+    <div role="alert" style="margin-bottom:12px;padding:12px 14px;border:1px solid #c53030;background:#fff5f5;border-radius:8px;color:#742a2a;">
+      <strong>Action did not complete.</strong> <%= _errMsg %>
+    </div>
+  <% } %>
   <div class="grid-2">
     <%- include('partials/superadmin/c_card_open', {
           title: 'Summary',

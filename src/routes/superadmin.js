@@ -3171,7 +3171,13 @@ router.get('/superadmin/orders/:id', requireSuperadmin, async (req, res) => {
     statusUi: safeGetStatusUi(order.status, langCode),
     events,
     doctors,
-    additionalFilesRequest
+    additionalFilesRequest,
+    // A8 (AUDIT 2026-09-09) — surface an honest failure code from a redirect
+    // (unlock_failed, paid_but_unrouted). Without this the order page rendered
+    // nothing, so an operator whose action silently failed saw the same screen
+    // as one whose action worked.
+    flashError: (req.query && req.query.error) ? String(req.query.error) : null,
+    paymentNotice: (req.query && req.query.payment) ? String(req.query.payment) : null
   });
 });
 
@@ -3245,6 +3251,7 @@ router.post('/superadmin/orders/:id/additional-files/approve', requireSuperadmin
   // (POST /admin/orders/:id/uploads/unlock), which was the ONLY writer that
   // cleared the flag. routes/admin.js's approve handler now does the same.
   // Same guard as the manual endpoint: never unlock a completed case.
+  let unlockFailed = false;
   if (currentLower !== 'completed') {
     try {
       await execute(
@@ -3259,6 +3266,10 @@ router.post('/superadmin/orders/:id/additional-files/approve', requireSuperadmin
         actorRole: 'superadmin'
       });
     } catch (err) {
+      // A8 (AUDIT 2026-09-09) — a failed unlock leaves the patient permanently
+      // unable to upload and the SLA paused forever while the operator was told
+      // "approved". Surface it instead of reporting success.
+      unlockFailed = true;
       logErrorToDb(err, {
         context: 'superadmin.additional_files_approve_unlock_uploads',
         requestId: req.requestId,
@@ -3267,6 +3278,9 @@ router.post('/superadmin/orders/:id/additional-files/approve', requireSuperadmin
         category: 'superadmin_action'
       });
     }
+  }
+  if (unlockFailed) {
+    return res.redirect(`/superadmin/orders/${orderId}?error=unlock_failed`);
   }
 
   // Notify patient AFTER approval (routing rule)
@@ -4981,6 +4995,7 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
   // Failure handling mirrors routes/payments.js:886 — money is already recorded
   // as taken, so anything that is not recognisably a benign re-entry is logged
   // to error_logs and pages on-call.
+  let markPaidFailed = false;
   try {
     await caseLifecycle.markCasePaid(orderId);
   } catch (e) {
@@ -4998,6 +5013,11 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
     });
 
     if (!benign) {
+      // A8 (AUDIT 2026-09-09) — the money moved but the lifecycle transition
+      // failed, so the case is PAID and NOT in the assignment pipeline. Nobody
+      // receives critical alerts today, so the ONLY signal the operator gets is
+      // the redirect — it must NOT say "paid" and walk away.
+      markPaidFailed = true;
       try {
         logErrorToDb(e, {
           context: 'superadmin.mark_paid.markCasePaid',
@@ -5102,6 +5122,12 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
   // case_sla_worker.runCaseSlaSweep runs every 5 min via pg-boss and
   // picks up post-payment state changes naturally on the next tick.
 
+  // A8 — report honestly. If the lifecycle transition failed the money moved
+  // but the case never entered assignment, so the operator is told to re-route
+  // it by hand (a distinct code the order page renders), not that it worked.
+  if (markPaidFailed) {
+    return res.redirect(`/superadmin/orders/${orderId}?payment=paid_but_unrouted`);
+  }
   return res.redirect(`/superadmin/orders/${orderId}?payment=paid`);
 });
 
@@ -6830,6 +6856,7 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
   //       (else)                          → skip (pre-acceptance, no earnings row)
   //   Idempotency guard inside recomputeOnRefund prevents double-claw on
   //   operator double-click or retry.
+  let clawbackFailed = false;
   try {
     const { recomputeOnRefund } = require('../services/earnings_writer');
     // AUDIT (2026-08-17): recomputeOnRefund now scales the doctor's clawback
@@ -6850,6 +6877,11 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
       });
     }
   } catch (e) {
+    // A8 (AUDIT 2026-09-09) — the refund IS paid, but the doctor-earnings
+    // clawback did NOT apply, so the doctor keeps 100% of the fee on a refunded
+    // case. Do not report a clean "paid": surface it so the operator reconciles
+    // the earnings by hand. The refund is not rolled back.
+    clawbackFailed = true;
     logErrorToDb(e, {
       context: 'superadmin.refund_mark_paid.recomputeOnRefund',
       orderId: refund.order_id,
@@ -6879,6 +6911,11 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
     }
   } catch (_) { /* best-effort */ }
 
+  // A8 — the refund is paid either way; if the clawback failed the operator is
+  // told so (an error the refund view renders) rather than a clean success.
+  if (clawbackFailed) {
+    return res.redirect('/superadmin/refunds?flash=paid&error=clawback_failed');
+  }
   return res.redirect('/superadmin/refunds?flash=paid');
 });
 

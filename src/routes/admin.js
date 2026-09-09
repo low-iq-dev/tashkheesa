@@ -1445,10 +1445,15 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
     'lifecycle:failed': {
       type: 'error',
       text: 'Payment was recorded, but putting the case into the assignment queue FAILED. It is paid and unassigned — escalate.'
+    },
+    // A8 (AUDIT 2026-09-09) — additional-files approve unlocked nothing.
+    'files:unlock_failed': {
+      type: 'error',
+      text: 'Approved, but UNLOCKING uploads failed — the patient still cannot add files and the SLA stays paused. Retry the manual unlock (Uploads → Unlock).'
     }
   };
   const flashes = [];
-  for (const key of ['reassign', 'payment', 'lifecycle', 'rx', 'addons']) {
+  for (const key of ['reassign', 'payment', 'lifecycle', 'rx', 'addons', 'files']) {
     const raw = req.query && req.query[key];
     if (!raw) continue;
     const hit = FLASH_CODES[key + ':' + String(raw)];
@@ -1604,6 +1609,7 @@ router.post('/admin/orders/:id/additional-files/approve', requireAdmin, async (r
   // SLA until someone found the separate manual unlock endpoint. Only that
   // endpoint (POST /admin/orders/:id/uploads/unlock) ever cleared the flag.
   // Same guard as the manual endpoint: never unlock a completed case.
+  let unlockFailed = false;
   if (currentLower !== 'completed') {
     try {
       await execute(
@@ -1618,6 +1624,11 @@ router.post('/admin/orders/:id/additional-files/approve', requireAdmin, async (r
         actorRole: req.user && req.user.role
       });
     } catch (err) {
+      // A8 (AUDIT 2026-09-09) — if this unlock fails the patient is PERMANENTLY
+      // blocked from uploading (routes/patient.js hard-blocks on uploads_locked)
+      // and the SLA stays paused forever, yet the admin was told "approved". Do
+      // not report success on a write that did not land.
+      unlockFailed = true;
       logErrorToDb(err, {
         context: 'admin.additional_files_approve_unlock_uploads',
         orderId,
@@ -1652,6 +1663,12 @@ router.post('/admin/orders/:id/additional-files/approve', requireAdmin, async (r
     });
   }
 
+  // A8 — the unlock is what actually lets the patient satisfy the request; if it
+  // failed, say so instead of "approved" so the admin retries the manual unlock.
+  // Routed through the ?files= flash code so the order page actually renders it.
+  if (unlockFailed) {
+    return res.redirect(`/admin/orders/${orderId}?files=unlock_failed`);
+  }
   return res.redirect(`/admin/orders/${orderId}?additional_files=approved`);
 });
 
