@@ -14,8 +14,21 @@ const router = express.Router();
 // Helper: ensure user belongs to conversation
 async function getConversationForUser(conversationId, userId) {
   try {
+    // A6 (AUDIT 2026-09-09) — a doctor may open a conversation ONLY if they are
+    // the case's CURRENT doctor. Membership used to be conversations.doctor_id
+    // alone, so a reassigned (outgoing) doctor kept reading new messages AND
+    // downloading their attachments (the attachment file_url rides in the
+    // message list this gate protects) long after the case moved. The
+    // orders_active join closes it; the patient side is unchanged. A doctor
+    // whose order row is gone (soft-deleted) also fails closed here.
     return await queryOne(
-      'SELECT * FROM conversations WHERE id = $1 AND (patient_id = $2 OR doctor_id = $3)',
+      `SELECT c.* FROM conversations c
+         LEFT JOIN orders_active o ON o.id = c.order_id
+        WHERE c.id = $1
+          AND (
+            c.patient_id = $2
+            OR (c.doctor_id = $3 AND o.doctor_id = $3)
+          )`,
       [conversationId, userId, userId]
     );
   } catch (_) {
@@ -98,7 +111,9 @@ router.get('/portal/messages', requireRole('patient', 'doctor'), async function(
        LEFT JOIN orders_active o ON o.id = c.order_id
        LEFT JOIN services sv ON sv.id = o.service_id
        LEFT JOIN specialties sp ON sp.id = o.specialty_id
-       WHERE (c.patient_id = $2 OR c.doctor_id = $3)
+       -- A6 — a reassigned (outgoing) doctor drops out of their sidebar too:
+       -- only the case's CURRENT doctor (or the patient) lists the conversation.
+       WHERE (c.patient_id = $2 OR (c.doctor_id = $3 AND o.doctor_id = c.doctor_id))
        ORDER BY last_message_at DESC NULLS LAST, c.created_at DESC`,
       [userId, userId, userId]
     );
@@ -177,7 +192,9 @@ router.get('/portal/messages/:conversationId', requireRole('patient', 'doctor'),
        LEFT JOIN orders_active o ON o.id = c.order_id
        LEFT JOIN services sv ON sv.id = o.service_id
        LEFT JOIN specialties sp ON sp.id = o.specialty_id
-       WHERE (c.patient_id = $2 OR c.doctor_id = $3)
+       -- A6 — a reassigned (outgoing) doctor drops out of their sidebar too:
+       -- only the case's CURRENT doctor (or the patient) lists the conversation.
+       WHERE (c.patient_id = $2 OR (c.doctor_id = $3 AND o.doctor_id = c.doctor_id))
        ORDER BY last_message_at DESC NULLS LAST, c.created_at DESC`,
       [userId, userId, userId]
     );
@@ -346,8 +363,10 @@ router.get('/api/messages/total-unread', requireRole('patient', 'doctor'), async
       `SELECT COUNT(*) as count
        FROM messages m
        JOIN conversations c ON c.id = m.conversation_id
+       LEFT JOIN orders_active o ON o.id = c.order_id
        WHERE c.status = 'active'
-         AND (c.patient_id = $1 OR c.doctor_id = $2)
+         -- A6 — don't count unread for a reassigned doctor's old conversation.
+         AND (c.patient_id = $1 OR (c.doctor_id = $2 AND o.doctor_id = c.doctor_id))
          AND m.sender_id != $3
          AND m.is_read = false`,
       [userId, userId, userId]
