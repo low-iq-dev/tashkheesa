@@ -11,6 +11,7 @@ function computeSla(order, now = new Date()) {
       isBreached: false,
       isAccepted: false,
       isNew: false,
+      isPaused: false,
       minutesRemaining: null,
       minutesOverdue: null
     }
@@ -22,6 +23,25 @@ function computeSla(order, now = new Date()) {
 
   if (status === 'completed' || completed) {
     result.effectiveStatus = 'completed';
+    return result;
+  }
+
+  // A9 (AUDIT 2026-09-09) — a PAUSED SLA is NOT overdue. case_lifecycle.pauseSla
+  // freezes the clock and banks the remainder in sla_remaining_seconds, but
+  // deliberately leaves the (now stale) deadline_at in place. Without this branch
+  // the `if (deadline)` check below read that past deadline as a breach, so every
+  // list view showed a paused case as "Overdue Nh" while the doctor case page —
+  // which carried its OWN pause check — showed it correctly on hold. Folding the
+  // check in here makes computeSla the single source both use. Runs BEFORE the
+  // deadline branch precisely so the stale deadline can never mark a breach.
+  if (order.sla_paused_at) {
+    result.effectiveStatus = 'paused';
+    result.sla.isPaused = true;
+    result.sla.isAccepted = true; // a case can only be paused after acceptance
+    const remSec = Number(order.sla_remaining_seconds);
+    if (Number.isFinite(remSec)) {
+      result.sla.minutesRemaining = Math.max(0, Math.floor(remSec / 60));
+    }
     return result;
   }
 

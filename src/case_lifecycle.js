@@ -1435,6 +1435,32 @@ const UI_BADGE = Object.freeze({
 });
 
 const CASE_STATUS_UI = Object.freeze({
+  // A9 (AUDIT 2026-09-09) — the effectiveStatus computeSla returns for a paused
+  // SLA (frozen while the case waits on the patient's files). Keyed 'PAUSED'
+  // because getStatusUi normalizes 'paused' to that. Without an entry the list
+  // views rendered the raw literal; with it they say "Paused — waiting for files"
+  // in both languages, matching the doctor case page.
+  PAUSED: {
+    patient: {
+      title: { en: 'Paused — waiting for your files', ar: 'موقوفة مؤقتاً — بانتظار ملفاتك' },
+      description: { en: 'Your case is on hold until the requested files are uploaded.', ar: 'حالتك متوقفة حتى يتم رفع الملفات المطلوبة.' },
+      badge: UI_BADGE.neutral,
+      visible: true
+    },
+    doctor: {
+      title: { en: 'Paused — waiting for files', ar: 'موقوفة مؤقتاً — بانتظار الملفات' },
+      description: { en: 'The SLA clock is frozen until the patient uploads the requested files.', ar: 'مؤقّت المراجعة متوقف حتى يرفع المريض الملفات المطلوبة.' },
+      badge: UI_BADGE.neutral,
+      visible: true
+    },
+    admin: {
+      title: { en: 'Paused — awaiting patient files', ar: 'موقوفة مؤقتاً — بانتظار ملفات المريض' },
+      description: { en: 'SLA frozen; the case is waiting on the patient.', ar: 'مؤقّت المراجعة متوقف؛ الحالة تنتظر المريض.' },
+      badge: UI_BADGE.neutral,
+      visible: true
+    }
+  },
+
   [CASE_STATUS.DRAFT]: {
     patient: {
       title: { en: 'Draft started', ar: 'تم بدء طلب جديد' },
