@@ -631,6 +631,103 @@ async function handleDoctorTimeout(candidate) {
 // case — duplicate reassignment and duplicate notifications.
 let _slaSweepRunning = false;
 
+// ── A2 (AUDIT 2026-09-09) — durable re-broadcast of stranded paid cases ──────
+//
+// markCasePaid fires broadcastOrderToSpecialty FIRE-AND-FORGET. If that throws,
+// or the process dies between the payment commit and the call, the case is left
+// status=PAID with doctor_id IS NULL and acceptance_deadline_at IS NULL — and NO
+// worker anywhere scans for that shape: acceptance_watcher requires a non-NULL
+// acceptance_deadline_at, and every other fetcher in this file wants
+// IN_REVIEW/ASSIGNED. The only other durable retry is auto_assign, which is OFF
+// at launch. So a paid case can sit forever with no doctor and no signal.
+//
+// This sweep is the durable path. It re-runs the broadcast for any paid case
+// older than STRANDED_PAID_MIN_AGE_MINUTES with no doctor and no acceptance
+// window that is NOT parked in the manual queue. broadcast itself sets
+// acceptance_deadline_at (under its own doctor_id IS NULL guard), so a case it
+// successfully places drops out of this SELECT on the next tick — that column
+// IS the "already broadcast" marker, which is exactly why re-running is
+// idempotent and never double-broadcasts a case that already went out.
+const STRANDED_PAID_MIN_AGE_MINUTES = 10;
+
+async function fetchStrandedPaidCases() {
+  const rows = await queryAll(
+    `SELECT id
+       FROM orders_active
+      WHERE LOWER(COALESCE(status, '')) = 'paid'
+        AND doctor_id IS NULL
+        AND acceptance_deadline_at IS NULL
+        AND COALESCE(assignment_status, '') NOT IN ('manual_queue', 'manual_pending', 'manual_claimed')
+        AND COALESCE(paid_at, updated_at) < NOW() - make_interval(mins => $1)
+      ORDER BY COALESCE(paid_at, updated_at) ASC
+      LIMIT 100`,
+    [STRANDED_PAID_MIN_AGE_MINUTES]
+  );
+  return rows || [];
+}
+
+async function handleStrandedPaidCase(candidate, opts = {}) {
+  const d = opts.deps || {};
+  const _queryOne = d.queryOne || queryOne;
+  const _logCaseEvent = d.logCaseEvent || logCaseEvent;
+  const _broadcast = d.broadcast || require('./notify/broadcast').broadcastOrderToSpecialty;
+  const _pushOpsEvent = d.pushOpsEvent || require('./services/ops_push').pushOpsEvent;
+
+  const caseId = candidate.id || candidate.case_id;
+  if (!caseId) return 0;
+
+  // How many times has the sweep already retried this case? The count of prior
+  // CASE_ROUTING_RETRIED events is the attempt number, so the ops alert fires
+  // AFTER the second failed retry, not on the first transient hiccup.
+  let priorRetries = 0;
+  try {
+    const c = await _queryOne(
+      `SELECT COUNT(*)::int AS c FROM case_events
+        WHERE case_id = $1 AND event_type = 'CASE_ROUTING_RETRIED'`,
+      [caseId]
+    );
+    priorRetries = (c && c.c) || 0;
+  } catch (_) { /* case_events optional; treat as first attempt */ }
+  const attempt = priorRetries + 1;
+
+  let ok = false;
+  let reason = null;
+  try {
+    const result = await _broadcast(caseId);
+    ok = !!(result && result.ok);
+    reason = ok ? null : ((result && result.reason) || 'broadcast_returned_not_ok');
+  } catch (err) {
+    ok = false;
+    reason = (err && err.message) || 'broadcast_threw';
+  }
+
+  try {
+    await _logCaseEvent(caseId, 'CASE_ROUTING_RETRIED', { attempt, ok, reason, via: 'sla_sweep' });
+  } catch (_) { /* best-effort */ }
+
+  // After the SECOND failed retry, raise an ops event that PERSISTS to the
+  // Activity feed (pushOpsEvent, NOT notifySuperadmins directly — the operator
+  // must be able to scroll back to it). Deduped per order so a case that stays
+  // stuck does not buzz on every 5-minute tick.
+  if (!ok && attempt >= 2) {
+    try {
+      await _pushOpsEvent({
+        kind: 'case_routing_stuck',
+        dedupeKey: String(caseId),
+        title: 'Paid case cannot be routed',
+        body: 'Case ' + String(caseId).slice(0, 12).toUpperCase() + ' has been paid with no ' +
+              'doctor for over ' + STRANDED_PAID_MIN_AGE_MINUTES + ' minutes; the broadcast has ' +
+              'failed ' + attempt + ' times (' + (reason || 'unknown') + '). Assign it by hand ' +
+              'from the manual queue.',
+        orderId: caseId,
+        data: { attempt, reason },
+      });
+    } catch (_) { /* the CASE_ROUTING_RETRIED event above is the durable record */ }
+  }
+
+  return ok ? 1 : 0;
+}
+
 async function runCaseSlaSweep(runAt = new Date()) {
   if (_slaSweepRunning) {
     return { ok: true, skipped: 'already_running' };
@@ -690,10 +787,23 @@ async function _runCaseSlaSweepInner(runAt = new Date()) {
     } catch (_) { /* ignore */ }
     logFatal('SLA pre-breach candidates fetch failed', err);
   }
+  // A2: paid cases stranded with no doctor and no acceptance window.
+  let stranded = [];
+  try {
+    stranded = await fetchStrandedPaidCases();
+  } catch (err) {
+    fetchError = fetchError || err;
+    try {
+      const { logErrorToDb } = require('./logger');
+      logErrorToDb(err, { context: 'case_sla_worker.runCaseSlaSweep.fetchStrandedPaidCases', level: 'error' });
+    } catch (_) { /* ignore */ }
+    logFatal('Stranded paid-case fetch failed', err);
+  }
 
   let breachCount = 0;
   let timeoutCount = 0;
   let preBreachCount = 0;
+  let strandedRebroadcast = 0;
 
   for (const candidate of breaches) {
     try {
@@ -719,8 +829,18 @@ async function _runCaseSlaSweepInner(runAt = new Date()) {
     }
   }
 
-  if (preBreachCount || breachCount || timeoutCount) {
-    logMajor(`[case-sla] prebreaches=${preBreachCount}, breaches=${breachCount}, timeouts=${timeoutCount}`);
+  // A2: re-broadcast stranded paid cases. Each handler is independently guarded
+  // so one bad case cannot abort the sweep.
+  for (const candidate of stranded) {
+    try {
+      strandedRebroadcast += await handleStrandedPaidCase(candidate);
+    } catch (err) {
+      logFatal('Stranded paid-case handling failed', candidate.id, err);
+    }
+  }
+
+  if (preBreachCount || breachCount || timeoutCount || stranded.length) {
+    logMajor(`[case-sla] prebreaches=${preBreachCount}, breaches=${breachCount}, timeouts=${timeoutCount}, stranded=${stranded.length} rebroadcast=${strandedRebroadcast}`);
   }
 
   // LAUNCH-SLA-3: report (never act on) legacy NULL-accept_by_at assignments.
@@ -774,6 +894,8 @@ async function _runCaseSlaSweepInner(runAt = new Date()) {
   // instead of silently treating partial results as success.
   if (fetchError) throw fetchError;
 
+  // Return shape is pinned by theme7-sla-breach-uses-canonical — keep it exact.
+  // The stranded re-broadcast count is reported on the logMajor line above.
   return { preBreaches: preBreachCount, breaches: breachCount, timeouts: timeoutCount };
 }
 
@@ -809,5 +931,9 @@ function startCaseSlaWorker(intervalMs = SCAN_INTERVAL_MS) {
 module.exports = {
   startCaseSlaWorker,
   runCaseSlaSweep,
-  buildAlternateDoctorQuery
+  buildAlternateDoctorQuery,
+  // A2 — exported for the durable-routing guard (unit + structural).
+  fetchStrandedPaidCases,
+  handleStrandedPaidCase,
+  STRANDED_PAID_MIN_AGE_MINUTES,
 };
