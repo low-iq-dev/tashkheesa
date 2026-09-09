@@ -2,7 +2,7 @@
 // Broadcasts a paid order to eligible doctors in the matching specialty.
 
 const { queryOne, queryAll, execute } = require('../pg');
-const { queueNotification } = require('../notify');
+const { queueNotification, queueMultiChannelNotification } = require('../notify');
 const { TEMPLATES } = require('./templates');
 
 // Tier → notification template. The acceptance WINDOW no longer lives here:
@@ -166,7 +166,7 @@ async function broadcastOrderToSpecialty(orderId) {
     // GROUP BY accepts the same expression because u.id is in the grouping
     // set.
     eligibleDoctors = await queryAll(`
-      SELECT u.id, u.name, u.phone
+      SELECT u.id, u.name, u.phone, u.notify_whatsapp
       FROM users u
       -- 2026-08-25: match on doctor_specialties OR users.specialty_id.
       --
@@ -188,8 +188,14 @@ async function broadcastOrderToSpecialty(orderId) {
         AND u.role = 'doctor'
         AND COALESCE(u.is_active, true) = true
         AND COALESCE(u.is_available, true) = true
-        AND COALESCE(u.notify_whatsapp, false) = true
-        AND u.phone IS NOT NULL AND u.phone != ''
+        -- A5 (AUDIT 2026-09-09) — paused doctors are excluded from the open pool
+        -- (migration 040: is_paused is routing-only, set automatically on SLA
+        -- breach). A3 — onboarding-incomplete doctors cannot take cases yet.
+        AND COALESCE(u.is_paused, false) = false
+        AND COALESCE(u.onboarding_complete, false) = true
+        -- A3 (AUDIT 2026-09-09) — eligibility no longer requires notify_whatsapp
+        -- or a phone: email + the in-app bell reach EVERY eligible doctor
+        -- (WhatsApp is still sent additionally, per-doctor, in the loop below).
       GROUP BY u.id, u.name, u.phone
       ORDER BY (
         SELECT COUNT(*) FROM orders_active o
@@ -202,7 +208,7 @@ async function broadcastOrderToSpecialty(orderId) {
     var capColumn = tier === 'vip' ? 'max_active_cases_urgent' : 'max_active_cases';
     var defaultCap = tier === 'vip' ? 8 : 5;
     eligibleDoctors = await queryAll(`
-      SELECT u.id, u.name, u.phone
+      SELECT u.id, u.name, u.phone, u.notify_whatsapp
       FROM users u
       -- 2026-08-25: match on doctor_specialties OR users.specialty_id.
       --
@@ -224,8 +230,14 @@ async function broadcastOrderToSpecialty(orderId) {
         AND u.role = 'doctor'
         AND COALESCE(u.is_active, true) = true
         AND COALESCE(u.is_available, true) = true
-        AND COALESCE(u.notify_whatsapp, false) = true
-        AND u.phone IS NOT NULL AND u.phone != ''
+        -- A5 (AUDIT 2026-09-09) — paused doctors are excluded from the open pool
+        -- (migration 040: is_paused is routing-only, set automatically on SLA
+        -- breach). A3 — onboarding-incomplete doctors cannot take cases yet.
+        AND COALESCE(u.is_paused, false) = false
+        AND COALESCE(u.onboarding_complete, false) = true
+        -- A3 (AUDIT 2026-09-09) — eligibility no longer requires notify_whatsapp
+        -- or a phone: email + the in-app bell reach EVERY eligible doctor
+        -- (WhatsApp is still sent additionally, per-doctor, in the loop below).
         AND (
           SELECT COUNT(*) FROM orders_active o
           WHERE o.doctor_id = u.id
@@ -240,24 +252,57 @@ async function broadcastOrderToSpecialty(orderId) {
     `, [specialtyId]);
   }
 
-  // 7. Send notifications with deduplication
+  // 7. Send notifications with deduplication.
+  //
+  // A3 (AUDIT 2026-09-09) — the broadcast used to queue channel:'whatsapp' ONLY,
+  // filtered on notify_whatsapp. WhatsApp is not yet wired to the portal
+  // (OPENCLAW_* unset), so a new paid case was announced to NOBODY. Now every
+  // eligible doctor gets email + the in-app bell through the shared multi-channel
+  // helper, and WhatsApp is sent ADDITIONALLY to doctors who have it — same
+  // dedupe key per doctor per case, so the A2 routing-retry cannot double-send.
+  var refId = order.reference_id || String(orderId).slice(0, 12).toUpperCase();
   var sentCount = 0;
   for (const doctor of eligibleDoctors) {
-    const result = await queueNotification({
+    // Email + in-app bell for EVERY eligible doctor.
+    const multi = await queueMultiChannelNotification({
       orderId: orderId,
       toUserId: doctor.id,
-      channel: 'whatsapp',
-      template: config.template,
+      channels: ['internal', 'email'],
+      template: 'new_case_available',
       response: {
-        case_ref: order.reference_id || String(orderId).slice(0, 12).toUpperCase(),
+        case_id: orderId,
+        caseReference: refId,
+        doctorName: doctor.name || '',
         specialty: specialtyId,
         tier: tier,
         sla_hours: order.sla_hours || 48,
+        acceptWindowMinutes: acceptanceMinutes,
       },
       dedupe_key: 'broadcast:' + orderId + ':' + doctor.id,
     });
-    if (result && result.ok && !result.skipped) {
+    if (multi && multi.ok !== false) {
       sentCount++;
+    }
+
+    // WhatsApp ADDITIONALLY, only for doctors who actually have it — keeps the
+    // tier-specific HSM templates (NEW_CASE_URGENT / FASTTRACK / STANDARD) that
+    // whatsappTemplateMap knows how to send.
+    const hasWhatsApp = (doctor.notify_whatsapp === true || doctor.notify_whatsapp === 1)
+      && doctor.phone && String(doctor.phone).trim() !== '';
+    if (hasWhatsApp) {
+      await queueNotification({
+        orderId: orderId,
+        toUserId: doctor.id,
+        channel: 'whatsapp',
+        template: config.template,
+        response: {
+          case_ref: refId,
+          specialty: specialtyId,
+          tier: tier,
+          sla_hours: order.sla_hours || 48,
+        },
+        dedupe_key: 'broadcast:' + orderId + ':' + doctor.id,
+      });
     }
   }
 

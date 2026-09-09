@@ -37,6 +37,11 @@ function interpolate(str, vars) {
 const TEMPLATE_TITLES = {
   // Required minimum set
   order_assigned_doctor: { en: 'New case in your specialty: {caseReference}', ar: 'حالة جديدة في تخصصك: {caseReference}' },
+  // A3 (AUDIT 2026-09-09) — open-pool broadcast: a case is AVAILABLE to accept,
+  // not yet assigned. Reaches email + the in-app bell (WhatsApp keeps its own
+  // tier templates), so every eligible doctor hears about a new paid case even
+  // while WhatsApp is unwired at launch.
+  new_case_available: { en: 'New case available to accept: {caseReference}', ar: 'حالة جديدة متاحة للقبول: {caseReference}' },
   order_reassigned_doctor: { en: 'Case reassigned', ar: 'تمت إعادة تعيين الحالة' },
   sla_reminder_doctor: { en: 'Action needed: case approaching deadline', ar: 'إجراء مطلوب: حالة تقترب من الموعد النهائي' },
   sla_breached_doctor: { en: 'SLA breached', ar: 'تم تجاوز مهلة المراجعة' },

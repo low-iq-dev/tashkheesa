@@ -1,0 +1,52 @@
+<!-- New Case Available — open-pool broadcast to eligible doctors (A3 2026-09-09) -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#0B6B5F;">
+  New Case Available in Your Specialty
+</h2>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4A4640;">
+  Hi Dr. {{doctorName}},
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4A4640;">
+  A new paid case in your specialty is now available to accept. It is offered to every
+  eligible doctor &mdash; the first to accept takes the case. Open your queue to review
+  and accept it before the acceptance window closes.
+</p>
+
+<!-- Case details box -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#F4F1E9;border-radius:8px;border:1px solid #E3DED2;">
+  <tr>
+    <td style="padding:20px 24px;">
+      <p style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#0B6B5F;text-transform:uppercase;letter-spacing:0.5px;">Case Details</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        {{#if caseReference}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#7A736A;width:160px;">Reference:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#2E2B26;">{{caseReference}}</td>
+        </tr>
+        {{/if}}
+        {{#if acceptWindowMinutes}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#7A736A;width:160px;">Accept within:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#c53030;">{{acceptWindowMinutes}} minutes</td>
+        </tr>
+        {{/if}}
+      </table>
+    </td>
+  </tr>
+</table>
+
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+  <tr>
+    <td align="center" style="background-color:#0B6B5F;border-radius:8px;">
+      <a href="{{appUrl}}/portal/doctor/dashboard" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        Open My Queue
+      </a>
+    </td>
+  </tr>
+</table>
+
+<p style="margin:24px 0 0 0;font-size:13px;color:#9A9287;line-height:1.5;">
+  Cases are assigned on a first-accept basis. If another doctor accepts first, the case
+  will no longer appear in your queue.
+</p>

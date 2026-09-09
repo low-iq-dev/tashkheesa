@@ -423,6 +423,18 @@ function renderNotificationMessage(template, payload, lang) {
       }
       return caseLabel ? `${caseLabel} is ready for your review.` : "A new case is ready for your review.";
 
+    // A3 (AUDIT 2026-09-09) — open-pool broadcast. NOT "assigned to you": the
+    // doctor must ACCEPT it, and the window closes. Egyptian register.
+    case 'new_case_available':
+      if (isAr) {
+        return arCaseN
+          ? `${arCaseN} متاحة في تخصصك — اقبلها من قائمتك قبل ما تقفل مهلة القبول.`
+          : 'في حالة جديدة متاحة في تخصصك — اقبلها من قائمتك قبل ما تقفل مهلة القبول.';
+      }
+      return caseLabel
+        ? `${caseLabel} is available in your specialty — accept it from your queue before the acceptance window closes.`
+        : 'A new case is available in your specialty — accept it from your queue before the acceptance window closes.';
+
     case 'order_reassigned_doctor':
     case 'order_reassigned_to_doctor':
       if (isAr) {

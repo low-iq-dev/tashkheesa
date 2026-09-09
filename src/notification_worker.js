@@ -92,6 +92,8 @@ const TEMPLATE_TO_EMAIL = {
   order_assigned_doctor: 'case-assigned',
   order_auto_assigned_doctor: 'case-assigned',
   public_order_assigned_doctor: 'case-assigned',
+  // A3 (AUDIT 2026-09-09) — open-pool broadcast email (en + ar hbs).
+  new_case_available: 'new-case-available',
   report_ready_patient: 'report-ready',
   payment_success_patient: 'payment-success',
   payment_marked_paid_patient: 'payment-success',
