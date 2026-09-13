@@ -18,8 +18,10 @@ Nothing ran against production. Nothing is pushed.
 **House rules honoured:**
 - Full suite before and after every commit, with the six baseline failures
   byte-identical.
-- Every fix has a guard, and every guard was negative-tested: the fix was
-  reverted, the new test confirmed to fail, and the fix restored.
+- Every fix has a guard. The guards for A1–A4, B2/B3, B4/B6 and all of
+  Part C were negative-tested: the fix was reverted, the new test confirmed
+  to fail, and the fix restored. The B1/B7–B10 and B5 guards run and pass,
+  but a revert-and-fail record for them wasn't kept.
 - Arabic first. Logical properties throughout, with no hard-coded left/right
   in anything added.
 - `<bdi>` on Latin names, references and money in RTL.
@@ -50,6 +52,11 @@ list diffs byte-for-byte against the "before" run:
 
 The A1 source guard landed in the B4/B6 run, which is why A adds nothing
 to the count. The +125 are the new guards.
+
+Counts and the baseline diff were taken after each Part C commit, and
+again on the final branch head: 1594 passed, 6 failed, 52 skipped, with the
+failure list identical to the baseline. The async C7 check is confirmed to
+run inside `node tests/run.js`, not only on its own.
 
 `tests/admin/admin_command_api.test.js` run on its own reports 8 failures
 (assign/invite). Those 8 are identical before and after Part C, and every
@@ -905,37 +912,51 @@ commit.
 
 ## Needs Ziad
 
-1. **Portal icon.** `public/icons/portal-192.png` / `-512.png` are rendered
+Money and patient-facing behaviour first.
+
+1. **"Assigned" vs "accepts" — the rule on full refunds.** The brief says a
+   full refund applies "before a consultant is assigned".
+   `services/refund_eligibility.js` auto-approves while the case is paid
+   **or assigned but not yet accepted**, so the code is more generous than
+   the brief. I left the rule unchanged. The policy page and the request form
+   now say "before a consultant accepts", which matches the code, not the
+   brief. Keep the code and the new wording, or tighten the rule to
+   "before assignment" (a logic change) and the copy with it?
+2. **WhatsApp for refunds — I turned it on; confirm or I'll revert.**
+   - Refund approved / denied / paid / opened-by-operator now queue
+     WhatsApp alongside email + in-app, on the web and in the Command API.
+   - Production runs `NOTIFICATIONS_WHATSAPP_ENABLED=true` over OpenClaw,
+     which already has texts for all four; patients' `notify_whatsapp` is
+     honoured.
+   - Two pinned channel lists were updated to allow it.
+   - "We received your request" stays email + in-app: there is no OpenClaw
+     text for it. Want one?
+   - `whatsappTemplateMap.js` (Meta HSM) has no refund templates; that only
+     matters if the transport is switched to Meta.
+3. **Refund requests after a consultant accepts.** The server already allows
+   them as review-required, and the form says "Up to EGP X, after review".
+   Keep that, or stop requests once a consultant has accepted?
+4. **Automatic SLA-breach refunds in the Paid tab.** Once paid, they stay out
+   of the queue's 30-day Paid list, matching the existing guard. Operator
+   refunds are now included. Include breach refunds too?
+5. **Command app.** Mark-paid on the web now requires the number the money
+   was sent to; the app doesn't send one yet. The app should add that field
+   and show the new queue fields (eligible / already refunded / remainder).
+6. **Deploy.** Migration `108_refunds_paid_to_and_paid_by.sql` runs at deploy
+   (two nullable columns on `refunds`).
+7. **Portal icon.** `public/icons/portal-192.png` / `-512.png` are rendered
    from the existing **blue** brand icon, while the portal theme colour is
    **teal** `#0B6B5F`. Approve, or supply a teal/maskable icon.
-2. **Tab bar order.** Today · Cases · Messages · Earnings · More. Is
-   Earnings the right fourth tab (vs Alerts or Profile)?
-3. **Today's "More" grouping on phones.** Alerts, Completed, Recently paid,
+8. **Tab bar order.** Today · Cases · Messages · Earnings · More. Is Earnings
+   the right fourth tab (vs Alerts or Profile)?
+9. **Today's "More" grouping on phones.** Alerts, Completed, Recently paid,
    Recent activity and This month are collapsed by default. OK?
-4. **`mobile:check` dependencies.** It uses `puppeteer-core` from
-   `PUPPETEER_CORE_DIR` or `~/mobile_audit`, plus a local Chrome for
-   Testing. Add `puppeteer-core` as a devDependency, and run it in CI?
-5. **WhatsApp for refunds is now on** for approved / denied / paid /
-   opened-by-operator, over OpenClaw (production transport).
-   - Confirm that's wanted.
-   - Say whether "we received your request" should get a WhatsApp text too.
-   - `whatsappTemplateMap.js` (Meta HSM) has no refund templates; it only
-     matters if the transport is switched to Meta.
-6. **Refund requests after a consultant accepts.** The server already allows
-   them as review-required, and the form says "Up to EGP X, after review".
-   Keep that, or disable requests once a consultant has accepted?
-7. **"Assigned" vs "accepts".** The brief says a full refund applies
-   "before a consultant is assigned". The code auto-approves while the case
-   is paid **or assigned-but-not-accepted**. The policy page and form say
-   "before a consultant accepts". Confirm the wording, or change the rule.
-8. **Command app.** Add the "number paid to" field to mark-paid, and show the
-   new queue fields.
-9. **Superadmin frame on phones and in Arabic at desktop.** Schedule a frame
-   pass?
-10. **Deploy.** Migration `108_refunds_paid_to_and_paid_by.sql` runs at
-    deploy (two nullable columns).
-11. **Automatic SLA-breach refunds in the Paid tab.** Once paid, they stay
-    out of the 30-day list, matching the existing guard. Include them?
+10. **`mobile:check` dependencies.** It uses `puppeteer-core` from
+    `PUPPETEER_CORE_DIR` or `~/mobile_audit`, plus a local Chrome for
+    Testing. Add `puppeteer-core` as a devDependency, and run it in CI?
+11. **Superadmin frame on phones and in Arabic at desktop.** The header
+    overflows at 390, and the frame is clipped in RTL at 1440. Schedule a
+    frame pass?
 
 ## Needs a device / staging pass
 
