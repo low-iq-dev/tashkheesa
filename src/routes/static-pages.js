@@ -549,7 +549,8 @@ function setupStaticPages(opts) {
 
     if (asJson) return res.json({ ok: true });
     // POST → 303 → GET so a refresh on the success page does not resubmit.
-    return res.redirect(303, '/contact?sent=1');
+    // SEO 2026-09-13 (A1): back to the contact page in the language it was sent from.
+    return res.redirect(303, ((res.locals && res.locals.langPrefix) || '') + '/contact?sent=1');
   });
 
   // ─── Pre-launch lead capture ────────────────────────────────────────
@@ -812,19 +813,21 @@ function setupStaticPages(opts) {
     );
   });
 
-  // Legacy .html redirects
-  router.get('/services.html', function(req, res) { res.redirect(301, '/services'); });
-  router.get('/privacy.html', function(req, res) { res.redirect(301, '/privacy'); });
-  router.get('/terms.html', function(req, res) { res.redirect(301, '/terms'); });
-  router.get('/about.html', function(req, res) { res.redirect(301, '/about'); });
-  router.get('/contact.html', function(req, res) { res.redirect(301, '/contact'); });
-  router.get('/doctors.html', function(req, res) { res.redirect(301, '/about'); });
-  router.get('/site/services.html', function(req, res) { res.redirect(301, '/services'); });
-  router.get('/site/about.html', function(req, res) { res.redirect(301, '/about'); });
-  router.get('/site/contact.html', function(req, res) { res.redirect(301, '/contact'); });
-  router.get('/site/doctors.html', function(req, res) { res.redirect(301, '/about'); });
-  router.get('/site/privacy.html', function(req, res) { res.redirect(301, '/privacy'); });
-  router.get('/site/terms.html', function(req, res) { res.redirect(301, '/terms'); });
+  // Legacy .html redirects. SEO 2026-09-13 (A1): an /ar/<old>.html address
+  // redirects to the Arabic page, not the English one.
+  function langPrefixOf(res) { return (res.locals && res.locals.langPrefix) || ''; }
+  router.get('/services.html', function(req, res) { res.redirect(301, langPrefixOf(res) + '/services'); });
+  router.get('/privacy.html', function(req, res) { res.redirect(301, langPrefixOf(res) + '/privacy'); });
+  router.get('/terms.html', function(req, res) { res.redirect(301, langPrefixOf(res) + '/terms'); });
+  router.get('/about.html', function(req, res) { res.redirect(301, langPrefixOf(res) + '/about'); });
+  router.get('/contact.html', function(req, res) { res.redirect(301, langPrefixOf(res) + '/contact'); });
+  router.get('/doctors.html', function(req, res) { res.redirect(301, langPrefixOf(res) + '/about'); });
+  router.get('/site/services.html', function(req, res) { res.redirect(301, langPrefixOf(res) + '/services'); });
+  router.get('/site/about.html', function(req, res) { res.redirect(301, langPrefixOf(res) + '/about'); });
+  router.get('/site/contact.html', function(req, res) { res.redirect(301, langPrefixOf(res) + '/contact'); });
+  router.get('/site/doctors.html', function(req, res) { res.redirect(301, langPrefixOf(res) + '/about'); });
+  router.get('/site/privacy.html', function(req, res) { res.redirect(301, langPrefixOf(res) + '/privacy'); });
+  router.get('/site/terms.html', function(req, res) { res.redirect(301, langPrefixOf(res) + '/terms'); });
 
   return router;
 }

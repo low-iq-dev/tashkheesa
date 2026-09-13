@@ -7,7 +7,7 @@
 //   2. EN response body contains all 5 EN category headers and all 14 EN
 //      questions, server-rendered (i.e. visible in the source HTML, not
 //      hidden behind a JS fetch).
-//   3. GET /faq?lang=ar returns 200 with the AR category headers + all
+//   3. GET /ar/faq (SEO 2026-09-13: was /faq?lang=ar, now a 301 to it) returns 200 with the AR category headers + all
 //      14 AR questions, server-rendered.
 //   4. The page sets dir="rtl" only in AR mode.
 //
@@ -178,11 +178,11 @@ module.exports = (async function run() {
     // ── AR ────────────────────────────────────────────────────────────
     let arBody = '';
     try {
-      const r = await get('/faq?lang=ar');
-      assert.strictEqual(r.status, 200, 'GET /faq?lang=ar must 200, got ' + r.status);
+      const r = await get('/ar/faq');
+      assert.strictEqual(r.status, 200, 'GET /ar/faq must 200, got ' + r.status);
       arBody = r.body;
-      t.pass('GET /faq?lang=ar returns 200');
-    } catch (e) { t.fail('GET /faq?lang=ar', e); return; }
+      t.pass('GET /ar/faq returns 200');
+    } catch (e) { t.fail('GET /ar/faq', e); return; }
 
     try {
       const missing = AR_CATEGORIES.filter(function (c) { return arBody.indexOf(c) === -1; });

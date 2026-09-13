@@ -115,7 +115,7 @@ module.exports = function (deps) {
     // Honeypot — a genuine user never fills `website`. Show success but insert
     // nothing and send nothing (never signal the bot).
     if (req.body && String(req.body.website || '').trim() !== '') {
-      return res.redirect(303, '/apply?submitted=1');
+      return res.redirect(303, ((res.locals && res.locals.langPrefix) || '') + '/apply?submitted=1');
     }
 
     const errors = validationResult(req).mapped();
@@ -176,7 +176,7 @@ module.exports = function (deps) {
       console.error('[apply] ops push failed (application already saved):', pushErr && pushErr.message);
     }
 
-    return res.redirect(303, '/apply?submitted=1');
+    return res.redirect(303, ((res.locals && res.locals.langPrefix) || '') + '/apply?submitted=1');
   });
 
   return router;

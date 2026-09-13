@@ -140,11 +140,11 @@ module.exports = (async function run() {
     // ── Index AR ───────────────────────────────────────────────────────
     let idxAr = '';
     try {
-      const r = await get('/blog?lang=ar');
-      assert.strictEqual(r.status, 200, 'GET /blog?lang=ar must 200');
+      const r = await get('/ar/blog');
+      assert.strictEqual(r.status, 200, 'GET /ar/blog must 200');
       idxAr = r.body;
-      t.pass('GET /blog?lang=ar returns 200');
-    } catch (e) { t.fail('GET /blog?lang=ar', e); return; }
+      t.pass('GET /ar/blog returns 200');
+    } catch (e) { t.fail('GET /ar/blog', e); return; }
 
     try {
       assert.ok(/<html[^>]+lang="ar"/.test(idxAr), 'AR index lang="ar"');
@@ -174,8 +174,8 @@ module.exports = (async function run() {
     // ── Individual posts AR ───────────────────────────────────────────
     for (const p of POSTS) {
       try {
-        const r = await get('/blog/' + p.slug + '?lang=ar');
-        assert.strictEqual(r.status, 200, 'GET /blog/' + p.slug + '?lang=ar must 200');
+        const r = await get('/ar/blog/' + p.slug);
+        assert.strictEqual(r.status, 200, 'GET /ar/blog/' + p.slug + ' must 200');
         assert.ok(r.body.indexOf(p.ar_title) !== -1, 'AR body missing title: ' + p.ar_title);
         assert.ok(r.body.indexOf(p.ar_marker) !== -1, 'AR body missing marker: ' + p.ar_marker);
         assert.ok(/<html[^>]+lang="ar"/.test(r.body), 'AR post lang="ar"');

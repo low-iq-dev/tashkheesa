@@ -156,8 +156,8 @@ module.exports = (async function run() {
 
     // ── Index page (AR) ──────────────────────────────────────────────
     try {
-      const r = await get('/specialties?lang=ar');
-      assert.strictEqual(r.status, 200, 'GET /specialties?lang=ar must 200');
+      const r = await get('/ar/specialties');
+      assert.strictEqual(r.status, 200, 'GET /ar/specialties must 200');
       const missing = AR_VISIBLE_NAMES.filter(function (n) { return !r.body.includes(n); });
       assert.deepStrictEqual(missing, [], 'AR missing names: ' + JSON.stringify(missing));
       assert.ok(/<html[^>]+dir="rtl"/.test(r.body), 'AR page must declare dir="rtl"');
@@ -201,7 +201,7 @@ module.exports = (async function run() {
 
     // ── Child page: cardiology (AR) ──────────────────────────────────
     try {
-      const r = await get('/specialties/cardiology?lang=ar');
+      const r = await get('/ar/specialties/cardiology');
       assert.strictEqual(r.status, 200, 'AR cardiology must 200');
       assert.ok(r.body.includes('أمراض القلب'), 'AR cardiology should show the AR name');
       assert.ok(r.body.includes('احجز حالة'), 'AR cardiology should show the AR Book-a-case CTA');

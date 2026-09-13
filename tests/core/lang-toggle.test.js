@@ -4,11 +4,14 @@
 // header (added alongside the /faq page in the P1-PUB-1 partial fix).
 //
 // Verifies the toggle is present on every patient-facing public page
-// served by setupStaticPages, points at the existing /lang/:code?next=
-// route (sanitizer in src/routes/lang.js), shows the correct *target*
-// language label, and strips any incoming ?lang= query from the next URL
-// (otherwise the query param would beat the cookie set by /lang/:code,
-// per middleware.js:196).
+// served by setupStaticPages and shows the correct *target* language label.
+//
+// SEO 2026-09-13 (A1) changed what it points at, deliberately: each public
+// page now has its own Arabic URL (/ar/<path>), so the toggle is a plain
+// rel="alternate" link to the other language's URL — crawlable, no cookie —
+// instead of the /lang/:code?next= cookie switch. ?lang= on a public page is a
+// 301 to the right URL. The /lang/:code route itself is unchanged and is still
+// what the portal uses; its round trip is still pinned below.
 //
 // Skipped automatically when DATABASE_URL or JWT_SECRET is unset.
 
@@ -98,28 +101,33 @@ module.exports = (async function run() {
         assert.strictEqual(r.status, 200, 'GET ' + p + ' must 200, got ' + r.status);
         assert.ok(/data-lang-toggle="ar"/.test(r.body), 'EN nav on ' + p + ' must show toggle pointing at AR');
         assert.ok(/>العربية</.test(r.body), 'EN nav on ' + p + ' must label toggle "العربية"');
-        const m = r.body.match(/href="(\/lang\/ar\?next=[^"]*)"/);
-        assert.ok(m, 'EN nav on ' + p + ' must contain a /lang/ar?next=... href');
-        assert.ok(m[1].includes('next=' + encodeURIComponent(p)), 'next= must encode ' + p + ', got ' + m[1]);
-        t.pass('toggle: ' + p + ' (EN) → /lang/ar?next=' + encodeURIComponent(p));
+        const m = r.body.match(/href="([^"]*)"\s+class="nav-link nav-lang"\s+rel="alternate" hreflang="ar-EG"/);
+        assert.ok(m, 'EN nav on ' + p + ' must contain a rel=alternate hreflang=ar-EG toggle');
+        assert.strictEqual(m[1], '/ar' + p, 'EN toggle on ' + p + ' must point at /ar' + p);
+        t.pass('toggle: ' + p + ' (EN) → /ar' + p);
       } catch (e) { t.fail('toggle EN ' + p, e); }
     }
 
     // ── Toggle present on AR variant of /faq ─────────────────────────
     try {
-      const r = await get('/faq?lang=ar');
-      assert.strictEqual(r.status, 200, 'GET /faq?lang=ar must 200');
+      const r = await get('/ar/faq');
+      assert.strictEqual(r.status, 200, 'GET /ar/faq must 200');
       assert.ok(/data-lang-toggle="en"/.test(r.body), 'AR nav must show toggle pointing at EN');
       assert.ok(/>English</.test(r.body), 'AR nav must label toggle "English"');
-      const m = r.body.match(/href="(\/lang\/en\?next=[^"]*)"/);
-      assert.ok(m, 'AR nav must contain a /lang/en?next=... href');
-      // CRITICAL: ?lang=ar must be stripped from next, otherwise the cookie
-      // change is silently overridden by the query param when the user
-      // lands on the next page.
-      assert.ok(!m[1].includes('lang%3D'), 'next= must strip ?lang= from current URL, got ' + m[1]);
-      assert.ok(m[1].includes('next=' + encodeURIComponent('/faq')), 'next= should be just /faq, got ' + m[1]);
-      t.pass('toggle: /faq?lang=ar (AR) → /lang/en?next=/faq (lang param stripped)');
+      const m = r.body.match(/href="([^"]*)"\s+class="nav-link nav-lang"\s+rel="alternate" hreflang="en"/);
+      assert.ok(m, 'AR nav must contain a rel=alternate hreflang=en toggle');
+      assert.strictEqual(m[1], '/faq', 'AR toggle must point at /faq, got ' + m[1]);
+      t.pass('toggle: /ar/faq (AR) → /faq');
     } catch (e) { t.fail('toggle AR /faq', e); }
+
+    // ── ?lang= on a public page is a 301 to the language URL, no cookie ──
+    try {
+      const r = await get('/faq?lang=ar');
+      assert.strictEqual(r.status, 301, 'GET /faq?lang=ar must 301, got ' + r.status);
+      assert.strictEqual(r.location, '/ar/faq', 'must redirect to /ar/faq, got ' + r.location);
+      assert.ok(!/lang=/.test(String(r.headers.get('set-cookie') || '')), 'must not set a lang cookie');
+      t.pass('?lang=ar on /faq → 301 /ar/faq, no cookie');
+    } catch (e) { t.fail('?lang= 301', e); }
 
     // ── Round-trip: GET the toggle URL → 302 → cookie → next page ────
     try {
@@ -134,10 +142,10 @@ module.exports = (async function run() {
     // ── Other querystrings preserved across toggle ───────────────────
     try {
       const r = await get('/services?spec=cardiology');
-      const m = r.body.match(/href="(\/lang\/ar\?next=[^"]*)"/);
+      const m = r.body.match(/href="([^"]*)"\s+class="nav-link nav-lang"/);
       assert.ok(m, 'toggle href found on /services?spec=cardiology');
-      assert.ok(decodeURIComponent(m[1]).includes('spec=cardiology'),
-        'next= must preserve non-lang query params, got ' + m[1]);
+      assert.strictEqual(m[1].replace(/&amp;/g, '&'), '/ar/services?spec=cardiology',
+        'toggle must keep non-lang query params, got ' + m[1]);
       t.pass('toggle preserves non-lang query params (spec=cardiology)');
     } catch (e) { t.fail('preserve query params', e); }
 
@@ -160,7 +168,7 @@ module.exports = (async function run() {
 
     // ── AR nav labels (translated) ───────────────────────────────────
     try {
-      const r = await get('/faq?lang=ar');
+      const r = await get('/ar/faq');
       const arLabels = [
         { ar: 'الخدمات',        en: 'Services' },
         { ar: 'من نحن',         en: 'About' },
@@ -187,7 +195,7 @@ module.exports = (async function run() {
 
     // ── AR footer labels ─────────────────────────────────────────────
     try {
-      const r = await get('/faq?lang=ar');
+      const r = await get('/ar/faq');
       const arFooter = [
         'الخدمات والأسعار', 'من نحن', 'الأسئلة الشائعة', 'اتصل بنا',
         'سياسة الخصوصية', 'شروط الخدمة', 'الاسترداد والإلغاء', 'سياسة التسليم',

@@ -26,7 +26,20 @@
   const __langNext = __stripLangParam(__rawCurrentUrl);
   const __langTargetCode = (pageLang === 'ar') ? 'en' : 'ar';
   const __langTargetLabel = (pageLang === 'ar') ? 'English' : 'العربية';
-  const __langHref = '/lang/' + __langTargetCode + '?next=' + encodeURIComponent(__langNext);
+  // SEO 2026-09-13 (A1): on a public page the other language is its own URL
+  // (altLangUrl, set by publicLangPrefix), so the toggle is a plain link a
+  // crawler can follow. The human keeps any other query string. A page outside
+  // the public URL scheme keeps the /lang/:code cookie switch.
+  const __isPublicLangUrl = (typeof locals !== 'undefined' && locals &&
+    typeof locals.langPrefix === 'string' && typeof locals.altLangUrl === 'string');
+  const __langQuery = (function () {
+    const s = __stripLangParam(__rawCurrentUrl);
+    const i = s.indexOf('?');
+    return i === -1 ? '' : s.slice(i);
+  })();
+  const __langHref = __isPublicLangUrl
+    ? String(locals.altLangUrl) + __langQuery
+    : '/lang/' + __langTargetCode + '?next=' + encodeURIComponent(__langNext);
 
   // SEO & Open Graph
   const siteUrl = 'https://tashkheesa.com';
@@ -121,7 +134,7 @@
           <a
             href="<%= __langHref %>"
             class="nav-link nav-lang"
-            rel="nofollow"
+            <% if (__isPublicLangUrl) { %>rel="alternate" hreflang="<%= __langTargetCode === 'ar' ? 'ar-EG' : 'en' %>"<% } else { %>rel="nofollow"<% } %>
             lang="<%= __langTargetCode %>"
             aria-label="Switch language to <%= __langTargetLabel %>"
             data-lang-toggle="<%= __langTargetCode %>"

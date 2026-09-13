@@ -109,8 +109,8 @@
         <a href="/specialties"><%= tt('nav.doctors', 'Doctors', 'الدكاترة') %></a>
         <a href="/contact"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a>
         <div class="nav-lang-toggle">
-          <a href="/lang/en?next=/" class="lang-btn <%= lang === 'en' ? 'active' : '' %>" id="lang-en" rel="nofollow" lang="en">EN</a>
-          <a href="/lang/ar?next=/" class="lang-btn <%= lang === 'ar' ? 'active' : '' %>" id="lang-ar" rel="nofollow" lang="ar">AR</a>
+          <a href="/" class="lang-btn <%= lang === 'en' ? 'active' : '' %>" id="lang-en" rel="alternate" hreflang="en" lang="en">EN</a>
+          <a href="/ar/" class="lang-btn <%= lang === 'ar' ? 'active' : '' %>" id="lang-ar" rel="alternate" hreflang="ar-EG" lang="ar">AR</a>
         </div>
         <a href="/login" class="nav-signin"><%= tt('nav.signin', 'Sign In', 'تسجيل الدخول') %></a>
         <div class="nav-cta">

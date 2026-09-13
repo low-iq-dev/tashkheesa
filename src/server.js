@@ -407,6 +407,11 @@ process.on('uncaughtException', function(err) {
 });
 
 // Core middlewares (helmet, cookies, rate limit, i18n, user from JWT)
+// SEO 2026-09-13 (A1) — every public marketing page has an /ar/ twin and the URL
+// decides its language (src/utils/public_lang_url.js). It must run BEFORE
+// baseMiddlewares, which resolves the language for every other route from
+// ?lang= / session / cookie and would otherwise overwrite it.
+app.use(require("./utils/public_lang_url").publicLangPrefix());
 baseMiddlewares(app);
 
 // P0-FORM-1: Backfill gate for patients without a phone. Self-gates on

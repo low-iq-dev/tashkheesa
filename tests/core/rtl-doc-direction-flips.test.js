@@ -5,8 +5,10 @@
 // Theme 10 (commit 82c663c) wired `lang` and `dir` through
 // src/utils/lang.js → src/middleware.js → all layouts. This test
 // proves the end-to-end flow: for every top-level public page, GET
-// /?lang=en serves <html lang="en" dir="ltr"> and GET /?lang=ar
-// serves <html lang="ar" dir="rtl">.
+// /<page> serves <html lang="en" dir="ltr"> and GET /ar/<page> serves
+// <html lang="ar" dir="rtl">. (SEO 2026-09-13: the Arabic page has its own
+// URL now; ?lang= on a public page is a 301 to it, which this test would
+// otherwise count as a skip.)
 //
 // Pattern mirrors tests/core/lang-toggle.test.js — boots a real
 // server, walks a focused list of public pages, asserts the html
@@ -108,7 +110,7 @@ module.exports = (async function run() {
     // ── EN mode: every public page should serve <html lang="en" dir="ltr">
     for (const p of PUBLIC_PAGES) {
       try {
-        const r = await get(p + (p.includes('?') ? '&' : '?') + 'lang=en');
+        const r = await get(p);
         if (r.status !== 200) {
           t.skip(fileTag + ' EN ' + p, 'status=' + r.status);
           continue;
@@ -124,7 +126,7 @@ module.exports = (async function run() {
     // ── AR mode: every public page should serve <html lang="ar" dir="rtl">
     for (const p of PUBLIC_PAGES) {
       try {
-        const r = await get(p + (p.includes('?') ? '&' : '?') + 'lang=ar');
+        const r = await get(p === '/' ? '/ar/' : '/ar' + p);
         if (r.status !== 200) {
           t.skip(fileTag + ' AR ' + p, 'status=' + r.status);
           continue;

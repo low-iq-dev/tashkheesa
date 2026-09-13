@@ -250,20 +250,30 @@ function baseMiddlewares(app) {
     req.user = user || null;
 
     // === PHASE 3: FIX #11 - USE CENTRALIZED LANGUAGE NORMALIZATION ===
+    // SEO 2026-09-13 (A1): on a public marketing page the URL decides the
+    // language. publicLangPrefix (src/utils/public_lang_url.js) runs first and
+    // sets res.locals.langPrefix + res.locals.lang from the /ar/ prefix; nothing
+    // here may override that, and a page a crawler fetches must not write the
+    // session or a cookie. Every other route (portal, auth, APIs) resolves
+    // exactly as before.
+    const urlLang = (res.locals.langPrefix !== undefined) ? res.locals.lang : null;
+
     // Priority: explicit ?lang= > session > cookie > default
-    const lang = normalizeLang(
+    const lang = urlLang ? normalizeLang(urlLang) : normalizeLang(
       (req.query && req.query.lang) ||
       (req.session && req.session.lang) ||
       (req.cookies && req.cookies.lang) ||
       'en'
     );
 
-    // Keep session in sync if sessions are enabled
-    if (req.session) req.session.lang = lang;
+    if (!urlLang) {
+      // Keep session in sync if sessions are enabled
+      if (req.session) req.session.lang = lang;
 
-    // Persist ?lang= query param as cookie so it sticks across pages
-    if (req.query && req.query.lang) {
-      res.cookie('lang', lang, { maxAge: 365 * 24 * 60 * 60 * 1000, httpOnly: false });
+      // Persist ?lang= query param as cookie so it sticks across pages
+      if (req.query && req.query.lang) {
+        res.cookie('lang', lang, { maxAge: 365 * 24 * 60 * 60 * 1000, httpOnly: false });
+      }
     }
 
     res.locals.lang = lang;
