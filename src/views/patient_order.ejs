@@ -325,23 +325,34 @@
     </div>
   <% } %>
 
-  <%# ─── REFUND AFFORDANCE (Theme 7b Phase 2) ─────────────────────── %>
+  <%# ─── REFUND (Theme 7b Phase 2; Part C2 2026-09-13: a timeline) ──── %>
   <%
     // Locals contract from the route handler:
-    //   refundEligibility — { eligible: bool, reason: string, autoApprove: bool } | null
-    //   existingRefund    — { id, status, requested_amount, instapay_handle,
-    //                         denial_reason, instapay_reference, refunded_at } | null
-    // Both are nullable; render nothing if both are missing OR if the case
-    // is ineligible AND no refund exists.
+    //   refundEligibility — { eligible, reason, autoApprove, remainingEgp? } | null
+    //   existingRefund    — the NEWEST refunds row on this case, any reason
+    //                       (patient request, operator refund, automatic
+    //                       SLA-breach refund) | null
+    //   refundHistory     — every refunds row on the case, newest first
+    //   refundFlash       — { status: 'submitted'|'cancelled'|'', error: 'cancel_window_expired'|'' }
+    // Renders the newest refund as a timeline — Requested → Under review →
+    // Approved / Declined (with the reason) → Paid (date + last 4 digits of the
+    // number paid to) — then the "Request refund" CTA whenever the case is
+    // still eligible and no refund is OPEN, which after a paid partial refund
+    // means both. Ineligible and no refund: nothing.
     const __refundEligibility = (typeof refundEligibility === 'object' && refundEligibility) ? refundEligibility : null;
     const __existingRefund    = (typeof existingRefund    === 'object' && existingRefund)    ? existingRefund    : null;
-    const __refundCanRequest  = !!(__refundEligibility && __refundEligibility.eligible) && !__existingRefund;
+    const __refundHistory     = (typeof refundHistory !== 'undefined' && Array.isArray(refundHistory)) ? refundHistory : (__existingRefund ? [__existingRefund] : []);
     const __refundStatus      = __existingRefund ? String(__existingRefund.status || '').toLowerCase() : null;
+    const __refundOpen        = ['pending', 'auto_approved', 'approved'].indexOf(__refundStatus) !== -1;
+    const __refundCanRequest  = !!(__refundEligibility && __refundEligibility.eligible) && !__refundOpen;
+    const __refundFlash       = (typeof refundFlash === 'object' && refundFlash) ? refundFlash : {};
 
     // Cancel-window check: 1 hour from refunded_at (the row's created-at
-    // timestamp from migration 028). Mirrors the route handler's gate.
+    // timestamp from migration 028). Mirrors the route handler's gate; only a
+    // request the patient made themselves can be cancelled.
     let __refundCanCancel = false;
-    if (__existingRefund && (__refundStatus === 'pending' || __refundStatus === 'auto_approved')) {
+    if (__existingRefund && (__refundStatus === 'pending' || __refundStatus === 'auto_approved')
+        && String(__existingRefund.reason || 'patient_request') === 'patient_request') {
       try {
         const created = new Date(__existingRefund.refunded_at);
         if (!isNaN(created.getTime())) {
@@ -349,83 +360,210 @@
         }
       } catch (_) { __refundCanCancel = false; }
     }
+
+    // Western digits for money and dates (the patient compares them with their
+    // InstaPay app).
+    const __rfDate = function (v) {
+      if (!v) return '';
+      const d = new Date(v);
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleString(__isAr ? 'ar-EG-u-nu-latn' : 'en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    };
+    const __rfMoney = function (n) {
+      const v = Number(n);
+      if (!Number.isFinite(v) || v <= 0) return '';
+      const s = v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+      return __isAr ? s + ' جنيه' : 'EGP ' + s;
+    };
+    const __rfLast4 = function (x) {
+      const d = String(x || '').replace(/[^0-9]/g, '');
+      return d.length >= 4 ? d.slice(-4) : '';
+    };
+    const __rfJoin = function (parts) { return parts.filter(Boolean).join(' — '); };
+    const __rfOrigin = function (r) {
+      const why = String((r && r.reason) || 'patient_request');
+      if (why === 'sla_breach') return tt('refund.tl.auto_opened', 'Refund opened automatically', 'تم فتح استرداد تلقائيًا');
+      if (why === 'operator_refund') return tt('refund.tl.operator_opened', 'We opened a refund for you', 'فتحنا طلب استرداد نيابةً عنك');
+      return tt('refund.tl.requested', 'You asked for a refund', 'طلبت استرداد المبلغ');
+    };
+    const __rfStatusLabel = function (st) {
+      return ({
+        pending: tt('refund.state.pending', 'under review', 'قيد المراجعة'),
+        auto_approved: tt('refund.state.approved', 'approved', 'تم اعتماده'),
+        approved: tt('refund.state.approved', 'approved', 'تم اعتماده'),
+        paid: tt('refund.state.paid', 'paid', 'تم تحويله'),
+        denied: tt('refund.state.denied', 'declined', 'مرفوض')
+      })[st] || st;
+    };
+
+    let __rfSteps = [];
+    let __rfTitle = '';
+    let __rfState = '';
+    if (__existingRefund) {
+      const r = __existingRefund;
+      const st = __refundStatus;
+      const requestedAmt = __rfMoney(r.requested_amount != null ? r.requested_amount : r.amount_egp);
+      const approvedAmt = __rfMoney(r.approved_amount != null ? r.approved_amount : (r.amount_egp != null ? r.amount_egp : r.requested_amount));
+      const paidAmt = __rfMoney(r.amount_egp != null ? r.amount_egp : r.approved_amount);
+      const last4 = __rfLast4(r.paid_to_number || r.instapay_handle);
+      const toNumber = last4 ? tt('refund.tl.to_number', 'to your InstaPay number ending ' + last4, 'إلى رقم إنستاباي المنتهي بـ ' + last4) : '';
+      __rfState = st === 'auto_approved' ? 'approved' : (['pending', 'approved', 'paid', 'denied'].indexOf(st) !== -1 ? st : (st || 'unknown'));
+
+      __rfSteps.push({ key: 'requested', state: 'done', title: __rfOrigin(r),
+        detail: __rfJoin([__rfDate(r.refunded_at), requestedAmt]),
+        note: String(r.reason) === 'sla_breach'
+          ? tt('refund.tl.breach_note', 'The deadline was missed, so your urgency surcharge comes back.', 'فات موعد التسليم، لذلك تُرَدّ إليك رسوم الاستعجال.')
+          : '' });
+
+      if (st === 'pending') {
+        __rfTitle = tt('refund.status.pending', 'Refund request pending review', 'طلب الاسترداد قيد المراجعة');
+        __rfSteps.push({ key: 'review', state: 'current', title: tt('refund.tl.review', 'Under review', 'قيد المراجعة'),
+          detail: tt('refund.tl.review_detail', 'We reply within 1 business day.', 'نرد خلال يوم عمل واحد.') });
+        __rfSteps.push({ key: 'decision', state: 'next', title: tt('refund.tl.decision_next', 'Approved or declined', 'الاعتماد أو الرفض') });
+        __rfSteps.push({ key: 'paid', state: 'next', title: tt('refund.tl.paid_next', 'Paid by InstaPay', 'التحويل عبر إنستاباي') });
+      } else if (st === 'auto_approved' || st === 'approved') {
+        __rfTitle = tt('refund.status.approved', 'Refund approved — we\'ll send your InstaPay transfer within 3–5 business days.', 'تم اعتماد الاسترداد — هنحوّللك المبلغ عبر إنستاباي خلال 3–5 أيام عمل.');
+        if (st === 'approved') {
+          __rfSteps.push({ key: 'review', state: 'done', title: tt('refund.tl.reviewed', 'Reviewed', 'تمت المراجعة'), detail: __rfDate(r.reviewed_at) });
+        }
+        __rfSteps.push({ key: 'decision', state: 'done',
+          title: st === 'auto_approved' ? tt('refund.tl.approved_auto', 'Approved automatically', 'تم الاعتماد تلقائيًا') : tt('refund.tl.approved', 'Approved', 'تم الاعتماد'),
+          detail: approvedAmt });
+        __rfSteps.push({ key: 'paid', state: 'current', title: tt('refund.tl.on_its_way', 'On its way', 'في الطريق إليك'),
+          detail: __rfJoin([tt('refund.tl.arrives', 'Arrives within 3–5 business days of approval', 'يصل خلال 3–5 أيام عمل من الاعتماد'), toNumber]) });
+      } else if (st === 'paid') {
+        __rfTitle = tt('refund.status.paid_v2', 'Refund paid', 'تم تحويل المبلغ');
+        __rfSteps.push({ key: 'decision', state: 'done', title: tt('refund.tl.approved', 'Approved', 'تم الاعتماد'), detail: __rfJoin([__rfDate(r.reviewed_at), approvedAmt]) });
+        __rfSteps.push({ key: 'paid', state: 'done', title: tt('refund.tl.paid', 'Paid', 'تم التحويل'),
+          detail: __rfJoin([__rfDate(r.paid_at), paidAmt, toNumber]),
+          ref: r.instapay_reference || '' });
+      } else if (st === 'denied') {
+        __rfTitle = tt('refund.status.denied', 'Refund request denied', 'تم رفض طلب الاسترداد');
+        __rfSteps.push({ key: 'review', state: 'done', title: tt('refund.tl.reviewed', 'Reviewed', 'تمت المراجعة'), detail: __rfDate(r.reviewed_at) });
+        __rfSteps.push({ key: 'decision', state: 'current', title: tt('refund.tl.declined', 'Declined', 'تم الرفض'),
+          quote: r.denial_reason || tt('refund.tl.declined_no_reason', 'Contact us if you would like this looked at again.', 'تواصل معنا إذا أردت إعادة النظر في القرار.') });
+      } else {
+        __rfTitle = tt('refund.status.other', 'Refund', 'الاسترداد');
+        __rfSteps.push({ key: 'status', state: 'current', title: __rfJoin([tt('refund.tl.status', 'Status', 'الحالة'), __rfStatusLabel(st)]) });
+      }
+    }
+    const __rfEarlier = __refundHistory.slice(1);
+    const __rfSr = { done: tt('refund.tl.sr_done', 'done', 'تم'), current: tt('refund.tl.sr_current', 'now', 'الآن'), next: tt('refund.tl.sr_next', 'next', 'التالي') };
   %>
 
-  <% if (__refundCanRequest) { %>
-    <section style="margin-top:18px;" data-refund-cta>
-      <div class="p-card">
+  <style>
+    .p-refund-card__title { margin: 0 0 14px; font-size: 15px; font-weight: 600; color: var(--ink); line-height: 1.45; }
+    .p-refund-tl { list-style: none; margin: 0; padding: 0; }
+    .p-refund-tl__step { position: relative; display: flex; gap: 12px; padding-block-end: 14px; }
+    .p-refund-tl__step:last-child { padding-block-end: 0; }
+    .p-refund-tl__step:not(:last-child)::after { content: ''; position: absolute; inset-inline-start: 6px; inset-block-start: 18px; bottom: 0; width: 2px; background: var(--rule); }
+    .p-refund-tl__dot { flex: none; width: 14px; height: 14px; margin-block-start: 3px; border-radius: 50%; border: 2px solid var(--rule-strong); background: var(--surface); }
+    .p-refund-tl__step.is-done .p-refund-tl__dot { background: var(--primary); border-color: var(--primary); }
+    .p-refund-tl__step.is-current .p-refund-tl__dot { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
+    .p-refund-tl__step.is-next .p-refund-tl__title { color: var(--muted); font-weight: 500; }
+    .p-refund-tl__title { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; }
+    .p-refund-tl__detail, .p-refund-tl__ref { margin-block-start: 2px; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+    .p-refund-tl__quote { margin: 6px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--surface-sunk); font-size: 13.5px; color: var(--ink); line-height: 1.55; }
+    .p-refund-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    .p-refund-cancel { margin-block-start: 14px; }
+    .p-refund-cancel summary { display: inline-flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--danger); font-weight: 600; font-size: 13.5px; list-style: none; }
+    .p-refund-cancel summary::-webkit-details-marker { display: none; }
+    .p-refund-cancel__confirm { margin-block-start: 8px; padding: 12px; border-radius: 8px; background: var(--danger-bg); }
+    .p-refund-cancel__confirm p { margin: 0 0 10px; font-size: 13.5px; color: var(--ink); }
+    .p-refund-cancel__confirm .p-btn { min-height: 44px; }
+    .p-refund-cancel__hint { display: block; margin-block-start: 4px; font-size: 12px; color: var(--muted); }
+    .p-refund-flash { margin-block-end: 12px; padding: 12px 14px; border-radius: 10px; background: var(--primary-light); color: var(--ink); font-size: 14px; }
+    .p-refund-flash--err { background: var(--danger-bg); }
+    .p-refund-earlier { margin: 14px 0 0; padding: 0; list-style: none; border-block-start: 1px solid var(--rule); }
+    .p-refund-earlier li { padding-block: 8px; font-size: 13px; color: var(--ink-2); border-block-end: 1px solid var(--rule); }
+    .p-refund-earlier h3 { margin: 12px 0 0; font-size: 13px; font-weight: 600; color: var(--ink); }
+  </style>
+
+  <section id="refund" style="margin-top:18px;" data-refund-block>
+    <% if (__refundFlash.status === 'submitted') { %>
+      <div class="p-refund-flash" role="status"><%= tt('refund.flash.submitted', 'Your refund request was sent. We review it within 1 business day.', 'تم إرسال طلب الاسترداد. نراجعه خلال يوم عمل واحد.') %></div>
+    <% } else if (__refundFlash.status === 'cancelled') { %>
+      <div class="p-refund-flash" role="status"><%= tt('refund.flash.cancelled', 'Your refund request was cancelled.', 'تم إلغاء طلب الاسترداد.') %></div>
+    <% } %>
+    <% if (__refundFlash.error === 'cancel_window_expired') { %>
+      <div class="p-refund-flash p-refund-flash--err" role="alert"><%= tt('refund.flash.cancel_expired', 'This request can no longer be cancelled — more than an hour has passed. Contact us if you need to change it.', 'لم يعد ممكنًا إلغاء هذا الطلب — مرّت أكثر من ساعة. تواصل معنا إذا أردت تعديله.') %></div>
+    <% } %>
+
+    <% if (__existingRefund) { %>
+      <div class="p-card" data-refund-status="<%= __refundStatus %>">
+        <div class="p-card__body" style="padding:18px;">
+          <h2 class="p-refund-card__title"><%= __rfTitle %></h2>
+          <ol class="p-refund-tl" data-refund-timeline="<%= __rfState %>">
+            <% __rfSteps.forEach(function (s) { %>
+              <li class="p-refund-tl__step is-<%= s.state %>" data-step="<%= s.key %>"<% if (s.state === 'current') { %> aria-current="step"<% } %>>
+                <span class="p-refund-tl__dot" aria-hidden="true"></span>
+                <div>
+                  <div class="p-refund-tl__title"><%= s.title %> <span class="p-refund-sr">(<%= __rfSr[s.state] %>)</span></div>
+                  <% if (s.detail) { %><div class="p-refund-tl__detail"><%= s.detail %></div><% } %>
+                  <% if (s.note) { %><div class="p-refund-tl__detail"><%= s.note %></div><% } %>
+                  <% if (s.ref) { %><div class="p-refund-tl__ref"><%= tt('refund.tl.reference', 'InstaPay reference', 'رقم تحويل إنستاباي') %>: <bdi dir="ltr" style="font-family:var(--font-mono);"><%= s.ref %></bdi></div><% } %>
+                  <% if (s.quote) { %><p class="p-refund-tl__quote"><%= s.quote %></p><% } %>
+                </div>
+              </li>
+            <% }); %>
+          </ol>
+
+          <% if (__refundCanCancel) { %>
+            <form method="post" class="p-refund-cancel"
+                  action="/portal/patient/orders/<%= __order.id %>/refund-request/cancel">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <details>
+                <summary><%= tt('refund.cancel_button', 'Cancel refund request', 'إلغاء طلب الاسترداد') %></summary>
+                <div class="p-refund-cancel__confirm">
+                  <p><%= tt('refund.cancel_confirm', 'Cancel this request? You can send a new one later while the case is still eligible.', 'إلغاء هذا الطلب؟ يمكنك إرسال طلب جديد لاحقًا ما دامت الحالة مؤهلة.') %></p>
+                  <button type="submit" class="p-btn p-btn--secondary p-btn--sm" data-confirm>
+                    <%= tt('refund.cancel_confirm_button', 'Yes, cancel my request', 'نعم، ألغِ طلبي') %>
+                  </button>
+                </div>
+              </details>
+              <span class="p-refund-cancel__hint">
+                <%= tt('refund.cancel_window_hint', 'You can cancel your request within 1 hour of submitting.', 'تقدر تلغي طلبك خلال ساعة من إرساله.') %>
+              </span>
+            </form>
+          <% } %>
+
+          <% if (__rfEarlier.length) { %>
+            <h3 class="p-refund-earlier-h" style="margin:16px 0 0;font-size:13px;font-weight:600;color:var(--ink);"><%= tt('refund.earlier', 'Earlier refunds on this case', 'استردادات سابقة على هذه الحالة') %></h3>
+            <ul class="p-refund-earlier">
+              <% __rfEarlier.forEach(function (r) { %>
+                <li><%= __rfJoin([__rfOrigin(r), __rfMoney(r.amount_egp != null ? r.amount_egp : r.requested_amount), __rfStatusLabel(String(r.status || '')), __rfDate(r.paid_at || r.refunded_at)]) %></li>
+              <% }); %>
+            </ul>
+          <% } %>
+        </div>
+      </div>
+    <% } %>
+
+    <% if (__refundCanRequest) { %>
+      <div class="p-card" style="margin-top:<%= __existingRefund ? '12px' : '0' %>;" data-refund-cta>
         <div class="p-card__body" style="padding:18px;display:flex;flex-direction:column;gap:10px;">
           <div style="font-size:15px;font-weight:600;color:var(--ink);">
-            <%= tt('refund.cta_title', 'Need a refund?', 'محتاج استرداد فلوسك؟') %>
+            <% if (__refundHistory.some(function (r) { return String(r.status) === 'paid'; })) { %>
+              <%= tt('refund.cta_title_rest', 'Ask for the rest of your payment', 'اطلب باقي المبلغ') %>
+            <% } else { %>
+              <%= tt('refund.cta_title', 'Need a refund?', 'محتاج استرداد فلوسك؟') %>
+            <% } %>
           </div>
           <p style="margin:0;font-size:13.5px;color:var(--ink-2);line-height:1.55;">
-            <%= tt('refund.cta_subtitle',
-                    'You can request a refund. We\'ll review and update you within one business day.',
-                    'تقدر تطلب استرداد فلوسك. هنراجع طلبك ونرد عليك خلال يوم عمل واحد.') %>
+            <%= tt('refund.cta_subtitle_v2',
+                    'The form shows how much can be refunded. We review requests within one business day.',
+                    'يوضح لك النموذج المبلغ الذي يمكن ردّه. نراجع الطلبات خلال يوم عمل واحد.') %>
           </p>
           <div>
-            <a class="p-btn p-btn--secondary"
+            <a class="p-btn p-btn--secondary" style="min-height:44px;"
                href="/portal/patient/orders/<%= __order.id %>/request-refund">
               <%= tt('refund.cta_button', 'Request refund', 'اطلب استرداد المبلغ') %>
             </a>
           </div>
         </div>
       </div>
-    </section>
-  <% } else if (__existingRefund) { %>
-    <section style="margin-top:18px;" data-refund-status="<%= __refundStatus %>">
-      <div class="p-card" style="border-left:4px solid var(--<%= (__refundStatus === 'denied') ? 'danger' : 'primary' %>);">
-        <div class="p-card__body" style="padding:18px;display:flex;flex-direction:column;gap:10px;">
-          <div style="font-size:15px;font-weight:600;color:var(--ink);">
-            <% if (__refundStatus === 'pending') { %>
-              <%= tt('refund.status.pending', 'Refund request pending review', 'طلب الاسترداد قيد المراجعة') %>
-            <% } else if (__refundStatus === 'auto_approved') { %>
-              <%= tt('refund.status.auto_approved',
-                       'Refund approved — we\'ll send your InstaPay transfer within 3–5 business days.',
-                       'تم اعتماد الاسترداد — هنحوّللك المبلغ عبر إنستاباي خلال 3–5 أيام عمل.') %>
-            <% } else if (__refundStatus === 'approved') { %>
-              <%= tt('refund.status.approved',
-                       'Refund approved — we\'ll send your InstaPay transfer within 3–5 business days.',
-                       'تم اعتماد الاسترداد — هنحوّللك المبلغ عبر إنستاباي خلال 3–5 أيام عمل.') %>
-            <% } else if (__refundStatus === 'paid') { %>
-              <%= tt('refund.status.paid', 'Refund paid via Instapay', 'تم تحويل المبلغ عبر الإنستاباي') %>
-            <% } else if (__refundStatus === 'denied') { %>
-              <%= tt('refund.status.denied', 'Refund request denied', 'تم رفض طلب الاسترداد') %>
-            <% } %>
-          </div>
-
-          <% if (__refundStatus === 'denied' && __existingRefund.denial_reason) { %>
-            <p style="margin:0;font-size:13.5px;color:var(--ink-2);line-height:1.55;">
-              <%= __existingRefund.denial_reason %>
-            </p>
-          <% } %>
-
-          <% if (__refundStatus === 'paid' && __existingRefund.instapay_reference) { %>
-            <p style="margin:0;font-size:13px;color:var(--muted);line-height:1.55;">
-              <%= tt('Instapay reference', 'Instapay reference', 'رقم تحويل الإنستاباي') %>:
-              <span style="font-family:var(--font-mono);"><%= __existingRefund.instapay_reference %></span>
-            </p>
-          <% } %>
-
-          <% if (__refundCanCancel) { %>
-            <form method="post"
-                  action="/portal/patient/orders/<%= __order.id %>/refund-request/cancel"
-                  style="margin-top:6px;">
-              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-              <button type="submit" class="p-btn p-btn--ghost p-btn--sm">
-                <%= tt('refund.cancel_button', 'Cancel refund request', 'إلغاء طلب الاسترداد') %>
-              </button>
-              <span style="font-size:12px;color:var(--muted);margin-inline-start:10px;">
-                <%= tt('refund.cancel_window_hint',
-                         'You can cancel your request within 1 hour of submitting.',
-                         'تقدر تلغي طلبك خلال ساعة من إرساله.') %>
-              </span>
-            </form>
-          <% } %>
-        </div>
-      </div>
-    </section>
-  <% } %>
+    <% } %>
+  </section>
 
 </section>
 

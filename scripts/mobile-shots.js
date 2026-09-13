@@ -89,7 +89,8 @@ const REFUND_PAGES = [
   { key: 'rf-case-pending', as: 'patient', path: '/portal/patient/orders/' + fixtures.IDS.rfPending, timeline: 'pending' },
   { key: 'rf-case-partial', as: 'patient', path: '/portal/patient/orders/' + fixtures.IDS.rfPartial, timeline: 'paid', cta: true },
   { key: 'rf-case-breach', as: 'patient', path: '/portal/patient/orders/' + fixtures.IDS.rfBreach, timeline: 'paid' },
-  { key: 'rf-case-denied', as: 'patient', path: '/portal/patient/orders/' + fixtures.IDS.rfDenied, timeline: 'denied' },
+  // A denied request can be sent again while the case is still eligible (migration 107).
+  { key: 'rf-case-denied', as: 'patient', path: '/portal/patient/orders/' + fixtures.IDS.rfDenied, timeline: 'denied', cta: true },
   { key: 'rf-queue', as: 'ops', path: '/superadmin/refunds', desktop: true },
   { key: 'rf-create', as: 'ops', path: '/superadmin/refunds/create?order_id=' + fixtures.IDS.rfPartial, max: '1800.00' }
 ].filter((p) => !ONLY || ONLY.includes(p.key) || ONLY.includes('rf'));
@@ -541,6 +542,9 @@ async function refundPass({ browser, base, jwt, cookieName, docsDir, rows, failu
             eligText: elig ? elig.textContent.replace(/\s+/g, ' ').trim() : '',
             submitDisabled: submit ? submit.disabled : null,
             submitBarPos: bar ? getComputedStyle(bar).position : null,
+            // Computed "sticky" is not proof: an ancestor with overflow:hidden
+            // makes it stick to a box that never scrolls. It must be on the first screen.
+            submitOnFirstScreen: submit ? (function () { window.scrollTo(0, 0); const r = submit.getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; })() : null,
             instapay: (q('[name=instapay_handle]') || {}).value || null,
             smallInputs,
             timeline: tl ? tl.getAttribute('data-refund-timeline') : null,
@@ -568,6 +572,7 @@ async function refundPass({ browser, base, jwt, cookieName, docsDir, rows, failu
           if (m.submitDisabled !== nothing) fails.push('submit disabled=' + m.submitDisabled);
           if (!nothing && m.instapay !== '+201000000002') fails.push('InstaPay not prefilled from the profile (' + m.instapay + ')');
           if (vp.phone && !['sticky', 'fixed'].includes(m.submitBarPos)) fails.push('submit not sticky (' + m.submitBarPos + ')');
+          if (vp.phone && !m.submitOnFirstScreen) fails.push('submit button not on the first screen');
           if (m.smallInputs) fails.push(m.smallInputs + ' field(s) under 16px');
         }
         if (pg.timeline) {
@@ -587,7 +592,9 @@ async function refundPass({ browser, base, jwt, cookieName, docsDir, rows, failu
         if (pg.max && m.amountMax !== pg.max) fails.push('create max ' + m.amountMax + ' (expected ' + pg.max + ')');
         rows.push({ id, status, fails });
         if (fails.length) failures.push(id + ': ' + fails.join('; '));
-        const full = !pg.timeline;
+        // Request forms: the first screen (facts, eligibility, sticky submit). A
+        // full-page capture would paint the fixed tab bar half-way down.
+        const full = !pg.timeline && !pg.kind;
         if (pg.timeline) {
           await page.evaluate(() => {
             const el = document.querySelector('[data-refund-block],[data-refund-status],[data-refund-cta]');

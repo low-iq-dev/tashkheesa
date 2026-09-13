@@ -86,8 +86,9 @@ try {
     throw new Error('POST submit route does not surface an `instapay_required` validation error');
   }
   // Length caps
-  if (!/reasonRaw\.length\s*>\s*1000/.test(postBody)) {
-    throw new Error('POST submit route does not cap reason at 1000 chars');
+  // Part C1 (2026-09-13): the brief caps the patient's reason at 500 characters.
+  if (!/reasonRaw\.length\s*>\s*500/.test(postBody)) {
+    throw new Error('POST submit route does not cap reason at 500 chars');
   }
   if (!/instapayRaw\.length\s*>\s*100/.test(postBody)) {
     throw new Error('POST submit route does not cap instapay handle at 100 chars');
@@ -176,14 +177,14 @@ try {
   const view = fs.readFileSync(VIEW, 'utf8');
   if (!/tt\(/.test(view)) throw new Error('patient_refund_request.ejs does not use tt() i18n helper');
   if (!/csrfField/.test(view)) throw new Error('patient_refund_request.ejs does not render csrfField()');
-  if (!/maxlength=["']1000["']/.test(view)) throw new Error('reason textarea maxlength is not 1000');
+  if (!/maxlength=["']500["']/.test(view)) throw new Error('reason textarea maxlength is not 500 (Part C1)');
   if (!/maxlength=["']100["']/.test(view)) throw new Error('instapay input maxlength is not 100');
   if (!/name=["']reason["']/.test(view)) throw new Error('form has no <textarea name="reason">');
   if (!/name=["']instapay_handle["']/.test(view)) throw new Error('form has no <input name="instapay_handle">');
   if (!/3-5\s*business\s*days|3-5\s*أيام/.test(view)) {
     throw new Error('form is missing the "3-5 business days" timeline copy');
   }
-  t.pass('patient_refund_request.ejs: tt(), CSRF, field caps (1000/100), 3-5 business-days timeline copy');
+  t.pass('patient_refund_request.ejs: tt(), CSRF, field caps (500/100), 3-5 business-days timeline copy');
 } catch (e) { t.fail('view shape', e); }
 
 // ── 8. Order page CTA + status banner section present ─────────────

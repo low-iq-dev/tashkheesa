@@ -245,6 +245,9 @@ async function seed(client) {
 // Part C (2026-09-13) — one order per refund state the patient form, the case
 // timeline and the operator queue have to explain.
 async function seedRefunds(client, base) {
+  // refunds.refunded_at is TIMESTAMP (no zone) and the server session is UTC;
+  // write these rows in UTC too or the timeline's times come out shifted.
+  await client.query("SET LOCAL TIME ZONE 'UTC'");
   await insertRow(client, 'users', {
     id: IDS.doctor2, email: 'mobilefx-doctor2@example.com', name: 'Sara Second Fixture', role: 'doctor',
     specialty_id: base.specialty_id, phone: '+201000000003', country_code: 'EG', country: 'EG',

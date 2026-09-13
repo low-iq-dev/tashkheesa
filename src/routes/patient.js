@@ -3977,19 +3977,26 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
   } catch (e) {
     refundEligibility = null;
   }
+  // Part C2 (2026-09-13): every refund on the case, not only the ones the
+  // patient typed. An operator-opened refund or the automatic SLA-breach
+  // refund used to leave the case page silent while money was on its way back.
+  // The newest row drives the timeline; older ones are listed under it.
+  let refundHistory = [];
   try {
-    existingRefund = await queryOne(
-      `SELECT id, status, requested_amount, instapay_handle, instapay_reference,
-              denial_reason, refunded_at
+    refundHistory = (await queryAll(
+      `SELECT id, reason, status, requested_amount, approved_amount, amount_egp,
+              instapay_handle, instapay_reference, paid_to_number,
+              denial_reason, refunded_at, reviewed_at, paid_at, requested_by
          FROM refunds
-        WHERE order_id = $1 AND reason = 'patient_request'
+        WHERE order_id = $1
         ORDER BY refunded_at DESC
-        LIMIT 1`,
+        LIMIT 10`,
       [orderId]
-    );
+    )) || [];
   } catch (e) {
-    existingRefund = null;
+    refundHistory = [];
   }
+  existingRefund = refundHistory[0] || null;
 
   res.render('patient_order', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
@@ -4014,6 +4021,11 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
     msgErr: (req.query && typeof req.query.err === 'string') ? req.query.err : '',
     refundEligibility,
     existingRefund,
+    refundHistory,
+    refundFlash: {
+      status: (req.query && typeof req.query.refund_status === 'string') ? req.query.refund_status : '',
+      error: (req.query && typeof req.query.refund_error === 'string') ? req.query.refund_error : ''
+    },
     // Theme 13 Sub-issue C: spread the locals object so the patient_order
     // view also receives r2DirectEnabled (alongside uploadcarePublicKey +
     // uploaderConfigured). The view doesn't yet branch on r2DirectEnabled —
@@ -4032,6 +4044,23 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
 //   POST /portal/patient/orders/:id/request-refund        — submit
 //   POST /portal/patient/orders/:id/refund-request/cancel — self-cancel within 1h
 
+// Part C1 (2026-09-13) — what the request form shows besides the verdict: the
+// one description every refund surface shares (services/refund_summary) and
+// the InstaPay number prefilled from the patient's profile phone. Failures
+// degrade to "no summary" / "no prefill"; the form still works.
+async function refundFormLocals(order, patientId) {
+  let summary = null;
+  try {
+    summary = await require('../services/refund_summary').refundSummaryForOrder(order);
+  } catch (_) { summary = null; }
+  let instapayDefault = '';
+  try {
+    const u = await queryOne('SELECT phone FROM users WHERE id = $1', [patientId]);
+    instapayDefault = (u && u.phone) ? String(u.phone) : '';
+  } catch (_) { instapayDefault = ''; }
+  return { summary, instapayDefault };
+}
+
 router.get('/portal/patient/orders/:id/request-refund', requireRole('patient'), async (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
@@ -4046,7 +4075,8 @@ router.get('/portal/patient/orders/:id/request-refund', requireRole('patient'), 
     `SELECT id, reference_id, status, payment_status, patient_id,
             no_sla_refund_eligibility,
             price, base_price, urgency_uplift_amount, addons_json,
-            video_consultation_selected, video_consultation_price
+            video_consultation_selected, video_consultation_price,
+            urgency_tier, tier, currency
        FROM orders_active
       WHERE id = $1 AND patient_id = $2`,
     [orderId, patientId]
@@ -4055,9 +4085,9 @@ router.get('/portal/patient/orders/:id/request-refund', requireRole('patient'), 
 
   const { isEligibleForRefund, remainingRefundableEgp } = require('../services/refund_eligibility');
   const eligibility = await isEligibleForRefund(order, patientId);
-  if (!eligibility || !eligibility.eligible) {
-    return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId));
-  }
+  // Part C1 (2026-09-13): an ineligible case used to bounce straight back to
+  // the case page with no word of why. The form now renders and says it, with
+  // the submit disabled; the POST below still refuses it ('ineligible').
 
   // Reject if a request already exists (the partial-unique index would also
   // block the live states, but redirecting earlier is friendlier UX).
@@ -4086,8 +4116,9 @@ router.get('/portal/patient/orders/:id/request-refund', requireRole('patient'), 
   // minus refunds already paid — so a second request after a paid partial
   // refund asks for the remainder, not the whole invoice again.
   const requestedAmount = await remainingRefundableEgp(order);
+  const refundLocals = await refundFormLocals(order, patientId);
 
-  res.render('patient_refund_request', {
+  res.render('patient_refund_request', Object.assign({
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
     lang, isAr,
@@ -4096,7 +4127,7 @@ router.get('/portal/patient/orders/:id/request-refund', requireRole('patient'), 
     requestedAmount,
     formError: '',
     formValues: {}
-  });
+  }, refundLocals));
 });
 
 router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'), async (req, res) => {
@@ -4116,7 +4147,8 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
     `SELECT id, reference_id, status, payment_status, patient_id,
             no_sla_refund_eligibility,
             price, base_price, urgency_uplift_amount, addons_json,
-            video_consultation_selected, video_consultation_price
+            video_consultation_selected, video_consultation_price,
+            urgency_tier, tier, currency
        FROM orders_active
       WHERE id = $1 AND patient_id = $2`,
     [orderId, patientId]
@@ -4139,8 +4171,9 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
   // refund asks for the remainder, not the whole invoice again.
   const requestedAmount = await remainingRefundableEgp(order);
 
-  function rerender(errKey) {
-    return res.render('patient_refund_request', {
+  async function rerender(errKey) {
+    const refundLocals = await refundFormLocals(order, patientId);
+    return res.render('patient_refund_request', Object.assign({
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       user: req.user,
       lang, isAr,
@@ -4149,7 +4182,7 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
       requestedAmount,
       formError: errKey,
       formValues: { reason: reasonRaw, instapay_handle: instapayRaw }
-    });
+    }, refundLocals));
   }
 
   if (!eligibility || !eligibility.eligible) return rerender('ineligible');
@@ -4190,10 +4223,18 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
   if (priorRefund) return rerender('duplicate');
 
   // Validate input. Length caps mirror the form's maxlength attrs.
+  // Part C1 (2026-09-13): the reason is capped at 500 characters (the form's
+  // maxlength), and the InstaPay number must be a real international mobile
+  // number — refunds are sent to it by hand, so a typo sends a patient's money
+  // to a stranger. Stored normalised (E.164), which is what the operator types
+  // into InstaPay and what the paid step's last four digits are read from.
   if (!reasonRaw || reasonRaw.length < 3) return rerender('reason_required');
-  if (reasonRaw.length > 1000) return rerender('reason_required');
+  if (reasonRaw.length > 500) return rerender('reason_too_long');
   if (!instapayRaw || instapayRaw.length < 3) return rerender('instapay_required');
   if (instapayRaw.length > 100) return rerender('instapay_required');
+  const instapayCheck = require('../validators/phone').validatePhoneE164(instapayRaw, lang);
+  if (!instapayCheck.ok) return rerender('instapay_invalid');
+  const instapayNumber = instapayCheck.normalized;
 
   // AUDIT-2026-08-22 (M5): never open a refund for nothing. maxRefundableEgp
   // returns 0 only when the order genuinely has no money attached to it (no
@@ -4238,7 +4279,7 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
          requested_by, refunded_at, refunded_by, notes
        ) VALUES ($1, $2, $3, $3, NULL, 'patient_request', $4, $5, $6, $7, NOW(), $7,
                  'Patient-initiated refund request')`,
-      [refundId, orderId, requestedAmount, reasonRaw, instapayRaw, status, patientId]
+      [refundId, orderId, requestedAmount, reasonRaw, instapayNumber, status, patientId]
     );
   } catch (err) {
     // Partial-unique index uniq_refunds_pending_per_order may have caught
@@ -4278,7 +4319,7 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
         case_id: orderId,
         caseReference: orderId.slice(0, 12).toUpperCase(),
         requestedAmount: requestedAmount.toFixed(2),
-        instapayHandle: instapayRaw,
+        instapayHandle: instapayNumber,
         patientName: req.user.name || ''
       },
       dedupe_key: 'refund_requested:' + refundId + ':patient'
@@ -4332,7 +4373,7 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
   } catch (_) { /* push failure must not block the redirect */ }
 
   return res.redirect(
-    '/portal/patient/orders/' + encodeURIComponent(orderId) + '?refund_status=submitted'
+    '/portal/patient/orders/' + encodeURIComponent(orderId) + '?refund_status=submitted#refund'
   );
 });
 
@@ -4372,7 +4413,7 @@ router.post('/portal/patient/orders/:id/refund-request/cancel', requireRole('pat
   })();
   if (!Number.isFinite(createdMs) || (Date.now() - createdMs) >= 60 * 60 * 1000) {
     return res.redirect(
-      '/portal/patient/orders/' + encodeURIComponent(orderId) + '?refund_error=cancel_window_expired'
+      '/portal/patient/orders/' + encodeURIComponent(orderId) + '?refund_error=cancel_window_expired#refund'
     );
   }
 
@@ -4421,7 +4462,7 @@ router.post('/portal/patient/orders/:id/refund-request/cancel', requireRole('pat
   } catch (_) { /* notification failure must not block the redirect */ }
 
   return res.redirect(
-    '/portal/patient/orders/' + encodeURIComponent(orderId) + '?refund_status=cancelled'
+    '/portal/patient/orders/' + encodeURIComponent(orderId) + '?refund_status=cancelled#refund'
   );
 });
 
