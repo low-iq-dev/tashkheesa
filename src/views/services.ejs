@@ -385,7 +385,7 @@
       <p class="subtitle"><%= tt('svc.hero.subtitle',
         'Expert second opinions from board-certified specialists. Detailed bilingual reports in English and Arabic, delivered in 48 hours standard, as fast as 4 hours with Urgent.',
         'آراء طبية تانية من دكاترة متخصصين معتمدين. تقارير مفصلة بالعربي والإنجليزي، بتوصلك في 48 ساعة قياسي، و4 ساعات للحالات العاجلة.') %></p>
-      <a href="<%= locals.langPrefix || '' %>/help-me-choose" style="display:inline-block;margin-top:16px;background:#eff6ff;color:#2563eb;border:1.5px solid #93c5fd;padding:10px 22px;border-radius:50px;font-weight:600;font-size:14px;text-decoration:none;"><%= tt('svc.hero.help_cta',
+      <a href="<%= locals.publicLinkPrefix || '' %>/help-me-choose" style="display:inline-block;margin-top:16px;background:#eff6ff;color:#2563eb;border:1.5px solid #93c5fd;padding:10px 22px;border-radius:50px;font-weight:600;font-size:14px;text-decoration:none;"><%= tt('svc.hero.help_cta',
         '🩺 Not sure which service you need? Ask our assistant →',
         '🩺 مش متأكد محتاج إيه؟ اسأل المساعد بتاعنا ←') %></a>
     </section>
@@ -394,6 +394,10 @@
     const submitUrl = (typeof user !== 'undefined' && user && user.id)
       ? '/patient/new-case'
       : '/login?next=/patient/new-case';
+    // SEO 2026-09-13 (review): booking/login links carry the page's language —
+    // the portal is cookie-driven and a public page no longer sets the cookie.
+    const __langAmp = (typeof langParam !== 'undefined' && langParam) ? '&' + langParam : '';
+    const __langQs = (typeof langParam !== 'undefined' && langParam) ? '?' + langParam : '';
 
     // Bilingual rendering: keep specialtyMeta keyed by English (so icon/desc
     // still resolve), but swap to name_ar in section headers when isAr.
@@ -595,7 +599,7 @@
             The only branch left is whether the site-wide booking CTA is open. %>
         <% featuredServices.forEach(function(s) { %>
         <% if (__ctaOn) { %>
-        <a href="<%= submitUrl %>?service_id=<%= s.id %>" class="featured-card">
+        <a href="<%= submitUrl %>?service_id=<%= s.id %><%= __langAmp %>" class="featured-card">
         <% } else { %>
         <div class="featured-card is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>">
         <% } %>
@@ -637,7 +641,7 @@
           %></div>
         </div>
         <% if (__specIsLive && __ctaOn) { %>
-        <a href="<%= submitUrl %>?specialty=<%= encodeURIComponent(specName) %>" class="see-all-link">
+        <a href="<%= submitUrl %>?specialty=<%= encodeURIComponent(specName) %><%= __langAmp %>" class="see-all-link">
           <%= tt('svc.book_review', 'Book a review →', 'احجز مراجعة ←') %>
         </a>
         <% } else if (__specIsLive) { %>
@@ -677,7 +681,7 @@
           </div>
         </div>
         <% } else { %>
-        <a href="<%= submitUrl %>?service_id=<%= service.id %>" class="service-card">
+        <a href="<%= submitUrl %>?service_id=<%= service.id %><%= __langAmp %>" class="service-card">
           <h3><%= svcName(service) %></h3>
           <p><%= (__isAr && service.description_ar) || service.description || tt('svc.default_desc',
             'Board-certified specialist review with detailed written report in English and Arabic.',
@@ -709,7 +713,7 @@
              ? ('احجز مراجعة ' + specDisplayName(specName) + ' ←')
              : ('Get ' + enArticle(specDisplayName(specName)) + ' ' + specDisplayName(specName) + ' review →'); %>
         <% if (__specIsLive && __ctaOn) { %>
-        <a href="<%= submitUrl %>?specialty=<%= encodeURIComponent(specName) %>" class="specialty-cta-btn"><%= __ctaLabel %></a>
+        <a href="<%= submitUrl %>?specialty=<%= encodeURIComponent(specName) %><%= __langAmp %>" class="specialty-cta-btn"><%= __ctaLabel %></a>
         <% } else { %>
         <span class="specialty-cta-btn is-cta-locked" aria-disabled="true" title="<%= __specIsLive ? __ctaOffLabel : tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %>"><%= __specIsLive ? __ctaLabel : tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %></span>
         <% } %>
@@ -724,7 +728,7 @@
         'Submit your case in minutes. Expert specialist review, delivered to your inbox.',
         'ابعت حالتك في دقايق. مراجعة من دكتور متخصص بتوصلك على إيميلك.') %></p>
       <% if (__ctaOn) { %>
-      <a href="<%= submitUrl %>" class="btn-cta"><%= tt('svc.cta.submit',
+      <a href="<%= submitUrl %><%= __langQs %>" class="btn-cta"><%= tt('svc.cta.submit',
         'Submit Your Case Now',
         'ابعت حالتك دلوقتي') %></a>
       <% } else { %>

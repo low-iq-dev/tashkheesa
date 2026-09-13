@@ -42,14 +42,22 @@ const PUBLIC_PATTERNS = [
 const AR_HREFLANG = 'ar-EG';
 
 // Express routing is not strict, so `/services/` reaches the `/services`
-// handler; treat it as the same page here too.
+// handler; treat it as the same page here too. A loop, not /\/+$/: that regex
+// backtracks quadratically on a long run of slashes followed by another
+// character, and this runs on every request.
 function normalisePath(p) {
   const s = String(p || '/');
-  if (s === '/') return s;
-  return s.replace(/\/+$/, '') || '/';
+  let end = s.length;
+  while (end > 1 && s.charCodeAt(end - 1) === 47) end--;
+  return end === s.length ? s : (s.slice(0, end) || '/');
 }
 
+// No public page has a path anywhere near this long; longer ones are not
+// examined at all.
+const MAX_PUBLIC_PATH = 256;
+
 function isPublicPath(p) {
+  if (String(p || '').length > MAX_PUBLIC_PATH) return false;
   const n = normalisePath(p);
   if (PUBLIC_EXACT.has(n)) return true;
   return PUBLIC_PATTERNS.some(function (re) { return re.test(n); });
@@ -97,6 +105,24 @@ function queryWithoutLang(rawUrl) {
 
 function publicLangPrefix() {
   return function publicLangPrefixMiddleware(req, res, next) {
+    const method = String(req.method || 'GET').toUpperCase();
+    const isRead = method === 'GET' || method === 'HEAD';
+    const rawQuery = req.url.indexOf('?') === -1 ? '' : req.url.slice(req.url.indexOf('?'));
+
+    // Express matches routes case-insensitively, so /SERVICES and /Ar/About
+    // reach the public handlers too — but outside this scheme (cookie
+    // language, English canonical). One 301 to the lowercase URL, folding in
+    // any ?lang= so it stays a single hop.
+    if (isRead && req.path.length <= MAX_PUBLIC_PATH && req.path !== req.path.toLowerCase()) {
+      const lowerSplit = splitLangPrefix(req.path.toLowerCase());
+      if (isPublicPath(lowerSplit.path)) {
+        const params = new URLSearchParams(rawQuery.slice(1));
+        const asked = String(params.get('lang') || '').toLowerCase();
+        const target = asked === 'ar' ? 'ar' : (asked === 'en' ? 'en' : (lowerSplit.isAr ? 'ar' : 'en'));
+        return res.redirect(301, pathFor(target, lowerSplit.path) + queryWithoutLang(req.url));
+      }
+    }
+
     const split = splitLangPrefix(req.path);
     if (!isPublicPath(split.path)) {
       // Not a public page: the portal, auth pages, APIs, and any /ar/<other>.
@@ -104,10 +130,6 @@ function publicLangPrefix() {
       res.vary('Cookie');
       return next();
     }
-
-    const method = String(req.method || 'GET').toUpperCase();
-    const isRead = method === 'GET' || method === 'HEAD';
-    const rawQuery = req.url.indexOf('?') === -1 ? '' : req.url.slice(req.url.indexOf('?'));
 
     if (isRead) {
       // `?lang=` on a public page: one permanent redirect to the page's URL in
@@ -144,6 +166,10 @@ function publicLangPrefix() {
     // The layout builds canonical + hreflang from the route's `canonical` with
     // the same rule the redirects use, rather than a second copy of it.
     res.locals.publicPathFor = pathFor;
+    // Links from a public page into auth/booking carry the page's language
+    // ('lang=ar' or 'lang=en'): those pages are cookie-driven, and a public
+    // page no longer sets the cookie, so this is how the choice travels.
+    res.locals.langParam = 'lang=' + lang;
     res.setHeader('Content-Language', lang);
     return next();
   };

@@ -78,7 +78,7 @@
       </p>
       <p style="margin:0;">
         <%= tt('Egyptian accounting rules require this, and it is what our Privacy Policy already says we do.', 'Egyptian accounting rules require this, and it is what our Privacy Policy already says we do.', 'القوانين المحاسبية المصرية تتطلب ذلك، وهو ما تنص عليه سياسة الخصوصية بالفعل.') %>
-        <a href="/privacy" style="color:var(--primary-dark);"><%= tt('Read the Privacy Policy', 'Read the Privacy Policy', 'اقرأ سياسة الخصوصية') %></a>
+        <a href="<%= locals.publicLinkPrefix || '' %>/privacy" style="color:var(--primary-dark);"><%= tt('Read the Privacy Policy', 'Read the Privacy Policy', 'اقرأ سياسة الخصوصية') %></a>
       </p>
     </div>
   </div>

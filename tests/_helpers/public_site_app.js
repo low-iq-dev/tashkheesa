@@ -93,11 +93,16 @@ function buildPublicSiteApp(opts) {
     res.locals.currentUrl = req.originalUrl || req.url || '/';
     res.locals.prescriptionsComingSoon = true;
     res.locals.videoComingSoon = true;
-    res.locals.user = null;
-    res.locals.bookingCtaEnabled = false;
+    res.locals.user = opts.user || null;
+    res.locals.bookingCtaEnabled = !!opts.bookingCtaEnabled;
     if (typeof res.locals.csrfField !== 'function') res.locals.csrfField = () => '';
     next();
   });
+
+  // A page OUTSIDE the public URL scheme (like the portal, auth and account
+  // pages) that renders the shared public layout + footer: its language comes
+  // from the cookie, and its links into the public site must follow it.
+  app.get('/__offscheme/about', (req, res) => res.render('about', { BUSINESS_INFO: {} }));
 
   // server.js renderHomepage, minus the database.
   app.get('/', async (req, res) => res.render('index', {

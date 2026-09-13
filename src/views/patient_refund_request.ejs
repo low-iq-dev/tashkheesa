@@ -175,7 +175,7 @@
       <li><%= tt('refund.policy_line_rules', 'Full refund before a consultant accepts your case. After that, a missed deadline refunds the urgency surcharge — Standard has none.', 'استرداد كامل قبل أن يقبل استشاري حالتك. بعد ذلك، يُرَدّ رسم الاستعجال إذا فات موعد التسليم — والخدمة القياسية بلا رسوم استعجال.') %></li>
       <li><%= tt('refund.policy_line_rest', 'If part of your payment was already refunded, you can ask for the rest.', 'إذا رُدّ جزء مما دفعته، يمكنك طلب المتبقي.') %></li>
     </ul>
-    <a href="/refund-policy"><%= tt('refund.policy_link', 'Read the full refund policy', 'اقرأ سياسة الاسترداد كاملة') %></a>
+    <a href="<%= locals.publicLinkPrefix || '' %>/refund-policy"><%= tt('refund.policy_link', 'Read the full refund policy', 'اقرأ سياسة الاسترداد كاملة') %></a>
   </section>
 
     <% if (__canRequest) { %>

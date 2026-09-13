@@ -338,9 +338,12 @@ function setupStaticPages(opts) {
         .concat(_specs.filter(function (n) { return !_live[n]; }))
         .slice(0, 3)
         .map(function (n) { return _arMap[n] || n; });
+      // Number-safe: Arabic counted nouns change form with the number (3–10,
+      // 11–99, 100+), so a noun straight after a live count is wrong for some
+      // values. "N من …" / "منها N" reads correctly for any N.
       var _descAr = function () {
-        return 'تصفّح ' + cat.total + ' خدمة مراجعة طبية متخصصة في ' + cat.totalSpecialties + ' تخصصًا. ' +
-          cat.bookable + ' خدمة متاحة الآن بدءًا من ' + Number(cat.minPrice).toLocaleString('en-US') + ' جنيه — ' +
+        return 'تصفّح ' + cat.total + ' من خدمات المراجعة الطبية المتخصصة في ' + cat.totalSpecialties + ' من التخصصات، منها ' +
+          cat.bookable + ' متاحة الآن بدءًا من ' + Number(cat.minPrice).toLocaleString('en-US') + ' جنيه — ' +
           _namedAr.join('، ') + ' وغيرها.';
       };
       _desc = _descAr();

@@ -420,7 +420,7 @@
       </p>
       <div style="display:flex;gap:12px;margin-top:22px;flex-wrap:wrap;">
         <a class="p-btn p-btn--primary p-btn--lg" href="/patient/new-case"><%= tt('Start my case', 'Start my case', 'ابدأ حالتي') %></a>
-        <a class="p-btn p-btn--ghost p-btn--lg" href="/about"><%= tt('How it works', 'How it works', 'كيف نعمل') %></a>
+        <a class="p-btn p-btn--ghost p-btn--lg" href="<%= locals.publicLinkPrefix || '' %>/about"><%= tt('How it works', 'How it works', 'كيف نعمل') %></a>
       </div>
     </div>
     <div style="
@@ -512,7 +512,7 @@
     </h2>
     <div class="p-dash-blog__grid">
       <% __blogPosts.forEach(function(p, i) { %>
-        <a class="p-dash-blog__card" href="/blog/<%= p.slug %>">
+        <a class="p-dash-blog__card" href="<%= locals.publicLinkPrefix || '' %>/blog/<%= p.slug %>">
           <div class="p-dash-blog__hero-strip" aria-hidden="true">
             <span class="p-dash-blog__hero-num"><%= i + 1 %></span>
           </div>
@@ -529,7 +529,7 @@
       <% }); %>
     </div>
     <div class="p-dash-blog__viewall">
-      <a class="p-dash-blog__viewall-link" href="/blog"><%= tt('View all articles', 'View all articles', 'عرض كل المقالات') %></a>
+      <a class="p-dash-blog__viewall-link" href="<%= locals.publicLinkPrefix || '' %>/blog"><%= tt('View all articles', 'View all articles', 'عرض كل المقالات') %></a>
     </div>
   </section>
 <% } %>

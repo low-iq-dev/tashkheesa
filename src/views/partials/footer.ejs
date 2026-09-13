@@ -59,19 +59,19 @@
       <div class="footer-columns">
         <div class="footer-col">
           <h4 class="footer-col-title"><%= __footerIsAr ? 'الخدمات' : 'Services' %></h4>
-          <a href="<%= locals.langPrefix || '' %>/services"><%= __footerIsAr ? 'الخدمات والأسعار' : 'Services & Pricing' %></a>
-          <a href="<%= locals.langPrefix || '' %>/specialties"><%= __footerIsAr ? 'التخصصات' : 'Specialties' %></a>
-          <a href="<%= locals.langPrefix || '' %>/about"><%= __footerIsAr ? 'من نحن' : 'About Us' %></a>
-          <a href="<%= locals.langPrefix || '' %>/faq"><%= __footerIsAr ? 'الأسئلة الشائعة' : 'FAQ' %></a>
-          <a href="<%= locals.langPrefix || '' %>/blog"><%= __footerIsAr ? 'المدونة' : 'Blog' %></a>
-          <a href="<%= locals.langPrefix || '' %>/contact"><%= __footerIsAr ? 'اتصل بنا' : 'Contact Us' %></a>
+          <a href="<%= locals.publicLinkPrefix || '' %>/services"><%= __footerIsAr ? 'الخدمات والأسعار' : 'Services & Pricing' %></a>
+          <a href="<%= locals.publicLinkPrefix || '' %>/specialties"><%= __footerIsAr ? 'التخصصات' : 'Specialties' %></a>
+          <a href="<%= locals.publicLinkPrefix || '' %>/about"><%= __footerIsAr ? 'من نحن' : 'About Us' %></a>
+          <a href="<%= locals.publicLinkPrefix || '' %>/faq"><%= __footerIsAr ? 'الأسئلة الشائعة' : 'FAQ' %></a>
+          <a href="<%= locals.publicLinkPrefix || '' %>/blog"><%= __footerIsAr ? 'المدونة' : 'Blog' %></a>
+          <a href="<%= locals.publicLinkPrefix || '' %>/contact"><%= __footerIsAr ? 'اتصل بنا' : 'Contact Us' %></a>
         </div>
         <div class="footer-col">
           <h4 class="footer-col-title"><%= __footerIsAr ? 'السياسات' : 'Legal' %></h4>
-          <a href="<%= locals.langPrefix || '' %>/privacy"><%= __footerIsAr ? 'سياسة الخصوصية' : 'Privacy Policy' %></a>
-          <a href="<%= locals.langPrefix || '' %>/terms"><%= __footerIsAr ? 'شروط الخدمة' : 'Terms of Service' %></a>
-          <a href="<%= locals.langPrefix || '' %>/refund-policy"><%= __footerIsAr ? 'الاسترداد والإلغاء' : 'Refund & Cancellation' %></a>
-          <a href="<%= locals.langPrefix || '' %>/delivery-policy"><%= __footerIsAr ? 'سياسة التسليم' : 'Delivery Policy' %></a>
+          <a href="<%= locals.publicLinkPrefix || '' %>/privacy"><%= __footerIsAr ? 'سياسة الخصوصية' : 'Privacy Policy' %></a>
+          <a href="<%= locals.publicLinkPrefix || '' %>/terms"><%= __footerIsAr ? 'شروط الخدمة' : 'Terms of Service' %></a>
+          <a href="<%= locals.publicLinkPrefix || '' %>/refund-policy"><%= __footerIsAr ? 'الاسترداد والإلغاء' : 'Refund & Cancellation' %></a>
+          <a href="<%= locals.publicLinkPrefix || '' %>/delivery-policy"><%= __footerIsAr ? 'سياسة التسليم' : 'Delivery Policy' %></a>
         </div>
         <div class="footer-col">
           <%# /apply is a complete, live, public doctor-application page that had
@@ -82,7 +82,7 @@
               already be at the doctor login to see. Both now have a permanent
               home in the global footer. %>
           <h4 class="footer-col-title"><%= __footerIsAr ? 'للأطباء' : 'For Doctors' %></h4>
-          <a href="<%= locals.langPrefix || '' %>/apply"><%= __footerIsAr ? 'قدِّم كاستشاري' : 'Apply as a Specialist' %></a>
+          <a href="<%= locals.publicLinkPrefix || '' %>/apply"><%= __footerIsAr ? 'قدِّم كاستشاري' : 'Apply as a Specialist' %></a>
           <a href="/doctor/signup"><%= __footerIsAr ? 'تسجيل الأطباء' : 'Doctor Sign-up' %></a>
         </div>
         <div class="footer-col">

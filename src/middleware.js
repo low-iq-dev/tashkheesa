@@ -278,6 +278,11 @@ function baseMiddlewares(app) {
 
     res.locals.lang = lang;
     res.locals.dir = getDir(lang);
+    // SEO 2026-09-13: the prefix for a link to a public marketing page, on EVERY
+    // page. Public pages have /ar/ URLs and no longer read the cookie, so a link
+    // from a portal/auth page (footer, register terms, dashboard blog cards)
+    // must carry the language itself. On a public page it equals langPrefix.
+    res.locals.publicLinkPrefix = lang === 'ar' ? '/ar' : '';
     res.locals.user = user;
     res.locals.brand = process.env.BRAND_NAME || 'Tashkheesa';
     res.locals.formatEventDate = (iso) => {

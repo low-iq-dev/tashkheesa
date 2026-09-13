@@ -52,9 +52,9 @@
             <input type="checkbox" name="terms" required />
             <span>
               <%= isAr ? 'أوافق على' : 'I agree to the' %>
-              <a href="/terms" target="_blank"><%= isAr ? 'الشروط والأحكام' : 'Terms & Conditions' %></a>
+              <a href="<%= locals.publicLinkPrefix || '' %>/terms" target="_blank"><%= isAr ? 'الشروط والأحكام' : 'Terms & Conditions' %></a>
               <%= isAr ? 'و' : 'and' %>
-              <a href="/privacy" target="_blank"><%= isAr ? 'سياسة الخصوصية' : 'Privacy Policy' %></a>
+              <a href="<%= locals.publicLinkPrefix || '' %>/privacy" target="_blank"><%= isAr ? 'سياسة الخصوصية' : 'Privacy Policy' %></a>
             </span>
           </label>
         </div>

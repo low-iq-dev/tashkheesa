@@ -87,7 +87,7 @@
                 link. Rendered as a div with the same card shape so the grid
                 stays even. %>
             <% if (s.is_live) { %>
-            <a class="spec-card" href="<%= locals.langPrefix || '' %>/specialties/<%= slug %>" aria-label="<%= name %>">
+            <a class="spec-card" href="<%= locals.publicLinkPrefix || '' %>/specialties/<%= slug %>" aria-label="<%= name %>">
               <div class="spec-card-head">
                 <h2 class="spec-card-title"><%= name %></h2>
                 <span class="spec-card-count"><%= countLabel %></span>

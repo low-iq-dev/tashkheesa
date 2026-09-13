@@ -40,7 +40,7 @@
     <% } %>
     <div class="error-actions">
       <button type="button" class="btn-back" data-action="history-back" style="border:none;cursor:pointer;font:inherit;"><%= tt('err.go_back', 'Go Back', 'ارجع') %></button>
-      <a href="/" class="btn-home"><%= tt('err.home', 'Home', 'الرئيسية') %></a>
+      <a href="<%= locals.publicLinkPrefix || '' %>/" class="btn-home"><%= tt('err.home', 'Home', 'الرئيسية') %></a>
     </div>
   </div>
   <script<%- __nonceAttr %>>

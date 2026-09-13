@@ -95,7 +95,7 @@
   <div class="page-inner">
     <div class="specd-page">
 
-      <a class="specd-back" href="<%= locals.langPrefix || '' %>/specialties"><%= tt('specd.back', '← All specialties', '→ كل التخصصات') %></a>
+      <a class="specd-back" href="<%= locals.publicLinkPrefix || '' %>/specialties"><%= tt('specd.back', '← All specialties', '→ كل التخصصات') %></a>
 
       <section class="specd-hero">
         <span class="specd-kicker"><%= tt('specd.kicker', 'Medical Specialty', 'تخصص طبي') %></span>
@@ -105,7 +105,7 @@
         <% } %>
         <% var __ctaOn = (typeof bookingCtaEnabled !== 'undefined') ? !!bookingCtaEnabled : false; %>
         <% if (__ctaOn) { %>
-        <a class="specd-cta" href="/patient/new-case?specialty=<%= encodeURIComponent(__sp.id || '') %>"><%= tt('specd.cta', 'Book a case →', 'احجز حالة ←') %></a>
+        <a class="specd-cta" href="/patient/new-case?specialty=<%= encodeURIComponent(__sp.id || '') %><%= locals.langParam ? '&' + locals.langParam : '' %>"><%= tt('specd.cta', 'Book a case →', 'احجز حالة ←') %></a>
         <% } else { %>
         <span class="specd-cta is-cta-locked" aria-disabled="true" title="<%= tt('specd.cta.locked', 'Booking opens soon', 'الحجز هيفتح قريب') %>"><%= tt('specd.cta', 'Book a case →', 'احجز حالة ←') %></span>
         <% } %>
@@ -185,7 +185,7 @@
       </section>
 
       <section class="specd-section">
-        <a class="specd-faqlink" href="<%= locals.langPrefix || '' %>/faq#how-it-works">
+        <a class="specd-faqlink" href="<%= locals.publicLinkPrefix || '' %>/faq#how-it-works">
           <div class="specd-faqlink-text">
             <strong><%= tt('specd.faq_title', 'How does it work?', 'إزاي بتشتغل المنصة؟') %></strong>
             <span><%= tt('specd.faq_body',

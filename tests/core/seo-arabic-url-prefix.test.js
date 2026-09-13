@@ -65,7 +65,9 @@ function buildApp() {
     isAr: res.locals.isAr,
     langPrefix: res.locals.langPrefix === undefined ? null : res.locals.langPrefix,
     altLangUrl: res.locals.altLangUrl || null,
-    publicPath: res.locals.publicPath || null
+    publicPath: res.locals.publicPath || null,
+    publicLinkPrefix: res.locals.publicLinkPrefix === undefined ? null : res.locals.publicLinkPrefix,
+    langParam: res.locals.langParam || null
   });
   app.get('/', seen);
   app.get('/services', seen);
@@ -207,6 +209,51 @@ module.exports = (async function run() {
       assert.strictEqual(r.status, 200);
       assert.strictEqual(r.json.path, '/contact');
       assert.strictEqual(r.json.lang, 'ar');
+    });
+    // ── Found in review ─────────────────────────────────────────────────
+    await check('capitalised public paths: one 301 to the lowercase language URL', async () => {
+      let r = await request(base, '/SERVICES?lang=ar&spec=x');
+      assert.strictEqual(r.status, 301);
+      assert.strictEqual(r.location, '/ar/services?spec=x');
+      assert.ok(!/lang=/.test(String(r.headers.get('set-cookie') || '')), 'no lang cookie');
+      r = await request(base, '/Ar/About');
+      assert.strictEqual(r.status, 301);
+      assert.strictEqual(r.location, '/ar/about');
+      r = await request(base, '/Services');
+      assert.strictEqual(r.status, 301);
+      assert.strictEqual(r.location, '/services');
+      r = await request(base, '/CONTACT', { method: 'POST' });
+      assert.notStrictEqual(r.status, 301, 'a POST is never redirected');
+      r = await request(base, '/LOGIN');
+      assert.notStrictEqual(r.status, 301, 'a non-public path is not redirected');
+    });
+
+    await check('a path of thousands of slashes costs nothing to classify (no quadratic regex)', async () => {
+      // In-process, where the difference is measurable: /\/+$/ on 20k slashes
+      // followed by a non-slash took hundreds of ms per call (it runs on every
+      // request); the loop + length cap answers in well under a millisecond.
+      const u = loadReal(path.join(ROOT, 'src', 'utils', 'public_lang_url'));
+      const evil = '/'.repeat(20000) + 'a';
+      const t0 = Date.now();
+      for (let i = 0; i < 3; i++) u.isPublicPath(evil);
+      const ms = Date.now() - t0;
+      assert.ok(ms < 100, 'isPublicPath took ' + ms + 'ms for 3 calls on a 20k-slash path');
+      const r = await request(base, '/' + '/'.repeat(8000) + 'a');
+      assert.strictEqual(r.status, 404, 'not a public page, not rewritten');
+    });
+
+    await check('publicLinkPrefix follows the page language everywhere; langParam only on public pages', async () => {
+      let r = await request(base, '/ar/services');
+      assert.strictEqual(r.json.publicLinkPrefix, '/ar');
+      assert.strictEqual(r.json.langParam, 'lang=ar');
+      r = await request(base, '/services', { headers: { cookie: 'lang=ar' } });
+      assert.strictEqual(r.json.publicLinkPrefix, '', 'English public page links English, cookie or not');
+      assert.strictEqual(r.json.langParam, 'lang=en');
+      r = await request(base, '/portal/doctor', { headers: { cookie: 'lang=ar' } });
+      assert.strictEqual(r.json.publicLinkPrefix, '/ar', 'an Arabic portal page links the Arabic public site');
+      assert.strictEqual(r.json.langParam, null, 'no langParam off the public site');
+      r = await request(base, '/login?lang=en', { headers: { cookie: 'lang=ar' } });
+      assert.strictEqual(r.json.publicLinkPrefix, '');
     });
   } finally {
     await new Promise((res) => server.close(res));

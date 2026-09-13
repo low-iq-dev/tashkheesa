@@ -82,10 +82,48 @@ module.exports = (async function run() {
           .filter((a) => !/\bnav-lang\b|\blang-btn\b/.test(a.tag))
           .map((a) => a.href);
         assert.deepStrictEqual(bad, [], enPath + ' English page links into /ar/');
+        // Auth links on an English page carry lang=en (found in review: the
+        // English toggle sets no cookie, so an old Arabic cookie would win).
+        const authBad = anchors(r.body)
+          .filter((a) => /^\/(login|register)$/.test(pathOnly(a.href)) && !/[?&]lang=en\b/.test(a.href))
+          .map((a) => a.href);
+        assert.deepStrictEqual(authBad, [], enPath + ' auth links without lang=en');
         t.pass(enPath + ': English page links stay unprefixed');
       } catch (e) { t.fail('A3 ' + enPath, e); }
     }
   } finally {
     await app.close();
+  }
+
+  // ── Found in review: booking links, and pages outside the public scheme ──
+  let bookApp;
+  try { bookApp = await startPublicSiteApp({ bookingCtaEnabled: true }); } catch (e) { t.fail('seo-internal-links: booking app', e); return; }
+  try {
+    for (const [p, lang] of [['/ar/services', 'ar'], ['/services', 'en'], ['/ar/specialties/cardiology', 'ar'], ['/specialties/cardiology', 'en']]) {
+      try {
+        const r = await bookApp.get(p);
+        assert.strictEqual(r.status, 200, p + ' → ' + r.status);
+        const booking = anchors(r.body).filter((a) => /patient\/new-case/.test(a.href));
+        assert.ok(booking.length > 0, p + ': no booking links rendered (is the CTA on?)');
+        const bad = booking.filter((a) => !new RegExp('[?&]lang=' + lang + '\\b').test(a.href)).map((a) => a.href);
+        assert.deepStrictEqual(bad, [], p + ' booking links without lang=' + lang);
+        t.pass(p + ': ' + booking.length + ' booking link(s) carry lang=' + lang);
+      } catch (e) { t.fail('A3 booking ' + p, e); }
+    }
+    try {
+      const ar = await bookApp.get('/__offscheme/about', { cookie: 'lang=ar' });
+      assert.strictEqual(ar.status, 200, 'off-scheme page → ' + ar.status + ' ' + ar.body.slice(0, 300));
+      const leaks = anchors(ar.body)
+        .filter((a) => a.href.startsWith('/') && !a.href.startsWith('//') && !/\bnav-lang\b/.test(a.tag))
+        .filter((a) => isPublicPath(pathOnly(a.href)))
+        .map((a) => a.href);
+      assert.deepStrictEqual(leaks, [], 'Arabic-cookie page outside the scheme links English public pages');
+      assert.ok(anchors(ar.body).some((a) => a.href === '/ar/faq'), 'expected the footer to link /ar/faq');
+      const en = await bookApp.get('/__offscheme/about');
+      assert.ok(!anchors(en.body).some((a) => /^\/ar\//.test(a.href)), 'no-cookie page must not link into /ar/');
+      t.pass('outside the public scheme, public links follow the cookie language (footer → /ar/faq)');
+    } catch (e) { t.fail('A3 off-scheme links', e); }
+  } finally {
+    await bookApp.close();
   }
 })();
