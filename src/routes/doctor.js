@@ -1546,10 +1546,19 @@ function readDoctorTiers(raw) {
 //
 // Same shape as the services nudge above: one query per request, best-effort,
 // suppressed on the page it points at, and never a hard gate.
+//
+// 2026-09-13 (mobile B4) — shown on Today ONLY. It used to be true on every
+// doctor page, and topbar.ejs renders it on every page that has a topbar, so a
+// doctor saw the same full-width call to action at the top of Today, Cases,
+// Profile, Earnings, Alerts, Appointments and every case — six copies of one
+// sentence before any content, on a phone. Today is where a doctor lands; the
+// services page, where the answer is given, carries its own framing card.
+const TIER_BANNER_PATHS = new Set(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard']);
 async function _computeTierConfirmBannerFlag(req, res) {
   res.locals.doctorTierBanner = false;
   try {
-    if (req.originalUrl && req.originalUrl.startsWith('/portal/doctor/services')) return;
+    const path = String(req.originalUrl || '').split('?')[0].replace(/\/+$/, '') || '/';
+    if (!TIER_BANNER_PATHS.has(path)) return;
     if (!req.user || String(req.user.role).toLowerCase() !== 'doctor' || !req.user.id) return;
     const row = await queryOne(
       `SELECT sla_tiers_confirmed_at, is_active, is_paused, pending_approval
@@ -6728,3 +6737,4 @@ async function handlePortalDoctorGenerateReport(req, res) {
 }
 module.exports = router;
 module.exports._computeServicesBannerFlag = _computeServicesBannerFlag;
+module.exports._computeTierConfirmBannerFlag = _computeTierConfirmBannerFlag;

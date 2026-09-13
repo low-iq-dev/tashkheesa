@@ -1069,3 +1069,25 @@ html[dir="rtl"] .p-icon--flip { transform: scaleX(-1); }
   .doctor-theme .portal-sidebar,
   .doctor-theme .portal-sidebar.open { transition: none !important; }
 }
+
+/* Doctor portal footer — 2026-09-13 (mobile B6). Replaces the public marketing
+   footer inside the doctor portal frame (partials/footer.ejs). */
+.portal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  padding: 14px 24px;
+  font-size: 12px;
+  color: var(--v2-muted, #6B7A8A);
+  border-block-start: 1px solid var(--v2-rule, #E6E0D4);
+}
+.portal-footer a { color: inherit; text-decoration: none; }
+.portal-footer a:hover { text-decoration: underline; }
+@media (min-width: 769px) {
+  .doctor-theme .portal-footer { margin-inline-start: var(--dr-sidebar-w, 240px); padding-inline: 48px; }
+}
+@media (max-width: 768px) {
+  .doctor-theme .portal-footer { padding: 12px 16px; }
+  .doctor-theme .portal-footer a { min-height: 44px; display: inline-flex; align-items: center; }
+}

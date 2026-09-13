@@ -1,10 +1,24 @@
 <%
-  const renderFooter = (typeof showFooter === 'undefined') ? true : Boolean(showFooter);
   const usePortalFrame = Boolean(
     (typeof portalFrame !== 'undefined')
       ? portalFrame
       : ((typeof locals !== 'undefined' && locals && locals.portalFrame) ? locals.portalFrame : false)
   );
+  // 2026-09-13 (mobile B6) — a signed-in consultant inside the portal frame
+  // gets a two-line portal footer, not the ~800px public marketing footer
+  // (Services / Policies / For doctors / Contact), which rendered at the bottom
+  // of every doctor page on every width. Public pages a doctor happens to visit
+  // while signed in, and the patient/admin frames, keep the public footer.
+  // Two signals, because some doctor routes render with `user:` set to a DB row
+  // (the profile page) that shadows the session user and carries no role.
+  const _footerUser = (typeof locals !== 'undefined' && locals && locals.user) ? locals.user : null;
+  const _footerUrl = (typeof locals !== 'undefined' && locals && locals.currentUrl) ? String(locals.currentUrl) : '';
+  const isDoctorPortalFrame = usePortalFrame && (
+    Boolean(_footerUser && String(_footerUser.role || '').toLowerCase() === 'doctor') ||
+    /^\/portal\/doctor(?:[\/?#]|$)/.test(_footerUrl)
+  );
+  const renderFooter = (typeof showFooter === 'undefined') ? !isDoctorPortalFrame : Boolean(showFooter);
+  const renderPortalFooter = isDoctorPortalFrame && (typeof showFooter === 'undefined' || Boolean(showFooter));
   const cspNonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce))
     ? String(locals.cspNonce || locals.csp_nonce || locals.nonce)
     : '';
@@ -18,7 +32,15 @@
 </div>
 <% } %>
 
-<% if (renderFooter) { %>
+<% if (renderPortalFooter) { %>
+  <% var __pfIsAr = !!(typeof isAr !== 'undefined' && isAr); %>
+  <footer class="portal-footer">
+    <a href="https://wa.me/201102009886" rel="noopener" target="_blank"><%= __pfIsAr ? 'الدعم عبر واتساب' : 'Support on WhatsApp' %> · <bdi dir="ltr">+20 110 200 9886</bdi></a>
+    <span><%= __pfIsAr ? 'تشخيصة · بوابة الاستشاري' : 'Tashkheesa · Consultant portal' %></span>
+  </footer>
+<% } %>
+
+<% if (renderFooter && !isDoctorPortalFrame) { %>
   <% var __footerIsAr = !!(typeof isAr !== 'undefined' && isAr); %>
   <footer class="site-footer">
     <div class="container footer-inner">

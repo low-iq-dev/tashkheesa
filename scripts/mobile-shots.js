@@ -204,6 +204,7 @@ function measure() {
     focusInDrawer: !!(sidebar && document.activeElement && sidebar.contains(document.activeElement)),
     toggleExpanded: (document.querySelector('[data-action="toggle-sidebar"]') || { getAttribute: () => null }).getAttribute('aria-expanded'),
     hasPublicFooter: !!document.querySelector('.site-footer'),
+    portalFooters: document.querySelectorAll('.portal-footer').length,
     tierBanners: document.querySelectorAll('.v2-tier-nudge').length
   };
 }
@@ -264,6 +265,10 @@ async function main() {
           if (status !== 200) fails.push('HTTP ' + status);
           if (!m.path.startsWith(pg.path.split('?')[0])) fails.push('landed on ' + m.path);
           if (m.overflowX > 0) fails.push('horizontal scroll ' + m.overflowX + 'px');
+          // B6: never the public marketing footer inside the doctor portal.
+          if (m.hasPublicFooter) fails.push('public site footer rendered inside the portal');
+          // B4: the tier-confirm banner appears on Today only.
+          if (pg.key !== 'today' && m.tierBanners > 0) fails.push('tier banner repeated off Today');
           if (vp.phone) {
             if (m.contentTop === null || m.contentTop >= 600) fails.push('.portal-content starts at ' + m.contentTop + 'px');
             if (m.textTop === null || m.textTop >= 600) fails.push('first text at ' + m.textTop + 'px');
@@ -307,6 +312,21 @@ async function main() {
               if (dfails.length) failures.push(`${lang} drawer @390: ` + dfails.join('; '));
             }
           }
+        }
+        // A PUBLIC page visited by a signed-in doctor keeps the public chrome:
+        // the portal footer/top bar are for the portal frame only.
+        if (vp.w === 390) {
+          await page.goto(base + '/refund-policy', { waitUntil: 'domcontentloaded', timeout: 45000 });
+          const pub = await page.evaluate(() => ({
+            publicFooter: !!document.querySelector('.site-footer'),
+            portalFooter: !!document.querySelector('.portal-footer'),
+            topbar: !!document.querySelector('.portal-topbar')
+          }));
+          const pfails = [];
+          if (!pub.publicFooter) pfails.push('public footer missing on /refund-policy for a signed-in doctor');
+          if (pub.portalFooter || pub.topbar) pfails.push('portal chrome leaked onto a public page');
+          rows.push({ id: `${lang} public page @390`, status: 200, fails: pfails });
+          if (pfails.length) failures.push(`${lang} public page @390: ` + pfails.join('; '));
         }
         await page.close();
       }
