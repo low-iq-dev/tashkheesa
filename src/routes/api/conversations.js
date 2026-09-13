@@ -9,7 +9,16 @@ const { randomUUID } = require('crypto');
 // Lazy-load express-validator — top-level require takes ~120s and starves DB pool on boot.
 let _ev;
 function body(...a) { if (!_ev) _ev = require('express-validator'); return _ev.body(...a); }
-const { notifyNewMessage } = require('../../middleware/push');
+// NOTIFICATIONS 2026-09-13 (Part B, item 1) — the doctor-side notification for
+// a message sent from the patient APP goes through the same helper the web
+// send uses (routes/messaging.js), so the doctor gets the bell row AND the
+// email. It used to be a raw INSERT with no channel, no template and no dedupe
+// key: the row had channel NULL, so it matched no reader that filters on
+// channel, and nothing ever emailed the doctor. The push helper that was
+// imported here (middleware/push.notifyNewMessage) was never invoked; the
+// patient-side push now hooks queueNotification itself (services/patient_push),
+// so this file has no reason to import it.
+const { queueMultiChannelNotification } = require('../../notify');
 
 module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
@@ -128,19 +137,32 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       [msgId]
     );
 
-    // Notify the doctor
-    try {
-      await safeRun(`
-        INSERT INTO notifications (id, to_user_id, type, title, message, at)
-        VALUES ($1, $2, 'message', $3, $4, NOW())
-      `, [
-        randomUUID(),
-        convo.doctor_id,
-        `New message from ${req.user.name || 'Patient'}`,
-        req.body.body.slice(0, 100)
-      ]);
-    } catch {
-      // Non-critical
+    // Notify the doctor — same template, channels and 10-minute dedupe window
+    // as the web send in routes/messaging.js, so a burst of short messages is
+    // one bell row + one email, not one per message. queueMultiChannelNotification
+    // never throws (each channel resolves to {ok:false} on failure); the
+    // message itself is already committed above, so a notify failure must not
+    // fail the request — it is logged to error_logs by the queue.
+    if (convo.doctor_id) {
+      try {
+        const dedupeWindow = Math.floor(Date.now() / (10 * 60 * 1000));
+        await queueMultiChannelNotification({
+          orderId: convo.order_id,
+          toUserId: convo.doctor_id,
+          channels: ['internal', 'email'],
+          template: 'new_message',
+          response: {
+            case_id: convo.order_id,
+            caseReference: convo.order_id ? String(convo.order_id).slice(0, 12).toUpperCase() : '',
+            conversation_id: convo.id,
+            senderName: req.user.name || 'Patient',
+            messagePreview: String(req.body.body || '').slice(0, 100)
+          },
+          dedupe_key: 'message:' + convo.id + ':' + dedupeWindow
+        });
+      } catch (_) {
+        // Non-critical — see above.
+      }
     }
 
     return res.ok(message);
