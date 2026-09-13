@@ -15,7 +15,10 @@
   function _fmtNum(v) {
     var n = Number(v);
     if (!Number.isFinite(n)) return '';
-    return n.toLocaleString(_isAr ? 'ar-EG' : 'en-US');
+    // 2026-09-13 (mobile B8): Western digits in both languages for counts and
+    // money, as on the report and pricing pages. The Egyptian-Arabic locale rendered 0 as '٠', which
+    // reads as a bullet at stat-tile sizes.
+    return n.toLocaleString('en-US');
   }
 
   // ----- Redesign payload (from the GET handler) -----
@@ -169,7 +172,7 @@
 
   function _fmtEgp(n) {
     var x = Math.max(0, Math.round(Number(n) || 0));
-    return x.toLocaleString(_isAr ? 'ar-EG' : 'en-US');
+    return x.toLocaleString('en-US'); // mobile B8 — see _fmtNum
   }
 
   var _attentionCount = _inReviewTotal + _newCasesTotal;
@@ -330,7 +333,9 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
   <div class="dd-stats">
     <div class="dd-stat dd-stat--teal">
       <div class="dd-stat-label"><%= _isAr ? 'أرباح هذا الشهر' : 'Earnings this month' %></div>
-      <div class="dd-stat-value"><span class="dd-stat-currency"><%= _month.currency || 'EGP' %></span><%= _fmtEgp(_month.earningsThisMonth) %></div>
+      <%# mobile B8: <bdi dir=ltr> keeps 'EGP 1,600' in order and spaced inside an Arabic tile —
+          without it the Latin code and the digits merged into one run and read 'EGP0'. %>
+      <div class="dd-stat-value"><bdi dir="ltr"><span class="dd-stat-currency"><%= _month.currency || 'EGP' %></span><%= _fmtEgp(_month.earningsThisMonth) %></bdi></div>
       <%# A10 — the honest split from doctor_earnings (+ add-ons), matching the
           earnings page's "Approved / Not yet approved" wording. Never "paid
           out" / "transferred": doctor_earnings.status flips to 'paid' at report
@@ -634,7 +639,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
         <% } %>
         <% if (_perf.avgTurnaround30dHours !== null && _perf.avgTurnaround30dHours !== undefined && _perf.avgTurnaround30dCount >= 3) { %>
         <div class="dd-perf-item">
-          <div class="dd-perf-label"><%= _isAr ? 'متوسط الإنجاز (٣٠ يوم)' : 'Avg. turnaround (30d)' %></div>
+          <div class="dd-perf-label"><%= _isAr ? 'متوسط الإنجاز (30 يوم)' : 'Avg. turnaround (30d)' %></div>
           <div class="dd-perf-value"><%= _fmtNum(_perf.avgTurnaround30dHours) %><%= _isAr ? ' ساعة' : 'h' %></div>
         </div>
         <% } %>

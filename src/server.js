@@ -369,6 +369,10 @@ app.use('/favicon.svg', express.static(path.join(__dirname, '..', 'public', 'ass
 // /site.webmanifest at the public root; neither had a mount.
 app.use('/apple-touch-icon.png', express.static(path.join(__dirname, '..', 'public', 'apple-touch-icon.png')));
 app.use('/site.webmanifest', express.static(path.join(__dirname, '..', 'public', 'site.webmanifest')));
+// 2026-09-13 (mobile B9) — the consultant portal's web app manifest, linked from
+// layouts/portal.ejs for the doctor frame only. Static files are mounted one by
+// one here, so without this line the link 404s.
+app.use('/manifest.webmanifest', express.static(path.join(__dirname, '..', 'public', 'manifest.webmanifest')));
 app.use('/annotator.html', express.static(path.join(__dirname, '..', 'public', 'annotator.html')));
 
 // ----------------------------------------------------

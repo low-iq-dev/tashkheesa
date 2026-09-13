@@ -85,39 +85,7 @@ const VIEWPORTS = [
 ];
 const LANGS = ['ar', 'en'];
 
-function loadPuppeteer() {
-  const tries = [
-    'puppeteer-core',
-    process.env.PUPPETEER_CORE_DIR,
-    path.join(os.homedir(), 'mobile_audit', 'node_modules', 'puppeteer-core')
-  ].filter(Boolean);
-  for (const t of tries) {
-    try { return require(t); } catch (_) { /* next */ }
-  }
-  throw new Error('puppeteer-core not found. Install it (npm i -D puppeteer-core) or set PUPPETEER_CORE_DIR.');
-}
-
-function findChrome() {
-  if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
-  const dir = path.join(os.homedir(), '.cache', 'puppeteer', 'chrome');
-  const versions = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
-  const num = (v) => (v.split('-')[1] || '').split('.').map((n) => Number(n) || 0);
-  versions.sort((a, b) => {
-    const x = num(a); const y = num(b);
-    for (let i = 0; i < 4; i++) if ((x[i] || 0) !== (y[i] || 0)) return (y[i] || 0) - (x[i] || 0);
-    return 0;
-  });
-  for (const v of versions) {
-    const candidates = [
-      path.join(dir, v, 'chrome-mac-x64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
-      path.join(dir, v, 'chrome-mac-arm64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
-      path.join(dir, v, 'chrome-linux64', 'chrome')
-    ];
-    const hit = candidates.find((c) => fs.existsSync(c));
-    if (hit) return hit;
-  }
-  throw new Error('No Chrome for Testing under ' + dir + ' — set CHROME_PATH.');
-}
+const { loadPuppeteer, findChrome } = require('./lib/chrome');
 
 function get(url) {
   return new Promise((resolve) => {
@@ -189,6 +157,43 @@ function measure() {
       textSample = n.nodeValue.trim().slice(0, 40);
     }
   }
+  // B10: interactive elements under 44px. Inline text links are exempt (WCAG
+  // 2.5.8 inline exception); a checkbox inside its label is exempt (the label
+  // is the target).
+  const smallTargets = [];
+  document.querySelectorAll('a[href], button, input:not([type="hidden"]), select, textarea, [role="tab"], summary').forEach((el) => {
+    if (!visible(el)) return;
+    // Not a target: disabled controls and decorative controls hidden from assistive tech.
+    if (el.disabled || el.closest('[aria-hidden="true"]')) return;
+    if (getComputedStyle(el).display === 'inline') return;
+    if (el.matches('input[type="checkbox"], input[type="radio"]') && el.closest('label')) return;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    if (r.height < 43.5 || r.width < 43.5) {
+      const label = (el.getAttribute('aria-label') || el.textContent || el.getAttribute('name') || el.tagName) + '';
+      smallTargets.push(label.replace(/\s+/g, ' ').trim().slice(0, 24) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
+    }
+  });
+  // B7: every Google Fonts family the page asked for (link tags and @imports).
+  const fontFamilies = Array.from(new Set(performance.getEntriesByType('resource').map((e) => e.name)
+    .concat(Array.from(document.querySelectorAll('link[href*="fonts.googleapis.com/css"]')).map((l) => l.href))
+    .filter((n) => /fonts\.googleapis\.com\/css/.test(n))
+    .flatMap((href) => { try { return new URL(href).searchParams.getAll('family').map((f) => f.split(':')[0].replace(/\+/g, ' ')); } catch (_) { return []; } })));
+  // B1: the tab bar.
+  const tabbar = document.querySelector('.portal-tabbar');
+  const tabs = Array.from(document.querySelectorAll('.portal-tabbar .portal-tabbar__item'));
+  const tabbarInfo = tabbar ? {
+    shown: getComputedStyle(tabbar).display !== 'none',
+    count: tabs.length,
+    bottomGap: Math.round(vh - tabbar.getBoundingClientRect().bottom),
+    mirrored: tabs.length > 1 ? (document.documentElement.dir === 'rtl'
+      ? tabs[0].getBoundingClientRect().left > tabs[tabs.length - 1].getBoundingClientRect().left
+      : tabs[0].getBoundingClientRect().left < tabs[tabs.length - 1].getBoundingClientRect().left) : null,
+    minHeight: tabs.length ? Math.min.apply(null, tabs.map((x) => x.getBoundingClientRect().height)) : 0
+  } : null;
+  // B8: Arabic-Indic digits in counts and money.
+  const numericText = Array.from(document.querySelectorAll('.dd-stat-value, .dd-card-count, .dd-widget-value, .dd-perf-value, [data-numeric], .portal-tabbar__badge, .portal-topbar__badge'))
+    .filter(visible).map((e) => e.textContent).join(' ');
   const sr = sidebar ? sidebar.getBoundingClientRect() : null;
   return {
     path: location.pathname,
@@ -205,7 +210,11 @@ function measure() {
     toggleExpanded: (document.querySelector('[data-action="toggle-sidebar"]') || { getAttribute: () => null }).getAttribute('aria-expanded'),
     hasPublicFooter: !!document.querySelector('.site-footer'),
     portalFooters: document.querySelectorAll('.portal-footer').length,
-    tierBanners: document.querySelectorAll('.v2-tier-nudge').length
+    tierBanners: document.querySelectorAll('.v2-tier-nudge').length,
+    smallTargets, fontFamilies, tabbarInfo,
+    arabicIndicDigits: /[\u0660-\u0669\u06F0-\u06F9]/.test(numericText),
+    manifestLink: !!document.querySelector('link[rel="manifest"]'),
+    themeColor: (document.querySelector('meta[name="theme-color"]') || {}).content || null
   };
 }
 
@@ -248,6 +257,12 @@ async function main() {
 
       for (const vp of VIEWPORTS) {
         const page = await browser.newPage();
+        // The app rate-limits page requests to 100/min per client IP (static assets
+        // are mounted before the limiter and do not count). One run makes ~100
+        // navigations from one machine, so each language x viewport pass presents
+        // its own client address. Local harness only: the server runs with
+        // trust proxy 1, exactly as in production; no app code is bypassed.
+        await page.setExtraHTTPHeaders({ 'X-Forwarded-For': '10.13.' + LANGS.indexOf(lang) + '.' + VIEWPORTS.indexOf(vp) });
         await page.setViewport({ width: vp.w, height: vp.h, isMobile: vp.phone, hasTouch: vp.phone, deviceScaleFactor: 1 });
         if (vp.ua) await page.setUserAgent(vp.ua);
         const host = new URL(base).hostname;
@@ -269,14 +284,30 @@ async function main() {
           if (m.hasPublicFooter) fails.push('public site footer rendered inside the portal');
           // B4: the tier-confirm banner appears on Today only.
           if (pg.key !== 'today' && m.tierBanners > 0) fails.push('tier banner repeated off Today');
+          // B7 / B8 / B9
+          if (m.fontFamilies.length > 2 || m.fontFamilies.some((f) => !['Inter', 'Noto Sans Arabic'].includes(f))) fails.push('fonts requested: ' + m.fontFamilies.join(', '));
+          if (m.arabicIndicDigits) fails.push('Arabic-Indic digits in counts/money');
+          if (!m.manifestLink || !m.themeColor) fails.push('no manifest link / theme-color');
           if (vp.phone) {
             if (m.contentTop === null || m.contentTop >= 600) fails.push('.portal-content starts at ' + m.contentTop + 'px');
             if (m.textTop === null || m.textTop >= 600) fails.push('first text at ' + m.textTop + 'px');
             if (m.sidebarPos !== 'fixed') fails.push('sidebar position ' + m.sidebarPos);
             if (m.sidebarOnScreen) fails.push('sidebar visible before opening');
-          } else if (!m.sidebarOnScreen) {
-            fails.push('desktop sidebar not visible');
+            // B10: every touch target on a phone is at least 44px.
+            if (m.smallTargets.length) fails.push(m.smallTargets.length + ' target(s) under 44px: ' + m.smallTargets.slice(0, 4).join(' | '));
+            const tb = m.tabbarInfo;
+            if (!tb || !tb.shown) fails.push('no tab bar');
+            else {
+              if (tb.count !== 5) fails.push('tab bar has ' + tb.count + ' items');
+              if (Math.abs(tb.bottomGap) > 1) fails.push('tab bar not pinned to the bottom (' + tb.bottomGap + 'px)');
+              if (tb.mirrored === false) fails.push('tab order not mirrored for ' + lang);
+              if (tb.minHeight < 44) fails.push('tab under 44px (' + tb.minHeight + ')');
+            }
+          } else {
+            if (!m.sidebarOnScreen) fails.push('desktop sidebar not visible');
+            if (m.tabbarInfo && m.tabbarInfo.shown) fails.push('tab bar visible on desktop');
           }
+          if (!vp.phone) m.smallTargets = []; // the 44px rule is for touch widths
           rows.push({ id, status, ...m, fails });
           if (fails.length) failures.push(id + ': ' + fails.join('; '));
 
@@ -325,6 +356,20 @@ async function main() {
           const pfails = [];
           if (!pub.publicFooter) pfails.push('public footer missing on /refund-policy for a signed-in doctor');
           if (pub.portalFooter || pub.topbar) pfails.push('portal chrome leaked onto a public page');
+          if (lang === 'en') {
+            // B9: the manifest is served and its icons resolve.
+            const man = await page.evaluate(async () => {
+              const out = { icons: [] };
+              const r = await fetch('/manifest.webmanifest');
+              out.status = r.status; out.type = r.headers.get('content-type') || '';
+              try { out.json = await r.json(); } catch (e) { out.parseError = String(e); }
+              for (const ic of ((out.json && out.json.icons) || [])) { const ir = await fetch(ic.src); out.icons.push(ic.src + ':' + ir.status); }
+              return out;
+            });
+            if (man.status !== 200 || man.parseError) pfails.push('manifest not served (' + man.status + ' ' + (man.parseError || '') + ')');
+            else if (!man.json.icons || man.json.icons.length < 2 || man.icons.some((x) => !/:200$/.test(x))) pfails.push('manifest icons: ' + man.icons.join(', '));
+            rows.push({ id: 'manifest', status: man.status, fails: [] , note: man.type });
+          }
           rows.push({ id: `${lang} public page @390`, status: 200, fails: pfails });
           if (pfails.length) failures.push(`${lang} public page @390: ` + pfails.join('; '));
         }
@@ -339,9 +384,10 @@ async function main() {
   console.log('\nmobile:check — label "' + LABEL + '", ' + rows.length + ' checks\n');
   for (const r of rows) {
     const meta = r.docHeight != null
-      ? `content@${r.contentTop} text@${r.textTop} sidebar=${r.sidebarPos} h=${r.docHeight} ovX=${r.overflowX} footer=${r.hasPublicFooter ? 'public' : 'no'} tierBanner=${r.tierBanners}`
+      ? `content@${r.contentTop} text@${r.textTop} sidebar=${r.sidebarPos} h=${r.docHeight} ovX=${r.overflowX} footer=${r.hasPublicFooter ? 'public' : 'no'} tierBanner=${r.tierBanners} small=${(r.smallTargets || []).length}`
       : '';
-    console.log((r.fails.length ? '  FAIL ' : '  ok   ') + r.id.padEnd(26) + ' ' + meta + (r.fails.length ? '\n         ↳ ' + r.fails.join('; ') : ''));
+    console.log((r.fails.length ? '  FAIL ' : '  ok   ') + r.id.padEnd(26) + ' ' + meta + (r.fails.length ? '\n         ↳ ' + r.fails.join('; ') : '') +
+      ((r.smallTargets && r.smallTargets.length) ? '\n         · under 44px: ' + r.smallTargets.slice(0, 6).join(' | ') : ''));
   }
   console.log('\nScreenshots: ' + path.relative(ROOT, docsDir) + ' (390px + 1440px report pages), ' + tmpDir + ' (rest)');
   console.log(failures.length ? `\n${failures.length} FAILED` : '\nALL PASS');

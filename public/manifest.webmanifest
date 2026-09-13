@@ -1,0 +1,17 @@
+{
+  "name": "تشخيصة للأطباء — Tashkheesa Consultants",
+  "short_name": "تشخيصة",
+  "description": "بوابة الاستشاريين في تشخيصة · Tashkheesa consultant portal",
+  "lang": "ar",
+  "dir": "auto",
+  "id": "/portal/doctor/today",
+  "start_url": "/portal/doctor/today",
+  "scope": "/portal/",
+  "display": "standalone",
+  "background_color": "#F8F5EF",
+  "theme_color": "#0B6B5F",
+  "icons": [
+    { "src": "/icons/portal-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/portal-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

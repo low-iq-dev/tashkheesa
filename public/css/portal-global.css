@@ -1091,3 +1091,138 @@ html[dir="rtl"] .p-icon--flip { transform: scaleX(-1); }
   .doctor-theme .portal-footer { padding: 12px 16px; }
   .doctor-theme .portal-footer a { min-height: 44px; display: inline-flex; align-items: center; }
 }
+
+/* Doctor portal phone tab bar + touch targets — 2026-09-13 (mobile B1, B10) */
+.portal-tabbar { display: none; }
+
+@media (max-width: 768px) {
+  /* Room for the fixed tab bar under the last thing on the page. */
+  .doctor-theme.layout-portal { padding-block-end: calc(60px + env(safe-area-inset-bottom, 0px)); }
+
+  .doctor-theme .portal-tabbar {
+    display: flex;
+    position: fixed;
+    inset-inline: 0;
+    inset-block-end: 0;
+    z-index: 1000;
+    padding-block-end: env(safe-area-inset-bottom, 0px);
+    background: #FFFFFF;
+    border-block-start: 1px solid var(--v2-rule, #E6E0D4);
+    box-shadow: 0 -2px 12px rgba(15, 30, 45, 0.06);
+  }
+  .doctor-theme .portal-tabbar__item {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 56px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 6px 2px 4px;
+    border: 0;
+    background: transparent;
+    color: var(--v2-muted, #6B7A8A);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.2;
+    text-decoration: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .doctor-theme .portal-tabbar__item span.portal-tabbar__label {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .doctor-theme .portal-tabbar__item svg { width: 22px; height: 22px; flex: 0 0 auto; }
+  .doctor-theme .portal-tabbar__item.is-active { color: var(--v2-brand, #0B6B5F); }
+  .doctor-theme .portal-tabbar__item.is-active::before {
+    content: '';
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 28%;
+    height: 3px;
+    border-radius: 0 0 3px 3px;
+    background: currentColor;
+  }
+  .doctor-theme .portal-tabbar__item:focus-visible { outline: 2px solid var(--v2-brand, #0B6B5F); outline-offset: -4px; }
+  .doctor-theme .portal-tabbar__badge {
+    position: absolute;
+    inset-block-start: 4px;
+    inset-inline-start: calc(50% + 4px);
+    min-width: 18px;
+    height: 18px;
+    padding-inline: 5px;
+    border-radius: 9px;
+    background: #C2410C;
+    color: #FFFFFF;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+  }
+
+  /* Chat frame: top bar + tab bar both take height now. */
+  .doctor-theme .portal-content .msg-shell { height: calc(100dvh - 250px); min-height: 380px; }
+
+  /* B10 — 44px minimum touch targets on the doctor screens. */
+  .doctor-theme .portal-content .v2-btn,
+  .doctor-theme .portal-content .v2-tab,
+  .doctor-theme .portal-content .v2-iconbtn,
+  .doctor-theme .portal-content .dd-btn-primary,
+  .doctor-theme .portal-content .dd-btn-accept,
+  .doctor-theme .portal-content .dd-btn-view,
+  .doctor-theme .portal-content .dap-btn,
+  .doctor-theme .portal-content button,
+  .doctor-theme .portal-content select,
+  .doctor-theme .portal-content input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]) {
+    min-height: 44px;
+  }
+  .doctor-theme .portal-content .v2-btn,
+  .doctor-theme .portal-content .v2-tab,
+  .doctor-theme .portal-content .dd-btn-accept,
+  .doctor-theme .portal-content .dd-btn-view,
+  .doctor-theme .portal-content .dap-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .doctor-theme .portal-content .v2-iconbtn { min-width: 44px; }
+  .doctor-theme .portal-content .dd-card-link { display: inline-flex; align-items: center; min-height: 44px; }
+  /* 16px stops iOS Safari zooming the page when a field takes focus. */
+  .doctor-theme .portal-content input:not([type="checkbox"]):not([type="radio"]),
+  .doctor-theme .portal-content select,
+  .doctor-theme .portal-content textarea { font-size: 16px !important; }
+}
+
+/* Keyboard focus is visible on every doctor screen (all widths). */
+.doctor-theme .portal-content :is(a, button, input, select, textarea, summary, [role="tab"]):focus-visible,
+.doctor-theme .portal-topbar :is(a, button):focus-visible,
+.doctor-theme .portal-sidebar :is(a, button):focus-visible {
+  outline: 2px solid var(--v2-brand, #0B6B5F);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doctor-theme .portal-tabbar__item { transition: none !important; }
+}
+
+/* B10 follow-ups found by mobile:check (2026-09-13): the guide's step links,
+   file "Open" buttons and the SLA banner's case links were 20–43px. */
+@media (max-width: 768px) {
+  .doctor-theme .portal-content .dg-step-link,
+  .doctor-theme .portal-content .dd-sla-banner-cta,
+  .doctor-theme .portal-content .dd-sla-banner-cases a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  .doctor-theme .portal-content .v2-file-row .v2-btn { min-width: 44px; }
+}
+@media (max-width: 768px) {
+  .doctor-theme .portal-content .dg-footer-cta { display: inline-flex; align-items: center; min-height: 44px; }
+}

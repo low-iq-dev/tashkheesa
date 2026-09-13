@@ -46,7 +46,12 @@
 <html lang="<%= pageLang %>" dir="<%= pageDir %>">
 <head>
   <meta charset="UTF-8" />
+  <% if (portalRoleName === 'doctor') { %>
+  <%# viewport-fit=cover lets env(safe-area-inset-*) reach the tab bar on notched phones. %>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <% } else { %>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <% } %>
   <title><%= pageTitle %></title>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/css/portal-variables.css" />
@@ -64,7 +69,17 @@
   <% } %>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <% if (portalRoleName === 'doctor') { %>
+  <%# 2026-09-13 (mobile B7) — the doctor portal loads two families: Noto Sans Arabic and Inter.
+      It used to request seven (DM Sans, Inter, JetBrains Mono, Noto Sans Arabic, Playfair Display,
+      Plus Jakarta Sans, Space Mono) on every page, on a phone data plan. DM Sans (--dr-font) now maps
+      to Inter; mono falls back to the system monospace; the other three were never used by a doctor
+      stylesheet. The admin/superadmin/patient frames keep their own link below — owner-styles.css
+      and patient-portal.css still use those families. %>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet" />
+  <% } else { %>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+Arabic:wght@400;600;700&family=Playfair+Display:wght@600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <% } %>
   <link rel="stylesheet" href="/css/portal-tours.css" />
   <% if (portalRoleName === 'patient') { %>
   <link rel="stylesheet" href="/css/patient-portal.css" />
@@ -74,6 +89,16 @@
   <link rel="stylesheet" href="/css/doctor-portal-v2.css" />
   <% } %>
   <link rel="icon" href="/favicon.ico" />
+  <% if (portalRoleName === 'doctor') { %>
+  <%# 2026-09-13 (mobile B9) — installable to the home screen. No service worker, no offline claims. %>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0B6B5F" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="<%= isAr ? 'تشخيصة' : 'Tashkheesa' %>" />
+  <link rel="apple-touch-icon" href="/icons/portal-192.png" />
+  <% } %>
   <script src="/js/portal-tours.js" defer></script>
   <% if (portalRoleName === 'doctor') { %>
   <script src="/js/tours/doctor-tour.js" defer></script>
@@ -131,6 +156,38 @@
       </a>
       <a class="portal-topbar__avatar" href="/portal/doctor/profile" aria-label="<%= isAr ? 'الملف الشخصي' : 'Profile' %>"><span aria-hidden="true"><%= _tbInitials %></span></a>
     </header>
+    <%
+      // 2026-09-13 (mobile B1) — bottom tab bar on phones (hidden >=769px). The four places a
+      // consultant goes most, plus More, which opens the drawer for everything else.
+      var _tabKey = ({ today: 'today', dashboard: 'today', cases: 'cases', queue: 'cases', completed: 'cases',
+                       'case-detail': 'cases', 'case': 'cases', messages: 'messages', earnings: 'earnings' })[activeNav] || '';
+      var _tabUnread = Number((typeof locals !== 'undefined' && locals) ? locals.doctorUnreadMessages : 0);
+      if (!Number.isFinite(_tabUnread) || _tabUnread < 0) _tabUnread = 0;
+      function _tabAttrs(k) { return _tabKey === k ? ' class="portal-tabbar__item is-active" aria-current="page"' : ' class="portal-tabbar__item"'; }
+    %>
+    <nav class="portal-tabbar" aria-label="<%= isAr ? 'التنقل الرئيسي' : 'Main navigation' %>">
+      <a href="/portal/doctor/today"<%- _tabAttrs('today') %>>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <span class="portal-tabbar__label"><%= isAr ? 'اليوم' : 'Today' %></span>
+      </a>
+      <a href="/portal/doctor/cases"<%- _tabAttrs('cases') %>>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 12l2 2 4-4"/></svg>
+        <span class="portal-tabbar__label"><%= isAr ? 'الحالات' : 'Cases' %></span>
+      </a>
+      <a href="/portal/messages"<%- _tabAttrs('messages') %><% if (_tabUnread > 0) { %> aria-label="<%= isAr ? ('الرسائل، ' + _tabUnread + ' غير مقروءة') : ('Messages, ' + _tabUnread + ' unread') %>"<% } %>>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+        <% if (_tabUnread > 0) { %><span class="portal-tabbar__badge" aria-hidden="true" data-numeric><%= _tabUnread > 99 ? '99+' : _tabUnread %></span><% } %>
+        <span class="portal-tabbar__label"><%= isAr ? 'الرسائل' : 'Messages' %></span>
+      </a>
+      <a href="/portal/doctor/earnings"<%- _tabAttrs('earnings') %>>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        <span class="portal-tabbar__label"><%= isAr ? 'الأرباح' : 'Earnings' %></span>
+      </a>
+      <button type="button" class="portal-tabbar__item" data-action="toggle-sidebar" aria-controls="portal-drawer" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/></svg>
+        <span class="portal-tabbar__label"><%= isAr ? 'المزيد' : 'More' %></span>
+      </button>
+    </nav>
     <% } else { %>
     <button class="portal-sidebar-toggle" data-action="toggle-sidebar" aria-label="Toggle menu">&#9776;</button>
     <% } %>

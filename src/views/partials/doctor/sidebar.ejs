@@ -176,6 +176,15 @@
         <span><%= _isAr ? 'الملف الشخصي' : 'Profile' %></span>
       </a>
     </li>
+    <%# 2026-09-13 (mobile B1): the guide had no entry in the drawer; on a phone it is reached from More. %>
+    <li>
+      <a class="v2-nav-item <%= _isActive('guide') %>" href="/portal/doctor/guide" aria-current="<%= _active === 'guide' ? 'page' : 'false' %>">
+        <svg class="v2-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+        </svg>
+        <span><%= _isAr ? 'الدليل' : 'Guide' %></span>
+      </a>
+    </li>
   </ul>
 
   <div class="v2-sidebar__doctor">

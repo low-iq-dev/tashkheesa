@@ -12,7 +12,7 @@
   function _money(n) {
     var v = Number(n);
     if (!Number.isFinite(v)) return '';
-    return v.toLocaleString(_isAr ? 'ar-EG' : 'en-US');
+    return v.toLocaleString('en-US'); // mobile B8 — Western digits for money in both languages
   }
   function _groupHeading(g) {
     if (_isAr && g.specialtyNameAr) return g.specialtyNameAr;

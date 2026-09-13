@@ -8,7 +8,8 @@
   var _hasReassigned = _reassignedTotal > 0;
   function _fmtMoney(n) {
     var v = Number(n) || 0;
-    try { return v.toLocaleString(_isAr ? 'ar-EG' : 'en-US'); } catch (_) { return String(v); }
+    // mobile B8 — Western digits for money in both languages.
+    try { return v.toLocaleString('en-US'); } catch (_) { return String(v); }
   }
   function _fmtMonth(d) {
     if (!d) return '';

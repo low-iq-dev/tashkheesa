@@ -1579,6 +1579,27 @@ async function _computeTierConfirmBannerFlag(req, res) {
 
 // Doctor alert badge count middleware (only for doctor routes)
 router.use(['/portal/doctor', '/doctor'], requireDoctor, async (req, res, next) => {
+  // 2026-09-13 (mobile B1) — unread patient messages, for the badge on the
+  // phone tab bar's Messages item. Same predicate as the Today page's unread
+  // widget (sender_role='patient' AND is_read=false on this doctor's
+  // conversations). Read-only and best-effort: a failed count shows no badge,
+  // it never breaks the page.
+  res.locals.doctorUnreadMessages = 0;
+  try {
+    const unreadUid = (req.user && req.user.id) ? String(req.user.id) : '';
+    if (unreadUid) {
+      const unreadRow = await queryOne(
+        `SELECT COUNT(*)::int AS c
+           FROM messages m
+           JOIN conversations c ON m.conversation_id = c.id
+          WHERE c.doctor_id = $1 AND m.sender_role = 'patient' AND m.is_read = false`,
+        [unreadUid]
+      );
+      res.locals.doctorUnreadMessages = unreadRow ? (Number(unreadRow.c) || 0) : 0;
+    }
+  } catch (_) {
+    res.locals.doctorUnreadMessages = 0;
+  }
   try {
     const uid = (req.user && req.user.id) ? String(req.user.id) : '';
     const uemail = (req.user && req.user.email) ? String(req.user.email).trim() : '';
