@@ -260,6 +260,32 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
           'INVALID_FILE'
         );
       }
+      // Part B item 2 (2026-09-13) — the regex above proves the SHAPE of the
+      // key; this proves OWNERSHIP. api/files.js writes every upload under
+      // orders/draft/<uploader id>/, so a key in anyone else's folder is
+      // another patient's file, and accepting it would attach their scan to
+      // this account's case (readable by this patient and their doctor).
+      // Same one-line check cases_draft.js already carries.
+      if (hasFileId && String(f.fileId).trim().split('/')[2] !== String(req.user.id)) {
+        return res.fail(
+          'files[' + i + ']: fileId must be a valid R2 key',
+          400,
+          'INVALID_FILE'
+        );
+      }
+      // Part B item 2 — uploadcareUuid was accepted as any non-empty string
+      // and stored verbatim in order_files.uploadcare_uuid, from which the
+      // read side builds https://ucarecdn.com/<uuid>/ (api/cases.js GET,
+      // case_image_quality). Ownership cannot be proven for a CDN uuid (it is
+      // public by design), so the legacy field is pinned to the one shape it
+      // can legitimately have: a UUID. Anything else is rejected.
+      if (hasUuid && !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(String(f.uploadcareUuid).trim())) {
+        return res.fail(
+          'files[' + i + ']: uploadcareUuid must be a UUID',
+          400,
+          'INVALID_FILE'
+        );
+      }
     }
 
     // ── CASE-FLOW REBUILD 2026-08-25 ────────────────────────────────────

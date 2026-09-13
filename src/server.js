@@ -815,6 +815,17 @@ app.get('/files/:fileId', async function(req, res) {
   // a CDN URL (pre-Phase-2 Uploadcare path) AND to messages.file_url /
   // order_additional_files.file_url stored as Uploadcare CDN URLs.
   if (fileUrl && isHttpUrl(fileUrl)) {
+    // Part B item 2 (2026-09-13) — stored open redirect. A row whose file_url
+    // points anywhere but our own file hosts is refused here, whatever wrote
+    // it (the writers now check the same allowlist on the way in; this is
+    // the sink-side half so a legacy or hand-edited row cannot bounce a doctor
+    // to an arbitrary site from a link on our domain). Fail closed as a 404,
+    // and log it — it should never happen, and if it does it is evidence.
+    var isAllowedFileUrl = require('./services/file_url_allowlist').isAllowedFileUrl;
+    if (!isAllowedFileUrl(fileUrl)) {
+      logMajor('[FILES] refused redirect to non-allowlisted host source=' + source + ' file=' + fileId + ' req=' + req.requestId);
+      return res.status(404).type('text/plain').send('File not found');
+    }
     return res.redirect(302, fileUrl);
   }
 

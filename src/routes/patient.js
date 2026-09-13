@@ -21,6 +21,9 @@ const { serviceBookableClause } = require('../services/service_bookable');
 const { modelHaiku } = require('../config/anthropic');
 const { recordAiUsage } = require('../services/ai_usage');
 const { getThresholds } = require('../services/admin_settings');
+// Part B item 2 (2026-09-13) — every patient-supplied file URL goes through
+// the same host allowlist /files/:id enforces on the way out.
+const { isAllowedFileUrl } = require('../services/file_url_allowlist');
 
 const caseLifecycle = require('../case_lifecycle');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
@@ -3054,6 +3057,14 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
       .map((u) => u.trim())
       .filter(Boolean);
   }
+  // Part B item 2 (2026-09-13) — these land in order_files.url verbatim and
+  // /files/:id 302s to them. Keep only URLs on our own file hosts, or R2 keys
+  // inside THIS patient's draft folder; anything else is dropped so it falls
+  // into the "at least one file" refusal below.
+  fileList = fileList
+    .map((u) => String(u).trim().slice(0, 2048))
+    .filter((u) => isAllowedFileUrl(u) ||
+      (/^orders\/draft\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+$/.test(u) && u.split('/')[2] === String(patientId)));
 
   // Hard validation: require at least one file before submitting the case
   if (!Array.isArray(fileList) || fileList.length === 0) {
@@ -3312,7 +3323,13 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
   // Soft state: check if an initial upload exists
   const primaryUrlRaw = initial_file_url;
   const primaryUrl = primaryUrlRaw && primaryUrlRaw.trim ? primaryUrlRaw.trim() : null;
-  const hasInitialUpload = Boolean(primaryUrl);
+  // Part B item 2 (2026-09-13) — same rule as file_urls above: our own file
+  // hosts, or an R2 key in this patient's folder. An off-host URL is treated
+  // as "no initial upload" and hits the 400 below rather than being stored.
+  const hasInitialUpload = Boolean(primaryUrl) && (
+    isAllowedFileUrl(primaryUrl) ||
+    (/^orders\/draft\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+$/.test(primaryUrl) && primaryUrl.split('/')[2] === String(patientId))
+  );
 
   if (!hasInitialUpload) {
     const result = res.status(400) && res.render('patient_new_case', {
@@ -4432,6 +4449,18 @@ router.post('/portal/patient/orders/:id/messages', requireRole('patient'), async
   if (fileKey && !/^messages-attach\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+$/.test(fileKey)) {
     return res.redirect(`/portal/patient/orders/${encodeURIComponent(orderId)}?tab=messages&err=invalid_file`);
   }
+  // Part B item 2 (2026-09-13) — the regex proves the shape; this proves the
+  // key is in THIS patient's folder (patient_files.js writes
+  // messages-attach/<uploader id>/…). Without it a patient could attach any
+  // other patient's message file to their own thread by naming its key.
+  if (fileKey && fileKey.split('/')[1] !== String(patientId)) {
+    return res.redirect(`/portal/patient/orders/${encodeURIComponent(orderId)}?tab=messages&err=invalid_file`);
+  }
+  // Part B item 2 — file_url was any https?:// string, stored verbatim and
+  // 302'd to by /files/:id: a stored open redirect. Only our own file hosts.
+  if (fileUrl && !isAllowedFileUrl(fileUrl)) {
+    return res.redirect(`/portal/patient/orders/${encodeURIComponent(orderId)}?tab=messages&err=invalid_file`);
+  }
 
   // Validate ownership.
   const order = await queryOne(
@@ -4473,7 +4502,7 @@ router.post('/portal/patient/orders/:id/messages', requireRole('patient'), async
   //    Sub-issue C2.F: handle both shapes — legacy Uploadcare CDN URL goes to
   //    order_additional_files.file_url; new R2 key goes to file_key (helper
   //    extended in C2.F to write to either column based on which arg is set).
-  if (fileUrl && /^https?:\/\//i.test(fileUrl)) {
+  if (fileUrl) {
     try {
       await insertAdditionalFile(orderId, fileUrl, fileName || null, nowIso);
     } catch (e) {
@@ -4714,17 +4743,24 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
     return res.redirect(`/portal/patient/orders/${orderId}/upload?error=missing`);
   }
 
-  // Basic URL validation: accept only http/https to avoid junk strings
+  // URL validation. Part B item 2 (2026-09-13): was "any http/https" — which
+  // let a patient store an arbitrary URL that /files/:id then 302'd to (a
+  // stored open redirect). Only https on our own file hosts is accepted now
+  // (services/file_url_allowlist).
   const filteredUrls = urls
     .map((u) => u.slice(0, 2048))
-    .filter((u) => /^https?:\/\//i.test(u));
+    .filter((u) => isAllowedFileUrl(u));
 
   // R2 key validation: must match the orders/draft/<patientId>/<filename>
   // shape produced by src/routes/patient_files.js (Sub-issue A). The regex
   // pins the prefix and forbids path traversal — anything else is junk.
+  // Part B item 2: and the <patientId> segment must be THIS patient — the
+  // shape check alone let a patient attach another patient's draft upload
+  // to their own case by naming its key.
   const filteredKeys = keys
     .map((k) => k.slice(0, 2048))
-    .filter((k) => /^orders\/draft\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+$/.test(k));
+    .filter((k) => /^orders\/draft\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+$/.test(k))
+    .filter((k) => k.split('/')[2] === String(patientId));
 
   const filtered = filteredUrls.concat(filteredKeys);
 
