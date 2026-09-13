@@ -12,6 +12,29 @@ const { serviceBookableClause } = require('../services/service_bookable');
 var comingSoonNotify = require('../notify/coming_soon');
 // Durable persistence surface for contact-form submissions (see POST /contact).
 var { logErrorToDb } = require('../logger');
+var { pathFor, isPublicPath, specialtySlug } = require('../utils/public_lang_url');
+
+// SEO 2026-09-13 (A4) — the ONE definition of "a specialty detail page that
+// returns 200". /specialties/:slug filters on it and the sitemap lists exactly
+// what it matches, so the sitemap can never advertise a 404 or miss a live page.
+var LIVE_SPECIALTY_WHERE =
+  "COALESCE(s.is_visible, true) = true " +
+  "  AND EXISTS ( " +
+  "    SELECT 1 FROM services sv " +
+  "    WHERE sv.specialty_id = s.id AND COALESCE(sv.is_visible, true) = true) ";
+
+// Sitemap entries that do not come from data. /doctor/signup is not here: it
+// is a doctor-onboarding form, not a page to rank.
+var SITEMAP_STATIC_PATHS = [
+  '/', '/services', '/specialties', '/about', '/contact', '/faq',
+  '/privacy', '/terms', '/refund-policy', '/delivery-policy',
+  '/blog', '/apply', '/help-me-choose'
+];
+var SITEMAP_TTL_MS = 60 * 60 * 1000;
+
+function xmlEscape(v) {
+  return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 
 // The contact notification email interpolates visitor-supplied text into an
 // HTML body. Unescaped, a submitter could inject arbitrary markup — including
@@ -117,26 +140,72 @@ function setupStaticPages(opts) {
       // middleware is the enforcement.
       'Disallow: /help/\n' +
       'Disallow: /help/admin-guide\n' +
+      // SEO 2026-09-13 (A4): the /lang/:code cookie switch is not a page, and the
+      // auth pages reached from Arabic pages carry ?lang=ar — one crawlable
+      // /login, not one per query string.
+      'Disallow: /lang/\n' +
+      'Disallow: /login?\n' +
+      'Disallow: /register?\n' +
       'Sitemap: ' + PUBLIC_ORIGIN + '/sitemap.xml\n'
     );
   });
 
-  router.get('/sitemap.xml', function(req, res) {
-    // PUBLIC marketing pages only — each confirmed to return 200.
-    var paths = [
-      '/', '/services', '/specialties', '/about', '/contact', '/faq',
-      '/privacy', '/terms', '/refund-policy', '/delivery-policy',
-      '/blog', '/blog/how-tashkheesa-works', '/blog/when-to-get-medical-second-opinion',
-      '/apply', '/doctor/signup'
-    ];
-    var urls = paths.map(function(p) {
-      return '  <url><loc>' + PUBLIC_ORIGIN + p + '</loc></url>';
-    }).join('\n');
-    var xml = '<?xml version="1.0" encoding="UTF-8"?>\n' +
-      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
-      urls + '\n' +
-      '</urlset>\n';
-    res.type('application/xml').send(xml);
+  // SEO 2026-09-13 (A4) — generated from data, with both languages.
+  //
+  // It was a hand-written list of 15 English URLs: no specialty pages at all,
+  // no Arabic URL, and /doctor/signup. Now: the static pages, every blog post
+  // in BLOG_POST_VIEWS, every specialty page LIVE_SPECIALTY_WHERE returns 200
+  // for, and /help-me-choose — each as an English <url> and an /ar/ <url>, both
+  // carrying the same ar-EG / en / x-default alternates the pages declare.
+  // <lastmod> is the date this build started serving: the pages are templates,
+  // so a deploy is when they change. Cached for an hour.
+  var _sitemapCache = { xml: null, ts: 0 };
+  var SITEMAP_LASTMOD = new Date().toISOString().slice(0, 10);
+  router.get('/sitemap.xml', async function(req, res) {
+    var now = Date.now();
+    if (!_sitemapCache.xml || (now - _sitemapCache.ts) >= SITEMAP_TTL_MS) {
+      var rows = await safeAll(
+        "SELECT s.id FROM specialties s WHERE " + LIVE_SPECIALTY_WHERE + "ORDER BY s.id ASC",
+        [],
+        []
+      );
+      var seen = {};
+      var paths = [];
+      SITEMAP_STATIC_PATHS
+        .concat(Object.keys(BLOG_POST_VIEWS).map(function(k) { return '/blog/' + k; }))
+        .concat((rows || []).map(function(r) { return '/specialties/' + specialtySlug(r.id); }))
+        .forEach(function(p) {
+          // Only URLs the public router actually serves in both languages.
+          if (!seen[p] && isPublicPath(p)) { seen[p] = true; paths.push(p); }
+        });
+      var entries = [];
+      paths.forEach(function(p) {
+        var en = PUBLIC_ORIGIN + pathFor('en', p);
+        var ar = PUBLIC_ORIGIN + pathFor('ar', p);
+        var alternates =
+          '    <xhtml:link rel="alternate" hreflang="ar-EG" href="' + xmlEscape(ar) + '"/>\n' +
+          '    <xhtml:link rel="alternate" hreflang="en" href="' + xmlEscape(en) + '"/>\n' +
+          '    <xhtml:link rel="alternate" hreflang="x-default" href="' + xmlEscape(en) + '"/>\n';
+        [en, ar].forEach(function(loc) {
+          entries.push(
+            '  <url>\n' +
+            '    <loc>' + xmlEscape(loc) + '</loc>\n' +
+            '    <lastmod>' + SITEMAP_LASTMOD + '</lastmod>\n' +
+            alternates +
+            '  </url>'
+          );
+        });
+      });
+      _sitemapCache = {
+        xml: '<?xml version="1.0" encoding="UTF-8"?>\n' +
+          '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n' +
+          entries.join('\n') + '\n' +
+          '</urlset>\n',
+        ts: now
+      };
+    }
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type('application/xml').send(_sitemapCache.xml);
   });
 
   router.get('/services', async function(req, res) {
@@ -400,10 +469,7 @@ function setupStaticPages(opts) {
       "SELECT s.id, s.name, s.name_ar, s.description, s.description_ar " +
       "FROM specialties s " +
       "WHERE s.id = $1 " +
-      "  AND COALESCE(s.is_visible, true) = true " +
-      "  AND EXISTS ( " +
-      "    SELECT 1 FROM services sv " +
-      "    WHERE sv.specialty_id = s.id AND COALESCE(sv.is_visible, true) = true) " +
+      "  AND " + LIVE_SPECIALTY_WHERE +
       "LIMIT 1",
       [id],
       []
@@ -832,4 +898,9 @@ function setupStaticPages(opts) {
   return router;
 }
 
-module.exports = { setupStaticPages: setupStaticPages, refundPolicyDescription: refundPolicyDescription };
+module.exports = {
+  setupStaticPages: setupStaticPages,
+  refundPolicyDescription: refundPolicyDescription,
+  LIVE_SPECIALTY_WHERE: LIVE_SPECIALTY_WHERE,
+  SITEMAP_STATIC_PATHS: SITEMAP_STATIC_PATHS
+};
