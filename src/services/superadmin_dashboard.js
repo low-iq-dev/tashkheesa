@@ -499,6 +499,21 @@ function buildSparkSeries(rows, days) {
 }
 
 // ─── FINANCE ──────────────────────────────────────────────────────────
+//
+// Part B item 7 (2026-09-13) — revenue is COLLECTED money only.
+//
+// Every revenue figure on this tab summed orders.price with no payment_status
+// filter, so an unpaid submission (38 of the 41 orders on production on
+// 2026-09-13) counted as revenue the moment it was created, and a refunded
+// one kept counting after the money went back. The Command app's finance
+// endpoints (routes/api/admin.js GET /refunds, GET /revenue) filter
+// payment_status IN ('paid','captured'), so the two dashboards disagreed on
+// the one number an owner looks at first. Same predicate here, applied
+// INSIDE each aggregate so the case COUNTS on the same tab are unchanged.
+// Folded with LOWER() for the same reason the status lint exists.
+const COLLECTED = "LOWER(COALESCE(payment_status, '')) IN ('paid','captured')";
+const COLLECTED_O = "LOWER(COALESCE(o.payment_status, '')) IN ('paid','captured')";
+
 async function getFinanceTabData({ range = '7d' } = {}) {
   return getCached('finance:' + range, 60_000, async () => {
     const [
@@ -507,10 +522,10 @@ async function getFinanceTabData({ range = '7d' } = {}) {
       // KPI aggregates
       safeGet(
         `SELECT
-            COALESCE(SUM(price) FILTER (WHERE created_at::date = CURRENT_DATE), 0) AS rev_today,
-            COALESCE(SUM(price) FILTER (WHERE created_at >= date_trunc('month', NOW())), 0) AS rev_mtd,
-            COALESCE(SUM(price - COALESCE(doctor_fee, 0)) FILTER (WHERE created_at >= date_trunc('month', NOW())), 0) AS gross_profit_mtd,
-            COALESCE(AVG(price) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND price > 0), 0) AS avg_order_30d,
+            COALESCE(SUM(price) FILTER (WHERE created_at::date = CURRENT_DATE AND ${COLLECTED}), 0) AS rev_today,
+            COALESCE(SUM(price) FILTER (WHERE created_at >= date_trunc('month', NOW()) AND ${COLLECTED}), 0) AS rev_mtd,
+            COALESCE(SUM(price - COALESCE(doctor_fee, 0)) FILTER (WHERE created_at >= date_trunc('month', NOW()) AND ${COLLECTED}), 0) AS gross_profit_mtd,
+            COALESCE(AVG(price) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND price > 0 AND ${COLLECTED}), 0) AS avg_order_30d,
             COUNT(*) FILTER (WHERE created_at >= date_trunc('month', NOW())) AS orders_mtd
          FROM orders_active`,
         [], { rev_today: 0, rev_mtd: 0, gross_profit_mtd: 0, avg_order_30d: 0, orders_mtd: 0 }
@@ -531,7 +546,7 @@ async function getFinanceTabData({ range = '7d' } = {}) {
         `SELECT
             COALESCE(o.country, 'EG') AS country,
             COUNT(*) AS cases,
-            COALESCE(SUM(o.price), 0) AS rev
+            COALESCE(SUM(o.price) FILTER (WHERE ${COLLECTED_O}), 0) AS rev
          FROM orders_active o
          WHERE ${rangeFilter(range).clause}
          GROUP BY country
@@ -623,7 +638,7 @@ async function getFinanceTabData({ range = '7d' } = {}) {
         `SELECT
             sp.name AS specialty_name,
             COUNT(o.id) AS cases,
-            COALESCE(SUM(o.price), 0) AS revenue
+            COALESCE(SUM(o.price) FILTER (WHERE ${COLLECTED_O}), 0) AS revenue
          FROM orders_active o
          LEFT JOIN specialties sp ON sp.id = o.specialty_id
          WHERE ${rangeFilter(range).clause}
@@ -717,7 +732,7 @@ async function getDoctorsTabData({ range = '7d' } = {}) {
                 AND o.deadline_at IS NOT NULL
                 AND o.completed_at::timestamptz <= o.deadline_at::timestamptz
             )::float / NULLIF(COUNT(*) FILTER (WHERE o.completed_at IS NOT NULL), 0) AS sla_hit,
-            COALESCE(SUM(o.price), 0) AS rev,
+            COALESCE(SUM(o.price) FILTER (WHERE ${COLLECTED_O}), 0) AS rev,
             COALESCE(
               (SELECT SUM(earned_amount) FROM doctor_earnings de WHERE de.doctor_id = u.id AND de.status = 'pending'),
               0
@@ -963,7 +978,7 @@ async function getMarketingTabData({ range = '7d' } = {}) {
                 rc.code,
                 COUNT(rr.id) AS uses,
                 COUNT(rr.id) FILTER (WHERE rr.order_id IS NOT NULL) AS conv,
-                COALESCE(SUM(o.price), 0) AS rev
+                COALESCE(SUM(o.price) FILTER (WHERE ${COLLECTED_O}), 0) AS rev
               FROM referral_codes rc
               LEFT JOIN referral_redemptions rr ON rr.referral_code_id = rc.id
               LEFT JOIN orders_active o ON o.referral_code = rc.code
