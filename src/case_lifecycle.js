@@ -316,6 +316,38 @@ async function queueSlaReminder({ caseId, level, toUserId, channel, role, second
   }
 }
 
+// Reminder windows: send once when the remaining time drops below one of
+// these. Keep it simple and stable: 24h, 6h, 1h.
+const SLA_REMINDER_THRESHOLDS = Object.freeze([
+  { level: '24h', seconds: 24 * 60 * 60 },
+  { level: '6h', seconds: 6 * 60 * 60 },
+  { level: '1h', seconds: 60 * 60 }
+]);
+
+/**
+ * Which reminder level to send for a case with `secondsRemaining` left on an
+ * SLA of `slaHours`, or null for none.
+ *
+ * Two rules, both pure (Part B item 10, 2026-09-13):
+ *   1. Only the TIGHTEST window the remaining time is under (AUDIT-SLA-10 —
+ *      one message per tick, never a burst).
+ *   2. Only a window STRICTLY SHORTER than the order's whole SLA. "Due within
+ *      24 hours" on an 18-hour VIP case, or "within 6 hours" on a 4-hour
+ *      urgent case, is true from the second the case is accepted and tells
+ *      the doctor nothing about how late they are — it overstates the time
+ *      left by up to the whole window. A 4h case therefore gets only the 1h
+ *      reminder; an 18h case gets 6h and 1h; a 48h/72h case gets all three.
+ * A missing / non-positive slaHours disables rule 2 (legacy rows).
+ */
+function pickSlaReminderLevel(secondsRemaining, slaHours) {
+  const remaining = Number(secondsRemaining);
+  if (!Number.isFinite(remaining)) return null;
+  const slaSeconds = Number(slaHours) > 0 ? Number(slaHours) * 3600 : null;
+  const eligible = SLA_REMINDER_THRESHOLDS.filter((t) => slaSeconds == null || t.seconds < slaSeconds);
+  const due = eligible.filter((t) => remaining <= t.seconds);
+  return due.length ? due[due.length - 1] : null;
+}
+
 async function dispatchSlaReminders(caseIdOrRow, opts = {}, client) {
   await ensureColumnCache();
   const force = Boolean(opts.force);
@@ -421,14 +453,6 @@ async function dispatchSlaReminders(caseIdOrRow, opts = {}, client) {
   // Do not send reminders after deadline unless forced (breach flow handles escalation).
   if (!force && secondsRemaining <= 0) return { ok: true, skipped: 'past_deadline' };
 
-  // Thresholds: send once when remaining time drops below these windows.
-  // Keep it simple and stable: 24h, 6h, 1h.
-  const thresholds = [
-    { level: '24h', seconds: 24 * 60 * 60 },
-    { level: '6h', seconds: 6 * 60 * 60 },
-    { level: '1h', seconds: 60 * 60 }
-  ];
-
   const toDoctorId = getDoctorUserIdFromOrder(orderRow);
   const toPatientId = getPatientUserIdFromOrder(orderRow);
 
@@ -446,10 +470,16 @@ async function dispatchSlaReminders(caseIdOrRow, opts = {}, client) {
   // -> 1h across later ticks still works: each tighter level is a new key and
   // sends once, while the level already sent is suppressed by
   // hasNotificationByDedupeKey.
-  const dueThresholds = thresholds.filter((t) => secondsRemaining <= t.seconds);
-  const activeThresholds = dueThresholds.length
-    ? [dueThresholds[dueThresholds.length - 1]]
-    : [];
+  //
+  // Part B item 10 (2026-09-13) — the bucket is ALSO capped by the order's own
+  // SLA. An urgent 4-hour case is under the 6h window from the moment it is
+  // accepted, so the first sweep told the doctor "due in about 6 hours" on a
+  // case they had four for; a VIP 18-hour case was told "about 24". The bell
+  // title and body are per-level fixed wording (see notify.js N5), so a level
+  // whose window is not shorter than the SLA is simply never true and is now
+  // never sent — see pickSlaReminderLevel.
+  const picked = pickSlaReminderLevel(secondsRemaining, orderRow.sla_hours);
+  const activeThresholds = picked ? [picked] : [];
 
   const sent = [];
   for (const t of activeThresholds) {
@@ -3408,6 +3438,8 @@ module.exports = {
   logCaseEvent,
   logNotification,
   SILENT_FAILURE_EVENTS,
+  pickSlaReminderLevel,
+  SLA_REMINDER_THRESHOLDS,
   markSlaBreach,
   triggerNotification,
   assignDoctor,
