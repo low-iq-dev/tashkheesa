@@ -67,7 +67,16 @@ async function checkWhatsAppHealth() {
       // window, cron fires again. Forever, 96 times a day, with no external
       // input and no way to self-clear. Every other alertKey still counts:
       // a worker_down page failing to deliver IS evidence WhatsApp is down.
-      "   AND NOT ((context::jsonb)->>'alertKey' = 'whatsapp_401_detected')" +
+      // Part B item 5 (2026-09-13): the exclusion was
+      //   NOT ((context::jsonb)->>'alertKey' = 'whatsapp_401_detected')
+      // and ->> is NULL for every row that has no alertKey at all — which is
+      // every REAL send failure (notify/whatsapp.js and openclaw_client never
+      // write one; only critical-alert.js does). NULL = 'x' is NULL, NOT NULL
+      // is NULL, and a NULL predicate excludes the row. So the detector kept
+      // exactly the rows it was meant to skip (its own alert failures) and
+      // dropped every genuine 401 — the count was 0 with the token dead.
+      // COALESCE the missing key to '' so the comparison is always boolean.
+      "   AND COALESCE((context::jsonb)->>'alertKey', '') <> 'whatsapp_401_detected'" +
       "   AND (" +
       "     COALESCE((context::jsonb)->>'status'," +
       "              (context::jsonb)->>'statusCode') = '401'" +

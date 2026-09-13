@@ -83,8 +83,19 @@ try {
   if (!/COALESCE/i.test(code)) {
     throw new Error('whatsapp_health_check.js must COALESCE both status keys, not pick one — each has been the blind half once.');
   }
-  if (!/whatsapp_401_detected/.test(code) || !/NOT\s*\(/i.test(code)) {
+  if (!/whatsapp_401_detected/.test(code)) {
     throw new Error("whatsapp_health_check.js reads 'statusCode' without excluding its own alertKey — that is a self-sustaining alarm loop: the alert fails, logs a statusCode:401 row, and re-triggers itself every 15 minutes forever.");
+  }
+  // Part B item 5 (2026-09-13): the exclusion MUST be NULL-safe. It was
+  //   NOT ((context::jsonb)->>'alertKey' = 'whatsapp_401_detected')
+  // and ->> is NULL on every row without an alertKey — i.e. every REAL send
+  // failure — so NULL = 'x' → NULL, NOT NULL → NULL, and the row was dropped.
+  // The detector counted only its own alert failures and never a genuine 401.
+  if (!/COALESCE\(\(context::jsonb\)->>'alertKey',\s*''\)\s*<>\s*'whatsapp_401_detected'/.test(code)) {
+    throw new Error("whatsapp_health_check.js must exclude its own alertKey with COALESCE((context::jsonb)->>'alertKey', '') <> 'whatsapp_401_detected' — a bare NOT (->> = …) is NULL for rows without alertKey and silently drops every real failure.");
+  }
+  if (/NOT\s*\(\(context::jsonb\)->>'alertKey'/.test(code)) {
+    throw new Error("whatsapp_health_check.js still uses the NULL-unsafe NOT ((context::jsonb)->>'alertKey' = …) form.");
   }
   if (!/401/.test(code)) {
     throw new Error('whatsapp_health_check.js no longer looks for a 401.');
