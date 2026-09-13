@@ -47,6 +47,20 @@
   const defaultDesc = 'Get a specialist medical second opinion from board-certified Egyptian consultants. Upload your scans, labs, or reports and receive a written review within 48 hours.';
   const pageDesc = (typeof description !== 'undefined' && description) ? String(description) : defaultDesc;
   const canonicalPath = (typeof canonical !== 'undefined' && canonical) ? String(canonical) : '';
+
+  // SEO 2026-09-13 (A2) — per-language canonical + hreflang. Every public page
+  // used to declare the ENGLISH url as its canonical, so Google treated the
+  // Arabic page as a duplicate to drop. On a public URL (publicLangPrefix set
+  // langPrefix + publicPathFor) the canonical is the page's own language URL,
+  // and both versions carry the same three alternates; x-default is English.
+  // Off the public URL scheme the old single canonical is kept as it was.
+  const __pathFor = (typeof locals !== 'undefined' && locals && typeof locals.langPrefix === 'string' &&
+    typeof locals.publicPathFor === 'function') ? locals.publicPathFor : null;
+  const canonicalHref = !canonicalPath ? ''
+    : (__pathFor ? siteUrl + __pathFor(pageLang === 'ar' ? 'ar' : 'en', canonicalPath) : siteUrl + canonicalPath);
+  const hreflangHrefs = (__pathFor && canonicalPath)
+    ? { ar: siteUrl + __pathFor('ar', canonicalPath), en: siteUrl + __pathFor('en', canonicalPath) }
+    : null;
 %>
 <!DOCTYPE html>
 <html lang="<%= pageLang %>" dir="<%= pageDir %>">
@@ -58,7 +72,12 @@
   <!-- SEO -->
   <meta name="description" content="<%= pageDesc %>" />
   <meta name="robots" content="<%= (typeof robots !== 'undefined' && robots) ? robots : 'index, follow' %>" />
-  <% if (canonicalPath) { %><link rel="canonical" href="<%= siteUrl + canonicalPath %>" /><% } %>
+  <% if (canonicalHref) { %><link rel="canonical" href="<%= canonicalHref %>" /><% } %>
+  <% if (hreflangHrefs) { %>
+  <link rel="alternate" hreflang="ar-EG" href="<%= hreflangHrefs.ar %>" />
+  <link rel="alternate" hreflang="en" href="<%= hreflangHrefs.en %>" />
+  <link rel="alternate" hreflang="x-default" href="<%= hreflangHrefs.en %>" />
+  <% } %>
 
   <!-- Open Graph (Facebook / WhatsApp / LinkedIn) -->
   <meta property="og:type" content="website" />
@@ -68,8 +87,9 @@
   <meta property="og:image" content="<%= ogImage %>" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <% if (canonicalPath) { %><meta property="og:url" content="<%= siteUrl + canonicalPath %>" /><% } %>
+  <% if (canonicalHref) { %><meta property="og:url" content="<%= canonicalHref %>" /><% } %>
   <meta property="og:locale" content="<%= pageLang === 'ar' ? 'ar_EG' : 'en_US' %>" />
+  <meta property="og:locale:alternate" content="<%= pageLang === 'ar' ? 'en_US' : 'ar_EG' %>" />
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image" />

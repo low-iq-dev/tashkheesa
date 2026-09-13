@@ -141,6 +141,9 @@ function publicLangPrefix() {
     res.locals.publicPath = normalisePath(split.path);
     res.locals.altLangUrl = pathFor(split.isAr ? 'en' : 'ar', split.path);
     res.locals.altLang = split.isAr ? 'en' : 'ar';
+    // The layout builds canonical + hreflang from the route's `canonical` with
+    // the same rule the redirects use, rather than a second copy of it.
+    res.locals.publicPathFor = pathFor;
     res.setHeader('Content-Language', lang);
     return next();
   };

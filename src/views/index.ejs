@@ -16,6 +16,14 @@
   // cannot take their payment.
   var __ctaOn = (typeof bookingCtaEnabled !== 'undefined') ? !!bookingCtaEnabled : false;
   var __ctaOffLabel = tt('home.cta.locked', 'Booking opens soon', 'الحجز هيفتح قريب');
+
+  // SEO 2026-09-13 (A2) — the homepage has its own <head>, so it carries its
+  // own per-language canonical + hreflang (the layout's copy never reaches it).
+  // It used to declare https://tashkheesa.com/ as canonical in both languages.
+  var __homeIsAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var __homeEn = 'https://tashkheesa.com/';
+  var __homeAr = 'https://tashkheesa.com/ar/';
+  var __homeCanonical = __homeIsAr ? __homeAr : __homeEn;
 %><!DOCTYPE html>
 <html lang="<%= lang %>" dir="<%= dir %>">
 <head>
@@ -39,7 +47,7 @@
   <meta property="og:image" content="https://tashkheesa.com/assets/brand/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:url" content="https://tashkheesa.com" />
+  <meta property="og:url" content="<%= __homeCanonical %>" />
   <meta property="og:locale" content="<%= lang === 'ar' ? 'ar_EG' : 'en_US' %>" />
   <meta property="og:locale:alternate" content="<%= lang === 'ar' ? 'en_US' : 'ar_EG' %>" />
   <!-- Twitter Card -->
@@ -51,7 +59,10 @@
     'Get a specialist medical second opinion from board-certified Egyptian consultants. Upload your scans, labs, or reports and receive a written review within 48 hours.',
     'خد رأي طبي تاني من استشاريين مصريين معتمدين. ارفع أشعتك أو تحاليلك أو تقاريرك واستلم مراجعة مكتوبة في خلال 48 ساعة.') %>" />
   <meta name="twitter:image" content="https://tashkheesa.com/assets/brand/og-image.png" />
-  <link rel="canonical" href="https://tashkheesa.com/" />
+  <link rel="canonical" href="<%= __homeCanonical %>" />
+  <link rel="alternate" hreflang="ar-EG" href="<%= __homeAr %>" />
+  <link rel="alternate" hreflang="en" href="<%= __homeEn %>" />
+  <link rel="alternate" hreflang="x-default" href="<%= __homeEn %>" />
 
   <!-- Structured Data (JSON-LD) -->
   <script type="application/ld+json"<%- __nonceAttr %>>
