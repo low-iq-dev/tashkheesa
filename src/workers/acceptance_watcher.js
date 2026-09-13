@@ -2,7 +2,7 @@
 // Runs every 2 minutes. Auto-assigns orders whose acceptance deadline has expired.
 
 const { queryOne, queryAll, execute } = require('../pg');
-const { queueNotification } = require('../notify');
+const { queueNotification, notifyAdmins } = require('../notify');
 const { TEMPLATES } = require('../notify/templates');
 const { logOrderEvent } = require('../audit');
 const { logErrorToDb } = require('../logger');
@@ -559,19 +559,43 @@ async function autoAssignOrder(order) {
     });
   }
 
-  // Notify admin (internal)
-  queueNotification({
-    orderId: order.id,
-    toUserId: 'superadmin-1',
-    channel: 'internal',
-    template: 'acceptance_timeout_auto_assigned_admin',
-    response: {
-      case_ref: order.reference_id || String(order.id).slice(0, 12).toUpperCase(),
-      doctor_id: doctor.id,
-      doctor_name: doctor.name,
-    },
-    dedupe_key: 'auto_assign_admin:' + order.id,
-  });
+  // Notify admins. Part B item 6 (2026-09-13): this was queued to the
+  // literal user id 'superadmin-1' — a demo-seed id that does not exist in
+  // production (checked read-only 2026-09-13) — so every acceptance-timeout
+  // alert was a bell row nobody could ever see. Now: a bell row for every
+  // active superadmin (notifyAdmins resolves them), and an ops event through
+  // pushOpsEvent so it also PERSISTS to the Command app's Activity feed and
+  // pages whoever has a device registered.
+  const caseRef = order.reference_id || String(order.id).slice(0, 12).toUpperCase();
+  try {
+    await notifyAdmins({
+      template: 'acceptance_timeout_auto_assigned_admin',
+      payload: {
+        case_ref: caseRef,
+        case_id: order.id,
+        doctor_id: doctor.id,
+        doctor_name: doctor.name,
+      },
+      dedupeKey: 'auto_assign_admin:' + order.id,
+      orderId: order.id,
+      channel: 'internal',
+    });
+  } catch (err) {
+    logErrorToDb(err, { context: 'acceptance_watcher.notify_admins', category: 'acceptance_watcher', orderId: order.id });
+  }
+  try {
+    await pushOpsEvent({
+      kind: 'acceptance_timeout_auto_assigned',
+      dedupeKey: String(order.id),
+      title: 'Case auto-assigned after acceptance timeout',
+      body: caseRef + ' was not accepted in its window and has been handed to Dr ' +
+            (doctor.name || doctor.id) + '. No action needed unless they do not accept either.',
+      data: { orderId: order.id, doctorId: doctor.id },
+      orderId: order.id,
+    });
+  } catch (err) {
+    logErrorToDb(err, { context: 'acceptance_watcher.ops_push', category: 'acceptance_watcher', orderId: order.id });
+  }
 }
 
 function startAcceptanceWatcher() {
