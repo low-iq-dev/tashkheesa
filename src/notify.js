@@ -697,21 +697,26 @@ function renderNotificationMessage(template, payload, lang) {
 
     case 'patient_refund_denied':
       // The reason is the whole point of this notification. Until now it
-      // existed only on the email surface.
+      // existed only on the email surface. Part C3 (2026-09-13): and the
+      // amount it was about.
       if (isAr) return reason
-        ? `لم تتم الموافقة على طلب الاسترداد. السبب: ${reason}`
-        : 'لم تتم الموافقة على طلب الاسترداد. تواصل معنا إذا كنت تريد مراجعة القرار.';
+        ? `لم تتم الموافقة على طلب الاسترداد${money ? ` بمبلغ ${money}` : ''}. السبب: ${reason}`
+        : `لم تتم الموافقة على طلب الاسترداد${money ? ` بمبلغ ${money}` : ''}. تواصل معنا إذا كنت تريد مراجعة القرار.`;
       return reason
-        ? `Your refund request was not approved. Reason: ${reason}`
-        : 'Your refund request was not approved. Get in touch if you would like this looked at again.';
+        ? `Your refund request${money ? ` for ${money}` : ''} was not approved. Reason: ${reason}`
+        : `Your refund request${money ? ` for ${money}` : ''} was not approved. Get in touch if you would like this looked at again.`;
 
-    case 'patient_refund_paid':
+    case 'patient_refund_paid': {
+      // Part C3 (2026-09-13): which InstaPay number it went to — the last four
+      // digits only, which is enough to recognise and useless to anyone else.
+      const l4 = String(p.instapayLast4 || p.instapay_last4 || '').replace(/[^0-9]/g, '').slice(-4);
       if (isAr) return money
-        ? `تم إرسال مبلغ ${money}. قد يستغرق ظهوره في حسابك بضعة أيام عمل.`
+        ? `تم إرسال مبلغ ${money}${l4 ? ` إلى رقم إنستاباي المنتهي بـ ${l4}` : ''}. قد يستغرق ظهوره في حسابك بضعة أيام عمل.`
         : 'تم إرسال مبلغ الاسترداد. قد يستغرق ظهوره في حسابك بضعة أيام عمل.';
       return money
-        ? `Your refund of ${money} has been sent. It can take a few working days to appear in your account.`
+        ? `Your refund of ${money} has been sent${l4 ? ` to your InstaPay number ending ${l4}` : ''}. It can take a few working days to appear in your account.`
         : 'Your refund has been sent. It can take a few working days to appear in your account.';
+    }
 
     // ── Case state ──
     case 'case_cancelled_patient':

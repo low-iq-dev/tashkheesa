@@ -2504,12 +2504,15 @@ module.exports = function (db, helpers, deploy, deps) {
         notification = await safeQueue({
           orderId: refund.orderId,
           toUserId: patientUserId,
-          channels: ['internal', 'email'],
+          // Part C3 (2026-09-13): WhatsApp alongside, amount + currency on every channel.
+          channels: ['internal', 'email', 'whatsapp'],
           template: 'patient_refund_approved',
           response: {
             case_id: refund.orderId,
             caseReference: String(refund.orderId || '').slice(0, 12).toUpperCase(),
             approvedAmount: Number(refund.approvedAmount).toFixed(2),
+            amount: Number(refund.approvedAmount).toFixed(2),
+            currency: 'EGP',
           },
           dedupe_key: 'refund_approved:' + refundId,
         });
@@ -2573,12 +2576,17 @@ module.exports = function (db, helpers, deploy, deps) {
         notification = await safeQueue({
           orderId: refund.orderId,
           toUserId: patientUserId,
-          channels: ['internal', 'email'],
+          channels: ['internal', 'email', 'whatsapp'],
           template: 'patient_refund_denied',
           response: {
             case_id: refund.orderId,
             caseReference: String(refund.orderId || '').slice(0, 12).toUpperCase(),
             denialReason: refund.denialReason,
+            ...(refund.requestedAmount != null ? {
+              requestedAmount: Number(refund.requestedAmount).toFixed(2),
+              amount: Number(refund.requestedAmount).toFixed(2),
+            } : {}),
+            currency: 'EGP',
           },
           dedupe_key: 'refund_denied:' + refundId,
         });
@@ -2668,13 +2676,15 @@ module.exports = function (db, helpers, deploy, deps) {
         notification = await safeQueue({
           orderId: refund.orderId,
           toUserId: patientUserId,
-          channels: ['internal', 'email'],
+          channels: ['internal', 'email', 'whatsapp'],
           template: 'patient_refund_paid',
           response: {
             case_id: refund.orderId,
             caseReference: String(refund.orderId || '').slice(0, 12).toUpperCase(),
             amount: Number(refund.finalAmount).toFixed(2),
+            currency: 'EGP',
             instapayReference: refund.instapayReference,
+            instapayLast4: require('../../services/refund_summary').last4(refund.paidToNumber || refund.instapayHandle),
           },
           dedupe_key: 'refund_paid:' + refundId,
         });

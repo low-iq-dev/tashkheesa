@@ -57,8 +57,10 @@ try {
   if (!/template:\s*['"]patient_refund_approved['"]/.test(approveBody)) {
     throw new Error('approve missing patient notification template patient_refund_approved');
   }
-  if (!/channels:\s*\[\s*['"]internal['"]\s*,\s*['"]email['"]\s*\]/.test(approveBody)) {
-    throw new Error('approve patient notification not multi-channel internal+email');
+  // Part C3 (2026-09-13): WhatsApp added alongside (OpenClaw composes
+  // patient_refund_approved; the worker honours the patient's notify_whatsapp).
+  if (!/channels:\s*\[\s*['"]internal['"]\s*,\s*['"]email['"]\s*,\s*['"]whatsapp['"]\s*\]/.test(approveBody)) {
+    throw new Error('approve patient notification not multi-channel internal+email+whatsapp');
   }
   t.pass('approve: requireSuperadmin + amount validation (>0, <=requested) + concurrency-safe UPDATE + audit + patient internal+email');
 } catch (e) { t.fail('approve action', e); }

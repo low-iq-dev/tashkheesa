@@ -98,17 +98,19 @@ const OPENCLAW_TEMPLATES = {
   },
 
   // ── f. Refund lifecycle ────────────────────────────────────────────
+  // Part C3 (2026-09-13): every refund message says how much (v.money), and
+  // the paid one says which InstaPay number — last four digits only.
   patient_refund_approved: {
-    en: (v) => `Your refund for case ${v.caseReference} has been approved. The amount will land in your account within 3–5 business days.\n— Tashkheesa`,
-    ar: (v) => `طلب استرداد المبلغ لحالة ${v.caseReference} تم اعتماده. المبلغ هيوصل خلال 3–5 أيام عمل.\n— تشخيصة`
+    en: (v) => `Your refund${v.money ? ` of ${v.money}` : ''} for case ${v.caseReference} has been approved. It will be sent by InstaPay within 3–5 business days.\n— Tashkheesa`,
+    ar: (v) => `طلب استرداد المبلغ لحالة ${v.caseReference} تم اعتماده${v.money ? ` (${v.money})` : ''}. المبلغ هيوصلك عبر إنستاباي خلال 3–5 أيام عمل.\n— تشخيصة`
   },
   patient_refund_paid: {
-    en: (v) => `Refund for case ${v.caseReference} has been issued. Details: ${v.link}\n— Tashkheesa`,
-    ar: (v) => `تم تحويل الاسترداد لحالة ${v.caseReference}. التفاصيل من هنا: ${v.link}\n— تشخيصة`
+    en: (v) => `Your refund${v.money ? ` of ${v.money}` : ''} for case ${v.caseReference} has been sent${v.instapayLast4 ? ` to your InstaPay number ending ${v.instapayLast4}` : ''}. Details: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تم تحويل الاسترداد لحالة ${v.caseReference}${v.money ? ` (${v.money})` : ''}${v.instapayLast4 ? ` إلى رقم إنستاباي المنتهي بـ ${v.instapayLast4}` : ''}. التفاصيل من هنا: ${v.link}\n— تشخيصة`
   },
   patient_refund_denied: {
-    en: (v) => `Your refund request for case ${v.caseReference} was reviewed and could not be approved${v.reason ? `. Reason: ${v.reason}` : ''}. Reply here to discuss.\n— Tashkheesa`,
-    ar: (v) => `طلب استرداد حالة ${v.caseReference} تمت مراجعته ولم يتم اعتماده${v.reason ? `. السبب: ${v.reason}` : ''}. للاستفسار: رد على الرسالة دي.\n— تشخيصة`
+    en: (v) => `Your refund request${v.money ? ` for ${v.money}` : ''} on case ${v.caseReference} was reviewed and could not be approved${v.reason ? `. Reason: ${v.reason}` : ''}. Reply here to discuss.\n— Tashkheesa`,
+    ar: (v) => `طلب استرداد حالة ${v.caseReference}${v.money ? ` (${v.money})` : ''} تمت مراجعته ولم يتم اعتماده${v.reason ? `. السبب: ${v.reason}` : ''}. للاستفسار: رد على الرسالة دي.\n— تشخيصة`
   },
   patient_refund_opened_by_operator: {
     en: (v) => `A refund request has been opened for case ${v.caseReference} on your behalf. We'll get back to you within 1 business day. Details: ${v.link}\n— Tashkheesa`,
@@ -447,7 +449,14 @@ function getOpenClawBody(eventName, lang, rawVars, opts) {
     patientName: vars.patientName || vars.patient_name || '',
     amount: vars.amount != null ? vars.amount : '',
     currency: vars.currency || '',
-    reason: vars.reason || '',
+    // Part C3 (2026-09-13) — refund messages. `money` is the amount with its
+    // currency ('' when there is no amount, so a composer can omit it), and
+    // the refund denial queues `denialReason`, not `reason`.
+    money: (vars.amount != null && String(vars.amount).trim() !== '')
+      ? (lang === 'ar' ? `${Number(vars.amount).toLocaleString('en-US')} جنيه` : `${vars.currency || 'EGP'} ${Number(vars.amount).toLocaleString('en-US')}`)
+      : '',
+    instapayLast4: String(vars.instapayLast4 || vars.instapay_last4 || '').replace(/[^0-9]/g, '').slice(-4),
+    reason: vars.reason || vars.denialReason || vars.denial_reason || '',
     appointmentTime: vars.appointmentTime || vars.appointment_time || '',
     slaHours: vars.slaHours || vars.sla_hours || '',
     // #66: hoursRemaining is set by case_lifecycle for payment-reminder

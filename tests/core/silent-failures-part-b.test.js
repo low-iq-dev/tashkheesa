@@ -110,7 +110,8 @@ check('(d) reject-files: a failed write and a failed SLA pause each carry a code
 });
 
 // (e) refunds
-['patient_refund_opened_by_operator', 'patient_refund_approved', 'patient_refund_denied'].forEach((tpl) => {
+// Part C3 (2026-09-13): patient_refund_paid joins — it was the last one fired and forgotten.
+['patient_refund_opened_by_operator', 'patient_refund_approved', 'patient_refund_denied', 'patient_refund_paid'].forEach((tpl) => {
   check('(e) ' + tpl + ': the queue call is awaited, its result read, and a failure warns the operator', () => {
     const i = SA.indexOf("template: '" + tpl + "'");
     if (i < 0) return 'site not found';

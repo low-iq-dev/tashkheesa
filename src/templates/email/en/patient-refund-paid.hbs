@@ -20,6 +20,12 @@
           <td style="padding:6px 0;font-size:14px;color:#7A736A;">Instapay reference:</td>
           <td style="padding:6px 0;font-size:14px;font-family:monospace;color:#2E2B26;">{{instapayReference}}</td>
         </tr>
+        {{#if instapayLast4}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#7A736A;">Sent to:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2E2B26;">InstaPay number ending {{instapayLast4}}</td>
+        </tr>
+        {{/if}}
         {{#if caseReference}}
         <tr>
           <td style="padding:6px 0;font-size:14px;color:#7A736A;">Case:</td>

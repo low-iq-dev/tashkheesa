@@ -6592,12 +6592,14 @@ router.post('/superadmin/refunds/create', requireSuperadmin, async (req, res) =>
       const r = await queueMultiChannelNotification({
         orderId: orderId,
         toUserId: order.patient_id,
-        channels: ['internal', 'email'],
+        channels: ['internal', 'email', 'whatsapp'],
         template: 'patient_refund_opened_by_operator',
         response: {
           case_id: orderId,
           caseReference: orderId.slice(0, 12).toUpperCase(),
           requestedAmount: amountRaw.toFixed(2),
+          amount: amountRaw.toFixed(2),
+          currency: 'EGP',
           instapayHandle: instapayRaw,
           patientName: '' // resolved by notification_worker from users.name
         },
@@ -6610,6 +6612,17 @@ router.post('/superadmin/refunds/create', requireSuperadmin, async (req, res) =>
 
   return res.redirect('/superadmin/refunds?flash=created' + (patientNotified ? '' : '&warn=patient_not_notified'));
 });
+
+// Part C3 (2026-09-13) — WHO to tell about a refund: the case's patient.
+// refunds.requested_by is whoever OPENED the refund — the patient on a request,
+// the operator on an operator refund, 'system' on an automatic SLA-breach
+// refund — so approve/deny/paid on those two used to notify the operator (or
+// nobody) while the patient heard nothing. The Command API already resolved
+// the patient from the order; the web now does the same.
+async function refundPatientId(orderId) {
+  const row = await queryOne('SELECT patient_id FROM orders_active WHERE id = $1', [orderId]);
+  return row && row.patient_id ? row.patient_id : null;
+}
 
 // Part B item 3 (2026-09-13) — did a patient notification actually land?
 // queueMultiChannelNotification never throws; it returns { ok, results } with
@@ -6694,20 +6707,24 @@ router.post('/superadmin/refunds/:id/approve', requireSuperadmin, async (req, re
   // Patient notification (in-app + email). Part B item 3 (2026-09-13): the
   // result is read and a total failure is flagged — see the opened-by-operator
   // handler above for why.
+  // Part C3 (2026-09-13): to the case's patient (refundPatientId), with the
+  // amount and currency on every channel, and WhatsApp alongside (OpenClaw
+  // composes patient_refund_approved; the worker honours notify_whatsapp).
   let patientNotified = true;
   try {
-    const patient = await queryOne(
-      "SELECT requested_by FROM refunds WHERE id = $1", [refundId]);
-    if (patient && patient.requested_by) {
+    const patientId = await refundPatientId(refund.order_id);
+    if (patientId) {
       const r = await queueMultiChannelNotification({
         orderId: refund.order_id,
-        toUserId: patient.requested_by,
-        channels: ['internal', 'email'],
+        toUserId: patientId,
+        channels: ['internal', 'email', 'whatsapp'],
         template: 'patient_refund_approved',
         response: {
           case_id: refund.order_id,
           caseReference: refund.order_id.slice(0, 12).toUpperCase(),
-          approvedAmount: approvedAmountRaw.toFixed(2)
+          approvedAmount: approvedAmountRaw.toFixed(2),
+          amount: approvedAmountRaw.toFixed(2),
+          currency: 'EGP'
         },
         dedupe_key: 'refund_approved:' + refundId + ':patient'
       });
@@ -6729,7 +6746,7 @@ router.post('/superadmin/refunds/:id/deny', requireSuperadmin, async (req, res) 
   }
 
   const refund = await queryOne(
-    "SELECT id, order_id, status, requested_by FROM refunds WHERE id = $1",
+    "SELECT id, order_id, status, requested_by, requested_amount FROM refunds WHERE id = $1",
     [refundId]
   );
   if (!refund) return res.redirect('/superadmin/refunds?error=not_found');
@@ -6762,16 +6779,21 @@ router.post('/superadmin/refunds/:id/deny', requireSuperadmin, async (req, res) 
   // who is never told their refund was denied keeps waiting for money.
   let patientNotified = true;
   try {
-    if (refund.requested_by) {
+    // Part C3: the case's patient, with the amount asked for.
+    const patientId = await refundPatientId(refund.order_id);
+    if (patientId) {
       const r = await queueMultiChannelNotification({
         orderId: refund.order_id,
-        toUserId: refund.requested_by,
-        channels: ['internal', 'email'],
+        toUserId: patientId,
+        channels: ['internal', 'email', 'whatsapp'],
         template: 'patient_refund_denied',
         response: {
           case_id: refund.order_id,
           caseReference: refund.order_id.slice(0, 12).toUpperCase(),
-          denialReason
+          denialReason,
+          requestedAmount: Number(refund.requested_amount || 0).toFixed(2),
+          amount: Number(refund.requested_amount || 0).toFixed(2),
+          currency: 'EGP'
         },
         dedupe_key: 'refund_denied:' + refundId + ':patient'
       });
@@ -6793,7 +6815,7 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
   }
 
   const refund = await queryOne(
-    "SELECT id, order_id, status, approved_amount, requested_amount, requested_by FROM refunds WHERE id = $1",
+    "SELECT id, order_id, status, approved_amount, requested_amount, requested_by, instapay_handle FROM refunds WHERE id = $1",
     [refundId]
   );
   if (!refund) return res.redirect('/superadmin/refunds?error=not_found');
@@ -6958,30 +6980,42 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
     // earnings recompute can be retried via the manual earnings UI.
   }
 
+  // Part C3 (2026-09-13) — "your refund was paid" was the last refund message
+  // still fired and forgotten, and it went to refunds.requested_by. It now goes
+  // to the case's patient with the amount, the currency and the last four
+  // digits of the number the money was sent to, and a failure warns the
+  // operator exactly like opened/approved/denied (Part B item 3).
+  let patientNotified = true;
   try {
-    if (refund.requested_by) {
-      queueMultiChannelNotification({
+    const patientId = await refundPatientId(refund.order_id);
+    if (patientId) {
+      const r = await queueMultiChannelNotification({
         orderId: refund.order_id,
-        toUserId: refund.requested_by,
-        channels: ['internal', 'email'],
+        toUserId: patientId,
+        channels: ['internal', 'email', 'whatsapp'],
         template: 'patient_refund_paid',
         response: {
           case_id: refund.order_id,
           caseReference: refund.order_id.slice(0, 12).toUpperCase(),
           amount: finalAmount.toFixed(2),
-          instapayReference: reference
+          currency: 'EGP',
+          instapayReference: reference,
+          instapayLast4: require('../services/refund_summary').last4(refund.instapay_handle)
         },
         dedupe_key: 'refund_paid:' + refundId + ':patient'
       });
+      patientNotified = refundNotifyLanded(r);
     }
-  } catch (_) { /* best-effort */ }
+  } catch (_) { patientNotified = false; }
+  if (!patientNotified) await flagRefundNotifyFailed({ orderId: refund.order_id, refundId, stage: 'paid', req });
+  const notifyWarn = patientNotified ? '' : '&warn=patient_not_notified';
 
   // A8 — the refund is paid either way; if the clawback failed the operator is
   // told so (an error the refund view renders) rather than a clean success.
   if (clawbackFailed) {
-    return res.redirect('/superadmin/refunds?flash=paid&error=clawback_failed');
+    return res.redirect('/superadmin/refunds?flash=paid&error=clawback_failed' + notifyWarn);
   }
-  return res.redirect('/superadmin/refunds?flash=paid');
+  return res.redirect('/superadmin/refunds?flash=paid' + notifyWarn);
 });
 
 // additionalFilesDecisionPredicate is exported so routes/admin.js uses the SAME

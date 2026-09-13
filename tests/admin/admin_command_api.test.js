@@ -1203,7 +1203,7 @@ test('POST /refunds/:id/approve — happy: 200, COMMIT, internal+email patient n
   const n = spy.calls.queue[0];
   assert.equal(n.template, 'patient_refund_approved');
   assert.equal(n.toUserId, 'pat-1', 'recipient resolved via the order patient_id, not requested_by');
-  assert.deepEqual(n.channels, ['internal', 'email']);
+  assert.deepEqual(n.channels, ['internal', 'email', 'whatsapp']); // Part C3: WhatsApp alongside
   assert.equal(n.dedupe_key, 'refund_approved:rf-1');
   assert.equal(n.response.approvedAmount, '600.00');
 });
@@ -1317,7 +1317,7 @@ test('POST /refunds/:id/deny — happy: 200, COMMIT, internal+email patient noti
   const n = spy.calls.queue[0];
   assert.equal(n.template, 'patient_refund_denied');
   assert.equal(n.toUserId, 'pat-1', 'recipient resolved via the order patient_id, not requested_by');
-  assert.deepEqual(n.channels, ['internal', 'email']);
+  assert.deepEqual(n.channels, ['internal', 'email', 'whatsapp']); // Part C3: WhatsApp alongside
   assert.equal(n.dedupe_key, 'refund_denied:rf-1');
 });
 
@@ -1437,7 +1437,7 @@ test('POST /refunds/:id/mark-paid — happy: 200, COMMIT, clawback applied + int
   const n = queueCalls[0];
   assert.equal(n.template, 'patient_refund_paid');
   assert.equal(n.toUserId, 'pat-1');
-  assert.deepEqual(n.channels, ['internal', 'email']);
+  assert.deepEqual(n.channels, ['internal', 'email', 'whatsapp']); // Part C3: WhatsApp alongside
   assert.equal(n.dedupe_key, 'refund_paid:rf-1');
 });
 
