@@ -1,4 +1,5 @@
-<%- include('partials/header', { title: tt('contact.page_title', 'Contact Us', 'كلمنا'), layout: "public", showNav: true }) %>
+<%# SEO 2026-09-13 (D): <title> from the route (MSA in Arabic); the page body keeps its Egyptian Arabic. %>
+<%- include('partials/header', { title: (typeof title !== 'undefined' && title) ? title : tt('contact.page_title', 'Contact Us', 'كلمنا'), layout: "public", showNav: true }) %>
 <% const biz = (typeof BUSINESS_INFO !== 'undefined' && BUSINESS_INFO) ? BUSINESS_INFO : {}; %>
 
 <main class="page-shell">

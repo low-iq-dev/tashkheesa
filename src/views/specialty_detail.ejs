@@ -1,4 +1,5 @@
-<%- include('partials/header', { title: (typeof specialty !== 'undefined' && specialty ? specialty.name : tt('specd.title_fallback', 'Specialty', 'تخصص')), layout: 'public', showNav: true }) %>
+<%# SEO 2026-09-13 (D): the route decides the title (Arabic name on the Arabic page); it used to be the English name in both. %>
+<%- include('partials/header', { title: (typeof title !== 'undefined' && title) ? title : (typeof specialty !== 'undefined' && specialty ? specialty.name : tt('specd.title_fallback', 'Specialty', 'تخصص')), layout: 'public', showNav: true }) %>
 <%
   const __isAr = !!(typeof isAr !== 'undefined' && isAr);
   const __sp = (typeof specialty !== 'undefined' && specialty) ? specialty : {};

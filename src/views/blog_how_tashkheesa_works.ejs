@@ -1,6 +1,7 @@
-<%- include('partials/header', { title: tt('blog.how.page_title',
-  'How Tashkheesa Works: Get a Second Opinion in 3 Steps – Tashkheesa',
-  'إزاي تشخيصة بتشتغل: رأي تاني في 3 خطوات – تشخيصة'), layout: 'public', showNav: true }) %>
+<%# SEO 2026-09-13 (D): title from the route (BLOG_POST_VIEWS, MSA in Arabic); the layout adds the brand once. %>
+<%- include('partials/header', { title: (typeof title !== 'undefined' && title) ? title : tt('blog.how.page_title',
+  'How Tashkheesa Works: Get a Second Opinion in 3 Steps',
+  'كيف تعمل تشخيصة: رأي طبي ثانٍ في 3 خطوات'), layout: 'public', showNav: true }) %>
 <%
   const __isAr = !!(typeof isAr !== 'undefined' && isAr);
 

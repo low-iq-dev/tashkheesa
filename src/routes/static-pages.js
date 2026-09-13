@@ -7,7 +7,6 @@ var crypto = require('crypto');
 var { v4: uuidv4 } = require('uuid');
 var router = express.Router();
 
-var { getVisibleSpecialtyCount, getVisibleServiceCount } = require('../services/site_stats');
 const { serviceBookableClause } = require('../services/service_bookable');
 var comingSoonNotify = require('../notify/coming_soon');
 // Durable persistence surface for contact-form submissions (see POST /contact).
@@ -66,6 +65,9 @@ function refundPolicyDescription(isAr, videoOn) {
 function setupStaticPages(opts) {
   var execute = opts.execute;
   var safeAll = opts.safeAll;
+  // Injectable so the SEO guards can render every public route without a
+  // database; server.js passes nothing and gets the real module.
+  var siteStats = opts.siteStats || require('../services/site_stats');
 
   // EN strings are the canonical fields. *_ar fields are the Egyptian-Arabic
   // counterparts consumed by about.ejs / contact.ejs via canonical tt() with
@@ -106,6 +108,38 @@ function setupStaticPages(opts) {
   function getServiceDescription(name) {
     if (SERVICE_DESCRIPTIONS[name]) return SERVICE_DESCRIPTIONS[name];
     return 'Expert specialist review with a detailed written report covering findings and clinical recommendations.';
+  }
+
+  // SEO 2026-09-13 (D) — Arabic /services was half English: every card's text
+  // came from the English map above. Body copy, so Egyptian Arabic like the rest
+  // of the page. A service missing here falls back to its English text, never a
+  // blank card.
+  var SERVICE_DESCRIPTIONS_AR = {
+    'X-Ray Review': 'دكتور أشعة معتمد بيراجع صور الأشعة العادية بتاعتك ويكتبلك تقرير مفصل بالنتائج والتوصيات.',
+    'MRI Review': 'استشاري أشعة متخصص بيحلل الرنين المغناطيسي بتاعك ويكتب تقرير شامل بكل النتائج.',
+    'CT Scan Review': 'مراجعة مفصلة لصور الأشعة المقطعية من دكتور متخصص، مع تقرير مكتوب فيه التشخيص والتوصيات.',
+    'Ultrasound Review': 'دكتور متخصص عنده خبرة بيراجع صور السونار بتاعتك ويكتب تقرير بالنتائج.',
+    'Brain MRI Review': 'متخصص في أشعة المخ والأعصاب بيراجع رنين المخ ويكتب النتائج والتشخيصات المحتملة والتوصيات.',
+    'Echocardiogram Review': 'استشاري قلب بيراجع الإيكو بتاعك ويكتب تقييم مفصل لتركيب القلب ووظيفته.',
+    'ECG Review': 'استشاري قلب بيقرأ رسم القلب بتاعك، ويحلل انتظام النبض ويكتب توصيات.',
+    'Blood Work Review': 'استشاري باطنة بيحلل نتايج تحاليل الدم بتاعتك ويشرحها في ضوء حالتك.',
+    'Chest X-Ray Review': 'دكتور أشعة متخصص بيراجع أشعة الصدر ويكتب تقرير بكل نتائج الصدر.',
+    'Mammogram Review': 'دكتور أشعة متخصص في الثدي بيراجع الماموجرام، مع تصنيف BI-RADS وتوصيات المتابعة.',
+    'Biopsy / Histopathology Review': 'دكتور باثولوجي بيراجع شرايح العينة بتاعتك ويكتب تقييم نسيجي مفصل.',
+    'Oncology Case Review': 'استشاري أورام بيراجع حالتك بالكامل، مع تقييم مرحلة المرض وتوصيات العلاج.',
+    'PET Scan Review': 'متخصص طب نووي بيراجع أشعة PET-CT ويكتب تقييم مفصل للنشاط الأيضي.',
+    'Cardiac Catheterization Review': 'استشاري قسطرة قلب بيراجع نتايج القسطرة بتاعتك ويكتب توصيات العلاج.',
+    'Holter Monitor Review': 'استشاري قلب بيراجع تسجيل الهولتر ويحلل انتظام النبض طول فترة التسجيل.',
+    'General Second Opinion': 'دكتور متخصص في المجال المناسب بيراجع ملفك الطبي ويديك رأي طبي تاني مستقل.'
+  };
+
+  function getServiceDescriptionAr(name) {
+    if (SERVICE_DESCRIPTIONS_AR[name]) return SERVICE_DESCRIPTIONS_AR[name];
+    // A service with a specific English description but no Arabic one shows the
+    // English (better than a vaguer Arabic line). One with neither gets the
+    // Arabic twin of the English generic line, never English on the Arabic page.
+    if (SERVICE_DESCRIPTIONS[name]) return null;
+    return 'مراجعة من دكتور متخصص بتقرير مكتوب مفصل فيه النتائج والتوصيات الطبية.';
   }
 
   // In-memory services cache (5-min TTL)
@@ -235,7 +269,10 @@ function setupStaticPages(opts) {
         ' WHERE sv.base_price IS NOT NULL AND sv.base_price > 0 ' +
         ' ORDER BY sv.id, sp.name, sv.base_price ASC',
         [], []);
-      services.forEach(function(s) { s.description = getServiceDescription(s.name); });
+      services.forEach(function(s) {
+        s.description = getServiceDescription(s.name);
+        s.description_ar = getServiceDescriptionAr(s.name);
+      });
       var specialtyNames = [];
       var specialtyNameArMap = {};
       var specialtyLiveMap = {};
@@ -256,7 +293,7 @@ function setupStaticPages(opts) {
       _servicesCache = { services: services, specialtyNames: specialtyNames,
         specialtyNameArMap: specialtyNameArMap, specialtyLiveMap: specialtyLiveMap, ts: now };
     }
-    var cat = await require('../services/site_stats').getCatalogueStats();
+    var cat = await siteStats.getCatalogueStats();
 
     // The Google snippet.
     //
@@ -292,6 +329,24 @@ function setupStaticPages(opts) {
         Number(cat.minPrice).toLocaleString('en-US') + ' — ' + _named.join(', ') + ' and more.';
     }
 
+    // SEO 2026-09-13 (D): the same snippet in Arabic (MSA — search vocabulary),
+    // with the specialties' Arabic names and the same length cap.
+    var isAr = !!(res.locals && res.locals.isAr);
+    if (isAr) {
+      var _arMap = _servicesCache.specialtyNameArMap || {};
+      var _namedAr = _specs.filter(function (n) { return _live[n]; })
+        .concat(_specs.filter(function (n) { return !_live[n]; }))
+        .slice(0, 3)
+        .map(function (n) { return _arMap[n] || n; });
+      var _descAr = function () {
+        return 'تصفّح ' + cat.total + ' خدمة مراجعة طبية متخصصة في ' + cat.totalSpecialties + ' تخصصًا. ' +
+          cat.bookable + ' خدمة متاحة الآن بدءًا من ' + Number(cat.minPrice).toLocaleString('en-US') + ' جنيه — ' +
+          _namedAr.join('، ') + ' وغيرها.';
+      };
+      _desc = _descAr();
+      while (_desc.length > 158 && _namedAr.length > 1) { _namedAr.pop(); _desc = _descAr(); }
+    }
+
     res.render('services', {
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       services: _servicesCache.services,
@@ -308,7 +363,10 @@ function setupStaticPages(opts) {
 
   var LAUNCH_DATE = process.env.LAUNCH_DATE || '';
   var comingSoonTitle = LAUNCH_DATE ? 'Coming Soon — ' + LAUNCH_DATE : 'Coming Soon';
-  var comingSoonDesc = (LAUNCH_DATE ? 'Tashkheesa launches ' + LAUNCH_DATE + '. ' : '') + 'Get expert medical second opinions from board-certified specialists.';
+  // SEO 2026-09-13 (D): 68 characters without a launch date (under the 70 a
+  // snippet needs), and English on the Arabic page.
+  var comingSoonDesc = (LAUNCH_DATE ? 'Tashkheesa launches ' + LAUNCH_DATE + '. ' : '') + 'Get expert medical second opinions from board-certified Egyptian specialists. Leave your details to hear when we launch.';
+  var comingSoonDescAr = (LAUNCH_DATE ? 'تنطلق تشخيصة في ' + LAUNCH_DATE + '. ' : '') + 'احصل على رأي طبي ثانٍ من استشاريين مصريين معتمدين. سجّل بياناتك ليصلك إشعار فور الإطلاق.';
   router.get('/coming-soon', function(req, res) {
     // UTM params are captured from the URL and re-emitted as hidden form
     // inputs so they round-trip into pre_launch_leads on submit. Truncated
@@ -323,7 +381,7 @@ function setupStaticPages(opts) {
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       title: comingSoonTitle,
       BUSINESS_INFO: BUSINESS_INFO,
-      description: comingSoonDesc,
+      description: (res.locals && res.locals.isAr) ? comingSoonDescAr : comingSoonDesc,
       canonical: '/coming-soon',
       utm_source: utm('utm_source'),
       utm_medium: utm('utm_medium'),
@@ -333,18 +391,21 @@ function setupStaticPages(opts) {
       formValues: null
     });
   });
-  router.get('/help-me-choose', function(req, res) { res.render('help_me_choose', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', title: 'Find Your Service – Tashkheesa', BUSINESS_INFO: BUSINESS_INFO, description: 'Not sure which medical review service you need? Our AI assistant will guide you in seconds.', canonical: '/help-me-choose' }); });
-  router.get('/about', function(req, res) { res.render('about', { title: 'About Us', BUSINESS_INFO: BUSINESS_INFO, description: 'Tashkheesa connects patients with board-certified hospital-based specialists for medical second opinions. Learn about our mission and standards.', canonical: '/about' }); });
+  router.get('/help-me-choose', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('help_me_choose', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', title: isAr ? 'اختر الخدمة المناسبة لحالتك' : 'Find Your Service', BUSINESS_INFO: BUSINESS_INFO, description: isAr ? 'لست متأكدًا من خدمة المراجعة الطبية التي تحتاجها؟ يساعدك مساعدنا الذكي على اختيار الخدمة المناسبة لحالتك في ثوانٍ.' : 'Not sure which medical review service you need? Our AI assistant will guide you in seconds.', canonical: '/help-me-choose' }); });
+  router.get('/about', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('about', { title: isAr ? 'عن تشخيصة' : 'About Us', BUSINESS_INFO: BUSINESS_INFO, description: isAr ? 'تربط تشخيصة المرضى باستشاريين معتمدين يعملون في المستشفيات للحصول على رأي طبي ثانٍ. تعرّف على رسالتنا ومعاييرنا في مراجعة الحالات.' : 'Tashkheesa connects patients with board-certified hospital-based specialists for medical second opinions. Learn about our mission and standards.', canonical: '/about' }); });
   // Single render path for /contact, shared by the GET and by the POST's
   // error re-render so the two can never drift in their locals.
   //   contactState — 'idle' | 'sent' | 'error'
   //   contactValues — sticky field values on the error re-render
   function renderContact(req, res, status, state) {
     state = state || {};
+    var isAr = !!(res.locals && res.locals.isAr);
     return res.status(status).render('contact', {
-      title: 'Contact Us',
+      title: isAr ? 'تواصل معنا' : 'Contact Us',
       BUSINESS_INFO: BUSINESS_INFO,
-      description: 'Get in touch with Tashkheesa. We respond within 24 hours during business days.',
+      description: isAr
+        ? 'تواصل مع فريق تشخيصة عبر البريد الإلكتروني أو واتساب أو نموذج التواصل، ونرد على رسالتك خلال 24 ساعة في أيام العمل.'
+        : 'Get in touch with Tashkheesa. We respond within 24 hours during business days.',
       canonical: '/contact',
       contactState: state.contactState || 'idle',
       contactError: state.contactError || null,
@@ -357,10 +418,10 @@ function setupStaticPages(opts) {
     return renderContact(req, res, 200, { contactState: sent ? 'sent' : 'idle' });
   });
   router.get('/privacy', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('privacy', { title: isAr ? 'سياسة الخصوصية — تشخيصة' : 'Privacy Policy', BUSINESS_INFO: BUSINESS_INFO, description: isAr ? 'كيف تجمع تشخيصة بياناتك الشخصية والطبية وتخزّنها وتحميها وفقًا لقانون حماية البيانات المصري.' : 'How Tashkheesa collects, stores, and protects your personal and medical data.', canonical: '/privacy' }); });
-  router.get('/terms', async function(req, res) { var isAr = !!(res.locals && res.locals.isAr); var specialtyCount = await getVisibleSpecialtyCount(); res.render('terms', { title: isAr ? 'شروط الخدمة' : 'Terms of Service', BUSINESS_INFO: BUSINESS_INFO, specialtyCount: specialtyCount, description: isAr ? 'الشروط والأحكام الخاصة باستخدام خدمات تشخيصة للآراء الطبية الثانية.' : 'Terms and conditions for using Tashkheesa medical second opinion services.', canonical: '/terms' }); });
+  router.get('/terms', async function(req, res) { var isAr = !!(res.locals && res.locals.isAr); var specialtyCount = await siteStats.getVisibleSpecialtyCount(); res.render('terms', { title: isAr ? 'شروط الخدمة' : 'Terms of Service', BUSINESS_INFO: BUSINESS_INFO, specialtyCount: specialtyCount, description: isAr ? 'الشروط والأحكام الخاصة باستخدام خدمات تشخيصة للرأي الطبي الثاني، وحقوقك والتزاماتك كمريض عند طلب المراجعة.' : 'Terms and conditions for using Tashkheesa medical second opinion services.', canonical: '/terms' }); });
   router.get('/refund-policy', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('refund_policy', { title: isAr ? 'سياسة الاسترداد والإلغاء' : 'Refund & Cancellation Policy', BUSINESS_INFO: BUSINESS_INFO, description: refundPolicyDescription(isAr, res.locals && res.locals.videoComingSoon === false), canonical: '/refund-policy' }); });
   router.get('/delivery-policy', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('delivery_policy', { title: isAr ? 'سياسة التسليم والخدمة' : 'Delivery & Service Policy', BUSINESS_INFO: BUSINESS_INFO, description: isAr ? 'كيف تُسلِّم تشخيصة تقارير الأطباء الاستشاريين. تسليم رقمي خلال 48 ساعة.' : 'How Tashkheesa delivers specialist medical reports. Digital delivery within 48 hours.', canonical: '/delivery-policy' }); });
-  router.get('/faq', function(req, res) { res.render('faq', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', title: 'FAQ – Frequently Asked Questions', BUSINESS_INFO: BUSINESS_INFO, description: 'Answers to the most common questions about Tashkheesa: how second opinions work, turnaround times, pricing, privacy, and payment options.', canonical: '/faq' }); });
+  router.get('/faq', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('faq', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', title: isAr ? 'الأسئلة الشائعة' : 'FAQ – Frequently Asked Questions', BUSINESS_INFO: BUSINESS_INFO, description: isAr ? 'إجابات عن أكثر الأسئلة شيوعًا حول تشخيصة: كيف يعمل الرأي الطبي الثاني، ومدة المراجعة، والأسعار، والخصوصية، ووسائل الدفع.' : 'Answers to the most common questions about Tashkheesa: how second opinions work, turnaround times, pricing, privacy, and payment options.', canonical: '/faq' }); });
 
   // /blog — index + posts (P1-PUB-1 part 3).
   //
@@ -371,22 +432,30 @@ function setupStaticPages(opts) {
   var BLOG_POST_VIEWS = {
     'when-to-get-medical-second-opinion': {
       view: 'blog_when_to_get_second_opinion',
-      title: 'When Should You Get a Medical Second Opinion? – Tashkheesa',
-      title_ar: 'إمتى تاخد رأي طبي تاني؟ – تشخيصة',
-      description: 'Five signs you need a second opinion, why diagnostic uncertainty is more common than people realize, and how to get one without leaving home.'
+      // SEO 2026-09-13 (D): no brand suffix here — the layout adds it once, in
+      // the page's language. Titles/meta in MSA (search vocabulary); the post
+      // body keeps its Egyptian Arabic.
+      title: 'When Should You Get a Medical Second Opinion?',
+      title_ar: 'متى تحتاج إلى رأي طبي ثانٍ؟',
+      description: 'Five signs you need a second opinion, why diagnostic uncertainty is more common than people realize, and how to get one without leaving home.',
+      description_ar: 'خمس علامات تدل على حاجتك إلى رأي طبي ثانٍ، ولماذا يشيع الغموض في التشخيص أكثر مما يُتوقع، وكيف تحصل على رأي ثانٍ دون مغادرة منزلك.'
     },
     'how-tashkheesa-works': {
       view: 'blog_how_tashkheesa_works',
-      title: 'How Tashkheesa Works: Get a Second Opinion in 3 Steps – Tashkheesa',
-      title_ar: 'إزاي تشخيصة بتشتغل: رأي تاني في ٣ خطوات – تشخيصة',
-      description: 'Upload your records, get a specialist review, receive a detailed bilingual report in 48 hours. Here is the full process.'
+      title: 'How Tashkheesa Works: Get a Second Opinion in 3 Steps',
+      title_ar: 'كيف تعمل تشخيصة: رأي طبي ثانٍ في 3 خطوات',
+      description: 'Upload your records, get a specialist review, receive a detailed bilingual report in 48 hours. Here is the full process.',
+      description_ar: 'ارفع ملفاتك الطبية، واحصل على مراجعة من استشاري متخصص، واستلم تقريرًا مفصلًا بالعربية والإنجليزية خلال 48 ساعة. إليك الخطوات كاملة.'
     }
   };
   router.get('/blog', function(req, res) {
+    var isAr = !!(res.locals && res.locals.isAr);
     res.render('blog_index', {
-      title: 'Blog – Tashkheesa',
+      title: isAr ? 'مدونة تشخيصة' : 'Blog – Tashkheesa',
       BUSINESS_INFO: BUSINESS_INFO,
-      description: 'Expert guides on medical second opinions, telemedicine, and how to make better decisions about your care. Bilingual EN/AR.',
+      description: isAr
+        ? 'أدلة يكتبها متخصصون عن الرأي الطبي الثاني والاستشارات الطبية عن بُعد، وكيف تتخذ قرارات أفضل بشأن علاجك. بالعربية والإنجليزية.'
+        : 'Expert guides on medical second opinions, telemedicine, and how to make better decisions about your care. Bilingual EN/AR.',
       canonical: '/blog'
     });
   });
@@ -397,15 +466,15 @@ function setupStaticPages(opts) {
       return res.status(404).render('404', { title: 'Not Found', BUSINESS_INFO: BUSINESS_INFO, canonical: '/blog' });
     }
     var isAr = !!(res.locals && res.locals.isAr);
-    var specialtyCount = await getVisibleSpecialtyCount();
-    var serviceCount = await getVisibleServiceCount();
+    var specialtyCount = await siteStats.getVisibleSpecialtyCount();
+    var serviceCount = await siteStats.getVisibleServiceCount();
     res.render(entry.view, {
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       specialtyCount: specialtyCount,
       serviceCount: serviceCount,
       title: isAr && entry.title_ar ? entry.title_ar : entry.title,
       BUSINESS_INFO: BUSINESS_INFO,
-      description: entry.description,
+      description: isAr && entry.description_ar ? entry.description_ar : entry.description,
       canonical: '/blog/' + slug
     });
   });
@@ -447,10 +516,13 @@ function setupStaticPages(opts) {
       [],
       []
     );
+    var isAr = !!(res.locals && res.locals.isAr);
     return res.render('specialties_index', {
-      title: 'Medical Specialties',
+      title: isAr ? 'التخصصات الطبية' : 'Medical Specialties',
       BUSINESS_INFO: BUSINESS_INFO,
-      description: 'Browse every medical specialty on Tashkheesa for second-opinion reviews by board-certified Egyptian consultants — open now or coming soon.',
+      description: isAr
+        ? 'تصفّح كل التخصصات الطبية في تشخيصة للحصول على رأي طبي ثانٍ من استشاريين مصريين معتمدين، المتاحة الآن والقادمة قريبًا.'
+        : 'Browse every medical specialty on Tashkheesa for second-opinion reviews by board-certified Egyptian consultants — open now or coming soon.',
       canonical: '/specialties',
       specialties: rows
     });
@@ -487,17 +559,43 @@ function setupStaticPages(opts) {
       [id],
       []
     );
+    var isAr = !!(res.locals && res.locals.isAr);
+    var spName = isAr ? (specialty.name_ar || specialty.name) : specialty.name;
     return res.render('specialty_detail', {
-      title: specialty.name + ' – Tashkheesa',
+      title: spName,
       BUSINESS_INFO: BUSINESS_INFO,
-      description: (specialty.description || '').slice(0, 160) ||
-        ('Specialist ' + specialty.name + ' second opinions by board-certified consultants.'),
+      description: specialtyMetaDescription(specialty, isAr),
       canonical: '/specialties/' + slug,
       specialty: specialty,
       services: services,
       slug: slug
     });
   });
+
+  // SEO 2026-09-13 (D) — the specialty snippet. It was description.slice(0,160),
+  // which cut mid-word, and English on the Arabic page. Now: the description in
+  // the page's language, cut at the last word boundary so that, with the
+  // suffix, the whole snippet stays within 155 characters; a description too
+  // short to carry a snippet (under 70 with the suffix) gets a full sentence.
+  var SPECIALTY_META_SUFFIX = ' — second opinion from Egyptian consultants in 48h';
+  var SPECIALTY_META_SUFFIX_AR = ' — رأي طبي ثانٍ من استشاريين مصريين خلال ٤٨ ساعة';
+  function cutAtWord(text, max) {
+    var t = String(text || '').replace(/\s+/g, ' ').trim();
+    if (t.length <= max) return t.replace(/[\s.,;:،؛—–-]+$/, '');
+    var cut = t.slice(0, max + 1);
+    var sp = cut.lastIndexOf(' ');
+    cut = sp > 0 ? cut.slice(0, sp) : t.slice(0, max);
+    return cut.replace(/[\s.,;:،؛—–-]+$/, '');
+  }
+  function specialtyMetaDescription(specialty, isAr) {
+    var suffix = isAr ? SPECIALTY_META_SUFFIX_AR : SPECIALTY_META_SUFFIX;
+    var body = isAr ? (specialty.description_ar || '') : (specialty.description || '');
+    var out = body ? cutAtWord(body, 155 - suffix.length) + suffix : '';
+    if (out.length >= 70) return out;
+    return isAr
+      ? 'رأي طبي ثانٍ في ' + (specialty.name_ar || specialty.name) + ' من استشاريين مصريين معتمدين، مع تقرير مكتوب خلال 48 ساعة.'
+      : specialty.name + ' second opinion from board-certified Egyptian consultants, with a written report within 48 hours.';
+  }
 
   router.get('/how-it-works', function(req, res) { res.redirect(302, '/#how-it-works'); });
   router.get('/doctors', function(req, res) { res.redirect(302, '/about'); });
@@ -673,7 +771,7 @@ function setupStaticPages(opts) {
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       title: comingSoonTitle,
       BUSINESS_INFO: BUSINESS_INFO,
-      description: comingSoonDesc,
+      description: (res.locals && res.locals.isAr) ? comingSoonDescAr : comingSoonDesc,
       canonical: '/coming-soon',
       utm_source: utmFromBody('utm_source'),
       utm_medium: utmFromBody('utm_medium'),

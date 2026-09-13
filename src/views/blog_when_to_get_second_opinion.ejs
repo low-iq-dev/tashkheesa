@@ -1,6 +1,7 @@
-<%- include('partials/header', { title: tt('blog.when.page_title',
-  'When Should You Get a Medical Second Opinion? – Tashkheesa',
-  'إمتى تاخد رأي طبي تاني؟ – تشخيصة'), layout: 'public', showNav: true }) %>
+<%# SEO 2026-09-13 (D): title from the route (BLOG_POST_VIEWS, MSA in Arabic); the layout adds the brand once. %>
+<%- include('partials/header', { title: (typeof title !== 'undefined' && title) ? title : tt('blog.when.page_title',
+  'When Should You Get a Medical Second Opinion?',
+  'متى تحتاج إلى رأي طبي ثانٍ؟'), layout: 'public', showNav: true }) %>
 <%
   const __isAr = !!(typeof isAr !== 'undefined' && isAr);
 

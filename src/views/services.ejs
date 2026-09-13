@@ -658,7 +658,7 @@
             catalogue is unavailable, when it is the checkout that is. %>
         <div class="service-card<%= isBookable(service) ? '' : ' service-card--soon' %>"<% if (!isBookable(service)) { %> role="link" aria-disabled="true" tabindex="-1"<% } %>>
           <h3><%= svcName(service) %></h3>
-          <p><%= service.description || tt('svc.default_desc',
+          <p><%= (__isAr && service.description_ar) || service.description || tt('svc.default_desc',
             'Board-certified specialist review with detailed written report in English and Arabic.',
             'مراجعة من دكتور متخصص معتمد بتقرير مكتوب مفصل بالإنجليزي والعربي.') %></p>
           <div class="service-meta">
@@ -679,7 +679,7 @@
         <% } else { %>
         <a href="<%= submitUrl %>?service_id=<%= service.id %>" class="service-card">
           <h3><%= svcName(service) %></h3>
-          <p><%= service.description || tt('svc.default_desc',
+          <p><%= (__isAr && service.description_ar) || service.description || tt('svc.default_desc',
             'Board-certified specialist review with detailed written report in English and Arabic.',
             'مراجعة من دكتور متخصص معتمد بتقرير مكتوب مفصل بالإنجليزي والعربي.') %></p>
           <div class="service-meta">

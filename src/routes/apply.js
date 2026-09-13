@@ -98,6 +98,12 @@ module.exports = function (deps) {
     const title = lang === 'ar' ? 'قدّم للانضمام لتشخيصة' : 'Apply to Tashkheesa';
     return res.status(status).render('apply', Object.assign({
       title: title,
+      // SEO 2026-09-13 (D): /apply had no description (the layout default, about
+      // patients) and no canonical.
+      description: lang === 'ar'
+        ? 'للاستشاريين المصريين: قدّم طلب الانضمام إلى تشخيصة لمراجعة حالات الرأي الطبي الثاني عن بُعد. نراجع كل طلب قبل التفعيل.'
+        : 'Egyptian consultants: apply to join Tashkheesa and review second-opinion cases remotely. We review every application before onboarding.',
+      canonical: '/apply',
       lang: lang,
       isAr: lang === 'ar',
       specialties: taxonomy.getSpecialties(),

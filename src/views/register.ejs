@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Create Account", layout: "auth", showNav: false, showFooter: false }) %>
+<%- include('partials/header', { title: tt('auth.register.title', 'Create Account', 'إنشاء حساب'), layout: "auth", showNav: false, showFooter: false }) %>
   <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
   <% const formValues = (typeof form !== 'undefined' && form) ? form : {}; %>
   <div class="auth-page">

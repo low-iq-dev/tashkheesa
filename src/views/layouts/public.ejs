@@ -1,6 +1,4 @@
 <%
-  const baseTitle = (typeof title !== 'undefined' && title) ? String(title) : 'Tashkheesa';
-  const pageTitle = baseTitle.includes('Tashkheesa') ? baseTitle : `${baseTitle} – Tashkheesa`;
   const pageLang = (typeof lang !== 'undefined' && lang)
     ? lang
     : ((typeof locals !== 'undefined' && locals && locals.lang)
@@ -8,6 +6,15 @@
         : ((typeof locals !== 'undefined' && locals && locals.user && locals.user.lang)
             ? locals.user.lang
             : 'en'));
+  // SEO 2026-09-13 (D) — one brand suffix, in the page's language. The check was
+  // for 'Tashkheesa' only, so an Arabic title that already ended in '– تشخيصة'
+  // got '– Tashkheesa' appended as well ('… – تشخيصة – Tashkheesa'), and every
+  // other Arabic title ended in English. This layout is the only place that
+  // appends it.
+  const __brand = (pageLang === 'ar') ? 'تشخيصة' : 'Tashkheesa';
+  const baseTitle = (typeof title !== 'undefined' && title) ? String(title) : __brand;
+  const hasBrand = /Tashkheesa|تشخيصة/.test(baseTitle);
+  const pageTitle = hasBrand ? baseTitle : `${baseTitle} – ${__brand}`;
   const pageDir = (String(pageLang).toLowerCase() === 'ar') ? 'rtl' : 'ltr';
   const renderNav = (typeof showNav === 'undefined') ? true : Boolean(showNav);
 
@@ -44,7 +51,9 @@
   // SEO & Open Graph
   const siteUrl = 'https://tashkheesa.com';
   const ogImage = siteUrl + '/assets/brand/og-image.png';
-  const defaultDesc = 'Get a specialist medical second opinion from board-certified Egyptian consultants. Upload your scans, labs, or reports and receive a written review within 48 hours.';
+  const defaultDesc = (pageLang === 'ar')
+    ? 'احصل على رأي طبي ثانٍ من استشاريين مصريين معتمدين. ارفع صور الأشعة أو التحاليل أو التقارير واستلم مراجعة مكتوبة خلال 48 ساعة.'
+    : 'Get a specialist second opinion from board-certified Egyptian consultants. Upload your scans, labs or reports and get a written review within 48 hours.';
   const pageDesc = (typeof description !== 'undefined' && description) ? String(description) : defaultDesc;
   const canonicalPath = (typeof canonical !== 'undefined' && canonical) ? String(canonical) : '';
 
