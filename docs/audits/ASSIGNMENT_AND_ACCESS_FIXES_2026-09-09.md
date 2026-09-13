@@ -439,3 +439,372 @@ cfd2d2e fix(accept): two doctors could accept the same broadcast and both "win" 
 
 (A11 required no commit — already fixed in `8c01377`. A5 is test-only; its
 functional half shipped with A3.)
+
+---
+
+## Part B
+
+**Date:** 2026-09-13. **Baseline:** `main` @ `4ba9042` (Part A committed and
+deployed), clean tree apart from an untracked `Claude outputs/` folder (left
+alone). Same rules as Part A: full suite before and after; one commit per
+item; every guard negative-tested (fix reverted → new test fails → restored);
+adversarial self-review; canonical status comparisons fold case; new copy in
+both languages. Nothing pushed. No production writes — production was read
+(SELECT only, via the Supabase connector) to verify four shapes: no stored
+http(s) file URL exists in `order_files.url`, `messages.file_url` or
+`order_additional_files.file_url`; `orders.payment_status` is lowercase
+`paid`/`unpaid`/`refunded` (38 of 41 orders unpaid); user `superadmin-1` does
+not exist; `uniq_refunds_open_per_order` is live. The local DB is still
+unmigrated, so every guard is source-grep / pure-unit / injected-deps and the
+evidence tier remains **code-only (local-DB inferred)**.
+
+### Suite counts
+
+| | Passed | Failed | Skipped |
+|---|---|---|---|
+| Before (`4ba9042`, clean) | 1388 | 6 | 52 |
+| After (Part B committed) | 1469 | 6 | 52 |
+
+The 6 failures are the same baseline six and only those:
+`env-vars-validated-or-documented` (1 var), `orders-table-readers-allowlist`
+(the same 3 reads — superadmin.js:5071, admin.js:2079,
+addon_settlement.js:234), `payment-money-paths-wiring` ×3,
+`theme9-video-flag-enforcement`. None touched. The +81 passing tests are the
+new guards (node:test files report asynchronously and are tallied by the
+runner).
+
+### Items
+
+#### B1 — Patient push notifications — VERIFIED + one gap fixed (`585bbab`)
+
+**Already in the tree** (d5f15a0, 2026-08-25; verified, not redone):
+`pushForNotification` hooks `queueNotification`'s `internal` path on both the
+insert and the re-arm branch; `GET /api/v1/notifications` filters
+`channel='internal'` and no longer deletes `template`; the SLA and
+payment-reminder dispatchers queue an `internal` row; all six pushes that
+matter (report ready, payment confirmed — gateway + operator mark-paid, doctor
+accepted, new message, more files requested, refund approved/denied/paid) are
+in `PUSH_TEMPLATES`.
+
+**Wrong.** The mobile message POST (`routes/api/conversations.js`) notified the
+doctor with a raw `INSERT INTO notifications` — no channel, no template, no
+dedupe key — so the row had `channel NULL` and matched no channel-filtered
+reader, and nothing emailed the doctor. It also imported
+`middleware/push.notifyNewMessage` and never called it.
+
+**Changed.** Routed through the same `queueMultiChannelNotification` call
+`routes/messaging.js` uses for the web send (template `new_message`, internal
++ email, the same 10-minute per-conversation dedupe key, `conversation_id` in
+the payload); dead import removed.
+
+**Guard.** `tests/core/mobile-message-notifies-doctor.test.js`. **Negative:**
+restored the raw INSERT and the import — 4 assertions failed; restored, pass.
+
+#### B2 — File-attach ownership + stored open redirect — DONE (`428ead0`)
+
+**Wrong.** `POST /api/v1/cases` (`fileId`), the portal order upload
+(`file_key`) and the message attach (`file_key`) checked only the SHAPE of an
+R2 key, never that its `<patient id>` segment was the caller — naming another
+patient's key attached their file to the caller's case. `uploadcareUuid` was
+any string. Separately, `patient.js` accepted any `https?://` string as a
+file URL (order upload, message attach, the two legacy wizard submits) and
+`server.js /files/:id` 302'd to whatever was stored: a stored open redirect
+on our domain, reachable by any patient.
+
+**Changed.** The one-line owner check from `cases_draft.js` on all three
+key paths; `uploadcareUuid` pinned to a UUID (ownership of a public CDN uuid
+cannot be proven). New `services/file_url_allowlist.js` — https only, no
+credentials in the authority, host ∈ {`ucarecdn.com`, the `R2_ENDPOINT`
+host, `*.r2.dev`, `*.r2.cloudflarestorage.com`} — applied at every writer and
+again at the sink (404 + log). Production holds no http(s) file URL today,
+so the strict list breaks nothing.
+
+**Guard.** `tests/core/file-attach-ownership-and-redirect.test.js` — unit
+(accepts our hosts; refuses foreign hosts, http, `https://ucarecdn.com@evil/`,
+lookalike domains) + pins on each writer and the sink. **Negative:** reverted
+the four source files — 8 assertions failed; restored, pass. The five
+theme13 file-path tests still pass.
+
+#### B3 — The rest of the silent-failure family + the A8 lint — DONE (`7e1f394`)
+
+**Wrong / changed** (each now carries a code the page renders; ops-facing
+failures land in `case_events` under a `_FAILED` label the
+`/ops/silent-failures` view lists):
+
+- (a) manual SLA sweep — a failed sweep redirected `?sla_ran=1`, and nothing
+  rendered either code → `?error=sla_sweep_failed`; `superadmin.ejs` renders
+  both outcomes, bilingual.
+- (b) new files uploaded — the doctor notification was fire-and-forget; a
+  doctor never told left the case parked in REJECTED_FILES with a paused
+  clock. The queue result is read; when neither the queue nor the direct
+  email lands: `DOCTOR_FILES_NOTIFY_FAILED` case event + error_logs. The
+  patient still sees `uploaded=1` — the upload is durable.
+- (c) turnaround-save — the failure rode `?success=` into the GREEN card →
+  `?error=turnaround_save_failed`, rendered in the error card.
+- (d) reject-files — a failed status write or a failed SLA pause bounced with
+  no code → `reject_files_failed` / `reject_files_sla_pause_failed` in
+  `REPORT_SUBMIT_ERRORS` (en + ar).
+- (e) refund opened / approved / denied — the patient notification sat
+  unawaited in a swallowing catch, then `?flash=<ok>` → result read; a total
+  failure is `REFUND_PATIENT_NOTIFY_FAILED` + error_logs and the queue page
+  shows "saved, but the patient could NOT be notified".
+
+**The lint** (`tests/lint/no-success-redirect-after-catch.test.js`, deferred
+from A8): fails the build on (1) a success redirect inside a `catch`, and (2)
+a swallowing catch followed within four lines by a success redirect with no
+other `await` between them; promise `.catch(fn)` is not a catch block; a
+`silent-failure-ok: <why>` comment within three lines exempts a site. Run
+against the tree it flagged exactly the five sites above plus one legitimate
+site (doctor profile update: the UPDATE committed; the swallow is the cookie
+re-sign) — audited and allowlisted with the reason. Five self-test fixtures
+pin the lint's own behaviour.
+
+**Guard.** `tests/core/silent-failures-part-b.test.js` + the lint.
+**Negative:** reverted all six source files — 11 assertions failed and the
+lint reported the sites; restored, pass.
+
+#### B4 — Add-on commissions on refund — DONE (`e8ffa49`)
+
+**Wrong.** `video_consult.onRefund` / `prescription.onRefund` had zero
+callers; a fully refunded case left its unfulfilled add-ons at `paid`, so a
+doctor could fulfil one later and `onComplete` would pay commission on money
+already returned.
+
+**Changed.** `refund_closure.closeOrderIfFullyRefunded` runs
+`refundUnfulfilledAddons` after the close UPDATE commits: every `paid`
+order_addons row is flipped through its registry class's `onRefund`
+(+ `ADDON_REFUNDED` event); a `fulfilled` add-on is kept — the doctor did the
+work, the same rule `refund_eligibility` applies to a consumed video. Partial
+refunds never reach it. Non-throwing; failures are `ADDON_REFUND_FAILED` +
+error_logs. `earnings_writer.js` untouched.
+
+**Guard.** `tests/core/refund-closure-refunds-addons.test.js` (injected deps
++ structural). **Negative:** reverted `refund_closure.js` — 6 failed;
+restored, pass.
+
+#### B5 — WhatsApp failure detector counted nothing — DONE (`a532bdc`)
+
+**Wrong.** `NOT ((context::jsonb)->>'alertKey' = 'whatsapp_401_detected')` is
+NULL for every row without an `alertKey` — every real send failure — so the
+detector dropped exactly the rows it existed for.
+
+**Changed.** `COALESCE((context::jsonb)->>'alertKey', '') <> '…'`.
+
+**Guard.** `tests/core/theme9-whatsapp-health-cron.test.js` now requires the
+NULL-safe form and rejects the bare `NOT (->> = …)`. **Negative:** reverted —
+1 failed; restored, pass.
+
+#### B6 — Acceptance-timeout admin alerts to a phantom user — DONE (`6c21bed`)
+
+**Wrong.** `workers/acceptance_watcher.js` queued the alert to user id
+`superadmin-1` (absent from production).
+
+**Changed.** `notifyAdmins` (a bell row per active superadmin, same template
++ dedupe key) and `pushOpsEvent` (`acceptance_timeout_auto_assigned`, deduped
+per case; persists to the Activity feed). Both awaited in their own
+try/catch, logged on failure. No live `superadmin-1` reference remains in
+`src/`.
+
+**Guard.** `tests/core/acceptance-timeout-alert-reaches-admins.test.js`
+(repo-wide grep + both sends). **Negative:** restored the old call — 4
+failed; restored, pass.
+
+#### B7 — Revenue reports counted uncollected money — DONE (`5f39539`)
+
+**Wrong.** The owner cockpit's Finance tab (`superadmin_dashboard.js`: revenue
+today/MTD, gross profit, average order, by country, by specialty, per doctor,
+per referral code) and the orders CSV (`exports.js`) summed `orders.price`
+with no payment filter; the Command app filters `payment_status IN
+('paid','captured')`, so the two disagreed.
+
+**Changed.** One `COLLECTED` predicate (`LOWER(COALESCE(payment_status,''))
+IN ('paid','captured')`) inside every price aggregate on the tab — case
+counts on the same tab unchanged. The CSV gains `payment_status` and
+`collected_price`; `gp` is 0 on an uncollected order; `price` stays the list
+price.
+
+**Guard.** `tests/core/revenue-counts-collected-money-only.test.js`.
+**Negative:** reverted both files — 3 failed; restored, pass.
+
+#### B8 — A paid partial refund locked out the remainder — DONE (`309c22b`)
+
+**Wrong.** Migration 083 let a PAID refund row hold the one-refund-per-order
+slot forever. After a paid partial (SLA-breach uplift, goodwill) no second row
+could be created on any of the six create paths.
+
+**Changed.** Two invariants replace the one. Migration 107 recreates
+`uniq_refunds_open_per_order` over OPEN statuses only
+(`pending`/`auto_approved`/`approved`), with 083's pre-/post-flight shape;
+every create path's blocking query and `admin_refund.BLOCKING_REFUND_STATUSES`
+drop `paid`. New `refund_eligibility.remainingRefundableEgp(order)` =
+`maxRefundableEgp` minus refunds already PAID (same COALESCE chain as
+mark-paid/closure) is the ceiling and the pre-filled default at every create
+path (patient request, superadmin form, superadmin cancel-with-refund,
+Command-app cancel — capped, opens nothing at 0 — `admin_refund` create +
+supersede, `sla_breach`), and `isEligibleForRefund` refuses a case with
+nothing left (`already_refunded_in_full`), failing closed on a DB error. An
+order with no establishable charge keeps its status verdict (the POST refuses
+it as `amount_unavailable`, as before). Also fixed: patient.js's duplicate-race
+regex matched the dropped index name.
+
+**Guard.** `tests/core/refund-after-paid-partial.test.js` (unit with injected
+exec + structural pins incl. a repo-wide check that the four-status list is
+gone from `src/*.js`); `theme7b-eligibility-helper` injects "nothing paid
+back yet". **Negative:** reverted `refund_eligibility.js` +
+`admin_refund.js` — 10 failed; restored, pass. All refund neighbours (theme7b
+×5, admin refund ×2, closure, KPI parity, money lints) pass.
+
+#### B9 — Webhook amount gate never checked currency — DONE (`c800d86`)
+
+One clause: `paidCurrency !== owedCurrency` (order default EGP; a missing
+txn currency is a mismatch), both currencies recorded on the
+`amount_mismatch` payment_event and order event. `owedCentsForOrder`
+untouched. **Guard:** `tests/core/webhook-amount-gate-checks-currency.test.js`
+(source pin; the webhook integration test needs a DB). **Negative:** dropped
+the clause — 1 failed; restored, pass.
+
+#### B10 — SLA reminders overstated remaining time — DONE (`f415bbc`)
+
+**Wrong.** The tightest of 24h/6h/1h the remaining time was under, regardless
+of the order's SLA: an urgent 4h case was told "about 6 hours" on its first
+sweep; VIP 18h "about 24".
+
+**Changed.** Pure `pickSlaReminderLevel(seconds, slaHours)`: keeps the
+one-tightest-window rule, adds "only a window strictly shorter than the
+order's SLA". 4h → only 1h; 18h → 6h + 1h; 48h/72h → all three; no
+`sla_hours` → unchanged. Status→TTL table untouched.
+
+**Guard.** `tests/core/sla-reminder-level-honours-sla-hours.test.js`.
+**Negative:** reverted the dispatcher — 8 failed; restored, pass.
+
+#### B11 — Six Arabic email templates dropped fields — DONE (`b5761e1`)
+
+Diffed en vs ar field by field: `case-assigned` (urgency), `case-reassigned`
+(previousDoctor), `payment-success` (paymentMethod), `sla-warning` and
+`appointment-reminder` (specialty), `appointment-scheduled` (caseReference).
+Rows added in the same position/style with Arabic labels; render-checked
+with Handlebars. The parity lint now covers every en/ar pair (39 more), with
+underscore layout partials excluded (the Arabic layout hardcodes
+lang/dir/title by design). **Negative:** reverted two ar templates — 2 of 82
+failed; restored, 82/82.
+
+#### B12 — Pooler-mode session settings / advisory lock / pg-boss max — VERIFIED (`02d4ccf`, test only)
+
+All three already fixed (AUDIT-2026-08-22): `pg.js` does NOT send startup
+`options` by default (Supavisor consumes that parameter; the guarantee is
+`ALTER ROLE … SET`, documented in render.yaml, with `PG_STARTUP_OPTIONS` as
+an explicit opt-in); `worker_watchdog.js` uses `pg_try_advisory_xact_lock`
+inside BEGIN/COMMIT on a pinned client; `job_queue.js` constructs pg-boss with
+`max = PG_BOSS_POOL_MAX`. Pinned by
+`tests/lint/pooler-safe-session-and-locks.test.js`. **Negative:** made
+`_withStartupOptions` send options by default — 1 failed; restored, pass.
+
+### Found in review (caught in my own diff before the relevant commit)
+
+1. **B3 lint misread promise `.catch(fn)` as a catch block.** It flagged the
+   doctor photo/signature *remove* handlers, whose only "catch" is
+   `.deleteFile(k).catch(fn)`. Fixed with a `(?<!\.)` lookbehind, so those
+   never needed an allowlist entry.
+2. **B3 lint never saw a one-line `catch (_) { /* best-effort */ }`.** That
+   is exactly the shape of the three refund sites — the very bugs the lint
+   exists for would have passed. Fixed: a one-line catch is a swallow unless
+   it returns/throws on that line.
+3. **B3 lint false-positive on "swallow, then a later write, then success".**
+   The photo *upload* handlers do a best-effort cleanup (swallowed), then the
+   real UPDATE, then redirect. Rule (2) now requires no `await` between the
+   swallow and the redirect — the redirect reports the later write, which
+   throws into the outer catch.
+4. **B3 (a) first cut used `?sla_error=1`**, outside the repo's `?error=`
+   convention — the new lint itself flagged it. Now `?error=sla_sweep_failed`.
+5. **B8 first cut of `isEligibleForRefund` reported `already_refunded_in_full`
+   for an order with NO recorded charge** (ceiling 0 ⇒ remaining 0). Caught by
+   the existing theme7b policy table (five cases went ineligible). Narrowed:
+   the remaining-amount verdict applies only when a charge is establishable;
+   a no-charge order keeps its status verdict and is refused downstream as
+   `amount_unavailable` with a reconciliation log — the honest outcome.
+6. **B2 allowlist vs. authority tricks.** `https://ucarecdn.com@evil.example/`
+   parses with host `evil.example`; `https://ucarecdn.com.evil.example/` is a
+   lookalike. Both are refused (credentials-in-authority is refused outright;
+   host match is exact or a Cloudflare suffix) and pinned by the unit test.
+
+Read as an attacker and as a slow patient on 3G: every new await on a
+request path is a single indexed query (the refund remainder, the queue
+result); every ops-side write is best-effort and non-throwing; the B2
+allowlist fails closed at the sink for rows written before the writer-side
+check; B8's narrowed index still serialises concurrent creates (one gets the
+handled 23505); B9 fails closed into manual review, never into "paid".
+
+One anomaly to record: mid-session `git status` showed a two-line
+uncommitted change to `scripts/seed_demo_doctor.js` (demo email →
+`demo.local`) that no step of mine made and no test writes; it was restored
+with `git checkout` and did not recur after the final suite run. Worth a
+glance at whatever else runs on this Mac mini.
+
+### Deliberately not done
+
+- **A12(c) bilingual failure strings** — still deferred from Part A (not in
+  Part B's scope). The new B2 sink refusal reuses the sibling English
+  `File not found` string for consistency until that pass happens.
+- **A8 `flashError`/`flashSuccess` helper** — the lint is the guard; a helper
+  would have touched ~40 redirect sites for no safety gain.
+- **B1 dead helpers** — `middleware/push.notifyCaseUpdate` /
+  `notifyPaymentConfirmed` remain as uncalled English-copy functions; the
+  `notify.js` hook supersedes them. Removing them is cleanup, not a fix.
+- **B2 `uploadcareUuid` ownership** — a public CDN uuid cannot be tied to an
+  uploader; shape-validated only. The legacy mobile path is the only writer.
+- **B4 fulfilled add-ons on a fully refunded case** keep their
+  `addon_earnings` row (the doctor did the work). `order_addons.refund_pending`
+  has no reader; the money moves via the case refund itself.
+- **B7 Command-app display fields** `maxRefundable` (api/admin.js refund and
+  case lists) still show the raw ceiling, not the remaining; display only —
+  every create path enforces the remaining.
+- **B11 `_layout-doctor-welcome.hbs`** excluded from parity by design.
+
+### Needs Ziad
+
+1. **Migration 107** (`refunds` unique index narrowed to open statuses) runs
+   at boot like 106; the only post-deploy check is that it applied
+   (`SELECT indexdef FROM pg_indexes WHERE indexname='uniq_refunds_open_per_order'`
+   should read `… WHERE status IN ('pending','auto_approved','approved')`).
+2. **B7 will visibly LOWER the Finance tab's revenue figures** (38 of 41
+   production orders are unpaid) — that is the honest number; and the orders
+   CSV has two new columns (`payment_status`, `collected_price`) before `gp`,
+   so any spreadsheet keyed on column positions needs updating.
+3. **B10 cadence is a product call:** an urgent 4h case now gets only the 1h
+   reminder; VIP 18h gets 6h + 1h. If you want an earlier nudge on urgent
+   cases, add a tier-specific window (e.g. 2h) — the helper takes a list.
+4. **B8 product behaviour:** after a paid partial refund, the patient's own
+   "Request refund" button reappears for the remainder (auto-approve still
+   applies pre-doctor-accept). Confirm that is intended, or gate the
+   patient path to operator-only for second refunds.
+5. **B9 fail-closed on currency:** if a live Paymob callback ever omits
+   `currency`, every payment goes to manual review rather than "paid". Watch
+   the first live transaction; the fixtures and Paymob's documented payload
+   both carry it.
+6. **B6 ops event kind** `acceptance_timeout_auto_assigned` uses the default
+   15-minute cooldown per case and the default kind budget (5 per 15 min);
+   tune in `services/ops_push.js` if it turns noisy.
+7. **Staging smoke pass** (shape-verified ≠ behaviour-verified), in order:
+   B8 — pay a partial refund, then open a second refund on the same case from
+   the operator form and confirm the pre-filled amount is the remainder and a
+   full second refund is refused; B3(e) — approve a refund for a patient with
+   no email and no bell delivery and confirm the warning renders; B2 — attach
+   a file key from another patient's folder and confirm the 400 / invalid_file;
+   B1 — send a message from the app and confirm the doctor's bell + email.
+
+### Commits (oldest first)
+
+```
+585bbab fix(notifications): a message sent from the patient app never reached the doctor properly   [B1]
+428ead0 fix(files): a patient could attach another patient's upload, or store a redirect to any site  [B2]
+7e1f394 fix(ops): five more actions told the user it worked after the write failed, and a lint …     [B3 + A8 lint]
+e8ffa49 fix(refunds): a full refund left the case's add-ons fulfillable and payable                    [B4]
+a532bdc fix(whatsapp): the delivery-failure detector counted nothing                                    [B5]
+6c21bed fix(alerts): acceptance-timeout admin alerts went to a user that does not exist                [B6]
+5f39539 fix(finance): the owner cockpit and the CSV export counted uncollected money as revenue        [B7]
+c800d86 fix(payments): the webhook amount gate never checked the currency                              [B9]
+f415bbc fix(sla): reminders told an urgent doctor "about 6 hours" on a 4-hour case                     [B10]
+b5761e1 fix(email): six Arabic templates dropped a field the English ones carry                        [B11]
+02d4ccf test(infra): pin the three pooler-safety fixes (startup options, xact lock, pg-boss max)       [B12]
+309c22b fix(refunds): a paid partial refund locked the remainder out forever                           [B8]
+```
