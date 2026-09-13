@@ -1221,7 +1221,16 @@ router.post('/callback', async (req, res, next) => {
   if (!alreadyPaid) {
     const owedCents = owedCentsForOrder(order);
     const paidCents = Number(txnBody.amount_cents);
-    if (!Number.isFinite(paidCents) || paidCents !== owedCents) {
+    // Part B item 9 (2026-09-13) — the gate compared the NUMBER and never the
+    // CURRENCY. owedCentsForOrder is denominated in the order's currency
+    // (create-intention only issues EGP today), and Paymob reports the
+    // charged currency on the transaction; 50000 cents of a weaker currency
+    // would have cleared a 50000-piastre EGP charge. Same posture as the
+    // amount: a mismatch — or a missing currency, which cannot prove
+    // anything — leaves the order UNPAID for manual review.
+    const owedCurrency = String(order.currency || 'EGP').toUpperCase();
+    const paidCurrency = String(txnBody.currency || '').toUpperCase();
+    if (!Number.isFinite(paidCents) || paidCents !== owedCents || paidCurrency !== owedCurrency) {
       // Record WITHOUT paymob_transaction_id so we don't collide with the
       // per-txn idempotency row already inserted above (that unique id is
       // taken); the txn id travels in the payload for triage.
@@ -1237,6 +1246,7 @@ router.post('/callback', async (req, res, next) => {
               owed_cents: owedCents,
               paid_cents: Number.isFinite(paidCents) ? paidCents : null,
               currency: txnBody.currency || null,
+              owed_currency: owedCurrency,
               paymob_transaction_id: paymobTxnId
             })
           ]
@@ -1247,7 +1257,7 @@ router.post('/callback', async (req, res, next) => {
       logOrderEvent({
         orderId,
         label: 'Payment amount mismatch — order left UNPAID for manual review',
-        meta: JSON.stringify({ owed_cents: owedCents, paid_cents: Number.isFinite(paidCents) ? paidCents : null }),
+        meta: JSON.stringify({ owed_cents: owedCents, paid_cents: Number.isFinite(paidCents) ? paidCents : null, owed_currency: owedCurrency, paid_currency: paidCurrency || null }),
         actorRole: 'system'
       });
       try {
