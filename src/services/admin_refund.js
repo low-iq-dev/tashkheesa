@@ -25,11 +25,15 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { maxRefundableEgp } = require('./refund_eligibility');
+const { maxRefundableEgp, remainingRefundableEgp } = require('./refund_eligibility');
 
 // Statuses that mean an in-flight or completed refund already exists for the
 // order (mirrors routes/superadmin.js:4681).
-const BLOCKING_REFUND_STATUSES = ['pending', 'auto_approved', 'approved', 'paid'];
+// Part B item 8 (2026-09-13) — 'paid' removed. A paid refund no longer holds
+// the slot (migration 107 narrows uniq_refunds_open_per_order to the same
+// three statuses); what stops over-refunding is the ceiling below, which is
+// now remainingRefundableEgp (charged minus already paid), not the charge.
+const BLOCKING_REFUND_STATUSES = ['pending', 'auto_approved', 'approved'];
 
 // Throw-to-reject: carries an HTTP status + code out of the txn to the route.
 function af(msg, http, code) {
@@ -106,7 +110,7 @@ async function issueRefund(client, opts) {
     // order INSERT paths that never write base_price. maxRefundableEgp is the
     // single source of truth and is derived from owedCentsForOrder — the same
     // helper create-intention and the webhook amount check use.
-    const maxAmount = maxRefundableEgp(order);
+    const maxAmount = await remainingRefundableEgp(order, (sql, p) => client.query(sql, p).then((r) => r.rows));
     if (amount > maxAmount + 0.001) {
       throw af('Refund amount exceeds the case fee', 409, 'AMOUNT_EXCEEDS_MAX');
     }
@@ -253,7 +257,7 @@ async function supersedeBreachRefund(client, opts) {
     if (!Number.isFinite(amount) || amount <= 0) {
       throw af('Refund amount must be greater than zero', 400, 'INVALID_AMOUNT');
     }
-    const maxAmount = maxRefundableEgp(order);
+    const maxAmount = await remainingRefundableEgp(order, (sql, p) => client.query(sql, p).then((r) => r.rows));
     if (amount > maxAmount + 0.001) {
       throw af('Refund amount exceeds the case fee', 409, 'AMOUNT_EXCEEDS_MAX');
     }

@@ -168,7 +168,7 @@ const {
 // (services/admin_refund.js enforces it), exposed so the app caps on exactly the
 // number the server will accept rather than a number it derives itself.
 const { chargedEgpSql, chargedEgpForOrder } = require('../../services/order_pricing');
-const { maxRefundableEgp } = require('../../services/refund_eligibility');
+const { maxRefundableEgp, remainingRefundableEgp } = require('../../services/refund_eligibility');
 const { bulkAutoAssign } = require('../../services/admin_bulk_assign');
 const { issueRefund } = require('../../services/admin_refund');
 const { setDoctorPause } = require('../../services/admin_doctor_pause');
@@ -3768,7 +3768,8 @@ module.exports = function (db, helpers, deploy, deps) {
 
       const o = (await client.query(
         `SELECT id, patient_id, assignment_status, status, payment_status,
-                base_price, urgency_uplift_amount
+                base_price, urgency_uplift_amount,
+                price, addons_json, video_consultation_selected, video_consultation_price
            FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
         [id]
       )).rows[0];
@@ -3811,14 +3812,20 @@ module.exports = function (db, helpers, deploy, deps) {
       if (paid) {
         const live = (await client.query(
           `SELECT id, status, amount_egp FROM refunds
-            WHERE order_id = $1 AND status IN ('pending','auto_approved','approved','paid')
+            WHERE order_id = $1 AND status IN ('pending','auto_approved','approved')
             LIMIT 1`,
           [id]
         )).rows[0];
+        // Part B item 8 (2026-09-13): a PAID partial refund no longer blocks;
+        // the amount opened is capped at what is STILL owed, and nothing is
+        // opened when that is 0.
+        const remainingEgp = await remainingRefundableEgp(o, (sql, p) => client.query(sql, p).then((r) => r.rows));
         if (live) {
           refund = { id: live.id, status: live.status, amountEgp: money(live.amount_egp), created: false };
+        } else if (remainingEgp <= 0) {
+          refund = null;
         } else {
-          const amount = money(Number(o.base_price || 0) + Number(o.urgency_uplift_amount || 0));
+          const amount = money(Math.min(Number(o.base_price || 0) + Number(o.urgency_uplift_amount || 0), remainingEgp));
           const refundId = randomUUID();
           await client.query(
             `INSERT INTO refunds (

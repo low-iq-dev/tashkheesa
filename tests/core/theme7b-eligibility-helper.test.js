@@ -55,7 +55,12 @@ if (typeof isEligibleForRefund !== 'function') {
 
 async function check(name, order, expect) {
   try {
-    const got = await isEligibleForRefund(order, 'patient-test-id');
+    // Part B item 8 (2026-09-13): isEligibleForRefund now also checks the
+    // remaining refundable amount (charge minus refunds already PAID) through
+    // an injectable exec, so this pure policy table injects "nothing paid back
+    // yet". The remaining-amount rules themselves are covered by
+    // tests/core/refund-after-paid-partial.test.js.
+    const got = await isEligibleForRefund(order, 'patient-test-id', async () => [{ total: 0 }]);
     if (got.eligible !== expect.eligible) {
       throw new Error('eligible: expected ' + expect.eligible + ', got ' + got.eligible + ' (reason=' + got.reason + ')');
     }

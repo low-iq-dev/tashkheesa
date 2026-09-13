@@ -156,10 +156,12 @@ async function issueBreachRefund(orderId) {
   // page. The operator's supported resolution is to top up the blocking refund
   // by the uplift — services/admin_refund.supersedeBreachRefund and the
   // superadmin create form both expose that path.
+  // Part B item 8 (2026-09-13): only an OPEN row holds the slot now
+  // (migration 107); a PAID partial no longer blocks the uplift obligation.
   var blocking = await queryOne(
     `SELECT id, reason, status FROM refunds
       WHERE order_id = $1
-        AND status IN ('pending','auto_approved','approved','paid')
+        AND status IN ('pending','auto_approved','approved')
       LIMIT 1`,
     [orderId]
   );
@@ -284,7 +286,7 @@ async function issueBreachRefundSafe(orderId) {
         var blocking = await queryOne(
           `SELECT id, reason, status FROM refunds
             WHERE order_id = $1
-              AND status IN ('pending','auto_approved','approved','paid')
+              AND status IN ('pending','auto_approved','approved')
             LIMIT 1`,
           [orderId]
         );

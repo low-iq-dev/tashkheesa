@@ -4053,7 +4053,7 @@ router.get('/portal/patient/orders/:id/request-refund', requireRole('patient'), 
   );
   if (!order) return res.redirect('/dashboard');
 
-  const { isEligibleForRefund, maxRefundableEgp } = require('../services/refund_eligibility');
+  const { isEligibleForRefund, remainingRefundableEgp } = require('../services/refund_eligibility');
   const eligibility = await isEligibleForRefund(order, patientId);
   if (!eligibility || !eligibility.eligible) {
     return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId));
@@ -4062,10 +4062,12 @@ router.get('/portal/patient/orders/:id/request-refund', requireRole('patient'), 
   // Reject if a request already exists (the partial-unique index would also
   // block the live states, but redirecting earlier is friendlier UX).
   // Status list widened 2026-08-17 to match the POST guard below: an
-  // approved/paid refund must also stop a second request, because mark-paid
-  // does not change orders.payment_status and eligibility would still pass.
+  // approved refund must also stop a second request. Part B item 8
+  // (2026-09-13): 'paid' removed again — a paid PARTIAL refund no longer
+  // blocks the remainder; what stops a second FULL refund is
+  // isEligibleForRefund's remaining-amount check above (already_refunded_in_full).
   const existing = await queryOne(
-    "SELECT id FROM refunds WHERE order_id = $1 AND status IN ('pending','auto_approved','approved','paid') LIMIT 1",
+    "SELECT id FROM refunds WHERE order_id = $1 AND status IN ('pending','auto_approved','approved') LIMIT 1",
     [orderId]
   );
   if (existing) {
@@ -4080,7 +4082,10 @@ router.get('/portal/patient/orders/:id/request-refund', requireRole('patient'), 
   // order_pricing.owedCentsForOrder), and it evaluates to 0 for every order
   // whose creation path never wrote base_price. maxRefundableEgp is the single
   // source of truth: price + the add-ons locked at intention time.
-  const requestedAmount = maxRefundableEgp(order);
+  // Part B item 8 (2026-09-13): the amount is what is STILL owed — the charge
+  // minus refunds already paid — so a second request after a paid partial
+  // refund asks for the remainder, not the whole invoice again.
+  const requestedAmount = await remainingRefundableEgp(order);
 
   res.render('patient_refund_request', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
@@ -4119,7 +4124,7 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
   if (!order) return res.redirect('/dashboard');
 
   // Re-check eligibility at submit time (defence against stale form data).
-  const { isEligibleForRefund, maxRefundableEgp } = require('../services/refund_eligibility');
+  const { isEligibleForRefund, remainingRefundableEgp } = require('../services/refund_eligibility');
   const eligibility = await isEligibleForRefund(order, patientId);
   // AUDIT-2026-08-22 (M5): was base_price + urgency_uplift_amount. This is the
   // value INSERTed as requested_amount below, so the legacy formula
@@ -4129,7 +4134,10 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
   // status 'pending', so every later create path (this one, the operator form,
   // the Command app) is refused with "a refund already exists" and the case
   // becomes permanently unrefundable.
-  const requestedAmount = maxRefundableEgp(order);
+  // Part B item 8 (2026-09-13): the amount is what is STILL owed — the charge
+  // minus refunds already paid — so a second request after a paid partial
+  // refund asks for the remainder, not the whole invoice again.
+  const requestedAmount = await remainingRefundableEgp(order);
 
   function rerender(errKey) {
     return res.render('patient_refund_request', {
@@ -4160,7 +4168,10 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
   let priorRefund = null;
   try {
     priorRefund = await queryOne(
-      "SELECT id FROM refunds WHERE order_id = $1 AND status IN ('pending','auto_approved','approved','paid') LIMIT 1",
+      // Part B item 8 (2026-09-13): OPEN rows block; a PAID one no longer does
+      // (the remainder is refundable). Mirrors migration 107 and
+      // services/refund_eligibility.OPEN_REFUND_STATUSES.
+      "SELECT id FROM refunds WHERE order_id = $1 AND status IN ('pending','auto_approved','approved') LIMIT 1",
       [orderId]
     );
   } catch (e) {
@@ -4240,7 +4251,7 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
       method: req.method,
       category: 'refund'
     });
-    if (err && /uniq_refunds_pending_per_order/.test(String(err.message || ''))) {
+    if (err && /uniq_refunds_(open|pending)_per_order/.test(String(err.message || ''))) {
       return rerender('duplicate');
     }
     console.error('[patient-refund-request] insert failed', err);

@@ -43,7 +43,7 @@ const { checkHandpickedDoctorEligibility, finalizeHandpickedAssignment, REASONS:
 const { sendCriticalAlert } = require('../critical-alert');
 // Refund ceiling — the single source of truth for "how much of this order may
 // be returned to the patient". See services/refund_eligibility.maxRefundableEgp.
-const { maxRefundableEgp } = require('../services/refund_eligibility');
+const { maxRefundableEgp, remainingRefundableEgp } = require('../services/refund_eligibility');
 // Refund → orders.payment_status. Shared with the Command API's mark-paid
 // (routes/api/admin.js → services/admin_refund_mark_paid.setRefundPaid) so the
 // two mark-paid surfaces cannot diverge on when an order becomes 'refunded'.
@@ -3038,11 +3038,14 @@ router.post('/superadmin/manual-queue/:id/mark-unsuitable', requireSuperadmin, a
     if (isPaid) {
       const existing = await queryOne(
         `SELECT id FROM refunds
-          WHERE order_id = $1 AND status IN ('pending','auto_approved','approved','paid')
+          WHERE order_id = $1 AND status IN ('pending','auto_approved','approved')
           LIMIT 1`,
         [orderId]
       );
-      if (!existing) {
+      // Part B item 8 (2026-09-13): open rows block; a paid partial does not,
+      // and the amount opened is what is STILL owed (0 → nothing to open).
+      const remainingEgp = await remainingRefundableEgp(order);
+      if (!existing && remainingEgp > 0) {
         // AUDIT (2026-08-17) — was `base_price + urgency_uplift_amount`, which
         // is wrong twice over: it omits every add-on the patient actually paid
         // for (video consultation, prescription — all priced into the Paymob
@@ -3052,7 +3055,7 @@ router.post('/superadmin/manual-queue/:id/mark-unsuitable', requireSuperadmin, a
         // the single source of truth: price + selected add-ons, i.e. literally
         // what the gateway charged, with the base+uplift sum kept only as a
         // legacy reconstruction fallback.
-        const refundAmount = maxRefundableEgp(order);
+        const refundAmount = remainingEgp;
         await execute(
           `INSERT INTO refunds (
              id, order_id, amount_egp, requested_amount, approved_amount,
@@ -6347,7 +6350,7 @@ router.get('/superadmin/refunds/create', requireSuperadmin, async (req, res) => 
   const existingRefund = await queryOne(
     `SELECT id, status, reason FROM refunds
       WHERE order_id = $1
-        AND status IN ('pending','auto_approved','approved','paid')
+        AND status IN ('pending','auto_approved','approved')
       LIMIT 1`,
     [orderId]
   );
@@ -6357,7 +6360,8 @@ router.get('/superadmin/refunds/create', requireSuperadmin, async (req, res) => 
   // AUDIT (2026-08-17) — same legacy formula as the manual-queue site: it
   // omitted add-ons and returned 0 for every order whose creation path never
   // wrote base_price, pre-filling the operator form with a zero refund.
-  const defaultAmount = maxRefundableEgp(order);
+  // Part B item 8 (2026-09-13): pre-fill with what is STILL owed.
+  const defaultAmount = await remainingRefundableEgp(order);
 
   // AUDIT-2026-08-22 (M7): an UNPAID SLA-breach auto-refund must not hide the
   // form. superadmin_refund_create.ejs renders a "refund already exists — use
@@ -6420,7 +6424,7 @@ router.post('/superadmin/refunds/create', requireSuperadmin, async (req, res) =>
   const existingRefund = await queryOne(
     `SELECT id, status, reason FROM refunds
       WHERE order_id = $1
-        AND status IN ('pending','auto_approved','approved','paid')
+        AND status IN ('pending','auto_approved','approved')
       LIMIT 1`,
     [orderId]
   );
@@ -6513,7 +6517,8 @@ router.post('/superadmin/refunds/create', requireSuperadmin, async (req, res) =>
   // add-ons) and, on the several INSERT paths that never wrote base_price,
   // evaluated to 0 — so `amountRaw > maxAmount` rejected EVERY amount and the
   // operator could not create a refund for those orders at all.
-  const maxAmount = maxRefundableEgp(order);
+  // Part B item 8 (2026-09-13): the ceiling is what is STILL owed.
+  const maxAmount = await remainingRefundableEgp(order);
   if (!Number.isFinite(amountRaw) || amountRaw <= 0) {
     return res.redirect(
       '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=invalid_amount'

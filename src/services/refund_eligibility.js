@@ -37,6 +37,12 @@
 const { queryAll } = require('../pg');
 const { owedCentsForOrder, toCents, parseSelectedAddons } = require('./order_pricing');
 
+// Part B item 8 (2026-09-13) — the statuses that hold the one-open-refund
+// slot (migration 107). 'paid' is deliberately NOT here any more: a paid
+// PARTIAL refund used to block the remainder forever. What stops a second
+// FULL refund now is the ceiling: remainingRefundableEgp below.
+const OPEN_REFUND_STATUSES = Object.freeze(['pending', 'auto_approved', 'approved']);
+
 const PRE_DOCTOR_ACCEPT = new Set(['PAID', 'ASSIGNED']);
 const REVIEW_REQUIRED = new Set(['IN_REVIEW', 'REJECTED_FILES', 'REASSIGNED']);
 const TERMINAL_ALREADY_REFUNDED = new Set(['CANCELLED', 'CANCELED', 'REFUNDED']);
@@ -47,9 +53,34 @@ const TERMINAL_NEVER_PAID = new Set(['EXPIRED_UNPAID', 'EXPIRED']);
  * @param {string} [requestingUserId] - The user requesting the refund (the
  *   patient). Reserved for future use (e.g., per-user rate limiting); not
  *   currently consulted by the rules.
- * @returns {Promise<{ eligible: boolean, reason: string, autoApprove: boolean }>}
+ * @param {Function} [exec] - (sql, params) => rows; injectable for tests.
+ * @returns {Promise<{ eligible: boolean, reason: string, autoApprove: boolean, remainingEgp?: number }>}
  */
-async function isEligibleForRefund(order, requestingUserId) {
+async function isEligibleForRefund(order, requestingUserId, exec) {
+  const verdict = await statusVerdict(order);
+  if (!verdict.eligible) return verdict;
+  // Part B item 8 (2026-09-13) — a status that permits a refund is not enough
+  // once partial refunds can be PAID and followed by another: the money left
+  // to give back must be > 0. Only orders with an ESTABLISHABLE charge are
+  // judged here — an order whose ceiling is 0 (no price recorded) keeps its
+  // status verdict, and the request POST refuses it as amount_unavailable
+  // with a reconciliation log, which is the honest outcome for a data fault
+  // rather than "already refunded". Fail closed on a DB error, like the
+  // breach branch below.
+  if (!(maxRefundableEgp(order) > 0)) return verdict;
+  let remaining;
+  try {
+    remaining = await remainingRefundableEgp(order, exec);
+  } catch (e) {
+    return { eligible: false, reason: 'eligibility_check_failed', autoApprove: false };
+  }
+  if (!(remaining > 0)) {
+    return { eligible: false, reason: 'already_refunded_in_full', autoApprove: false, remainingEgp: 0 };
+  }
+  return Object.assign({}, verdict, { remainingEgp: remaining });
+}
+
+async function statusVerdict(order) {
   if (!order || !order.id) {
     return { eligible: false, reason: 'order_not_found', autoApprove: false };
   }
@@ -228,4 +259,58 @@ function maxRefundableEgp(order) {
   return Math.round(cents) / 100;
 }
 
-module.exports = { isEligibleForRefund, maxRefundableEgp, consumedVideoAddonCents };
+// ── Part B item 8 (2026-09-13): the ceiling AFTER refunds already paid ──────
+//
+// Migration 083 closed the double-refund hole by letting a PAID refund row
+// hold the one-refund-per-order slot forever. That made a paid PARTIAL refund
+// (the SLA-breach uplift, a goodwill amount) lock the remainder out on every
+// create path. Migration 107 gives the slot back to OPEN rows only, and these
+// two helpers carry the invariant that actually matters — the sum of refunds
+// never exceeds what was charged — into every create path instead.
+//
+// Only status='paid' rows count against the ceiling. An open row is a promise,
+// not money, and the one-open-refund index guarantees there is at most one;
+// a denied or cancelled row returned nothing.
+
+/**
+ * EGP already PAID back on an order. Same COALESCE chain as
+ * admin_refund_mark_paid / refund_closure, so "the amount" means one thing.
+ * @param {string} orderId
+ * @param {Function} [exec] (sql, params) => rows. Defaults to the pool.
+ */
+async function paidRefundedEgp(orderId, exec) {
+  if (!orderId) return 0;
+  const run = typeof exec === 'function' ? exec : queryAll;
+  const rows = await run(
+    `SELECT COALESCE(SUM(COALESCE(amount_egp, approved_amount, requested_amount, 0)), 0) AS total
+       FROM refunds
+      WHERE order_id = $1 AND status = 'paid'`,
+    [orderId]
+  );
+  const total = Number(rows && rows[0] && rows[0].total);
+  return Number.isFinite(total) && total > 0 ? Math.round(total * 100) / 100 : 0;
+}
+
+/**
+ * What may STILL be refunded on an order: maxRefundableEgp minus everything
+ * already paid back, floored at 0. This — not maxRefundableEgp — is the
+ * ceiling every create path checks an amount against and the default a form
+ * pre-fills. Throws on a DB error so callers fail closed (never open a refund
+ * for a ceiling we could not establish).
+ */
+async function remainingRefundableEgp(order, exec) {
+  if (!order || !order.id) return 0;
+  const ceiling = maxRefundableEgp(order);
+  const paid = await paidRefundedEgp(order.id, exec);
+  const cents = Math.round(ceiling * 100) - Math.round(paid * 100);
+  return cents > 0 ? cents / 100 : 0;
+}
+
+module.exports = {
+  isEligibleForRefund,
+  maxRefundableEgp,
+  consumedVideoAddonCents,
+  remainingRefundableEgp,
+  paidRefundedEgp,
+  OPEN_REFUND_STATUSES
+};
