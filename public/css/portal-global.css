@@ -1226,3 +1226,115 @@ html[dir="rtl"] .p-icon--flip { transform: scaleX(-1); }
 @media (max-width: 768px) {
   .doctor-theme .portal-content .dg-footer-cta { display: inline-flex; align-items: center; min-height: 44px; }
 }
+
+/* ========================================
+   Today and case cards on phones — 2026-09-13 (mobile B2, B3)
+   ======================================== */
+
+/* Tier pill colours on Today (all widths): the pill now carries the case's
+   real tier instead of "Fast-track"/"Urgent" for anything due within 24h. */
+.page-doctor-dashboard .dd-sla-pill--red { background: #FDECEC; color: #9B1C1C; }
+.page-doctor-dashboard .dd-sla-pill--neutral { background: #EEF1F4; color: #334155; }
+.page-doctor-dashboard .dd-case-countdown { display: flex; align-items: center; gap: 6px; margin-block-start: 3px; font-size: 12px; font-weight: 600; color: #2F6FCF; }
+.dd-more-toggle { display: none; }
+.v2-case-row__cta { display: none; }
+
+@media (max-width: 768px) {
+  /* B2 — what a consultant needs first: cases waiting for acceptance, cases
+     due soonest, unread messages, then the numbers. Everything else sits
+     behind one "More" button (no-JS: nothing is hidden). Desktop order is
+     untouched — this is `order` on a phone-only flex column. */
+  .page-doctor-dashboard .dd-page { display: flex; flex-direction: column; }
+  .page-doctor-dashboard .dd-page > .dd-grid,
+  .page-doctor-dashboard .dd-page > .dd-widgets-strip { display: contents; }
+  .page-doctor-dashboard .dd-page > *,
+  .page-doctor-dashboard .dd-page > .dd-grid > *,
+  .page-doctor-dashboard .dd-page > .dd-widgets-strip > * { margin-block-end: 14px; }
+  .page-doctor-dashboard .dd-m-banner { order: 1; }
+  .page-doctor-dashboard .dd-m-newdoc { order: 2; }
+  .page-doctor-dashboard .dd-m-header { order: 3; margin-block-end: 12px; padding-block-end: 12px; }
+  .page-doctor-dashboard .dd-page > .v2-services-nudge,
+  .page-doctor-dashboard .dd-page > .v2-tier-nudge { order: 4; }
+  .page-doctor-dashboard .dd-m-new { order: 10; }
+  .page-doctor-dashboard .dd-m-due { order: 20; }
+  .page-doctor-dashboard .dd-m-unread { order: 30; }
+  .page-doctor-dashboard .dd-m-stats { order: 40; }
+  .page-doctor-dashboard .dd-more-toggle { order: 50; }
+  .page-doctor-dashboard .dd-m-rest { order: 60; }
+  .page-doctor-dashboard .dd-page.is-collapsed .dd-m-rest { display: none; }
+  .page-doctor-dashboard .dd-more-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    margin-block-end: 14px;
+    border: 1px solid var(--v2-rule, #E6E0D4);
+    border-radius: 12px;
+    background: #FFFFFF;
+    color: var(--v2-brand, #0B6B5F);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .page-doctor-dashboard .dd-more-toggle[hidden] { display: none; }
+  /* Empty states: one line each, not a 120px illustration. */
+  .page-doctor-dashboard .dd-card-empty {
+    flex-direction: row;
+    justify-content: flex-start;
+    text-align: start;
+    padding: 12px 16px;
+    gap: 8px;
+  }
+  .page-doctor-dashboard .dd-card-empty svg { width: 18px; height: 18px; flex: 0 0 auto; }
+  .page-doctor-dashboard .dd-widget--empty .dd-widget-empty { padding-block-start: 0; }
+
+  /* B3 — case cards: reference + tier, specialty, countdown/status, one action.
+     Selectors carry body.doctor-theme.portal-v2 .portal-content: doctor-portal-v2.css
+     loads after this file and styles the same elements at (0,3,1). */
+  /* !important on purpose: doctor-portal.css has `.doctor-theme [class*="status-"]
+     { display: inline-flex !important }`, which matches "v2-status-key" too. */
+  body.doctor-theme.portal-v2 .portal-content .v2-status-key { display: none !important; }
+  body.doctor-theme.portal-v2 .portal-content .v2-tabs {
+    position: sticky;
+    top: 56px;
+    z-index: 20;
+    margin-inline: -16px;
+    padding-inline: 16px;
+    background: var(--v2-bg, #F8F5EF);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  body.doctor-theme.portal-v2 .portal-content .v2-case-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "main cta" "due cta";
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 2px;
+    padding: 10px 14px;
+  }
+  body.doctor-theme.portal-v2 .portal-content .v2-case-row__badge { display: none; }
+  body.doctor-theme.portal-v2 .portal-content .v2-case-row__main { grid-area: main; min-width: 0; }
+  body.doctor-theme.portal-v2 .portal-content .v2-case-row__title-line { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
+  body.doctor-theme.portal-v2 .portal-content .v2-case-row__title-line .v2-chip { display: none; } /* status is in the meta line */
+  body.doctor-theme.portal-v2 .portal-content .v2-case-row__title { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.doctor-theme.portal-v2 .portal-content .v2-case-row__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.doctor-theme.portal-v2 .portal-content .v2-case-row__due { grid-area: due; text-align: start; }
+  body.doctor-theme.portal-v2 .portal-content .v2-case-row__due > div { display: inline; margin-inline-start: 6px; }
+  body.doctor-theme.portal-v2 .portal-content .v2-case-row__cta {
+    grid-area: cta;
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding-inline: 14px;
+    border-radius: 10px;
+    background: var(--v2-brand, #0B6B5F);
+    color: #FFFFFF;
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  body.doctor-theme.portal-v2 .portal-content .v2-case-row .v2-sla-dot { display: none; }
+  body.doctor-theme.portal-v2 .portal-content .v2-case-row__title-line > span[style] { white-space: nowrap; }
+}

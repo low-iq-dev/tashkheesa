@@ -65,6 +65,7 @@ const fixtures = require('./mobile-fixtures');
 const PAGES = [
   { key: 'today', path: '/portal/doctor/today', report: true },
   { key: 'queue', path: '/portal/doctor/queue' },
+  { key: 'queue-new', path: '/portal/doctor/queue?bucket=new' },
   { key: 'cases', path: '/portal/doctor/cases', report: true },
   { key: 'case', path: '/portal/doctor/case/' + fixtures.IDS.orderReview, report: true },
   { key: 'services', path: '/portal/doctor/services', report: true },
@@ -307,6 +308,37 @@ async function main() {
             if (!m.sidebarOnScreen) fails.push('desktop sidebar not visible');
             if (m.tabbarInfo && m.tabbarInfo.shown) fails.push('tab bar visible on desktop');
           }
+          if (pg.key === 'today') {
+            // B2: phone order and the collapsed secondary cards; desktop order unchanged.
+            const o = await page.evaluate(() => {
+              const top = (sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); return r.height ? Math.round(r.top + window.scrollY) : -1; };
+              const b = document.querySelector('[data-dd-more]');
+              return { newA: top('.dd-m-new'), due: top('.dd-m-due'), unread: top('.dd-m-unread'), stats: top('.dd-m-stats'),
+                restShown: Array.from(document.querySelectorAll('.dd-m-rest')).filter((e) => e.getBoundingClientRect().height > 0).length,
+                more: b ? { hidden: b.hidden, expanded: b.getAttribute('aria-expanded') } : null };
+            });
+            if (vp.phone) {
+              if (!(o.newA < o.due && o.due < o.unread && o.unread < o.stats)) fails.push('Today phone order: ' + JSON.stringify(o));
+              if (o.restShown) fails.push(o.restShown + ' secondary Today card(s) not collapsed');
+              if (!o.more || o.more.hidden || o.more.expanded !== 'false') fails.push('no collapsed More disclosure');
+            } else {
+              if (!(o.stats < o.newA && o.newA < o.due)) fails.push('desktop Today order changed: ' + JSON.stringify(o));
+              if (o.more && !o.more.hidden) fails.push('More disclosure visible on desktop');
+            }
+          }
+          if ((pg.key === 'cases' || pg.key === 'queue' || pg.key === 'queue-new') && vp.phone) {
+            // B3: compact cards with one action; filter tabs stick under the top bar.
+            const c = await page.evaluate(() => ({
+              heights: Array.from(document.querySelectorAll('.v2-case-row')).map((r) => Math.round(r.getBoundingClientRect().height)),
+              ctas: Array.from(document.querySelectorAll('.v2-case-row__cta')).filter((x) => x.getBoundingClientRect().height > 0).length,
+              tabs: (() => { const t = document.querySelector('.v2-tabs'); return t ? getComputedStyle(t).position : null; })()
+            }));
+            if (!c.heights.length) fails.push('no case cards rendered (fixture?)');
+            const tall = c.heights.filter((h) => h > 120);
+            if (tall.length) fails.push('case card(s) over 120px: ' + tall.join(', '));
+            if (c.ctas !== c.heights.length) fails.push(c.ctas + ' actions for ' + c.heights.length + ' cards');
+            if (c.tabs && c.tabs !== 'sticky') fails.push('filter tabs are ' + c.tabs);
+          }
           if (!vp.phone) m.smallTargets = []; // the 44px rule is for touch widths
           rows.push({ id, status, ...m, fails });
           if (fails.length) failures.push(id + ': ' + fails.join('; '));
@@ -394,4 +426,8 @@ async function main() {
   process.exit(failures.length ? 1 : 0);
 }
 
-main().catch((err) => { console.error('mobile:check could not run:', err.stack || err.message); process.exit(2); });
+module.exports = { bootServer, measure };
+
+if (require.main === module) {
+  main().catch((err) => { console.error('mobile:check could not run:', err.stack || err.message); process.exit(2); });
+}

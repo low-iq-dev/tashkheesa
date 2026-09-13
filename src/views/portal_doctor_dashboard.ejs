@@ -107,6 +107,21 @@
     return _isAr ? ('خلال ' + str) : ('due in ' + str);
   }
 
+  /* 2026-09-13 (mobile B2): the case's real turnaround tier. The pills here used
+     to show the retired tier name (new assignments) and the Urgent tier (in review) for ANY case
+     with under 24h left — a retired tier name and a tier the case may not have.
+     Same mapping as portal_doctor_cases.ejs _tierPill. */
+  function _tierPill(c) {
+    var key = String((c && c.urgency_tier) || '').trim().toLowerCase();
+    if (key === 'fast_track') key = 'vip';
+    var hrs = Number(c && c.sla_hours);
+    var win = (Number.isFinite(hrs) && hrs > 0) ? (' · ' + hrs + (_isAr ? 'س' : 'h')) : '';
+    if (key === 'urgent')   return { kind: 'red',     label: (_isAr ? 'عاجل' : 'Urgent') + win };
+    if (key === 'vip')      return { kind: 'brass',   label: 'VIP' + win };
+    if (key === 'standard') return { kind: 'neutral', label: (_isAr ? 'قياسي' : 'Standard') + win };
+    return null;
+  }
+
   function _patientLabel(caseItem) {
     if (!caseItem) return '';
     var name = caseItem.patient_name || caseItem.patientName || '';
@@ -245,10 +260,10 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
 .dd-widget--empty .dd-widget-empty { font-size: 14px; color: #94a3b8; padding-top: 4px; }
 </style>
 
-<div class="dd-page" data-mode="<%= _mode %>">
+<div class="dd-page" id="dd-page" data-mode="<%= _mode %>">
 
   <% if (_banner && _banner.level && _banner.count > 0) { %>
-    <div class="dd-sla-banner dd-sla-banner--<%= _banner.level %>" role="alert">
+    <div class="dd-sla-banner dd-m-banner dd-sla-banner--<%= _banner.level %>" role="alert">
       <span class="dd-sla-banner-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       </span>
@@ -276,7 +291,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
   <% } %>
 
   <% if (_mode === 'new-doctor') { %>
-    <div class="dd-newdoc-tips">
+    <div class="dd-newdoc-tips dd-m-newdoc">
       <h3><%= _isAr ? 'بداية موفقة' : 'Get started' %></h3>
       <p><%= _isAr ? 'لم يتم إسناد أي حالات إليك بعد. هذه الصفحة ستتحدث تلقائياً عندما يقدّم مريض حالة في تخصصك.' : 'No cases assigned yet. This page will update automatically when a patient submits a case in your specialty.' %></p>
       <ul>
@@ -290,7 +305,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
   <!-- ===================================================================
        HEADER — greeting + date + actions
        =================================================================== -->
-  <div class="dd-header">
+  <div class="dd-header dd-m-header">
     <div class="dd-greeting">
       <h1 class="dd-greeting-title">
         <%= _isAr ? _greetKeyAr : _greetKeyEn %><%= _isAr ? '، ' : ', ' %><%= _titleDoctor %> <%= _firstName || (_isAr ? 'الطبيب' : 'Doctor') %>
@@ -330,7 +345,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
   <!-- ===================================================================
        HERO STATS — 4 tiles
        =================================================================== -->
-  <div class="dd-stats">
+  <div class="dd-stats dd-m-stats">
     <div class="dd-stat dd-stat--teal">
       <div class="dd-stat-label"><%= _isAr ? 'أرباح هذا الشهر' : 'Earnings this month' %></div>
       <%# mobile B8: <bdi dir=ltr> keeps 'EGP 1,600' in order and spaced inside an Arabic tile —
@@ -370,7 +385,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
        =================================================================== -->
   <div class="dd-grid">
     <!-- NEW ASSIGNMENTS -->
-    <div class="dd-card" data-tour="case-queue">
+    <div class="dd-card dd-m-new" data-tour="case-queue">
       <div class="dd-card-head">
         <div class="dd-card-title">
           <%= _isAr ? 'تعيينات جديدة' : 'New Assignments' %>
@@ -390,11 +405,15 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
             <div class="dd-case-info">
               <div class="dd-case-title">
                 <%= _isAr ? 'حالة' : 'Case' %> <%= _caseRef(c) %>
-                <% if (c.sla && c.sla.minutesRemaining != null && c.sla.minutesRemaining <= 24 * 60) { %>
-                  <span class="dd-sla-pill dd-sla-pill--urgent"><%= _isAr ? 'عاجلة' : 'Fast-track' %></span>
+                <% var _tpNew = _tierPill(c); if (_tpNew) { %>
+                  <span class="dd-sla-pill dd-sla-pill--<%= _tpNew.kind %>"><%= _tpNew.label %></span>
                 <% } %>
               </div>
               <div class="dd-case-meta"><%= c.specialtyLabel || '—' %></div>
+              <%# mobile B2: the acceptance countdown, which this list never showed. %>
+              <% var _accLabel = _slaTimeLabel(c); if (_accLabel) { %>
+                <div class="dd-case-countdown"><span class="dd-status-dot dd-dot--info" aria-hidden="true"></span><%= _accLabel %></div>
+              <% } %>
             </div>
             <div class="dd-case-status">
               <div class="dd-case-actions-inline">
@@ -413,7 +432,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
     </div>
 
     <!-- RECENT ALERTS -->
-    <div class="dd-card">
+    <div class="dd-card dd-m-rest">
       <div class="dd-card-head">
         <div class="dd-card-title">
           <%= _isAr ? 'تنبيهات حديثة' : 'Recent Alerts' %>
@@ -458,7 +477,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
        =================================================================== -->
   <div class="dd-grid">
     <!-- IN REVIEW (SLA-priority ordered) -->
-    <div class="dd-card dd-page-section--priority dd-page-section--review" id="dd-priority-list">
+    <div class="dd-card dd-m-due dd-page-section--priority dd-page-section--review" id="dd-priority-list">
       <div class="dd-card-head">
         <div class="dd-card-title">
           <%= _isAr ? 'قيد المراجعة' : 'In Review' %>
@@ -479,8 +498,9 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
             <div class="dd-case-info">
               <div class="dd-case-title">
                 <%= _isAr ? 'حالة' : 'Case' %> <%= _caseRef(c) %>
-                <% if (c.sla && (c.sla.isBreached || (c.sla.minutesRemaining != null && c.sla.minutesRemaining <= 24 * 60))) { %>
-                  <span class="dd-sla-pill dd-sla-pill--urgent"><%= _isAr ? 'عاجلة' : 'Urgent' %></span>
+                <%# mobile B2: the real tier; how soon it is due is the dot + label on the right. %>
+                <% var _tpRev = _tierPill(c); if (_tpRev) { %>
+                  <span class="dd-sla-pill dd-sla-pill--<%= _tpRev.kind %>"><%= _tpRev.label %></span>
                 <% } %>
               </div>
               <div class="dd-case-meta"><%= _patientLabel(c) %> &middot; <%= c.specialtyLabel || '—' %></div>
@@ -494,7 +514,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
     </div>
 
     <!-- COMPLETED -->
-    <div class="dd-card">
+    <div class="dd-card dd-m-rest">
       <div class="dd-card-head">
         <div class="dd-card-title">
           <%= _isAr ? 'مكتملة' : 'Completed' %>
@@ -542,7 +562,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
   <div class="dd-grid dd-grid--equal dd-widgets-strip">
     <!-- UNREAD MESSAGES -->
     <% if (_unread.count > 0 && _unread.mostRecentOrderId) { %>
-      <a href="/portal/doctor/case/<%= encodeURIComponent(_unread.mostRecentOrderId) %>" class="dd-card dd-widget">
+      <a href="/portal/doctor/case/<%= encodeURIComponent(_unread.mostRecentOrderId) %>" class="dd-card dd-widget dd-m-unread">
         <div class="dd-widget-label"><%= _isAr ? 'رسائل غير مقروءة' : 'Unread messages' %></div>
         <div class="dd-widget-value"><%= _unread.count %></div>
         <div class="dd-widget-meta">
@@ -554,7 +574,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
         </div>
       </a>
     <% } else { %>
-      <div class="dd-card dd-widget dd-widget--empty">
+      <div class="dd-card dd-widget dd-widget--empty dd-m-unread">
         <div class="dd-widget-label"><%= _isAr ? 'رسائل غير مقروءة' : 'Unread messages' %></div>
         <div class="dd-widget-empty"><%= _isAr ? 'لا توجد رسائل غير مقروءة' : 'No unread messages' %></div>
       </div>
@@ -562,19 +582,19 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
 
     <!-- RECENTLY PAID EARNING -->
     <% if (_earning && _earningHref) { %>
-      <a href="<%= _earningHref %>" class="dd-card dd-widget">
+      <a href="<%= _earningHref %>" class="dd-card dd-widget dd-m-rest">
         <div class="dd-widget-label"><%= _isAr ? 'الأرباح الأخيرة' : 'Recently paid' %></div>
         <div class="dd-widget-value"><%= _isAr ? '' : 'EGP ' %><%= _fmtEgp(_earning.earnedAmount) %><%= _isAr ? ' ج.م' : '' %></div>
         <div class="dd-widget-meta"><%= _relTime(_earning.paidAt) %></div>
       </a>
     <% } else if (_earning) { %>
-      <div class="dd-card dd-widget">
+      <div class="dd-card dd-widget dd-m-rest">
         <div class="dd-widget-label"><%= _isAr ? 'الأرباح الأخيرة' : 'Recently paid' %></div>
         <div class="dd-widget-value"><%= _isAr ? '' : 'EGP ' %><%= _fmtEgp(_earning.earnedAmount) %><%= _isAr ? ' ج.م' : '' %></div>
         <div class="dd-widget-meta"><%= _relTime(_earning.paidAt) %></div>
       </div>
     <% } else { %>
-      <div class="dd-card dd-widget dd-widget--empty">
+      <div class="dd-card dd-widget dd-widget--empty dd-m-rest">
         <div class="dd-widget-label"><%= _isAr ? 'الأرباح الأخيرة' : 'Recently paid' %></div>
         <div class="dd-widget-empty"><%= _isAr ? 'لا توجد أرباح حديثة' : 'No recent earnings' %></div>
       </div>
@@ -586,7 +606,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
        =================================================================== -->
   <div class="dd-grid dd-grid--equal">
     <!-- RECENT ACTIVITY -->
-    <div class="dd-card">
+    <div class="dd-card dd-m-rest">
       <div class="dd-card-head">
         <div class="dd-card-title"><%= _isAr ? 'النشاط الأخير' : 'Recent Activity' %></div>
       </div>
@@ -613,7 +633,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
     </div>
 
     <!-- THIS MONTH PERFORMANCE -->
-    <div class="dd-card">
+    <div class="dd-card dd-m-rest">
       <div class="dd-card-head">
         <div class="dd-card-title"><%= _isAr ? 'أداء هذا الشهر' : 'This Month' %></div>
         <a href="/portal/doctor/analytics" class="dd-card-link"><%= _isAr ? 'التحليلات ←' : 'Analytics →' %></a>
@@ -647,6 +667,11 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
     </div>
   </div>
 
+  <%# mobile B2: on a phone, everything below the four things a consultant needs first
+      sits behind this. Hidden until the script shows it, so without JS nothing is hidden. %>
+  <button type="button" class="dd-more-toggle" data-dd-more hidden aria-controls="dd-page" aria-expanded="true"
+          data-label-more="<%= _isAr ? 'المزيد: التنبيهات والمكتملة والنشاط والأداء' : 'More: alerts, completed, activity, performance' %>"
+          data-label-less="<%= _isAr ? 'عرض أقل' : 'Show less' %>"><%= _isAr ? 'المزيد' : 'More' %></button>
 </div>
 
 <script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
@@ -809,5 +834,28 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
   })();
   </script>
 <% } %>
+
+<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+  // mobile B2 — collapse the secondary Today cards on phones behind one button.
+  (function () {
+    var page = document.getElementById('dd-page');
+    var btn = document.querySelector('[data-dd-more]');
+    if (!page || !btn || !window.matchMedia) return;
+    var mq = window.matchMedia('(max-width: 768px)');
+    var touched = false;
+    function setCollapsed(c) {
+      page.classList.toggle('is-collapsed', c);
+      btn.setAttribute('aria-expanded', c ? 'false' : 'true');
+      btn.textContent = btn.getAttribute(c ? 'data-label-more' : 'data-label-less');
+    }
+    function apply() {
+      if (mq.matches) { btn.hidden = false; if (!touched) setCollapsed(true); }
+      else { btn.hidden = true; page.classList.remove('is-collapsed'); }
+    }
+    btn.addEventListener('click', function () { touched = true; setCollapsed(!page.classList.contains('is-collapsed')); });
+    if (mq.addEventListener) mq.addEventListener('change', apply); else if (mq.addListener) mq.addListener(apply);
+    apply();
+  })();
+</script>
 
 <%- include('partials/footer') %>

@@ -253,6 +253,10 @@
             <strong><%= slaTxt %></strong>
           <% } %>
         </div>
+        <%# mobile B3: the card's one primary action on a phone (hidden on desktop). The whole row
+            is the link, so this is a visual affordance only (aria-hidden). Unaccepted cases say
+            what really happens: the case opens, and Accept is on that screen. %>
+        <span class="v2-case-row__cta" aria-hidden="true"><%= isCompleted ? tt('View', 'View', 'عرض') : (_isUnaccepted(c) ? tt('Review & accept', 'Review & accept', 'راجع واقبل') : tt('Open', 'Open', 'فتح')) %></span>
       </a>
       <% }); %>
     </div>
