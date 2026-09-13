@@ -78,7 +78,23 @@ const PAGES = [
   { key: 'guide', path: '/portal/doctor/guide' }
 ].filter((p) => !ONLY || ONLY.includes(p.key));
 
-const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+// Part C (refunds) — the patient request form in each eligibility state, the
+// refund timeline on the patient case page, and the operator queue/create.
+// `kind` is what the shared eligibility helper must say for that fixture.
+const REFUND_PAGES = [
+  { key: 'rf-request-pre', as: 'patient', path: '/portal/patient/orders/' + fixtures.IDS.rfPre + '/request-refund', kind: 'full' },
+  { key: 'rf-request-std', as: 'patient', path: '/portal/patient/orders/' + fixtures.IDS.rfStd + '/request-refund', kind: 'review' },
+  { key: 'rf-request-breach', as: 'patient', path: '/portal/patient/orders/' + fixtures.IDS.rfBreach + '/request-refund', kind: 'surcharge_only' },
+  { key: 'rf-request-partial', as: 'patient', path: '/portal/patient/orders/' + fixtures.IDS.rfPartial + '/request-refund', kind: 'remainder' },
+  { key: 'rf-case-pending', as: 'patient', path: '/portal/patient/orders/' + fixtures.IDS.rfPending, timeline: 'pending' },
+  { key: 'rf-case-partial', as: 'patient', path: '/portal/patient/orders/' + fixtures.IDS.rfPartial, timeline: 'paid', cta: true },
+  { key: 'rf-case-breach', as: 'patient', path: '/portal/patient/orders/' + fixtures.IDS.rfBreach, timeline: 'paid' },
+  { key: 'rf-case-denied', as: 'patient', path: '/portal/patient/orders/' + fixtures.IDS.rfDenied, timeline: 'denied' },
+  { key: 'rf-queue', as: 'ops', path: '/superadmin/refunds', desktop: true },
+  { key: 'rf-create', as: 'ops', path: '/superadmin/refunds/create?order_id=' + fixtures.IDS.rfPartial, max: '1800.00' }
+].filter((p) => !ONLY || ONLY.includes(p.key) || ONLY.includes('rf'));
+
+const IPHONE_UA ='Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 const VIEWPORTS = [
   { w: 390, h: 844, phone: true, ua: IPHONE_UA },
   { w: 430, h: 932, phone: true, ua: IPHONE_UA },
@@ -251,7 +267,7 @@ async function main() {
   const failures = [];
   const rows = [];
   try {
-    for (const lang of LANGS) {
+    for (const lang of (PAGES.length ? LANGS : [])) {
       const token = jwt.sign({
         id: fixtures.IDS.doctor, role: 'doctor', email: 'mobilefx-doctor@example.com',
         name: 'Ahmed Mobile Fixture', lang, phone: '+201000000001', country_code: 'EG', specialty_id: null
@@ -468,6 +484,7 @@ async function main() {
         await page.close();
       }
     }
+    if (REFUND_PAGES.length) await refundPass({ browser, base, jwt, cookieName, docsDir, rows, failures });
   } finally {
     await browser.close();
     if (server) { server.child.kill('SIGTERM'); setTimeout(() => { try { server.child.kill('SIGKILL'); } catch (_) {} }, 3000).unref(); }
@@ -484,6 +501,105 @@ async function main() {
   console.log('\nScreenshots: ' + path.relative(ROOT, docsDir) + ' (390px + 1440px report pages), ' + tmpDir + ' (rest)');
   console.log(failures.length ? `\n${failures.length} FAILED` : '\nALL PASS');
   process.exit(failures.length ? 1 : 0);
+}
+
+// Part C — refund screens, as the fixture patient and the fixture operator.
+async function refundPass({ browser, base, jwt, cookieName, docsDir, rows, failures }) {
+  const who = {
+    patient: { id: fixtures.IDS.patient, role: 'patient', email: 'mobilefx-patient@example.com', name: 'Mona Fixture', phone: '+201000000002' },
+    ops: { id: fixtures.IDS.ops, role: 'superadmin', email: 'mobilefx-ops@example.com', name: 'Omar Ops Fixture' }
+  };
+  for (const lang of LANGS) {
+    const widths = [{ w: 390, h: 844, phone: true }, { w: 1440, h: 900, phone: false }];
+    for (const vp of widths) {
+      const page = await browser.newPage();
+      await page.setExtraHTTPHeaders({ 'X-Forwarded-For': '10.14.' + LANGS.indexOf(lang) + '.' + vp.w % 250 });
+      await page.setViewport({ width: vp.w, height: vp.h, isMobile: vp.phone, hasTouch: vp.phone, deviceScaleFactor: 1 });
+      if (vp.phone) await page.setUserAgent(IPHONE_UA);
+      const host = new URL(base).hostname;
+      for (const pg of REFUND_PAGES) {
+        if (!vp.phone && !pg.desktop) continue;
+        const token = jwt.sign(Object.assign({ lang }, who[pg.as]), process.env.JWT_SECRET, { expiresIn: '30m' });
+        await page.setCookie({ name: cookieName, value: token, domain: host, path: '/', httpOnly: true },
+          { name: 'lang', value: lang, domain: host, path: '/' });
+        const resp = await page.goto(base + pg.path, { waitUntil: 'networkidle2', timeout: 45000 }).catch(() => null);
+        await new Promise((r) => setTimeout(r, 500));
+        const status = resp ? resp.status() : 0;
+        const m = await page.evaluate(() => {
+          const q = (s) => document.querySelector(s);
+          const elig = q('[data-refund-eligibility]');
+          const tl = q('[data-refund-timeline]');
+          const submit = q('[data-refund-submit]');
+          const bar = submit && submit.closest('[data-refund-submitbar]');
+          const smallInputs = Array.from(document.querySelectorAll('main input:not([type=hidden]), main textarea'))
+            .filter((el) => el.getBoundingClientRect().width && parseFloat(getComputedStyle(el).fontSize) < 16).length;
+          const block = q('[data-refund-block]');
+          return {
+            path: location.pathname,
+            overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            kind: elig ? elig.getAttribute('data-kind') : null,
+            eligText: elig ? elig.textContent.replace(/\s+/g, ' ').trim() : '',
+            submitDisabled: submit ? submit.disabled : null,
+            submitBarPos: bar ? getComputedStyle(bar).position : null,
+            instapay: (q('[name=instapay_handle]') || {}).value || null,
+            smallInputs,
+            timeline: tl ? tl.getAttribute('data-refund-timeline') : null,
+            timelineSteps: tl ? tl.querySelectorAll('[data-step]').length : 0,
+            blockText: block ? block.textContent.replace(/\s+/g, ' ').trim() : '',
+            cta: !!q('[data-refund-cta]'),
+            cancelConfirm: !!q('form[action$="/refund-request/cancel"] [data-confirm], form[action$="/refund-request/cancel"][data-confirm]'),
+            tabs: document.querySelectorAll('[data-refund-tab]').length,
+            rowsWithBdi: Array.from(document.querySelectorAll('[data-refund-id]')).filter((r) => r.querySelector('bdi')).length,
+            rowCount: document.querySelectorAll('[data-refund-id]').length,
+            confirmForms: document.querySelectorAll('form[data-confirm][action*="/superadmin/refunds/"]').length,
+            amountMax: (q('#amount') || {}).max || null
+          };
+        });
+        const id = `${lang} ${pg.key} @${vp.w}`;
+        const fails = [];
+        // 304: the same page revisited at the next width, served from the ETag.
+        if (status !== 200 && status !== 304) fails.push('HTTP ' + status);
+        if (!m.path.startsWith(pg.path.split('?')[0])) fails.push('landed on ' + m.path);
+        if (m.overflowX > 0) fails.push('horizontal scroll ' + m.overflowX + 'px');
+        if (pg.kind) {
+          if (m.kind !== pg.kind) fails.push('eligibility kind ' + m.kind + ' (expected ' + pg.kind + ')');
+          if (!m.eligText) fails.push('no eligibility text');
+          const nothing = pg.kind === 'surcharge_only' || pg.kind === 'nothing';
+          if (m.submitDisabled !== nothing) fails.push('submit disabled=' + m.submitDisabled);
+          if (!nothing && m.instapay !== '+201000000002') fails.push('InstaPay not prefilled from the profile (' + m.instapay + ')');
+          if (vp.phone && !['sticky', 'fixed'].includes(m.submitBarPos)) fails.push('submit not sticky (' + m.submitBarPos + ')');
+          if (m.smallInputs) fails.push(m.smallInputs + ' field(s) under 16px');
+        }
+        if (pg.timeline) {
+          if (m.timeline !== pg.timeline) fails.push('timeline state ' + m.timeline + ' (expected ' + pg.timeline + ')');
+          if (m.timelineSteps < 2) fails.push('timeline has ' + m.timelineSteps + ' steps');
+          if (/•/.test(m.blockText)) fails.push('a "•" placeholder in the refund block');
+          if (pg.timeline === 'denied' && !/consultant has already reviewed|راجع/.test(m.blockText)) fails.push('denial reason not shown');
+          if (pg.timeline === 'paid' && !/0002/.test(m.blockText)) fails.push('paid-to last 4 digits not shown');
+          if (pg.timeline === 'pending' && !m.cancelConfirm) fails.push('no confirm on cancel');
+          if (!!pg.cta !== m.cta) fails.push('request CTA shown=' + m.cta);
+        }
+        if (pg.key === 'rf-queue') {
+          if (m.tabs !== 4) fails.push(m.tabs + ' filter tabs');
+          if (!m.rowCount || m.rowsWithBdi !== m.rowCount) fails.push('patient names not in <bdi> (' + m.rowsWithBdi + '/' + m.rowCount + ')');
+          if (m.confirmForms < 3) fails.push('actions without a confirm step');
+        }
+        if (pg.max && m.amountMax !== pg.max) fails.push('create max ' + m.amountMax + ' (expected ' + pg.max + ')');
+        rows.push({ id, status, fails });
+        if (fails.length) failures.push(id + ': ' + fails.join('; '));
+        const full = !pg.timeline;
+        if (pg.timeline) {
+          await page.evaluate(() => {
+            const el = document.querySelector('[data-refund-block],[data-refund-status],[data-refund-cta]');
+            if (el) window.scrollTo(0, Math.max(0, el.getBoundingClientRect().top + window.scrollY - 80));
+          });
+          await new Promise((r) => setTimeout(r, 200));
+        }
+        await page.screenshot({ path: path.join(docsDir, `${lang}-${pg.key}-${vp.w}.png`), fullPage: full });
+      }
+      await page.close();
+    }
+  }
 }
 
 module.exports = { bootServer, measure };

@@ -70,7 +70,18 @@ const IDS = {
   orderReview: PREFIX + 'order-review',
   orderDue: PREFIX + 'order-due',
   orderDone: PREFIX + 'order-done',
-  conversation: PREFIX + 'conv-review'
+  conversation: PREFIX + 'conv-review',
+  // Part C (refunds). A second doctor owns these so the doctor-portal
+  // screenshots above stay byte-comparable, and an operator reviews them.
+  doctor2: PREFIX + 'doctor2',
+  ops: PREFIX + 'ops',
+  rfPre: PREFIX + 'rf-pre',          // paid, no consultant yet → full refund
+  rfStd: PREFIX + 'rf-std',          // Standard, consultant working → review, no surcharge
+  rfBreach: PREFIX + 'rf-breach',    // VIP, deadline missed, surcharge refunded automatically
+  rfPartial: PREFIX + 'rf-partial',  // VIP, 600 already paid back → remainder
+  rfPending: PREFIX + 'rf-pending',  // patient request waiting for review
+  rfApproved: PREFIX + 'rf-approved',// approved, not paid yet
+  rfDenied: PREFIX + 'rf-denied'     // denied with a reason
 };
 
 function hoursFromNow(h) { return new Date(Date.now() + h * 3600 * 1000); }
@@ -227,6 +238,68 @@ async function seed(client) {
       created_at: hoursFromNow(m.h)
     });
   }
+
+  await seedRefunds(client, base);
+}
+
+// Part C (2026-09-13) — one order per refund state the patient form, the case
+// timeline and the operator queue have to explain.
+async function seedRefunds(client, base) {
+  await insertRow(client, 'users', {
+    id: IDS.doctor2, email: 'mobilefx-doctor2@example.com', name: 'Sara Second Fixture', role: 'doctor',
+    specialty_id: base.specialty_id, phone: '+201000000003', country_code: 'EG', country: 'EG',
+    lang: 'en', is_active: true, pending_approval: false, approved_at: new Date(), onboarding_complete: true,
+    sla_tiers_confirmed_at: new Date(), created_at: new Date()
+  });
+  await insertRow(client, 'users', {
+    id: IDS.ops, email: 'mobilefx-ops@example.com', name: 'Omar Ops Fixture', role: 'superadmin',
+    phone: '+201000000004', country_code: 'EG', lang: 'en', is_active: true, created_at: new Date()
+  });
+
+  const vip = { tier: 'vip', urgency_tier: 'vip', sla_hours: 18, price: 2400, base_price: 1600, urgency_uplift_amount: 800, locked_price: 2400 };
+  const std = { tier: 'standard', urgency_tier: 'standard', sla_hours: 48, price: 1600, base_price: 1600, urgency_uplift_amount: 0, locked_price: 1600 };
+  const working = { doctor_id: IDS.doctor2, status: 'in_review', accepted_at: hoursFromNow(-20), deadline_at: hoursFromNow(20), sla_deadline: hoursFromNow(20) };
+  const rows = [
+    [IDS.rfPre, 'TSH-FX0101', vip, { doctor_id: null, status: 'paid' }],
+    [IDS.rfStd, 'TSH-FX0102', std, working],
+    [IDS.rfBreach, 'TSH-FX0103', vip, { doctor_id: IDS.doctor2, status: 'breached', accepted_at: hoursFromNow(-30), deadline_at: hoursFromNow(-12), sla_deadline: hoursFromNow(-12), breached_at: hoursFromNow(-12) }],
+    [IDS.rfPartial, 'TSH-FX0104', vip, working],
+    [IDS.rfPending, 'TSH-FX0105', std, working],
+    [IDS.rfApproved, 'TSH-FX0106', vip, working],
+    [IDS.rfDenied, 'TSH-FX0107', std, working]
+  ];
+  for (const [id, ref, tier, state] of rows) {
+    await insertRow(client, 'orders', Object.assign({}, base, tier, state, { id, reference_id: ref, updated_at: hoursFromNow(-1) }));
+  }
+
+  const refund = (o) => Object.assign({
+    refunded_by: IDS.patient, requested_by: IDS.patient, instapay_handle: '+201000000002'
+  }, o);
+  const refunds = [
+    // The system refunded the VIP surcharge when the deadline passed, and it was paid.
+    refund({ id: PREFIX + 'rf-1', order_id: IDS.rfBreach, reason: 'sla_breach', status: 'paid', amount_egp: 800,
+      requested_amount: 800, approved_amount: 800, refunded_by: 'system', requested_by: 'system', instapay_handle: null,
+      instapay_reference: 'IPX-800123', refunded_at: hoursFromNow(-12), paid_at: hoursFromNow(-6),
+      paid_to_number: '+201000000002', paid_by: IDS.ops,
+      notes: 'Auto-refund: SLA deadline passed without case completion (tier vip). Awaiting InstaPay payout.' }),
+    // An operator already paid back 600 of 2400.
+    refund({ id: PREFIX + 'rf-2', order_id: IDS.rfPartial, reason: 'operator_refund', status: 'paid', amount_egp: 600,
+      requested_amount: 600, approved_amount: 600, refunded_by: IDS.ops, requested_by: IDS.ops,
+      instapay_reference: 'IPX-445566', refunded_at: hoursFromNow(-50), reviewed_at: hoursFromNow(-49), reviewed_by: IDS.ops,
+      paid_at: hoursFromNow(-48), paid_to_number: '+201000000002', paid_by: IDS.ops,
+      notes: 'Operator-initiated refund — see audit log — goodwill for a delayed file request' }),
+    refund({ id: PREFIX + 'rf-3', order_id: IDS.rfPending, reason: 'patient_request', status: 'pending', amount_egp: 1600,
+      requested_amount: 1600, patient_reason: 'I found a consultant locally who can see me this week, so I no longer need the written opinion.',
+      refunded_at: hoursFromNow(-0.4) }),
+    refund({ id: PREFIX + 'rf-4', order_id: IDS.rfApproved, reason: 'patient_request', status: 'approved', amount_egp: 2400,
+      requested_amount: 2400, approved_amount: 1200, reviewed_by: IDS.ops, reviewed_at: hoursFromNow(-3),
+      patient_reason: 'The files I uploaded were for the wrong family member.', refunded_at: hoursFromNow(-26) }),
+    refund({ id: PREFIX + 'rf-5', order_id: IDS.rfDenied, reason: 'patient_request', status: 'denied', amount_egp: 1600,
+      requested_amount: 1600, patient_reason: 'Changed my mind.', reviewed_by: IDS.ops, reviewed_at: hoursFromNow(-5),
+      denial_reason: 'Your consultant has already reviewed your scans and is writing the report, so this case is past the point of a full refund.',
+      refunded_at: hoursFromNow(-30) })
+  ];
+  for (const r of refunds) await insertRow(client, 'refunds', r);
 }
 
 async function migrateWithProdDataTolerance(dbUrl) {
