@@ -60,7 +60,7 @@ module.exports = (async function run() {
           const p = pathOnly(a.href);
           if (/\bnav-lang\b|\blang-btn\b/.test(a.tag)) continue; // the language switch
           if (/^\/(login|register)$/.test(p)) {
-            if (!/[?&]lang=ar\b/.test(a.href)) bad.push('auth link without lang=ar: ' + a.href);
+            if (new URL(a.href, 'http://x').searchParams.get('lang') !== 'ar') bad.push('auth link without a top-level lang=ar: ' + a.href);
             continue;
           }
           if (p.startsWith('/ar/') || p === '/ar') {
@@ -85,7 +85,7 @@ module.exports = (async function run() {
         // Auth links on an English page carry lang=en (found in review: the
         // English toggle sets no cookie, so an old Arabic cookie would win).
         const authBad = anchors(r.body)
-          .filter((a) => /^\/(login|register)$/.test(pathOnly(a.href)) && !/[?&]lang=en\b/.test(a.href))
+          .filter((a) => /^\/(login|register)$/.test(pathOnly(a.href)) && new URL(a.href, 'http://x').searchParams.get('lang') !== 'en')
           .map((a) => a.href);
         assert.deepStrictEqual(authBad, [], enPath + ' auth links without lang=en');
         t.pass(enPath + ': English page links stay unprefixed');
@@ -105,7 +105,9 @@ module.exports = (async function run() {
         assert.strictEqual(r.status, 200, p + ' → ' + r.status);
         const booking = anchors(r.body).filter((a) => /patient\/new-case/.test(a.href));
         assert.ok(booking.length > 0, p + ': no booking links rendered (is the CTA on?)');
-        const bad = booking.filter((a) => !new RegExp('[?&]lang=' + lang + '\\b').test(a.href)).map((a) => a.href);
+        // lang must be a TOP-LEVEL parameter of the link: inside next=… the
+        // login page never sees it (found live: /login?next=/patient/new-case?lang=ar).
+        const bad = booking.filter((a) => new URL(a.href, 'http://x').searchParams.get('lang') !== lang).map((a) => a.href);
         assert.deepStrictEqual(bad, [], p + ' booking links without lang=' + lang);
         t.pass(p + ': ' + booking.length + ' booking link(s) carry lang=' + lang);
       } catch (e) { t.fail('A3 booking ' + p, e); }

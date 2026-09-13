@@ -397,7 +397,9 @@
     // SEO 2026-09-13 (review): booking/login links carry the page's language —
     // the portal is cookie-driven and a public page no longer sets the cookie.
     const __langAmp = (typeof langParam !== 'undefined' && langParam) ? '&' + langParam : '';
-    const __langQs = (typeof langParam !== 'undefined' && langParam) ? '?' + langParam : '';
+    // submitUrl already carries a query when logged out (/login?next=…), so the
+    // language joins it with '&' — with '?' it would end up inside `next`.
+    const __langQs = (typeof langParam !== 'undefined' && langParam) ? (submitUrl.indexOf('?') === -1 ? '?' : '&') + langParam : '';
 
     // Bilingual rendering: keep specialtyMeta keyed by English (so icon/desc
     // still resolve), but swap to name_ar in section headers when isAr.
