@@ -34,6 +34,12 @@
           <td style="padding:6px 0;font-size:13px;color:#4A4640;">{{egpCharge}} <span style="color:#9A9287;">— يحوّله بنكك عند الدفع</span></td>
         </tr>
         {{/if}}
+        {{#if paymentMethod}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#7A736A;width:140px;">طريقة الدفع:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2E2B26;">{{paymentMethod}}</td>
+        </tr>
+        {{/if}}
       </table>
     </td>
   </tr>

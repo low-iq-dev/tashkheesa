@@ -26,6 +26,17 @@ const AR_DIR = path.join(ROOT, 'src', 'templates', 'email', 'ar');
 // Templates that deliberately carry BOTH languages in a single file.
 const BILINGUAL = ['doctor-welcome.hbs', 'doctor-confirm-services.hbs'];
 
+// Part B item 11 (2026-09-13) — variable parity for EVERY en/ar pair, not
+// just the two bilingual files. Six Arabic templates had silently dropped a
+// field the English one carried (case-assigned: urgency; case-reassigned:
+// previousDoctor; payment-success: paymentMethod; sla-warning +
+// appointment-reminder: specialty; appointment-scheduled: caseReference), so
+// an Arabic doctor assigned an urgent case saw no urgency row at all. Layout
+// partials (underscore-prefixed) are excluded: the Arabic layout hardcodes
+// lang="ar" dir="rtl" and the Arabic title where the English one interpolates
+// {{lang}} {{dir}} {{appName}} — a per-language design, not a drift.
+const ALL_EN = fs.readdirSync(EN_DIR).filter((f) => f.endsWith('.hbs') && !f.startsWith('_'));
+
 function stripComments(src) {
   // Handlebars comments first (they legitimately mention variable names in
   // prose), then HTML comments.
@@ -41,6 +52,29 @@ function variablesIn(src) {
     out.add(name);
   }
   return out;
+}
+
+for (const file of ALL_EN) {
+  if (BILINGUAL.includes(file)) continue;   // covered below with the stricter checks
+  const enPath = path.join(EN_DIR, file);
+  const arPath = path.join(AR_DIR, file);
+  test(`${file}: exists in ar/ too`, () => {
+    assert.ok(fs.existsSync(arPath), `missing ${path.relative(ROOT, arPath)}`);
+  });
+  test(`${file}: ar/ carries every field en/ carries (and vice versa)`, () => {
+    if (!fs.existsSync(arPath)) return;
+    const en = variablesIn(fs.readFileSync(enPath, 'utf8'));
+    const ar = variablesIn(fs.readFileSync(arPath, 'utf8'));
+    const onlyEn = [...en].filter((v) => !ar.has(v)).sort();
+    const onlyAr = [...ar].filter((v) => !en.has(v)).sort();
+    assert.deepEqual(
+      { onlyEn, onlyAr }, { onlyEn: [], onlyAr: [] },
+      `${file} has drifted between en/ and ar/.\n` +
+      `  only in en/: ${onlyEn.join(', ') || '(none)'}\n` +
+      `  only in ar/: ${onlyAr.join(', ') || '(none)'}\n` +
+      'A recipient in one language is missing a field the other language shows.'
+    );
+  });
 }
 
 for (const file of BILINGUAL) {

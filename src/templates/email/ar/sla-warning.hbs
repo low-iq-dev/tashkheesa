@@ -22,6 +22,12 @@
           <td style="padding:6px 0;font-size:14px;font-weight:600;color:#2E2B26;">{{caseReference}}</td>
         </tr>
         {{/if}}
+        {{#if specialty}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#7A736A;width:140px;">التخصص:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2E2B26;">{{specialty}}</td>
+        </tr>
+        {{/if}}
         {{#if deadlineAt}}
         <tr>
           <td style="padding:6px 0;font-size:14px;color:#7A736A;width:140px;">الموعد النهائي:</td>

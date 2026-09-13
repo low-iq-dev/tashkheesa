@@ -36,6 +36,12 @@
           <td style="padding:6px 0;font-size:14px;font-weight:600;color:#c53030;">{{slaHours}} ساعة</td>
         </tr>
         {{/if}}
+        {{#if urgency}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#7A736A;width:140px;">درجة الاستعجال:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#e53e3e;">{{urgency}}</td>
+        </tr>
+        {{/if}}
       </table>
     </td>
   </tr>
