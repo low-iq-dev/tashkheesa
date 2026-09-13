@@ -279,6 +279,29 @@ check('the case view renders both outcomes of a notes save', () => {
   return null;
 });
 
+// mobile B5 (2026-09-13) — the case view now DOES autosave drafts. The check
+// above still forbids the old claim; this one makes any autosave claim pay for
+// itself: the view must carry the real mechanism and report a failed save,
+// keep the no-JS truth in the markup, and the route must answer an autosave
+// honestly (500 + ok:false on failure, never the success redirect).
+check('an autosave claim on the case view is backed by a real, honest autosave', () => {
+  const view = raw('src/views/portal_doctor_case.ejs');
+  const claims = /save[sd]? automatically|تُحفظ المسودات تلقائي/i.test(view);
+  if (!claims) return null;
+  for (const needle of ['fetch(', 'setInterval(save, 20000)', "addEventListener('blur', save)", 'beforeunload', "body.set('autosave', '1')", 'data-autosave-stamp']) {
+    if (!view.includes(needle)) return 'the view claims autosave but has no ' + needle;
+  }
+  if (!/Saved when you press Save/.test(view)) return 'the markup no longer carries the statement that is true without JavaScript';
+  if (!/Draft not saved/.test(view)) return 'a failed autosave is not reported to the doctor';
+  const doctorSrc = code('src/routes/doctor.js');
+  const start = doctorSrc.indexOf("router.post('/portal/doctor/case/:caseId/diagnosis'");
+  const handler = doctorSrc.slice(start, doctorSrc.indexOf('// ---- end save diagnosis ----', start));
+  if (!/isAutosave/.test(handler)) return 'the diagnosis route does not distinguish an autosave';
+  if (!/if \(isAutosave\) return res\.status\(500\)\.json\(\{ ok: false/.test(handler)) return 'an autosave that fails is not answered with 500 + ok:false';
+  if (!/if \(isAutosave\) return res\.json\(\{ ok: true/.test(handler)) return 'an autosave that succeeds has no JSON answer';
+  return null;
+});
+
 // ── BLOCKER 4 — a reset is not an appeal ──────────────────────────────────
 
 check('password reset no longer unconditionally reactivates an account', () => {

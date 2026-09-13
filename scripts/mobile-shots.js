@@ -68,6 +68,7 @@ const PAGES = [
   { key: 'queue-new', path: '/portal/doctor/queue?bucket=new' },
   { key: 'cases', path: '/portal/doctor/cases', report: true },
   { key: 'case', path: '/portal/doctor/case/' + fixtures.IDS.orderReview, report: true },
+  { key: 'case-new', path: '/portal/doctor/case/' + fixtures.IDS.orderNew },
   { key: 'services', path: '/portal/doctor/services', report: true },
   { key: 'profile', path: '/portal/doctor/profile' },
   { key: 'earnings', path: '/portal/doctor/earnings' },
@@ -297,7 +298,8 @@ async function main() {
             // B10: every touch target on a phone is at least 44px.
             if (m.smallTargets.length) fails.push(m.smallTargets.length + ' target(s) under 44px: ' + m.smallTargets.slice(0, 4).join(' | '));
             const tb = m.tabbarInfo;
-            if (!tb || !tb.shown) fails.push('no tab bar');
+            // The case screens hand the bottom of the screen to their action bar (checked below).
+            if (!tb || !tb.shown) { if (pg.key !== 'case' && pg.key !== 'case-new') fails.push('no tab bar'); }
             else {
               if (tb.count !== 5) fails.push('tab bar has ' + tb.count + ' items');
               if (Math.abs(tb.bottomGap) > 1) fails.push('tab bar not pinned to the bottom (' + tb.bottomGap + 'px)');
@@ -339,6 +341,37 @@ async function main() {
             if (c.ctas !== c.heights.length) fails.push(c.ctas + ' actions for ' + c.heights.length + ' cards');
             if (c.tabs && c.tabs !== 'sticky') fails.push('filter tabs are ' + c.tabs);
           }
+          if (pg.key === 'case' || pg.key === 'case-new') {
+            // B5: the pinned action bar with tier + countdown, and the tab bar yielding to it.
+            const b = await page.evaluate(() => {
+              const bar = document.querySelector('[data-actionbar]');
+              const shown = !!bar && getComputedStyle(bar).display !== 'none';
+              const r = bar ? bar.getBoundingClientRect() : null;
+              const btns = bar ? Array.from(bar.querySelectorAll('button')).map((x) => ({ text: x.textContent.trim(), h: Math.round(x.getBoundingClientRect().height), form: x.getAttribute('form') })) : [];
+              const tab = document.querySelector('.portal-tabbar');
+              const meta = bar && bar.querySelector('.v2-actionbar__meta');
+              return {
+                shown, bottomGap: r ? Math.round(window.innerHeight - r.bottom) : null, btns,
+                meta: meta ? meta.textContent.trim() : null,
+                tabShown: !!tab && getComputedStyle(tab).display !== 'none',
+                fields16: Array.from(document.querySelectorAll('#report-form textarea')).every((t) => parseFloat(getComputedStyle(t).fontSize) >= 16)
+              };
+            });
+            if (vp.phone) {
+              if (!b.shown) fails.push('no action bar');
+              else {
+                if (Math.abs(b.bottomGap) > 1) fails.push('action bar not pinned (' + b.bottomGap + 'px)');
+                if (!b.meta || !/(VIP|Urgent|Standard|عاجل|قياسي)/.test(b.meta)) fails.push('tier/countdown not in the action bar: ' + b.meta);
+                if (b.btns.some((x) => x.h < 44)) fails.push('action under 44px');
+                if (pg.key === 'case' && !(b.btns.some((x) => x.form === 'report-form' && /Submit|إرسال/.test(x.text)) && b.btns.some((x) => x.form === 'report-form' && /Save|حفظ/.test(x.text)))) fails.push('Save/Submit missing from the bar');
+                if (pg.key === 'case-new' && !b.btns.some((x) => x.form === 'acceptCaseForm')) fails.push('Accept missing from the bar');
+              }
+              if (b.tabShown) fails.push('tab bar still shown over the case actions');
+              if (pg.key === 'case' && !b.fields16) fails.push('report fields under 16px (iOS zooms on focus)');
+            } else if (b.shown) {
+              fails.push('action bar visible on desktop');
+            }
+          }
           if (!vp.phone) m.smallTargets = []; // the 44px rule is for touch widths
           rows.push({ id, status, ...m, fails });
           if (fails.length) failures.push(id + ': ' + fails.join('; '));
@@ -347,6 +380,33 @@ async function main() {
           const toDocs = vp.w === 390 || (vp.w === 1440 && pg.report);
           await page.screenshot({ path: path.join(toDocs ? docsDir : tmpDir, name) });
 
+          if (pg.key === 'case' && vp.w === 390 && lang === 'en') {
+            // B5 end to end: type, blur, "Draft saved HH:MM", reload shows the text; then
+            // an unsaved change raises the beforeunload guard when leaving the page.
+            const afails = [];
+            const marker = 'autosave-check-' + Date.now();
+            await page.click('#rep-impr');
+            await page.keyboard.type(' ' + marker);
+            await page.evaluate(() => document.getElementById('rep-impr').blur());
+            await page.waitForFunction(() => { const s = document.querySelector('[data-autosave-stamp]'); return s && !s.hidden && s.textContent.length > 0; }, { timeout: 15000 }).catch(() => null);
+            const stampText = await page.evaluate(() => { const s = document.querySelector('[data-autosave-stamp]'); return s && !s.hidden ? s.textContent : null; });
+            const labelText = await page.evaluate(() => { const l = document.querySelector('[data-autosave-label]'); return l ? l.textContent : null; });
+            if (!stampText || !/^Draft saved \d\d:\d\d$/.test(stampText)) afails.push('stamp after blur: ' + stampText);
+            if (labelText !== 'Drafts save automatically') afails.push('card label: ' + labelText);
+            await page.goto(base + pg.path, { waitUntil: 'networkidle2' });
+            const persisted = await page.evaluate((mk) => ((document.getElementById('rep-impr') || {}).value || '').includes(mk), marker);
+            if (!persisted) afails.push('autosaved text not there after reload');
+            await page.click('#rep-rec');
+            await page.keyboard.type('unsaved');
+            let sawGuard = false;
+            const onDialog = async (d) => { if (d.type() === 'beforeunload') sawGuard = true; try { await d.accept(); } catch (_) {} };
+            page.on('dialog', onDialog);
+            await page.goto(base + '/portal/doctor/today', { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => null);
+            page.off('dialog', onDialog);
+            if (!sawGuard) afails.push('no beforeunload guard with unsaved changes');
+            rows.push({ id: 'en autosave @390', status: 200, fails: afails });
+            if (afails.length) failures.push('en autosave @390: ' + afails.join('; '));
+          }
           if (pg.key === 'today' && vp.w === 390) {
             const toggle = await page.$('[data-action="toggle-sidebar"]');
             if (!toggle) {

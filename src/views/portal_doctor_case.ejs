@@ -517,9 +517,23 @@
           <% if (_showAccept && _acceptUrl) { %>
             <form id="acceptCaseForm" class="v2-gated__actions" method="POST" action="<%= _acceptUrl %>">
               <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-              <button type="submit" class="v2-btn v2-btn--primary v2-btn--lg"><%= tt('Accept case', 'Accept case', 'قبول الحالة') %></button>
+              <button type="submit" class="v2-btn v2-btn--primary v2-btn--lg v2-accept-inline"><%= tt('Accept case', 'Accept case', 'قبول الحالة') %></button>
               <a class="v2-btn v2-btn--ghost" href="/portal/doctor/cases"><%= tt('Decline · back to queue', 'Decline · back to queue', 'رفض · العودة للقائمة') %></a>
             </form>
+<%
+  var _barMeta = [];
+  if (_tierChip) _barMeta.push(_tierChip.label);
+  if (_cd) _barMeta.push(_cd.kind === 'breached'
+    ? tt('Overdue ' + _cd.h + 'h', 'Overdue ' + _cd.h + 'h', 'متأخر ' + _cd.h + 'س')
+    : tt(_cd.h + 'h ' + _cd.m + 'm left', _cd.h + 'h ' + _cd.m + 'm left', 'متبقي ' + _cd.h + 'س ' + _cd.m + 'د'));
+%>
+            <%# mobile B5: Accept, pinned to the bottom on phones; same form, via form=. %>
+            <div class="v2-actionbar" data-actionbar role="region" aria-label="<%= tt('Case actions', 'Case actions', 'إجراءات الحالة') %>">
+              <% if (_barMeta.length) { %><div class="v2-actionbar__meta" data-numeric><%= _barMeta.join(' · ') %></div><% } %>
+              <div class="v2-actionbar__btns">
+                <button type="submit" form="acceptCaseForm" class="v2-btn v2-btn--primary"><%= tt('Accept case', 'Accept case', 'قبول الحالة') %></button>
+              </div>
+            </div>
           <% } else if (!_isPaid) { %>
             <div class="v2-gated__actions" style="display:block;">
               <div style="background:var(--v2-warn-bg);border:1px solid #F2D8B0;border-radius:10px;padding:10px 12px;font-size:12px;color:var(--v2-warn);font-weight:600;">
@@ -609,7 +623,8 @@
           <div class="v2-card__title"><%= tt('Patient files', 'Patient files', 'ملفات المريض') %></div>
           <span class="v2-card__title-sub"><span data-numeric><%= _files.length %></span> <%= tt('files', 'files', 'ملف') %></span>
         </div>
-        <div class="v2-card__body v2-card__body--flush">
+        <%# mobile B5: .v2-file-strip turns the rows into a horizontal strip of tiles on phones. %>
+        <div class="v2-card__body v2-card__body--flush v2-file-strip">
           <% _files.forEach(function(f) {
                var ext = (f.name || '').split('.').pop().toUpperCase().slice(0, 4);
           %>
@@ -633,7 +648,7 @@
 
       <% if (_statusKey !== 'completed') { %>
       <!-- Report editor — preserves field names: diagnosis, impression, recommendations -->
-      <div class="v2-card">
+      <div class="v2-card" id="report-card">
         <div class="v2-card__header">
           <div class="v2-card__title"><%= tt('Report', 'Report', 'التقرير') %></div>
 <%# AUDIT 2026-09-06 (BLOCKER 3): this said "Auto-saved as you type". There is
@@ -641,9 +656,15 @@
     the editor is a plain form POST. The label told a doctor their work was
     safe while they typed, which is the single worst thing to be wrong about
     on this page. Replaced with what the form actually does. %>
-          <span class="v2-card__title-sub"><%= tt('Saved when you press Save', 'Saved when you press Save', 'يُحفظ عند الضغط على حفظ') %></span>
+<%# mobile B5 (2026-09-13): drafts now DO save automatically — every 20 seconds while you type and when a
+    field loses focus, via the script at the bottom of this file (fetch to .../diagnosis with autosave=1,
+    which answers JSON). The markup keeps the statement that is true without JavaScript; the script swaps
+    in data-label-auto only once autosave is actually running, and the stamp beside it reports every
+    outcome — including a failed save. %>
+          <span class="v2-card__title-sub" data-autosave-label data-label-auto="<%= tt('Drafts save automatically', 'Drafts save automatically', 'تُحفظ المسودات تلقائياً') %>"><%= tt('Saved when you press Save', 'Saved when you press Save', 'يُحفظ عند الضغط على حفظ') %></span>
+          <span class="v2-autosave" data-autosave-stamp role="status" aria-live="polite" hidden></span>
         </div>
-        <form method="POST" action="/portal/doctor/case/<%= _orderIdEnc %>/diagnosis">
+        <form id="report-form" method="POST" action="/portal/doctor/case/<%= _orderIdEnc %>/diagnosis">
           <%- (typeof csrfField === 'function') ? csrfField() : '' %>
           <div class="v2-card__body" style="display:flex;flex-direction:column;gap:14px;">
             <div class="v2-field">
@@ -678,14 +699,50 @@
                 helpful half, so the doctor is told before the round-trip. %>
             <div id="report-submit-error" role="alert" hidden
                  style="font-size:13px;font-weight:600;color:var(--v2-danger);background:var(--v2-danger-bg);border-radius:10px;padding:10px 12px;"></div>
-            <div style="display:flex;justify-content:space-between;align-items:center;border-block-start:1px solid var(--v2-rule);padding-block-start:14px;flex-wrap:wrap;gap:8px;">
+            <div class="v2-report-actions" style="display:flex;justify-content:space-between;align-items:center;border-block-start:1px solid var(--v2-rule);padding-block-start:14px;flex-wrap:wrap;gap:8px;">
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button type="submit" class="v2-btn v2-btn--secondary"><%= tt('Save draft', 'Save draft', 'حفظ مسودة') %></button>
+                <button type="submit" class="v2-btn v2-btn--secondary" data-report-save><%= tt('Save draft', 'Save draft', 'حفظ مسودة') %></button>
               </div>
-              <button type="submit" id="report-submit-btn" formaction="/portal/doctor/case/<%= _orderIdEnc %>/report" formmethod="POST" class="v2-btn v2-btn--brass v2-btn--lg"><%= tt('Submit report', 'Submit report', 'إرسال التقرير') %></button>
+              <button type="submit" id="report-submit-btn" data-report-submit formaction="/portal/doctor/case/<%= _orderIdEnc %>/report" formmethod="POST" class="v2-btn v2-btn--brass v2-btn--lg"><%= tt('Submit report', 'Submit report', 'إرسال التقرير') %></button>
             </div>
           </div>
         </form>
+        <%# mobile B5: asking the patient for more files, from the case itself. The route
+            (POST .../reject-files) requires a reason, sets rejected_files, pauses the SLA and
+            notifies operations — the copy below says exactly that, and nothing more. %>
+        <% var _filesRequested = (_statusKey === 'rejected_files' || _statusKey === 'awaiting_files'); %>
+        <% if (_filesRequested) { %>
+          <div class="v2-request-files v2-request-files--sent" id="request-files"><%= tt('More files have been requested. Your deadline is paused until the patient uploads them.', 'More files have been requested. Your deadline is paused until the patient uploads them.', 'تم طلب ملفات إضافية. مهلتك متوقفة حتى يرفعها المريض.') %></div>
+        <% } else { %>
+          <details class="v2-request-files" id="request-files">
+            <summary><%= tt('Need more files from the patient?', 'Need more files from the patient?', 'تحتاج ملفات إضافية من المريض؟') %></summary>
+            <form method="POST" action="/portal/doctor/case/<%= _orderIdEnc %>/reject-files">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <label for="rf-reason"><%= tt('What is missing?', 'What is missing?', 'ما الناقص؟') %></label>
+              <textarea id="rf-reason" name="reason" rows="3" maxlength="500" required></textarea>
+              <p class="v2-request-files__hint"><%= tt('The patient is asked to upload them, and your deadline pauses until they do.', 'The patient is asked to upload them, and your deadline pauses until they do.', 'سيُطلب من المريض رفعها، وتتوقف مهلتك حتى يفعل.') %></p>
+              <button type="submit" class="v2-btn v2-btn--secondary" data-confirm="<%= tt('Ask the patient for more files? Your deadline pauses until they upload.', 'Ask the patient for more files? Your deadline pauses until they upload.', 'طلب ملفات إضافية من المريض؟ ستتوقف مهلتك حتى يرفعها.') %>"><%= tt('Send request', 'Send request', 'إرسال الطلب') %></button>
+            </form>
+          </details>
+        <% } %>
+      </div>
+<%
+  var _barMeta = [];
+  if (_tierChip) _barMeta.push(_tierChip.label);
+  if (_cd) _barMeta.push(_cd.kind === 'breached'
+    ? tt('Overdue ' + _cd.h + 'h', 'Overdue ' + _cd.h + 'h', 'متأخر ' + _cd.h + 'س')
+    : tt(_cd.h + 'h ' + _cd.m + 'm left', _cd.h + 'h ' + _cd.m + 'm left', 'متبقي ' + _cd.h + 'س ' + _cd.m + 'د'));
+%>
+      <%# mobile B5: the case's primary actions, pinned to the bottom of the screen on phones
+          (hidden >=769px, where the in-page buttons stay). The buttons submit #report-form through
+          the form= attribute, so they are the same POSTs as the in-page ones. %>
+      <div class="v2-actionbar" data-actionbar role="region" aria-label="<%= tt('Case actions', 'Case actions', 'إجراءات الحالة') %>">
+        <% if (_barMeta.length) { %><div class="v2-actionbar__meta" data-numeric><%= _barMeta.join(' · ') %></div><% } %>
+        <div class="v2-actionbar__btns">
+          <% if (!_filesRequested) { %><button type="button" class="v2-btn v2-btn--ghost" data-open-request-files><%= tt('More files', 'More files', 'طلب ملفات') %></button><% } %>
+          <button type="submit" form="report-form" class="v2-btn v2-btn--secondary" data-report-save><%= tt('Save draft', 'Save draft', 'حفظ مسودة') %></button>
+          <button type="submit" form="report-form" formaction="/portal/doctor/case/<%= _orderIdEnc %>/report" formmethod="POST" class="v2-btn v2-btn--brass" data-report-submit><%= tt('Submit report', 'Submit report', 'إرسال التقرير') %></button>
+        </div>
       </div>
       <% } else { %>
       <!-- Completed: show submitted artifact link -->
@@ -950,8 +1007,9 @@
   // keep accepting a partial report. The server enforces the same rule; this
   // just saves a round-trip and points at the offending box.
   (function() {
-    var btn = document.getElementById('report-submit-btn');
-    if (!btn) return;
+    // mobile B5: every Submit button — the in-page one and the action bar's.
+    var btns = document.querySelectorAll('[data-report-submit]');
+    if (!btns.length) return;
     var box = document.getElementById('report-submit-error');
     var isAr = document.documentElement.dir === 'rtl';
     var MSG = isAr
@@ -966,7 +1024,7 @@
       return !t.replace(/[\s\-—–_.·•*]+/g, '');
     }
 
-    btn.addEventListener('click', function(e) {
+    Array.prototype.forEach.call(btns, function(btn) { btn.addEventListener('click', function(e) {
       var findings = document.getElementById('rep-diag');
       var impression = document.getElementById('rep-impr');
       var offender = isEmpty(findings) ? findings : (isEmpty(impression) ? impression : null);
@@ -977,7 +1035,7 @@
       e.preventDefault();
       if (box) { box.textContent = MSG; box.hidden = false; }
       try { offender.focus(); } catch (_) {}
-    });
+    }); });
   })();
 
   // Copy full case ID to clipboard + brief "Copied!" toast.
@@ -1035,6 +1093,89 @@
           document.body.removeChild(ta);
         }
       });
+    });
+  })();
+
+  // mobile B5 (2026-09-13) — the report editor on a phone: auto-growing fields, a
+  // draft that saves itself, an unsaved-changes guard, and an action bar that stays
+  // above the on-screen keyboard.
+  (function() {
+    var isAr = document.documentElement.dir === 'rtl';
+    var bar = document.querySelector('[data-actionbar]');
+    if (bar) {
+      document.documentElement.classList.add('has-actionbar');
+      if (window.visualViewport) {
+        var vv = window.visualViewport;
+        var place = function() {
+          var inset = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+          bar.style.setProperty('--kb-inset', inset + 'px');
+        };
+        vv.addEventListener('resize', place);
+        vv.addEventListener('scroll', place);
+        place();
+      }
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('[data-open-request-files]'), function(b) {
+      b.addEventListener('click', function() {
+        var d = document.getElementById('request-files');
+        if (!d) return;
+        d.open = true;
+        try { d.scrollIntoView({ block: 'center' }); } catch (_) { d.scrollIntoView(); }
+        var ta = d.querySelector('textarea');
+        if (ta) { try { ta.focus({ preventScroll: true }); } catch (_) { ta.focus(); } }
+      });
+    });
+
+    var form = document.getElementById('report-form');
+    if (!form) return;
+    var fields = Array.prototype.slice.call(form.querySelectorAll('textarea'));
+    function grow(t) { t.style.height = 'auto'; t.style.height = Math.max(t.scrollHeight + 2, 88) + 'px'; }
+    fields.forEach(function(t) { t.addEventListener('input', function() { grow(t); }); grow(t); });
+
+    // Without these the markup's "Saved when you press Save" stays, and stays true.
+    if (!window.fetch || !window.URLSearchParams || !window.FormData) return;
+    var stamp = document.querySelector('[data-autosave-stamp]');
+    var label = document.querySelector('[data-autosave-label]');
+    var snapshot = function() { return fields.map(function(t) { return t.value; }).join('\u0000'); };
+    var lastSaved = snapshot();
+    var saving = false, submitting = false;
+    if (label && label.getAttribute('data-label-auto')) label.textContent = label.getAttribute('data-label-auto');
+    function show(text, isError) {
+      if (!stamp) return;
+      stamp.hidden = false;
+      stamp.textContent = text;
+      stamp.classList.toggle('is-error', !!isError);
+    }
+    function hhmm(d) { var h = d.getHours(), m = d.getMinutes(); return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m; }
+    var FAILED = isAr ? 'لم تُحفظ المسودة — اضغط «حفظ مسودة»' : 'Draft not saved — press Save draft';
+    function save() {
+      if (submitting || saving) return;
+      var now = snapshot();
+      if (now === lastSaved) return;
+      saving = true;
+      var body = new URLSearchParams(new FormData(form));
+      body.set('autosave', '1');
+      fetch(form.getAttribute('action'), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString()
+      })
+        .then(function(r) { return r.json().then(function(j) { return !!(r.ok && j && j.ok); }); })
+        .then(function(ok) {
+          if (ok) { lastSaved = now; show((isAr ? 'حُفظت المسودة ' : 'Draft saved ') + hhmm(new Date())); }
+          else show(FAILED, true);
+        })
+        .catch(function() { show(FAILED, true); })
+        .then(function() { saving = false; });
+    }
+    fields.forEach(function(t) { t.addEventListener('blur', save); });
+    setInterval(save, 20000);
+    form.addEventListener('submit', function() { submitting = true; });
+    window.addEventListener('beforeunload', function(e) {
+      if (submitting || snapshot() === lastSaved) return;
+      e.preventDefault();
+      e.returnValue = '';
     });
   })();
 </script>

@@ -3709,13 +3709,24 @@ router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, async (re
 router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, res) => {
   const orderId = String(req.params.caseId || '');
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  // 2026-09-13 (mobile B5) — the report editor's draft autosave posts here with
+  // autosave=1 and Accept: application/json. Same write, same guards; it gets a
+  // JSON outcome instead of a redirect so the page can say "Draft saved 12:04" —
+  // or that it was NOT saved. Every refusal and failure is a non-2xx with
+  // ok:false, never a silent 200. The order event is written for explicit saves
+  // only: ten minutes of typing would otherwise add ~30 doctor_diagnosis_saved
+  // events, each carrying the full text, to the case timeline.
+  const isAutosave = String((req.body && req.body.autosave) || '') === '1'
+    && /application\/json/.test(String(req.get('accept') || ''));
 
   if (!orderId || !doctorId) {
+    if (isAutosave) return res.status(400).json({ ok: false, error: 'bad_request' });
     return res.redirect('/portal/doctor/dashboard');
   }
 
   const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order || String(order.doctor_id || '') !== doctorId) {
+    if (isAutosave) return res.status(403).json({ ok: false, error: 'not_your_case' });
     return res.redirect('/portal/doctor/dashboard');
   }
 
@@ -3728,9 +3739,11 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, 
   // distinguishing the two. Amendments need their own versioned flow; until
   // there is one, the honest answer is to refuse.
   if (normalizeStatus(order.status) === 'completed') {
+    if (isAutosave) return res.status(409).json({ ok: false, error: 'case_completed' });
     return res.redirect(`/portal/doctor/case/${orderId}?error=case_completed`);
   }
 
+  let savedAtIso = null;
   const diagnosisText = String(req.body.diagnosis || '').trim();
   const impression = String(req.body.impression || '').trim();
   const recommendations = String(req.body.recommendations || '').trim();
@@ -3738,6 +3751,7 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, 
   try {
     const diagnosisCol = await getDiagnosisColumnName();
     const nowIso = new Date().toISOString();
+    savedAtIso = nowIso;
 
     // Probed together so the diagnosis write below can tell whether the other
     // two sections have somewhere of their own to live.
@@ -3780,13 +3794,15 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, 
       );
     }
 
-    await logOrderEvent({
-      orderId: orderId,
-      label: 'doctor_diagnosis_saved',
-      meta: { doctorId: doctorId, diagnosisText: diagnosisValue, hasDiagnosis: !!(diagnosisValue && diagnosisValue.trim()) },
-      actorUserId: doctorId,
-      actorRole: 'doctor'
-    });
+    if (!isAutosave) {
+      await logOrderEvent({
+        orderId: orderId,
+        label: 'doctor_diagnosis_saved',
+        meta: { doctorId: doctorId, diagnosisText: diagnosisValue, hasDiagnosis: !!(diagnosisValue && diagnosisValue.trim()) },
+        actorUserId: doctorId,
+        actorRole: 'doctor'
+      });
+    }
   } catch (err) {
     logErrorToDb(err, {
       context: 'doctor.save_diagnosis',
@@ -3811,6 +3827,7 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, 
     // report_save_failed with copy that says plainly that nothing was written.
     // Same treatment here, with its own code so the two are distinguishable in
     // the logs.
+    if (isAutosave) return res.status(500).json({ ok: false, error: 'notes_save_failed' });
     return res.redirect(`/portal/doctor/case/${orderId}?error=notes_save_failed`);
   }
 
@@ -3818,6 +3835,7 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, 
   // parameter: nothing in doctor.js read it and portal_doctor_case.ejs has no
   // occurrence of `success` at all, so the doctor got a bare 302 and no
   // confirmation either way. Now carried as ?saved=1 and rendered.
+  if (isAutosave) return res.json({ ok: true, savedAt: savedAtIso });
   return res.redirect(`/portal/doctor/case/${orderId}?saved=1`);
 });
 // ---- end save diagnosis ----

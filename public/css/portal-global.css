@@ -1194,9 +1194,11 @@ html[dir="rtl"] .p-icon--flip { transform: scaleX(-1); }
   .doctor-theme .portal-content .v2-iconbtn { min-width: 44px; }
   .doctor-theme .portal-content .dd-card-link { display: inline-flex; align-items: center; min-height: 44px; }
   /* 16px stops iOS Safari zooming the page when a field takes focus. */
-  .doctor-theme .portal-content input:not([type="checkbox"]):not([type="radio"]),
-  .doctor-theme .portal-content select,
-  .doctor-theme .portal-content textarea { font-size: 16px !important; }
+  /* body.doctor-theme.portal-v2 on purpose: doctor-portal.css (loaded later) sets
+     `.doctor-theme .portal-content textarea` at the same specificity. */
+  body.doctor-theme.portal-v2 .portal-content input:not([type="checkbox"]):not([type="radio"]),
+  body.doctor-theme.portal-v2 .portal-content select,
+  body.doctor-theme.portal-v2 .portal-content textarea { font-size: 16px !important; }
 }
 
 /* Keyboard focus is visible on every doctor screen (all widths). */
@@ -1337,4 +1339,89 @@ html[dir="rtl"] .p-icon--flip { transform: scaleX(-1); }
   }
   body.doctor-theme.portal-v2 .portal-content .v2-case-row .v2-sla-dot { display: none; }
   body.doctor-theme.portal-v2 .portal-content .v2-case-row__title-line > span[style] { white-space: nowrap; }
+}
+
+/* ========================================
+   Case detail + report editor on phones — 2026-09-13 (mobile B5)
+   ======================================== */
+.v2-actionbar { display: none; }
+.doctor-theme .v2-autosave { font-size: 12px; font-weight: 600; color: var(--v2-success, #1F7A4D); margin-inline-start: 8px; }
+.doctor-theme .v2-autosave.is-error { color: var(--v2-danger, #B42318); }
+.doctor-theme .v2-request-files { border-block-start: 1px solid var(--v2-rule, #E6E0D4); padding: 12px 16px 16px; }
+.doctor-theme .v2-request-files summary { cursor: pointer; font-weight: 600; color: var(--v2-brand, #0B6B5F); min-height: 44px; display: flex; align-items: center; }
+.doctor-theme .v2-request-files form { display: flex; flex-direction: column; gap: 8px; margin-block-start: 8px; }
+.doctor-theme .v2-request-files label { font-size: 13px; font-weight: 600; }
+.doctor-theme .v2-request-files textarea { width: 100%; border: 1px solid var(--v2-rule, #E6E0D4); border-radius: 10px; padding: 10px 12px; font: inherit; }
+.doctor-theme .v2-request-files__hint { margin: 0; font-size: 12px; color: var(--v2-muted, #6B7A8A); }
+.doctor-theme .v2-request-files--sent { font-size: 13px; color: var(--v2-ink-2, #334155); }
+
+@media (max-width: 768px) {
+  /* The case's primary actions live in a bar pinned to the bottom of the
+     screen; the tab bar yields to it on this page. --kb-inset is set from
+     visualViewport so the bar rides above the on-screen keyboard. */
+  html.has-actionbar body.doctor-theme .portal-tabbar { display: none; }
+  html.has-actionbar body.doctor-theme.layout-portal { padding-block-end: calc(118px + env(safe-area-inset-bottom, 0px)); }
+  body.doctor-theme.portal-v2 .portal-content .v2-actionbar {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    position: fixed;
+    inset-inline: 0;
+    bottom: var(--kb-inset, 0px);
+    z-index: 1001;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+    background: #FFFFFF;
+    border-block-start: 1px solid var(--v2-rule, #E6E0D4);
+    box-shadow: 0 -4px 16px rgba(15, 30, 45, 0.08);
+  }
+  body.doctor-theme.portal-v2 .portal-content .v2-actionbar__meta {
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+    color: var(--v2-ink-2, #334155);
+  }
+  body.doctor-theme.portal-v2 .portal-content .v2-actionbar__btns { display: flex; gap: 8px; }
+  body.doctor-theme.portal-v2 .portal-content .v2-actionbar__btns .v2-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 44px;
+    padding-inline: 8px;
+    font-size: 14px;
+    justify-content: center;
+    white-space: nowrap;
+  }
+  /* The in-page duplicates of those actions give way to the bar on phones. */
+  body.doctor-theme.portal-v2 .portal-content .v2-report-actions { display: none; }
+  body.doctor-theme.portal-v2 .portal-content #acceptCaseForm .v2-accept-inline { display: none; }
+
+  /* Patient files: a horizontal strip of tiles, not a table of rows. */
+  body.doctor-theme.portal-v2 .portal-content .v2-file-strip {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 12px;
+    scroll-snap-type: x mandatory;
+    overscroll-behavior-x: contain;
+  }
+  body.doctor-theme.portal-v2 .portal-content .v2-file-strip .v2-file-row {
+    flex: 0 0 140px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--v2-rule, #E6E0D4);
+    border-radius: 12px;
+    scroll-snap-align: start;
+  }
+  body.doctor-theme.portal-v2 .portal-content .v2-file-strip .v2-file-row__name {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    min-height: 2.6em;
+    font-size: 13px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .doctor-theme .v2-request-files[open] { scroll-behavior: auto; }
 }
