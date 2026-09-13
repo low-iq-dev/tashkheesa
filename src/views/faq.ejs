@@ -269,7 +269,7 @@ html { scroll-behavior: smooth; }
       <aside class="faq-still">
         <h3><%= __isAr ? STILL_HELP_AR : STILL_HELP_EN %></h3>
         <p><%= __isAr ? STILL_HELP_BODY_AR : STILL_HELP_BODY_EN %></p>
-        <a href="/contact" class="faq-cta"><%= __isAr ? CONTACT_CTA_AR : CONTACT_CTA_EN %></a>
+        <a href="<%= locals.langPrefix || '' %>/contact" class="faq-cta"><%= __isAr ? CONTACT_CTA_AR : CONTACT_CTA_EN %></a>
       </aside>
 
     </div>

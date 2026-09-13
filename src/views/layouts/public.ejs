@@ -125,7 +125,7 @@
 <% if (renderNav) { %>
 <header class="site-header">
   <div class="header-inner">
-    <a href="/" class="site-brand">
+    <a href="<%= locals.langPrefix || '' %>/" class="site-brand">
       <img
         src="/assets/brand/tashkheesa-logo-primary.svg"
         alt="Tashkheesa"
@@ -147,9 +147,9 @@
 
     <nav class="main-nav" id="public-main-nav">
       <ul class="nav-list" id="public-nav-list">
-        <li><a href="/services" class="nav-link"><%= tt('nav.services', 'Services', 'الخدمات') %></a></li>
-        <li><a href="/about" class="nav-link"><%= tt('nav.about', 'About', 'عن تشخيصة') %></a></li>
-        <li><a href="/contact" class="nav-link"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a></li>
+        <li><a href="<%= locals.langPrefix || '' %>/services" class="nav-link"><%= tt('nav.services', 'Services', 'الخدمات') %></a></li>
+        <li><a href="<%= locals.langPrefix || '' %>/about" class="nav-link"><%= tt('nav.about', 'About', 'عن تشخيصة') %></a></li>
+        <li><a href="<%= locals.langPrefix || '' %>/contact" class="nav-link"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a></li>
         <li>
           <a
             href="<%= __langHref %>"
@@ -160,7 +160,7 @@
             data-lang-toggle="<%= __langTargetCode %>"
           ><svg class="nav-lang-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg><span><%= __langTargetLabel %></span></a>
         </li>
-        <li><a href="/login" class="nav-link nav-cta"><%= tt('nav.signin', 'Sign In', 'تسجيل الدخول') %></a></li>
+        <li><a href="/login<%= locals.langPrefix ? '?lang=ar' : '' %>" class="nav-link nav-cta"><%= tt('nav.signin', 'Sign In', 'تسجيل الدخول') %></a></li>
       </ul>
     </nav>
   </div>

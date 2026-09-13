@@ -134,10 +134,10 @@
         <div class="post-cta">
           <h3>مستعد تبدأ؟</h3>
           <p>ارفع ملفاتك. خد رأي متخصص. 48 ساعة. الأسعار بتبدأ من 1,600 جنيه.</p>
-          <a href="/services" class="cta-btn">ابدأ دلوقتي ←</a>
+          <a href="<%= locals.langPrefix || '' %>/services" class="cta-btn">ابدأ دلوقتي ←</a>
         </div>
 
-        <a href="/blog" class="post-back">← كل المقالات</a>
+        <a href="<%= locals.langPrefix || '' %>/blog" class="post-back">← كل المقالات</a>
 
       <% } else { %>
         <div class="post-body">
@@ -190,10 +190,10 @@
         <div class="post-cta">
           <h3>Ready to get started?</h3>
           <p>Upload your records. Get a specialist's perspective. 48 hours. Starting from EGP 1,600.</p>
-          <a href="/services" class="cta-btn">Start Now →</a>
+          <a href="<%= locals.langPrefix || '' %>/services" class="cta-btn">Start Now →</a>
         </div>
 
-        <a href="/blog" class="post-back">← All articles</a>
+        <a href="<%= locals.langPrefix || '' %>/blog" class="post-back">← All articles</a>
       <% } %>
 
     </article>

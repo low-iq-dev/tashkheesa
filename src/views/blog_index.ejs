@@ -77,7 +77,7 @@
 
       <div class="post-grid">
         <% POSTS.forEach(function (p) { %>
-          <a href="/blog/<%= p.slug %>" class="post-card">
+          <a href="<%= locals.langPrefix || '' %>/blog/<%= p.slug %>" class="post-card">
             <span class="tag"><%= __isAr ? p.tag_ar : p.tag_en %></span>
             <h2><%= __isAr ? p.title_ar : p.title_en %></h2>
             <p class="excerpt"><%= __isAr ? p.excerpt_ar : p.excerpt_en %></p>

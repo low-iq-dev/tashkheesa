@@ -126,10 +126,10 @@
         <div class="post-cta">
           <h3>مستعد تاخد رأي تاني؟</h3>
           <p>أطباء متخصصين معتمدين. تقارير خلال 48 ساعة. عربي وإنجليزي. الأسعار بتبدأ من 1,600 جنيه.</p>
-          <a href="/services" class="cta-btn">ابدأ دلوقتي ←</a>
+          <a href="<%= locals.langPrefix || '' %>/services" class="cta-btn">ابدأ دلوقتي ←</a>
         </div>
 
-        <a href="/blog" class="post-back">← كل المقالات</a>
+        <a href="<%= locals.langPrefix || '' %>/blog" class="post-back">← كل المقالات</a>
 
       <% } else { %>
         <div class="post-body">
@@ -180,10 +180,10 @@
         <div class="post-cta">
           <h3>Ready to get a second opinion?</h3>
           <p>Board-certified specialists. 48 hour reports. Arabic and English. Starting from EGP 1,600.</p>
-          <a href="/services" class="cta-btn">Get Started →</a>
+          <a href="<%= locals.langPrefix || '' %>/services" class="cta-btn">Get Started →</a>
         </div>
 
-        <a href="/blog" class="post-back">← All articles</a>
+        <a href="<%= locals.langPrefix || '' %>/blog" class="post-back">← All articles</a>
       <% } %>
 
     </article>

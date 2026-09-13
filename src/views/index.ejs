@@ -111,21 +111,21 @@
   <!-- Navigation -->
   <nav class="site-nav">
     <div class="nav-inner">
-      <a href="/" class="nav-logo">
+      <a href="<%= locals.langPrefix || '' %>/" class="nav-logo">
         <img src="/site/assets/brand/tashkheesa-logo-primary.svg" alt="Tashkheesa" height="40" />
       </a>
       <div class="nav-links">
-        <a href="/services"><%= tt('nav.services', 'Services', 'الخدمات') %></a>
-        <a href="/about"><%= tt('nav.about', 'About', 'عن تشخيصة') %></a>
-        <a href="/specialties"><%= tt('nav.doctors', 'Doctors', 'الدكاترة') %></a>
-        <a href="/contact"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a>
+        <a href="<%= locals.langPrefix || '' %>/services"><%= tt('nav.services', 'Services', 'الخدمات') %></a>
+        <a href="<%= locals.langPrefix || '' %>/about"><%= tt('nav.about', 'About', 'عن تشخيصة') %></a>
+        <a href="<%= locals.langPrefix || '' %>/specialties"><%= tt('nav.doctors', 'Doctors', 'الدكاترة') %></a>
+        <a href="<%= locals.langPrefix || '' %>/contact"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a>
         <div class="nav-lang-toggle">
           <a href="/" class="lang-btn <%= lang === 'en' ? 'active' : '' %>" id="lang-en" rel="alternate" hreflang="en" lang="en">EN</a>
           <a href="/ar/" class="lang-btn <%= lang === 'ar' ? 'active' : '' %>" id="lang-ar" rel="alternate" hreflang="ar-EG" lang="ar">AR</a>
         </div>
-        <a href="/login" class="nav-signin"><%= tt('nav.signin', 'Sign In', 'تسجيل الدخول') %></a>
+        <a href="/login<%= locals.langPrefix ? '?lang=ar' : '' %>" class="nav-signin"><%= tt('nav.signin', 'Sign In', 'تسجيل الدخول') %></a>
         <div class="nav-cta">
-          <% if (__ctaOn) { %><a class="btn-primary btn-sm" href="/register"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
+          <% if (__ctaOn) { %><a class="btn-primary btn-sm" href="/register<%= locals.langPrefix ? '?lang=ar' : '' %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
           <% } else { %><span class="btn-primary btn-sm is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></span><% } %>
         </div>
       </div>
@@ -153,9 +153,9 @@
             'Connect with verified specialists for second opinions, diagnostic reviews, and treatment guidance. Secure, fast, and built for clarity.',
             'اتواصل مع دكاترة متخصصين معتمدين عشان تاخد رأي تاني، أو مراجعة تشخيصية، أو إرشاد للعلاج. آمن، سريع، ومبسّط.') %></p>
           <div class="hero-buttons hero-fade-in">
-            <% if (__ctaOn) { %><a class="btn-primary" href="/register"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
+            <% if (__ctaOn) { %><a class="btn-primary" href="/register<%= locals.langPrefix ? '?lang=ar' : '' %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
             <% } else { %><span class="btn-primary is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></span><% } %>
-            <a href="/services" class="btn-outline"><%= tt('home.hero.view_services',
+            <a href="<%= locals.langPrefix || '' %>/services" class="btn-outline"><%= tt('home.hero.view_services',
               'View Services & Pricing',
               'شوف الخدمات والأسعار') %></a>
           </div>
@@ -454,7 +454,7 @@
         <p class="reveal"><%= tt('home.cta.body',
           'Get a specialist second opinion in 48 hours standard, as fast as 4 hours with Urgent. Start your secure medical review today.',
           'خد رأي تاني من دكتور متخصص في 48 ساعة قياسي، وحتى 4 ساعات للحالات العاجلة. ابدأ مراجعتك الطبية الآمنة النهارده.') %></p>
-        <% if (__ctaOn) { %><a class="btn-primary reveal" href="/register"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
+        <% if (__ctaOn) { %><a class="btn-primary reveal" href="/register<%= locals.langPrefix ? '?lang=ar' : '' %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
         <% } else { %><span class="btn-primary reveal is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></span><% } %>
       </div>
     </section>
@@ -484,21 +484,21 @@
         <div class="footer-col">
           <h4><%= tt('home.footer.quick_links', 'Quick Links', 'روابط سريعة') %></h4>
           <ul>
-            <li><a href="/"><%= tt('nav.home', 'Home', 'الرئيسية') %></a></li>
-            <li><a href="/services"><%= tt('nav.services', 'Services', 'الخدمات') %></a></li>
-            <li><a href="/about"><%= tt('home.footer.about_us', 'About Us', 'عن تشخيصة') %></a></li>
-            <li><a href="/contact"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a></li>
+            <li><a href="<%= locals.langPrefix || '' %>/"><%= tt('nav.home', 'Home', 'الرئيسية') %></a></li>
+            <li><a href="<%= locals.langPrefix || '' %>/services"><%= tt('nav.services', 'Services', 'الخدمات') %></a></li>
+            <li><a href="<%= locals.langPrefix || '' %>/about"><%= tt('home.footer.about_us', 'About Us', 'عن تشخيصة') %></a></li>
+            <li><a href="<%= locals.langPrefix || '' %>/contact"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a></li>
           </ul>
         </div>
         <div class="footer-col">
           <h4><%= tt('home.footer.resources', 'Resources', 'صفحات مفيدة') %></h4>
           <ul>
-            <li><a href="/blog"><%= tt('home.footer.blog', 'Blog', 'المدونة') %></a></li>
-            <li><a href="/privacy"><%= tt('home.footer.privacy', 'Privacy Policy', 'سياسة الخصوصية') %></a></li>
-            <li><a href="/terms"><%= tt('home.footer.terms', 'Terms of Service', 'شروط الخدمة') %></a></li>
-            <li><a href="/refund-policy"><%= tt('home.footer.refund', 'Refund & Cancellation', 'الاسترجاع والإلغاء') %></a></li>
-            <li><a href="/delivery-policy"><%= tt('home.footer.delivery', 'Delivery Policy', 'سياسة التسليم') %></a></li>
-            <li><a href="/login"><%= tt('home.footer.patient_portal', 'Patient Portal', 'بوابة المريض') %></a></li>
+            <li><a href="<%= locals.langPrefix || '' %>/blog"><%= tt('home.footer.blog', 'Blog', 'المدونة') %></a></li>
+            <li><a href="<%= locals.langPrefix || '' %>/privacy"><%= tt('home.footer.privacy', 'Privacy Policy', 'سياسة الخصوصية') %></a></li>
+            <li><a href="<%= locals.langPrefix || '' %>/terms"><%= tt('home.footer.terms', 'Terms of Service', 'شروط الخدمة') %></a></li>
+            <li><a href="<%= locals.langPrefix || '' %>/refund-policy"><%= tt('home.footer.refund', 'Refund & Cancellation', 'الاسترجاع والإلغاء') %></a></li>
+            <li><a href="<%= locals.langPrefix || '' %>/delivery-policy"><%= tt('home.footer.delivery', 'Delivery Policy', 'سياسة التسليم') %></a></li>
+            <li><a href="/login<%= locals.langPrefix ? '?lang=ar' : '' %>"><%= tt('home.footer.patient_portal', 'Patient Portal', 'بوابة المريض') %></a></li>
           </ul>
         </div>
         <div class="footer-col">
@@ -517,8 +517,8 @@
           '© 2026 Tashkheesa. All rights reserved.',
           '© 2026 تشخيصة. جميع الحقوق محفوظة.') %></span>
         <div class="footer-bottom-links">
-          <a href="/privacy"><%= tt('home.footer.privacy_short', 'Privacy', 'الخصوصية') %></a>
-          <a href="/terms"><%= tt('home.footer.terms_short', 'Terms', 'الشروط') %></a>
+          <a href="<%= locals.langPrefix || '' %>/privacy"><%= tt('home.footer.privacy_short', 'Privacy', 'الخصوصية') %></a>
+          <a href="<%= locals.langPrefix || '' %>/terms"><%= tt('home.footer.terms_short', 'Terms', 'الشروط') %></a>
         </div>
       </div>
     </div>

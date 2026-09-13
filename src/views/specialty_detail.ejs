@@ -94,7 +94,7 @@
   <div class="page-inner">
     <div class="specd-page">
 
-      <a class="specd-back" href="/specialties"><%= tt('specd.back', '← All specialties', '→ كل التخصصات') %></a>
+      <a class="specd-back" href="<%= locals.langPrefix || '' %>/specialties"><%= tt('specd.back', '← All specialties', '→ كل التخصصات') %></a>
 
       <section class="specd-hero">
         <span class="specd-kicker"><%= tt('specd.kicker', 'Medical Specialty', 'تخصص طبي') %></span>
@@ -184,7 +184,7 @@
       </section>
 
       <section class="specd-section">
-        <a class="specd-faqlink" href="/faq#how-it-works">
+        <a class="specd-faqlink" href="<%= locals.langPrefix || '' %>/faq#how-it-works">
           <div class="specd-faqlink-text">
             <strong><%= tt('specd.faq_title', 'How does it work?', 'إزاي بتشتغل المنصة؟') %></strong>
             <span><%= tt('specd.faq_body',

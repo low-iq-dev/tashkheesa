@@ -66,9 +66,11 @@
           browse all services /a yourself" with the markup showing. Both
           branches are literals defined on the two lines below; no user input
           reaches them, so raw output is safe here. %>
+      <%# SEO 2026-09-13 (A3): the link keeps the page's language prefix. langPrefix
+          is '' or '/ar' from publicLangPrefix, never user input. %>
       <%- lang === 'ar'
-        ? 'أو <a href="/services" style="color:#2563eb;">تصفح كل الخدمات</a> بنفسك'
-        : 'Or <a href="/services" style="color:#2563eb;">browse all services</a> yourself' %>
+        ? 'أو <a href="' + (locals.langPrefix || '') + '/services" style="color:#2563eb;">تصفح كل الخدمات</a> بنفسك'
+        : 'Or <a href="' + (locals.langPrefix || '') + '/services" style="color:#2563eb;">browse all services</a> yourself' %>
     </p>
   </div>
 </main>

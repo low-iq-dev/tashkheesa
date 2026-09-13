@@ -69,7 +69,7 @@
       <form
         id="contact-form"
         method="post"
-        action="/contact"
+        action="<%= locals.langPrefix || '' %>/contact"
         class="contact-form"
         data-csrf="<%= typeof csrfToken !== 'undefined' && csrfToken ? csrfToken : '' %>"
       >

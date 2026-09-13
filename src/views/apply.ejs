@@ -63,7 +63,7 @@
           </div>
         </div>
 
-        <a class="btn btn-primary" href="/"><%= tt('apply.success.home', 'Back to home', 'الرجوع للرئيسية') %></a>
+        <a class="btn btn-primary" href="<%= locals.langPrefix || '' %>/"><%= tt('apply.success.home', 'Back to home', 'الرجوع للرئيسية') %></a>
       </section>
     <% } else { %>
 
@@ -89,7 +89,7 @@
         </div>
       </section>
 
-      <form class="apply-card apply-form" method="POST" action="/apply" novalidate>
+      <form class="apply-card apply-form" method="POST" action="<%= locals.langPrefix || '' %>/apply" novalidate>
         <%- (typeof csrfField === 'function') ? csrfField() : '' %>
 
         <!-- Honeypot: a real user never sees or fills this. -->
