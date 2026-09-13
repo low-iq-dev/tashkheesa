@@ -38,7 +38,7 @@
 // full amount, the sum crosses the line and the case closes then — which is
 // the correct behaviour and falls out of the arithmetic for free.
 
-const { queryOne, execute } = require('../pg');
+const { queryOne, queryAll, execute } = require('../pg');
 const { logErrorToDb } = require('../logger');
 // AUDIT-2026-08-22 (M2): the closure ceiling MUST be the same number
 // applyRefundedPaymentStatus uses, and the tolerance MUST be the same constant.
@@ -247,10 +247,22 @@ async function closeOrderIfFullyRefunded(orderId, opts) {
       });
     }
 
+    // Part B item 4 (2026-09-13) — add-ons. services/addons/*.onRefund had no
+    // caller anywhere: a case refunded in full left its unfulfilled add-ons
+    // at 'paid', so the doctor could still fulfil one later and onComplete
+    // would pay commission on money the patient had already been given back.
+    // Wired here — the one place "the patient got everything back" is decided
+    // — and only here: a partial refund (SLA-breach uplift) leaves add-ons
+    // alone because the patient still holds them. Best-effort and after the
+    // close, so a registry error cannot undo a committed closure.
+    const addons = await refundUnfulfilledAddons(orderId, { actorUserId: options.actorUserId });
+
     return {
       closed: true,
       refundedTotal: refundedPt / 100,
-      charged: chargedPt / 100
+      charged: chargedPt / 100,
+      addonsRefunded: addons.refunded,
+      addonsKeptFulfilled: addons.keptFulfilled
     };
   } catch (err) {
     logErrorToDb(err, {
@@ -262,4 +274,77 @@ async function closeOrderIfFullyRefunded(orderId, opts) {
   }
 }
 
-module.exports = { closeOrderIfFullyRefunded, _toPiastres: toPiastres };
+/**
+ * Flip every UNFULFILLED add-on on a fully refunded order to 'refunded'
+ * through its registry class's onRefund, so it can no longer be fulfilled and
+ * paid. A FULFILLED add-on is deliberately left alone (onRefund itself returns
+ * null for it): the doctor did the work, and its addon_earnings row stands —
+ * the same rule refund_eligibility applies by keeping a consumed video
+ * consultation out of the refund ceiling.
+ *
+ * Non-throwing. Every outcome is recorded: an ADDON_REFUNDED order event per
+ * flipped row, an ADDON_REFUND_FAILED event + error_logs row when a flip
+ * throws. Dormant while ADDON_SYSTEM_V2 is off (no order_addons rows exist);
+ * bites the first day an add-on is sold.
+ *
+ * deps is injectable for unit tests.
+ */
+async function refundUnfulfilledAddons(orderId, opts, deps) {
+  const d = Object.assign({
+    queryAll,
+    execute,
+    getAddon: (id) => require('./addons/registry').getAddon(id),
+    logErrorToDb
+  }, deps || {});
+  const out = { refunded: 0, keptFulfilled: 0, failed: 0 };
+  if (!orderId) return out;
+
+  let rows = [];
+  try {
+    rows = await d.queryAll(
+      `SELECT * FROM order_addons WHERE order_id = $1 AND status IN ('paid', 'fulfilled')`,
+      [orderId]
+    );
+  } catch (err) {
+    d.logErrorToDb(err, { context: 'refund_closure.addons_read', orderId, category: 'refund' });
+    return out;
+  }
+
+  for (const addon of rows || []) {
+    if (String(addon.status) === 'fulfilled') { out.keptFulfilled += 1; continue; }
+    const svc = d.getAddon(addon.addon_service_id);
+    if (!svc || typeof svc.onRefund !== 'function') {
+      out.failed += 1;
+      d.logErrorToDb(new Error('no registry class for add-on ' + addon.addon_service_id), {
+        context: 'refund_closure.addon_unknown', orderId, category: 'refund'
+      });
+      continue;
+    }
+    try {
+      const row = await svc.onRefund({ order: { id: orderId }, addon });
+      if (row) out.refunded += 1;
+      try {
+        await d.execute(
+          `INSERT INTO order_events (order_id, label, at, actor_user_id, actor_role, meta)
+           VALUES ($1, 'ADDON_REFUNDED', NOW(), $2, 'superadmin', $3)`,
+          [orderId, (opts && opts.actorUserId) || null,
+           JSON.stringify({ order_addon_id: addon.id, addon_service_id: addon.addon_service_id })]
+        );
+      } catch (_) { /* the order_addons row is the load-bearing record */ }
+    } catch (err) {
+      out.failed += 1;
+      d.logErrorToDb(err, { context: 'refund_closure.addon_refund', orderId, category: 'refund' });
+      try {
+        await d.execute(
+          `INSERT INTO order_events (order_id, label, at, actor_user_id, actor_role, meta)
+           VALUES ($1, 'ADDON_REFUND_FAILED', NOW(), $2, 'superadmin', $3)`,
+          [orderId, (opts && opts.actorUserId) || null,
+           JSON.stringify({ order_addon_id: addon.id, addon_service_id: addon.addon_service_id, error: String(err && err.message || err) })]
+        );
+      } catch (_) { /* logged above */ }
+    }
+  }
+  return out;
+}
+
+module.exports = { closeOrderIfFullyRefunded, refundUnfulfilledAddons, _toPiastres: toPiastres };
