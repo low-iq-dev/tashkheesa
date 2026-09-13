@@ -1,66 +1,83 @@
 <%- include('partials/header', { title: title, layout: "public", showNav: true }) %>
 <% const biz = (typeof BUSINESS_INFO !== 'undefined' && BUSINESS_INFO) ? BUSINESS_INFO : {}; %>
 <% const __isAr = !!(typeof isAr !== 'undefined' && isAr); %>
+<%#
+  2026-09-13 (Part C6). What must stay true here, and is guarded by
+  tests/core/refund-policy-page.test.js:
+    - refunds are paid by InstaPay only, manually, to the number the patient
+      gives; reviewed within 1 business day; money arrives in 3–5 business days;
+    - full refund before a consultant accepts the case (auto-approved: order
+      status paid/assigned in services/refund_eligibility.js);
+    - a missed deadline refunds the urgency surcharge; Standard has none;
+    - partial refunds exist and the rest can be requested afterwards;
+    - tiers are Urgent 4h / VIP 18h / Standard 48h;
+    - video consultation clauses render only while the video flag is on
+      (res.locals.videoComingSoon === false, set once in server.js).
+  The request button is named exactly as on the case page (refund.cta_button).
+%>
+<% const __videoOn = (typeof videoComingSoon !== 'undefined') && videoComingSoon === false; %>
 
 <main class="page-shell">
   <div class="page-inner">
-    <section class="content-card legal-page">
+    <section class="content-card legal-page" data-refund-policy>
 <% if (__isAr) { %>
       <h1>سياسة الاسترداد والإلغاء</h1>
-      <p class="subtitle">شروط استرداد واضحة وعادلة لجميع خدماتنا.</p>
-      <p class="legal-updated">آخر تحديث: فبراير 2026</p>
+      <p class="subtitle">متى يُرَدّ إليك المبلغ، وكم، وكيف يصلك.</p>
+      <p class="legal-updated">آخر تحديث: 13 سبتمبر 2026</p>
 
-      <p>في تشخيصة، نحرص على رضاك التام عن خدمتنا. توضح هذه السياسة متى وكيف تتم معالجة طلبات الاسترداد.</p>
+      <h2>كيف تُرَدّ المبالغ</h2>
+      <p>تُرسَل المبالغ المعتمدة يدويًا عبر إنستاباي (InstaPay) فقط، إلى رقم الهاتف المحمول الذي تكتبه في طلب الاسترداد. نراجع كل طلب خلال يوم عمل واحد، ويصل المبلغ خلال 3 إلى 5 أيام عمل من اعتماده.</p>
 
-      <h2>متى يمكنك استرداد المبلغ كاملًا</h2>
+      <h2>متى يُرَدّ إليك المبلغ كاملًا</h2>
 
-      <h3>1. قبل تعيين الطبيب المختص</h3>
-      <p>تسترد المبلغ كاملًا إذا ألغيت طلبك قبل تعيين طبيب استشاري لحالتك. تتم مراجعة طلبات الاسترداد خلال يوم عمل واحد. تُرسَل المبالغ المعتمدة يدويًا عبر إنستاباي (InstaPay) إلى رقم الهاتف المحمول الذي تزوّدنا به، وتصل خلال 3 إلى 5 أيام عمل. لا تُعاد المبالغ إلى البطاقة أو وسيلة الدفع الأصلية.</p>
+      <h3>1. قبل أن يقبل استشاري حالتك</h3>
+      <p>إذا طلبت الاسترداد قبل أن يقبل أي استشاري حالتك، يُرَدّ إليك كل ما دفعته، ويُعتمد الطلب تلقائيًا.</p>
 
-      <h3>2. تجاوز مدة التسليم المتفق عليها</h3>
-      <p>إذا تجاوز الطبيب المعيَّن مدة التسليم التي اخترتها (العاجلة: 4 ساعات، VIP: 18 ساعة، القياسية: 48 ساعة)، تُرَدّ إليك رسوم الاستعجال الإضافية. الخدمة القياسية لا تتضمن رسوم استعجال، وبالتالي لا يوجد مبلغ إضافي يُرَدّ — وتبقى حالتك قيد المراجعة الفعلية حتى تسليم الرأي الطبي المكتوب، ويظل من حقك طلب مراجعة استرداد.</p>
+      <h3>2. خلل تقني</h3>
+      <p>إذا حال خلل تقني في منصتنا دون تسليم تقريرك، اطلب مراجعة استرداد وسنتعامل معها كأولوية.</p>
 
-      <h3>3. خلل تقني</h3>
-      <p>إذا حال خلل تقني في منصتنا دون تسليم تقريرك، يمكنك طلب مراجعة استرداد. تتم مراجعة الطلبات المعتمدة خلال يوم عمل واحد، وتُرسَل المبالغ يدويًا عبر إنستاباي إلى رقم الهاتف المحمول الذي تزوّدنا به، وتصل خلال 3 إلى 5 أيام عمل.</p>
+      <h2>متى يُرَدّ إليك جزء من المبلغ</h2>
 
-      <h2>متى يمكنك استرداد جزء من المبلغ</h2>
+      <h3>3. تجاوز مدة التسليم</h3>
+      <p>إذا تجاوز الاستشاري مدة التسليم التي اخترتها (العاجلة: 4 ساعات، VIP: 18 ساعة، القياسية: 48 ساعة)، تُرَدّ إليك رسوم الاستعجال تلقائيًا. الخدمة القياسية بلا رسوم استعجال، لذلك لا يوجد مبلغ إضافي يُرَدّ عند تأخرها. في كل الحالات تبقى حالتك قيد المراجعة حتى تسليم الرأي الطبي المكتوب.</p>
 
       <h3>4. ملاحظات على جودة التقرير</h3>
-      <p>إذا رأيت أن تقرير الطبيب الاستشاري لا يجيب بشكل كافٍ عن سؤالك الطبي، تواصل معنا خلال 7 أيام من تاريخ التسليم. وسنقوم بأحد الإجراءين:</p>
+      <p>إذا رأيت أن التقرير لا يجيب بشكل كافٍ عن سؤالك الطبي، تواصل معنا خلال 7 أيام من تاريخ التسليم. وسنقوم بأحد الإجراءين:</p>
       <ul>
-        <li>ترتيب مراجعة جديدة لحالتك بواسطة طبيب استشاري آخر دون أي تكلفة إضافية، أو</li>
+        <li>ترتيب مراجعة جديدة لحالتك بواسطة استشاري آخر دون أي تكلفة إضافية، أو</li>
         <li>ردّ جزء من المبلغ وفقًا لتقديرنا.</li>
       </ul>
 
+      <h3>5. طلب المتبقي بعد استرداد جزئي</h3>
+      <p>إذا رُدّ إليك جزء من المبلغ (رسوم الاستعجال مثلًا، أو مبلغ جزئي)، يمكنك طلب المتبقي ما دامت حالتك مؤهلة. لا يتجاوز مجموع ما يُرَدّ على الحالة الواحدة ما دفعته.</p>
+
       <h2>الحالات التي لا يتاح فيها الاسترداد</h2>
 
-      <h3>5. بعد تسليم التقرير</h3>
-      <p>بمجرد تسليم تقرير الطبيب الاستشاري وتنزيله، تُعتبر الخدمة مكتملة. لا يتاح الاسترداد عمومًا بعد التسليم إلا في حال وجود ملاحظات على الجودة (انظر البند 4 أعلاه).</p>
+      <h3>6. بعد تسليم التقرير</h3>
+      <p>بمجرد تسليم التقرير تُعتبر الخدمة مكتملة، ولا يتاح الاسترداد إلا في حال وجود ملاحظات على الجودة (البند 4).</p>
 
-      <h3>6. عدم اكتمال الملفات المرفوعة</h3>
-      <p>إذا لم ترفع ملفاتك الطبية كاملة ولم يتمكّن الطبيب من تقديم مراجعة وافية، فإن ذلك لا يُعَدّ سببًا للاسترداد، وسيُطلب منك رفع ملفات إضافية.</p>
+      <h3>7. عدم اكتمال الملفات المرفوعة</h3>
+      <p>إذا لم ترفع ملفاتك الطبية كاملة ولم يتمكّن الاستشاري من تقديم مراجعة وافية، فهذا لا يُعَدّ سببًا للاسترداد، وسيُطلب منك رفع ملفات إضافية.</p>
 
-      <h3>7. الاختلاف مع نتيجة التقرير</h3>
+      <h3>8. الاختلاف مع نتيجة التقرير</h3>
       <p>اختلاف الرأي الطبي الثاني عن رأي طبيبك الأساسي ليس سببًا للاسترداد؛ فالرأي الثاني بطبيعته تقييم مستقل.</p>
 
-      <h2>استرداد رسوم الاستشارات المرئية (الفيديو)</h2>
+<% if (__videoOn) { %>
+      <h2>استشارات الفيديو</h2>
 
-      <h3>8. عدم حضور المريض</h3>
+      <h3>9. عدم حضور المريض</h3>
       <p>إذا تغيّبت عن موعد استشارة فيديو محجوز دون إلغائه قبل الموعد بـ 24 ساعة على الأقل، فإن رسوم الاستشارة غير قابلة للاسترداد.</p>
 
-      <h3>9. عدم حضور الطبيب</h3>
-      <p>إذا لم ينضم الطبيب إلى الموعد المحجوز، تسترد المبلغ كاملًا أو تُعاد جدولة الموعد مجانًا.</p>
-
-      <h3>10. الإلغاء</h3>
-      <p>يمكنك إلغاء استشارة الفيديو قبل الموعد بـ 24 ساعة أو أكثر واسترداد المبلغ كاملًا؛ أما الإلغاء خلال أقل من 24 ساعة فهو غير قابل للاسترداد. وإذا ألغى الطبيب الموعد أو لم ينضم إليه، تسترد المبلغ كاملًا.</p>
+      <h3>10. عدم حضور الطبيب أو الإلغاء</h3>
+      <p>إذا لم ينضم الطبيب إلى الموعد أو ألغاه، تسترد رسوم الاستشارة كاملة أو تُعاد جدولة الموعد مجانًا. ويمكنك إلغاء الموعد قبل 24 ساعة أو أكثر واسترداد الرسوم كاملة.</p>
+<% } %>
 
       <h2>كيفية طلب الاسترداد</h2>
       <ol>
-        <li>سجّل الدخول إلى بوابتك على تشخيصة.</li>
-        <li>انتقل إلى الحالة أو الموعد الذي تريد طلب استرداد بشأنه.</li>
-        <li>اضغط «طلب استرداد» وقدّم شرحًا موجزًا.</li>
-        <li>سيراجع فريقنا طلبك خلال يوم عمل واحد.</li>
-        <li>تُرسَل المبالغ المعتمدة يدويًا عبر إنستاباي إلى رقم الهاتف المحمول الذي تزوّدنا به، وتصل خلال 3 إلى 5 أيام عمل. لا تُعاد المبالغ إلى البطاقة أو وسيلة الدفع الأصلية.</li>
+        <li>سجّل الدخول إلى بوابتك على تشخيصة وافتح حالتك.</li>
+        <li>اضغط «اطلب استرداد المبلغ». يوضح لك النموذج المبلغ الذي يمكن ردّه.</li>
+        <li>اكتب السبب وتأكد من رقم إنستاباي، ثم أرسل الطلب.</li>
+        <li>نراجع طلبك خلال يوم عمل واحد، ويصل المبلغ المعتمد خلال 3 إلى 5 أيام عمل. ويمكنك إلغاء الطلب خلال ساعة من إرساله.</li>
       </ol>
 
       <h2>التواصل بشأن الاسترداد</h2>
@@ -71,60 +88,62 @@
       <p>حُرِّرت هذه الصفحة باللغتين العربية والإنجليزية. وفي حال وجود أي تعارض بين النصّين، يُعتَدّ بالنص العربي.</p>
 <% } else { %>
       <h1>Refund & Cancellation Policy</h1>
-      <p class="subtitle">Clear, fair refund terms for all our services.</p>
-      <p class="legal-updated">Last updated: February 2026</p>
+      <p class="subtitle">When you get money back, how much, and how it reaches you.</p>
+      <p class="legal-updated">Last updated: 13 September 2026</p>
 
-      <p>At Tashkheesa, we want you to be completely satisfied with our service. This policy explains when and how refunds are processed.</p>
+      <h2>How refunds are paid</h2>
+      <p>Approved refunds are sent manually by InstaPay only, to the mobile number you give in your refund request. We review every request within 1 business day, and the money arrives within 3–5 business days of approval.</p>
 
-      <h2>When You Can Get a Refund</h2>
+      <h2>When you get a full refund</h2>
 
-      <h3>1. Before Doctor Assignment</h3>
-      <p>Full refund if you cancel before a specialist is assigned. Refund requests are reviewed within 1 business day. Approved refunds are sent manually via InstaPay to the mobile number you provide, arriving within 3–5 business days. Refunds are not returned to your original card or payment method.</p>
+      <h3>1. Before a consultant accepts your case</h3>
+      <p>If you ask for a refund before any consultant has accepted your case, everything you paid comes back, and the request is approved automatically.</p>
 
-      <h3>2. SLA Breach</h3>
-      <p>If an assigned specialist misses the turnaround you chose (Urgent 4h, VIP 18h, Standard 48h), your urgency surcharge is refunded. Standard has no surcharge, so there's nothing extra to refund — your case stays in active review until your written opinion is delivered, and you can still request a refund review.</p>
+      <h3>2. Technical failure</h3>
+      <p>If a technical issue on our platform prevents delivery of your report, request a refund review and we will treat it as a priority.</p>
 
-      <h3>3. Technical Failure</h3>
-      <p>If a technical issue on our platform prevents delivery of your report, you can request a refund review. Approved refunds are reviewed within 1 business day and sent manually via InstaPay to the mobile number you provide, arriving within 3–5 business days.</p>
+      <h2>When you get part of it back</h2>
 
-      <h2>When You Can Get a Partial Refund</h2>
+      <h3>3. Missed deadline</h3>
+      <p>If your consultant misses the turnaround you chose (Urgent 4h, VIP 18h, Standard 48h), your urgency surcharge is refunded automatically. Standard has no urgency surcharge, so a late Standard case has nothing extra to refund. Either way, your case stays in review until your written opinion is delivered.</p>
 
-      <h3>4. Quality Concerns</h3>
-      <p>If you believe the specialist report does not adequately address your clinical question, contact us within 7 days of delivery. We will either:</p>
+      <h3>4. Quality concerns</h3>
+      <p>If you believe the report does not adequately answer your clinical question, contact us within 7 days of delivery. We will either:</p>
       <ul>
-        <li>Arrange a re-review by a different specialist at no additional cost, OR</li>
+        <li>Arrange a re-review by a different consultant at no additional cost, OR</li>
         <li>Issue a partial refund at our discretion</li>
       </ul>
 
-      <h2>When Refunds Are Not Available</h2>
+      <h3>5. Asking for the rest after a partial refund</h3>
+      <p>If part of your payment has been refunded (the urgency surcharge, for example, or a partial amount), you can request the rest while your case is still eligible. The total refunded on a case never exceeds what you paid.</p>
 
-      <h3>5. After Report Delivery</h3>
-      <p>Once your specialist report has been delivered and downloaded, the service is considered complete. Refunds are generally not available after delivery unless there is a quality concern (see #4 above).</p>
+      <h2>When refunds are not available</h2>
 
-      <h3>6. Incomplete Uploads</h3>
-      <p>If you fail to upload complete medical files and the specialist cannot provide a comprehensive review, this does not qualify for a refund. You will be asked to upload additional files.</p>
+      <h3>6. After report delivery</h3>
+      <p>Once your report has been delivered, the service is complete. Refunds are not available after delivery unless there is a quality concern (see #4).</p>
 
-      <h3>7. Disagreement with Findings</h3>
+      <h3>7. Incomplete uploads</h3>
+      <p>If you do not upload complete medical files and the consultant cannot provide a comprehensive review, this does not qualify for a refund. You will be asked to upload additional files.</p>
+
+      <h3>8. Disagreement with findings</h3>
       <p>A second opinion that differs from your primary doctor's opinion is not grounds for a refund. Second opinions are by nature independent assessments.</p>
 
-      <h2>Video Consultation Refunds</h2>
+<% if (__videoOn) { %>
+      <h2>Video consultations</h2>
 
-      <h3>8. Patient No-Show</h3>
+      <h3>9. Patient no-show</h3>
       <p>If you miss a scheduled video appointment without cancelling at least 24 hours in advance, the consultation fee is non-refundable.</p>
 
-      <h3>9. Doctor No-Show</h3>
-      <p>If the doctor fails to join a scheduled appointment, you will receive a full refund or free rescheduling.</p>
+      <h3>10. Doctor no-show or cancellation</h3>
+      <p>If the doctor does not join or cancels, you receive the consultation fee back in full or a free reschedule. You can cancel 24 hours or more before the appointment for a full refund of the fee.</p>
+<% } %>
 
-      <h3>10. Cancellation</h3>
-      <p>Cancel a video consultation 24 hours or more before the appointment for a full refund; cancellations within 24 hours are non-refundable. If the doctor cancels or doesn't join, you receive a full refund.</p>
-
-      <h2>How to Request a Refund</h2>
+      <h2>How to request a refund</h2>
       <ol>
-        <li>Log into your Tashkheesa portal</li>
-        <li>Go to the case or appointment you want to request a refund for</li>
-        <li>Click "Request Refund" and provide a brief explanation</li>
-        <li>Our team will review your request within 1 business day</li>
-        <li>Approved refunds are sent manually via InstaPay to the mobile number you provide, arriving within 3–5 business days. Refunds are not returned to your original card or payment method.</li>
+        <li>Sign in to your Tashkheesa portal and open your case.</li>
+        <li>Tap “Request refund”. The form shows how much can be refunded.</li>
+        <li>Give a reason, check your InstaPay number, and send the request.</li>
+        <li>We review it within 1 business day; approved refunds arrive within 3–5 business days. You can cancel a request within an hour of sending it.</li>
       </ol>
 
       <h2>Contact for Refund Issues</h2>

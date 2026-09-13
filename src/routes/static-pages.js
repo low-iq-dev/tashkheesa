@@ -26,6 +26,20 @@ function escapeHtmlText(s) {
   });
 }
 
+// Part C6 (2026-09-13) — the /refund-policy meta description promised refund
+// terms "including video consultations" while video is not offered. It names
+// video only while the video flag is on, like the page body.
+function refundPolicyDescription(isAr, videoOn) {
+  if (isAr) {
+    return videoOn
+      ? 'متى وكيف يُرَدّ المبلغ في تشخيصة: عبر إنستاباي، ويشمل الاسترداد الجزئي واستشارات الفيديو.'
+      : 'متى وكيف يُرَدّ المبلغ في تشخيصة: عبر إنستاباي، ويشمل الاسترداد الجزئي وطلب المتبقي.';
+  }
+  return videoOn
+    ? 'When and how Tashkheesa refunds you: by InstaPay, including partial refunds and video consultations.'
+    : 'When and how Tashkheesa refunds you: by InstaPay, including partial refunds and asking for the rest.';
+}
+
 function setupStaticPages(opts) {
   var execute = opts.execute;
   var safeAll = opts.safeAll;
@@ -275,7 +289,7 @@ function setupStaticPages(opts) {
   });
   router.get('/privacy', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('privacy', { title: isAr ? 'سياسة الخصوصية — تشخيصة' : 'Privacy Policy', BUSINESS_INFO: BUSINESS_INFO, description: isAr ? 'كيف تجمع تشخيصة بياناتك الشخصية والطبية وتخزّنها وتحميها وفقًا لقانون حماية البيانات المصري.' : 'How Tashkheesa collects, stores, and protects your personal and medical data.', canonical: '/privacy' }); });
   router.get('/terms', async function(req, res) { var isAr = !!(res.locals && res.locals.isAr); var specialtyCount = await getVisibleSpecialtyCount(); res.render('terms', { title: isAr ? 'شروط الخدمة' : 'Terms of Service', BUSINESS_INFO: BUSINESS_INFO, specialtyCount: specialtyCount, description: isAr ? 'الشروط والأحكام الخاصة باستخدام خدمات تشخيصة للآراء الطبية الثانية.' : 'Terms and conditions for using Tashkheesa medical second opinion services.', canonical: '/terms' }); });
-  router.get('/refund-policy', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('refund_policy', { title: isAr ? 'سياسة الاسترداد والإلغاء' : 'Refund & Cancellation Policy', BUSINESS_INFO: BUSINESS_INFO, description: isAr ? 'شروط استرداد وإلغاء واضحة لجميع خدمات تشخيصة، بما في ذلك الاستشارات المرئية.' : 'Clear refund and cancellation terms for all Tashkheesa services including video consultations.', canonical: '/refund-policy' }); });
+  router.get('/refund-policy', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('refund_policy', { title: isAr ? 'سياسة الاسترداد والإلغاء' : 'Refund & Cancellation Policy', BUSINESS_INFO: BUSINESS_INFO, description: refundPolicyDescription(isAr, res.locals && res.locals.videoComingSoon === false), canonical: '/refund-policy' }); });
   router.get('/delivery-policy', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('delivery_policy', { title: isAr ? 'سياسة التسليم والخدمة' : 'Delivery & Service Policy', BUSINESS_INFO: BUSINESS_INFO, description: isAr ? 'كيف تُسلِّم تشخيصة تقارير الأطباء الاستشاريين. تسليم رقمي خلال 48 ساعة.' : 'How Tashkheesa delivers specialist medical reports. Digital delivery within 48 hours.', canonical: '/delivery-policy' }); });
   router.get('/faq', function(req, res) { res.render('faq', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', title: 'FAQ – Frequently Asked Questions', BUSINESS_INFO: BUSINESS_INFO, description: 'Answers to the most common questions about Tashkheesa: how second opinions work, turnaround times, pricing, privacy, and payment options.', canonical: '/faq' }); });
 
@@ -815,4 +829,4 @@ function setupStaticPages(opts) {
   return router;
 }
 
-module.exports = { setupStaticPages: setupStaticPages };
+module.exports = { setupStaticPages: setupStaticPages, refundPolicyDescription: refundPolicyDescription };
