@@ -77,6 +77,11 @@
 .msg-closed-banner { background: #fef3c7; color: #92400e; text-align: center; padding: 0.65rem 1rem; font-size: 0.82rem; border-bottom: 1px solid #fde68a; }
 
 @media (max-width: 768px) {
+  /* 2026-09-13 (mobile A4) — the absolutely-positioned list needs the shell as
+     its containing block. Without it the list was sized and placed against an
+     outer box and pushed the doctor page 17px (390px) to 225px (768px) wider
+     than the screen. */
+  .msg-shell { position: relative; }
   .msg-sidebar { width: 100%; position: absolute; z-index: 10; height: 100%; }
   .msg-main { width: 100%; }
   .msg-shell.conv-open .msg-sidebar { display: none; }

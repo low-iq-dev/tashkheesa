@@ -94,7 +94,46 @@
 
 <% if (usePortalFrame) { %>
   <div class="portal-shell">
+    <% if (portalRoleName === 'doctor') { %>
+    <%
+      // 2026-09-13 (mobile A2) — phone top bar. Hidden at >=769px by
+      // portal-global.css, so the desktop layout is unchanged. It replaces the
+      // floating hamburger, which sat over page content with nothing around it.
+      var _tbTitles = {
+        today: ['Today', 'اليوم'], dashboard: ['Today', 'اليوم'], queue: ['Cases', 'الحالات'],
+        cases: ['Cases', 'الحالات'], services: ['My Services', 'خدماتي'], profile: ['Profile', 'الملف الشخصي'],
+        earnings: ['Earnings', 'الأرباح'], messages: ['Messages', 'الرسائل'], alerts: ['Alerts', 'التنبيهات'],
+        appointments: ['Appointments', 'المواعيد'], guide: ['Guide', 'الدليل'], analytics: ['Analytics', 'الأداء'],
+        prescriptions: ['Prescriptions', 'الوصفات']
+      };
+      // Several doctor views pass an English-only `title` even in Arabic;
+      // use the page's own title only when it is in the page's language.
+      var _tbRaw = String(baseTitle || '').replace(/\s*[–-]\s*Tashkheesa$/, '');
+      var _tbRawIsAr = /[؀-ۿ]/.test(_tbRaw);
+      var _tbPair = _tbTitles[activeNav];
+      var _tbTitle = (_tbRaw && _tbRaw !== 'Tashkheesa' && _tbRawIsAr === isAr)
+        ? _tbRaw
+        : (_tbPair ? _tbPair[isAr ? 1 : 0] : _tbRaw);
+      var _tbUser = (typeof locals !== 'undefined' && locals && locals.user) ? locals.user : {};
+      var _tbUnseen = Number((typeof locals !== 'undefined' && locals) ? locals.alertsUnseenCount : 0);
+      if (!Number.isFinite(_tbUnseen) || _tbUnseen < 0) _tbUnseen = 0;
+      var _tbInitials = String(_tbUser.name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2)
+        .map(function (p) { return p.charAt(0); }).join('').toUpperCase() || '?';
+    %>
+    <header class="portal-topbar">
+      <button type="button" class="portal-topbar__btn" data-action="toggle-sidebar" aria-controls="portal-drawer" aria-expanded="false" aria-label="<%= isAr ? 'القائمة' : 'Menu' %>">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <span class="portal-topbar__title"><%= _tbTitle %></span>
+      <a class="portal-topbar__btn" href="/portal/doctor/alerts" aria-label="<%= isAr ? ('التنبيهات' + (_tbUnseen ? '، ' + _tbUnseen + ' غير مقروءة' : '')) : ('Alerts' + (_tbUnseen ? ', ' + _tbUnseen + ' unread' : '')) %>">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        <% if (_tbUnseen > 0) { %><span class="portal-topbar__badge" aria-hidden="true" data-numeric><%= _tbUnseen > 9 ? '9+' : _tbUnseen %></span><% } %>
+      </a>
+      <a class="portal-topbar__avatar" href="/portal/doctor/profile" aria-label="<%= isAr ? 'الملف الشخصي' : 'Profile' %>"><span aria-hidden="true"><%= _tbInitials %></span></a>
+    </header>
+    <% } else { %>
     <button class="portal-sidebar-toggle" data-action="toggle-sidebar" aria-label="Toggle menu">&#9776;</button>
+    <% } %>
     <div class="portal-sidebar-overlay" data-action="close-sidebar"></div>
     <div class="portal-header">
       <div class="portal-logo">

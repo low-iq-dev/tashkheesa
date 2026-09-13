@@ -76,11 +76,19 @@ body.doctor-theme.portal-v2 .v2-sidebar {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  position: sticky;
-  inset-block-start: 0;
-  height: 100vh;
   overflow-y: auto;
   border: none;
+}
+/* 2026-09-13 (mobile A1) — desktop only. Unscoped, this selector out-ranked
+   the phone drawer rule in portal-global.css, so on a phone the rail stayed
+   sticky and 100vh tall IN the page flow: a full blank screen before content. */
+@media (min-width: 769px) {
+  body.doctor-theme.portal-v2 .portal-sidebar,
+  body.doctor-theme.portal-v2 .v2-sidebar {
+    position: sticky;
+    inset-block-start: 0;
+    height: 100vh;
+  }
 }
 
 body.doctor-theme.portal-v2 .v2-sidebar__brand {

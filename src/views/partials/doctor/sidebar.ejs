@@ -53,7 +53,7 @@
   var _curUrl = (typeof currentUrl !== 'undefined' && currentUrl) ? String(currentUrl) : '/portal/doctor/today';
   var _nextEnc = encodeURIComponent(_curUrl);
 %>
-<aside class="portal-sidebar v2-sidebar" aria-label="<%= _isAr ? 'القائمة الجانبية' : 'Primary navigation' %>">
+<aside id="portal-drawer" class="portal-sidebar v2-sidebar" aria-label="<%= _isAr ? 'القائمة الجانبية' : 'Primary navigation' %>">
   <div class="v2-sidebar__brand">
     <div class="v2-sidebar__mark">ت</div>
     <div>

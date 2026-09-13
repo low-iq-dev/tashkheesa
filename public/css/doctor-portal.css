@@ -62,23 +62,35 @@
 
 /* ─── 5. Sidebar ─── */
 .doctor-theme .portal-sidebar {
-  width: var(--dr-sidebar-w) !important;
-  min-width: var(--dr-sidebar-w);
-  max-width: var(--dr-sidebar-w);
   background: linear-gradient(180deg, var(--dr-sidebar-bg) 0%, var(--dr-sidebar-gradient-end) 100%) !important;
   color: #fff !important;
-  padding: 0 !important;
   display: flex !important;
   flex-direction: column !important;
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
-  bottom: 0 !important;
-  z-index: 200 !important;
   border-radius: 0 !important;
   border: none !important;
   box-shadow: none !important;
   overflow-y: auto !important;
+}
+
+/* 2026-09-13 (mobile A1) — the fixed desktop rail is DESKTOP ONLY.
+   These declarations used to apply at every width with !important, so the
+   off-canvas drawer in portal-global.css (@media max-width:768px) could never
+   win: at 768px the rail sat permanently over the content, and at <=640px the
+   old responsive block below turned it into a full-width in-flow block that
+   filled the whole first screen of every doctor page. Phone layout is owned by
+   portal-global.css; this file only positions the rail where there is room. */
+@media (min-width: 769px) {
+  .doctor-theme .portal-sidebar {
+    width: var(--dr-sidebar-w) !important;
+    min-width: var(--dr-sidebar-w);
+    max-width: var(--dr-sidebar-w);
+    padding: 0 !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    z-index: 200 !important;
+  }
 }
 
 /* Kill old pseudo-element glow */
@@ -265,14 +277,21 @@
 
 /* ─── 10. Content area ─── */
 .doctor-theme .portal-content {
-  margin-inline-start: var(--dr-sidebar-w) !important;
-  width: calc(100% - var(--dr-sidebar-w)) !important;
   max-width: none;
   background: var(--dr-bg) !important;
   border-radius: 0 !important;
-  padding: 28px 48px !important;
   box-shadow: none !important;
   border: none !important;
+}
+
+/* Desktop only — see the sidebar note above. On a phone the content column is
+   full width and padded by portal-global.css. */
+@media (min-width: 769px) {
+  .doctor-theme .portal-content {
+    margin-inline-start: var(--dr-sidebar-w) !important;
+    width: calc(100% - var(--dr-sidebar-w)) !important;
+    padding: 28px 48px !important;
+  }
 }
 
 /* Flatten inner nested portal-shell so content fills full width */
@@ -869,7 +888,13 @@
 .doctor-theme .case-card:nth-child(5) { animation-delay: 0.25s; }
 
 /* ─── 25. Responsive ─── */
-@media (max-width: 900px) {
+/* 2026-09-13 (mobile A1) — narrow laptops/tablets in landscape keep the
+   narrower rail they had. This block used to be max-width:900px, so it ALSO
+   applied on phones, where it forced a 200px rail and a 200px content margin
+   onto a 390px screen. Bounded below at 769px: under that the drawer in
+   portal-global.css is the only phone layout. The old <=640px block — the
+   in-flow full-width sidebar that rendered as a blank first screen — is gone. */
+@media (min-width: 769px) and (max-width: 900px) {
   .doctor-theme .portal-sidebar {
     width: 200px !important;
     min-width: 200px !important;
@@ -893,47 +918,6 @@
 }
 
 @media (max-width: 640px) {
-  .doctor-theme .portal-grid {
-    flex-direction: column !important;
-  }
-
-  .doctor-theme .portal-sidebar {
-    position: relative !important;
-    width: 100% !important;
-    min-width: 100% !important;
-    max-width: 100% !important;
-    flex-direction: row !important;
-    padding: 12px !important;
-    overflow-x: auto !important;
-  }
-
-  .doctor-theme .portal-sidebar .sidebar-brand,
-  .doctor-theme .portal-sidebar .sidebar-subtitle,
-  .doctor-theme .portal-sidebar .sidebar-user,
-  .doctor-theme .portal-sidebar .tour-help-btn,
-  .doctor-theme .sidebar-section-label,
-  .doctor-theme .dr-streak-banner {
-    display: none !important;
-  }
-
-  .doctor-theme .portal-nav {
-    display: flex !important;
-    flex-direction: row !important;
-    gap: 4px !important;
-    overflow-x: auto;
-  }
-
-  .doctor-theme .portal-nav li {
-    margin-bottom: 0 !important;
-    white-space: nowrap;
-  }
-
-  .doctor-theme .portal-content {
-    margin-inline-start: 0 !important;
-    width: 100% !important;
-    padding: 16px !important;
-  }
-
   .doctor-theme .portal-stats {
     grid-template-columns: repeat(2, 1fr) !important;
   }

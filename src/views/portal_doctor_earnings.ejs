@@ -124,7 +124,8 @@
       <div class="v2-card__sub"><%= tt('Last 24 months. Add-on totals include video consult and prescription fees.', 'Last 24 months. Add-on totals include video consult and prescription fees.', 'آخر 24 شهراً. تشمل إجماليات الإضافات رسوم استشارة الفيديو والوصفات.') %></div>
     </div>
     <div class="v2-card__body" style="padding:0;">
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <%# 2026-09-13 (mobile A4): pt-stack — one card per month on a phone (portal-global.css). %>
+      <table class="pt-stack" style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
           <tr style="background:#FBF9F4;border-block-end:1px solid var(--rule, #e5e7eb);">
             <th style="text-align:start;padding:10px 16px;font-weight:600;color:var(--ink, #1f2937);"><%= tt('Month', 'Month', 'الشهر') %></th>
@@ -138,12 +139,12 @@
         <tbody>
           <% _months.forEach(function(m) { %>
             <tr style="border-block-end:1px solid var(--rule, #e5e7eb);">
-              <td style="padding:12px 16px;color:var(--ink, #1f2937);font-weight:500;"><%= _fmtMonth(m.month) %></td>
-              <td style="padding:12px 16px;text-align:end;color:var(--ink-2, #6b7280);"><%= m.case_count %></td>
-              <td style="padding:12px 16px;text-align:end;color:var(--ink-2, #6b7280);"><%= _fmtMoney(m.main_total) %></td>
-              <td style="padding:12px 16px;text-align:end;color:var(--ink-2, #6b7280);"><%= _fmtMoney(m.addon_total) %></td>
-              <td style="padding:12px 16px;text-align:end;color:var(--ink, #1f2937);font-weight:600;"><%= _fmtMoney(m.combined_total) %> <span style="font-size:11px;color:var(--muted, #6b7280);font-weight:500;"><%= tt('EGP', 'EGP', 'ج.م') %></span></td>
-              <td style="padding:12px 16px;text-align:end;">
+              <td data-label="<%= tt('Month', 'Month', 'الشهر') %>" style="padding:12px 16px;color:var(--ink, #1f2937);font-weight:500;"><%= _fmtMonth(m.month) %></td>
+              <td data-label="<%= tt('Cases', 'Cases', 'الحالات') %>" style="padding:12px 16px;text-align:end;color:var(--ink-2, #6b7280);"><%= m.case_count %></td>
+              <td data-label="<%= tt('Main fees', 'Main fees', 'الأتعاب الأساسية') %>" style="padding:12px 16px;text-align:end;color:var(--ink-2, #6b7280);"><%= _fmtMoney(m.main_total) %></td>
+              <td data-label="<%= tt('Add-ons', 'Add-ons', 'الإضافات') %>" style="padding:12px 16px;text-align:end;color:var(--ink-2, #6b7280);"><%= _fmtMoney(m.addon_total) %></td>
+              <td data-label="<%= tt('Total', 'Total', 'الإجمالي') %>" style="padding:12px 16px;text-align:end;color:var(--ink, #1f2937);font-weight:600;"><%= _fmtMoney(m.combined_total) %> <span style="font-size:11px;color:var(--muted, #6b7280);font-weight:500;"><%= tt('EGP', 'EGP', 'ج.م') %></span></td>
+              <td data-label="<%= tt('Status', 'Status', 'الحالة') %>" style="padding:12px 16px;text-align:end;">
                 <%
                   var pendingTotal = Number(m.main_pending || 0) + Number(m.addon_pending || 0);
                   var paidTotal = Number(m.main_paid || 0) + Number(m.addon_paid || 0);

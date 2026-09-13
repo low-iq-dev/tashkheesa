@@ -129,6 +129,47 @@
 
 <script<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
   (function () {
+    /* ── Sidebar drawer (phones) ──
+       2026-09-13 (mobile A1). Open and close keep the sidebar and the overlay in
+       step (the overlay used to be left behind when the drawer was toggled
+       shut). On the doctor portal the drawer also behaves like a dialog: the
+       page behind it stops scrolling, Escape closes it, focus moves into it and
+       comes back to the button that opened it, and aria-expanded tells a screen
+       reader which state it is in. Those extras are doctor-only on purpose —
+       the admin frames are outside this change. */
+    var drawerReturnFocus = null;
+    function isDoctorPortal() { return document.body.classList.contains('doctor-theme'); }
+    function setDrawer(open) {
+      var sidebar = document.querySelector('.portal-sidebar');
+      var overlay = document.querySelector('.portal-sidebar-overlay');
+      if (!sidebar) return;
+      sidebar.classList.toggle('open', open);
+      if (overlay) overlay.classList.toggle('active', open);
+      if (!isDoctorPortal()) return;
+      document.documentElement.classList.toggle('portal-drawer-open', open);
+      document.querySelectorAll('[data-action="toggle-sidebar"]').forEach(function (b) {
+        b.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+      if (open) {
+        drawerReturnFocus = document.activeElement;
+        var first = sidebar.querySelector('a[href], button:not([disabled])');
+        if (first) { try { first.focus({ preventScroll: true }); } catch (_) { first.focus(); } }
+      } else if (drawerReturnFocus && typeof drawerReturnFocus.focus === 'function') {
+        try { drawerReturnFocus.focus({ preventScroll: true }); } catch (_) { drawerReturnFocus.focus(); }
+        drawerReturnFocus = null;
+      }
+    }
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || !isDoctorPortal()) return;
+      if (document.querySelector('.portal-sidebar.open')) setDrawer(false);
+    });
+    if (window.matchMedia) {
+      var desktopMq = window.matchMedia('(min-width: 769px)');
+      var onDesktop = function (mq) { if (mq.matches && isDoctorPortal()) setDrawer(false); };
+      if (desktopMq.addEventListener) desktopMq.addEventListener('change', onDesktop);
+      else if (desktopMq.addListener) desktopMq.addListener(onDesktop);
+    }
+
     /* ── Portal-wide event delegation for data-action buttons ── */
     document.addEventListener('click', function (e) {
       var btn = e.target.closest('[data-action]');
@@ -138,11 +179,9 @@
       var overlay = document.querySelector('.portal-sidebar-overlay');
 
       if (action === 'toggle-sidebar') {
-        if (sidebar) sidebar.classList.toggle('open');
-        if (overlay) overlay.classList.toggle('active');
+        setDrawer(!(sidebar && sidebar.classList.contains('open')));
       } else if (action === 'close-sidebar') {
-        if (sidebar) sidebar.classList.remove('open');
-        if (btn.classList) btn.classList.remove('active');
+        setDrawer(false);
       } else if (action === 'start-tour') {
         if (typeof startPortalTour === 'function') startPortalTour();
       } else if (action === 'dismiss-banner') {

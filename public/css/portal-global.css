@@ -895,3 +895,177 @@ input[type="datetime-local"] {
    surfaces also pick it up. Non-directional icons (alert triangles,
    clock faces, document outlines) MUST NOT carry this class. */
 html[dir="rtl"] .p-icon--flip { transform: scaleX(-1); }
+
+/* ========================================
+   Doctor portal on phones — 2026-09-13 (mobile A1–A4)
+   ========================================
+   Every consultant opens the portal from a WhatsApp link, on a phone. Until
+   this block, doctor-portal.css and doctor-portal-v2.css positioned the sidebar
+   with rules that applied at EVERY width (one with !important, one with higher
+   specificity), so the drawer rule above could not win: every doctor page
+   opened on a blank screen that was the sidebar, in flow, 100vh tall. Those
+   sheets now position the rail only at >=769px, and phone layout for the
+   doctor portal lives here, scoped to .doctor-theme so the admin and patient
+   frames are untouched. Logical properties only: the drawer and the top bar
+   mirror in Arabic without a second rule. */
+.portal-topbar { display: none; }
+
+@media (max-width: 768px) {
+  /* clip, not hidden: `hidden` makes the shell a scroll container and a sticky
+     top bar inside it would scroll away with the page. */
+  .doctor-theme .portal-shell { overflow-x: clip; }
+
+  .doctor-theme .portal-sidebar-toggle { display: none; }
+
+  .doctor-theme .portal-topbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    height: 56px;
+    padding-inline: 4px 10px;
+    background: var(--v2-brand, #0B6B5F);
+    color: var(--v2-on-brand, #F8F5EF);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.12);
+  }
+  .doctor-theme .portal-topbar__btn,
+  .doctor-theme .portal-topbar__avatar {
+    position: relative;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: inherit;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .doctor-theme .portal-topbar__btn:active { background: rgba(255, 255, 255, 0.12); }
+  .doctor-theme .portal-topbar__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-inline: 6px;
+    font-size: 16px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .doctor-theme .portal-topbar__badge {
+    position: absolute;
+    top: 6px;
+    inset-inline-end: 4px;
+    min-width: 18px;
+    height: 18px;
+    padding-inline: 4px;
+    border-radius: 9px;
+    background: #C2410C;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+  }
+  .doctor-theme .portal-topbar__avatar span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #F2E4C7;
+    color: #1B1305;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .doctor-theme .portal-topbar :focus-visible {
+    outline: 2px solid #F2E4C7;
+    outline-offset: -2px;
+  }
+
+  /* The drawer. Off the inline-start edge until opened; `visibility` keeps its
+     links out of the tab order and away from screen readers while it is shut. */
+  .doctor-theme .portal-sidebar {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: calc(-1 * min(280px, 85vw) - 24px);
+    width: min(280px, 85vw);
+    max-width: 85vw;
+    height: 100vh;
+    height: 100dvh;
+    padding-block-end: calc(16px + env(safe-area-inset-bottom, 0px));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    z-index: 1050;
+    visibility: hidden;
+    transition: inset-inline-start 0.25s ease, visibility 0s linear 0.25s;
+  }
+  .doctor-theme .portal-sidebar.open {
+    inset-inline-start: 0;
+    visibility: visible;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.35);
+    transition: inset-inline-start 0.25s ease;
+  }
+  html.portal-drawer-open,
+  html.portal-drawer-open body { overflow: hidden; }
+
+  /* Drawer contents: labels wrap instead of running off the edge (A3). */
+  .doctor-theme .portal-sidebar .v2-nav-section { padding-inline: 10px; white-space: normal; }
+  .doctor-theme .portal-sidebar .v2-nav-item { min-height: 44px; white-space: normal; }
+  .doctor-theme .portal-sidebar .v2-sidebar__lang a,
+  .doctor-theme .portal-sidebar .v2-sidebar__signout button { min-height: 44px; }
+
+  /* The top bar now carries the bell; the per-page duplicates and the desktop
+     search field (240px minimum width) are hidden on phones. */
+  .doctor-theme .v2-topbar__actions .v2-search,
+  .doctor-theme .v2-topbar__actions .v2-bell,
+  .doctor-theme .dd-header-actions .v2-bell { display: none; }
+  .doctor-theme .v2-topbar { margin-block-end: 14px; }
+  .doctor-theme .v2-topbar__title { font-size: 22px; }
+
+  /* Tables in the doctor views become one card per row (A4). A table opts in
+     with class="pt-stack" and a data-label on each cell. */
+  .doctor-theme table.pt-stack,
+  .doctor-theme table.pt-stack tbody,
+  .doctor-theme table.pt-stack tr,
+  .doctor-theme table.pt-stack td { display: block; width: 100%; }
+  .doctor-theme table.pt-stack thead {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  .doctor-theme table.pt-stack tr { padding-block: 8px; }
+  .doctor-theme table.pt-stack td {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    padding: 6px 16px !important;
+    text-align: end !important;
+    border: 0 !important;
+  }
+  .doctor-theme table.pt-stack td[data-label]::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    max-width: 45%;
+    text-align: start;
+    font-weight: 600;
+    color: var(--v2-muted, #6B7A8A);
+  }
+
+  /* Messages: the chat frame fits under the top bar. */
+  .doctor-theme .portal-content .msg-shell { height: calc(100dvh - 190px); min-height: 420px; }
+  .doctor-theme .msg-page-header { padding-bottom: 12px; margin-bottom: 12px; }
+  .doctor-theme .msg-page-title { font-size: 22px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doctor-theme .portal-sidebar,
+  .doctor-theme .portal-sidebar.open { transition: none !important; }
+}

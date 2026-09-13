@@ -122,7 +122,7 @@
       <span class="dap-sec-count"><%= _todayAppts.length %></span>
     </header>
     <div class="dap-table-wrap">
-      <table class="dap-table">
+      <table class="dap-table pt-stack">
         <thead>
           <tr>
             <th><%= isAr ? 'الوقت' : 'Time' %></th>
@@ -135,7 +135,7 @@
         <tbody>
           <% _todayAppts.forEach(function(a) { %>
             <tr>
-              <td>
+              <td data-label="<%= isAr ? 'الوقت' : 'Time' %>">
                 <div class="dap-cell-strong"><%= formatTime(a.scheduled_at) %></div>
                 <% if (a.canJoin) { %>
                   <span class="dap-badge dap-badge--confirmed dap-badge--sm"><%= isAr ? 'جاهز الآن' : 'Ready now' %></span>
@@ -143,15 +143,15 @@
                   <span class="dap-cell-muted"><%= isAr ? 'خلال ' + a.minsAway + ' دقيقة' : 'in ' + a.minsAway + ' min' %></span>
                 <% } %>
               </td>
-              <td>
+              <td data-label="<%= isAr ? 'المريض' : 'Patient' %>">
                 <div class="dap-cell-strong"><%= a.patient_name || 'Patient' %></div>
                 <% if (a.patient_email) { %><div class="dap-cell-muted"><%= a.patient_email %></div><% } %>
               </td>
-              <td><%= a.service_name || '—' %></td>
-              <td>
+              <td data-label="<%= isAr ? 'الخدمة' : 'Service' %>"><%= a.service_name || '—' %></td>
+              <td data-label="<%= isAr ? 'الحالة' : 'Status' %>">
                 <span class="<%= statusBadgeClass(a.status) %>"><%= apptStatusLabel(a.status) %></span>
               </td>
-              <td>
+              <td data-label="<%= isAr ? 'إجراءات' : 'Actions' %>">
                 <div class="dap-actions">
                   <% if (a.canJoin) { %>
                     <a class="dap-btn dap-btn-primary dap-btn-sm" href="/portal/video/call/<%= a.id %>"><%= isAr ? 'انضمام' : 'Join call' %></a>
@@ -182,7 +182,7 @@
       <span class="dap-sec-count"><%= _appointments.length %></span>
     </header>
     <div class="dap-table-wrap">
-      <table class="dap-table">
+      <table class="dap-table pt-stack">
         <thead>
           <tr>
             <th><%= isAr ? 'التاريخ' : 'Date' %></th>
@@ -204,19 +204,19 @@
           <% if (_appointments.length > 0) { %>
             <% _appointments.forEach(function(a) { %>
               <tr class="<%= a.isToday ? 'dap-row--today' : '' %>">
-                <td>
+                <td data-label="<%= isAr ? 'التاريخ' : 'Date' %>">
                   <div class="dap-cell-strong"><%= formatDate(a.scheduled_at) %></div>
                   <% if (a.isToday) { %>
                     <span class="dap-badge dap-badge--in-review dap-badge--sm"><%= isAr ? 'اليوم' : 'TODAY' %></span>
                   <% } %>
                 </td>
-                <td><%= formatTime(a.scheduled_at) %></td>
-                <td class="dap-cell-strong"><%= a.patient_name || 'Patient' %></td>
-                <td><%= a.service_name || '—' %></td>
-                <td>
+                <td data-label="<%= isAr ? 'الوقت' : 'Time' %>"><%= formatTime(a.scheduled_at) %></td>
+                <td data-label="<%= isAr ? 'المريض' : 'Patient' %>" class="dap-cell-strong"><%= a.patient_name || 'Patient' %></td>
+                <td data-label="<%= isAr ? 'الخدمة' : 'Service' %>"><%= a.service_name || '—' %></td>
+                <td data-label="<%= isAr ? 'الحالة' : 'Status' %>">
                   <span class="<%= statusBadgeClass(a.status) %>"><%= apptStatusLabel(a.status) %></span>
                 </td>
-                <td>
+                <td data-label="<%= isAr ? 'يدفع المريض' : 'Patient pays' %>">
                   <% if (a.price) { %>
                     <span class="dap-cell-strong"><%= Number(a.price).toFixed(0) %></span>
                     <span class="dap-cell-muted">EGP</span>
@@ -224,7 +224,7 @@
                     —
                   <% } %>
                 </td>
-                <td>
+                <td data-label="<%= isAr ? 'إجراءات' : 'Actions' %>">
                   <div class="dap-actions">
                     <% if (a.canJoin) { %>
                       <a class="dap-btn dap-btn-primary dap-btn-sm" href="/portal/video/call/<%= a.id %>"><%= isAr ? 'انضمام' : 'Join' %></a>
