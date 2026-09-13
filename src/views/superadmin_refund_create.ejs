@@ -1,12 +1,19 @@
 <%
-  // Operator-initiated refund form (side issue #44). Restyled to cockpit
-  // chrome. All form input bounds preserved verbatim:
-  //   amount: step=0.01, min=0.01, max=_maxAmt (= base_price + urgency_uplift)
-  //   instapay_handle: minlength=3, maxlength=100, required
+  // Operator-initiated refund form (side issue #44).
+  // Part C5 (2026-09-13): the ceiling is what the case can STILL refund — the
+  // route's defaultAmount (services/refund_eligibility.remainingRefundableEgp),
+  // the same number POST /superadmin/refunds/create enforces. It used to be
+  // recomputed here as base_price + urgency_uplift_amount, which ignored the
+  // add-ons and every refund already paid: a 2400 case with 600 paid back was
+  // offered 2400 and the POST then refused anything above 1800.
+  //   amount: step=0.01, min=0.01, max=defaultAmount
+  //   instapay_handle: minlength=3, maxlength=100, required (prefilled from the patient's phone)
   //   notes: maxlength=1000
-  // Server-side mirrors at POST /superadmin/refunds/create.
-  // Locals: order (with patient_name + patient_email), defaultAmount,
-  //         existingRefund (null OR { id, status }), formError, lang, isAr.
+  // Locals: order (patient_name, patient_email, patient_phone), defaultAmount,
+  //         summary (services/refund_summary — or null), existingRefund (null OR
+  //         { id, status, reason, amount }), supersedingBreachRefund (same shape,
+  //         when this form will TOP UP an unpaid SLA-breach refund), formError,
+  //         lang, isAr.
   function fmtAmt(n) {
     if (n == null || n === '') return '0.00';
     const num = Number(n);
@@ -14,14 +21,18 @@
     return num.toFixed(2);
   }
   const _isAr = !!(typeof isAr !== 'undefined' && isAr);
+  function fmtMoney(n) {
+    const s = (Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
+    return _isAr ? s + ' جنيه' : 'EGP ' + s;
+  }
   const _orderId = (order && order.id) || '';
   const _ref = (order && order.reference_id)
     ? order.reference_id
     : String(_orderId).slice(0, 12).toUpperCase();
-  // Refund ceiling: full case price = base + urgency uplift. Computed
-  // inline because it appears in both the display table and the form
-  // input's max= attribute. Server-side equivalent in POST handler.
-  const _maxAmt = Number(order && order.base_price || 0) + Number(order && order.urgency_uplift_amount || 0);
+  const _maxAmt = Math.max(0, Number(typeof defaultAmount !== 'undefined' ? defaultAmount : 0) || 0);
+  const _summary = (typeof summary !== 'undefined' && summary) ? summary : null;
+  const _breach = (typeof supersedingBreachRefund !== 'undefined' && supersedingBreachRefund) ? supersedingBreachRefund : null;
+  const _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
   const _tt = (typeof tt === 'function') ? tt : function(_k, en, ar) { return _isAr ? ar : en; };
 %>
 <%- include('partials/superadmin/header', {
@@ -45,9 +56,22 @@
       actionsHtml: '<a href="/superadmin/refunds" class="btn">' + _tt('Cancel', 'Cancel', 'إلغاء') + '</a>'
     }) %>
 
+<style>
+  .rc-facts { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 8px 16px; font-size: 12.5px; }
+  .rc-facts dt { color: var(--fg-3); }
+  .rc-facts dd { margin: 0; overflow-wrap: anywhere; }
+  .rc-position { margin: 12px 0 0; padding: 10px 12px; border-radius: var(--r-sm); background: var(--bg-2); font-size: 12.5px; line-height: 1.55; }
+  @media (max-width: 640px) {
+    .rc-facts { grid-template-columns: 1fr; gap: 2px; }
+    .rc-facts dd { margin-block-end: 8px; }
+    .rc-form .c-input, .rc-form .c-textarea { font-size: 16px; min-height: 44px; }
+    .rc-form .btn { min-height: 44px; }
+  }
+</style>
+
 <div class="page-body" style="max-width:780px;">
   <% if (formError) { %>
-    <div class="flash err">
+    <div class="flash err" role="alert">
       <strong><%= _tt('Error', 'Error', 'خطأ') %>:</strong>
       <% if (formError === 'order_not_paid') { %>
         <%= _tt('This order is not in paid status. Refund cannot be issued.', 'This order is not in paid status. Refund cannot be issued.', 'الطلب ده مش في حالة مدفوع. مينفعش نعمل استرداد.') %>
@@ -56,13 +80,17 @@
       <% } else if (formError === 'invalid_amount') { %>
         <%= _tt('Amount must be greater than zero.', 'Amount must be greater than zero.', 'لازم يكون المبلغ أكبر من صفر.') %>
       <% } else if (formError === 'amount_exceeds_max') { %>
-        <%= _tt('Amount exceeds the full case price.', 'Amount exceeds the full case price.', 'المبلغ أكبر من سعر الحالة الكامل.') %>
+        <%= _tt('refund_create.amount_exceeds_remaining', 'That is more than this case can still refund (' + fmtMoney(_maxAmt) + ': what was paid minus refunds already paid).', 'المبلغ أكبر مما يمكن ردّه على هذه الحالة (' + fmtMoney(_maxAmt) + ': المدفوع ناقص ما رُدّ بالفعل).') %>
       <% } else if (formError === 'instapay_required') { %>
         <%= _tt('Instapay handle is required (3-100 characters).', 'Instapay handle is required (3-100 characters).', 'لازم تكتب رقم إنستاباي صحيح (3-100 حرف).') %>
       <% } else if (formError === 'insert_failed') { %>
         <%= _tt('Database error. Try again or check the error logs.', 'Database error. Try again or check the error logs.', 'خطأ في قاعدة البيانات. حاول تاني.') %>
+      <% } else if (formError === 'amount_not_a_topup') { %>
+        <%= _tt('refund_create.not_a_topup', 'The automatic SLA-breach refund on this case is already that much or more. Enter a higher amount to top it up.', 'الاسترداد التلقائي لتأخر التسليم على هذه الحالة بهذا المبلغ أو أكثر. أدخل مبلغًا أعلى لرفعه.') %>
+      <% } else if (formError === 'refund_already_paid') { %>
+        <%= _tt('refund_create.already_paid', 'That refund has already been paid, so it cannot be topped up here. Reload and create a new refund for what is left.', 'تم تحويل ذلك الاسترداد بالفعل فلا يمكن رفعه هنا. أعد التحميل وأنشئ استردادًا جديدًا للمتبقي.') %>
       <% } else { %>
-        <%= formError %>
+        <%= _tt('refund_create.generic', 'The refund was not created.', 'لم يتم إنشاء الاسترداد.') %> <small>[<%= formError %>]</small>
       <% } %>
     </div>
   <% } %>
@@ -80,26 +108,36 @@
     <%- include('partials/superadmin/c_card_close') %>
   <% } else { %>
 
-  <%- include('partials/superadmin/c_card_open', { title: _tt('Order context', 'Order context', 'تفاصيل الطلب') }) %>
-    <div style="display:grid;grid-template-columns:160px 1fr;gap:8px 16px;font-size:12.5px;">
-      <div style="color:var(--fg-3);"><%= _tt('Order ID', 'Order ID', 'رقم الطلب') %></div>
-      <div><code class="mono"><%= _orderId %></code></div>
-      <div style="color:var(--fg-3);"><%= _tt('Reference', 'Reference', 'المرجع') %></div>
-      <div><strong class="mono"><%= _ref %></strong></div>
-      <div style="color:var(--fg-3);"><%= _tt('Patient', 'Patient', 'المريض') %></div>
-      <div><%= (order && order.patient_name) || '—' %><% if (order && order.patient_email) { %> · <code class="mono" style="font-size:11.5px;"><%= order.patient_email %></code><% } %></div>
-      <div style="color:var(--fg-3);"><%= _tt('Base price', 'Base price', 'السعر الأساسي') %></div>
-      <div class="tabular"><%= fmtAmt(order && order.base_price) %> EGP</div>
-      <div style="color:var(--fg-3);"><%= _tt('Urgency uplift', 'Urgency uplift', 'علاوة الاستعجال') %></div>
-      <div class="tabular"><%= fmtAmt(order && order.urgency_uplift_amount) %> EGP</div>
-      <div style="color:var(--fg-3);"><%= _tt('Maximum refund', 'Maximum refund', 'أقصى مبلغ للاسترداد') %></div>
-      <div class="tabular" style="font-weight:600;color:var(--accent);"><%= fmtAmt(_maxAmt) %> EGP</div>
-    </div>
+  <%- include('partials/superadmin/c_card_open', { title: _tt('refund_create.payment_facts', 'Payment facts', 'بيانات الدفع') }) %>
+    <dl class="rc-facts" data-refund-facts>
+      <dt><%= _tt('Reference', 'Reference', 'المرجع') %></dt>
+      <dd><strong class="mono"><bdi dir="ltr"><%= _ref %></bdi></strong> · <code class="mono" style="font-size:11px;"><%= _orderId %></code></dd>
+      <dt><%= _tt('Patient', 'Patient', 'المريض') %></dt>
+      <dd><bdi><%= (order && order.patient_name) || '—' %></bdi><% if (order && order.patient_email) { %> · <code class="mono" style="font-size:11.5px;"><%= order.patient_email %></code><% } %></dd>
+      <% if (_summary && _summary.paidEgp > 0) { %>
+        <dt><%= _tt('refund_create.paid', 'Patient paid', 'دفع المريض') %></dt>
+        <dd class="tabular"><%= fmtMoney(_summary.paidEgp) %></dd>
+      <% } %>
+      <dt><%= _tt('refund_create.already', 'Already refunded (paid out)', 'رُدّ بالفعل (تم تحويله)') %></dt>
+      <dd class="tabular"><%= fmtMoney(_summary ? _summary.alreadyRefundedEgp : 0) %></dd>
+      <dt><%= _tt('Maximum refund', 'Maximum refund', 'أقصى مبلغ للاسترداد') %></dt>
+      <dd class="tabular" style="font-weight:600;color:var(--accent);" data-refund-max><%= fmtMoney(_maxAmt) %></dd>
+    </dl>
+    <% if (_summary) { %>
+      <p class="rc-position"><strong><%= _tt('refund_create.patient_position', 'What the patient\'s form says:', 'ما يقوله نموذج المريض:') %></strong> <%= _summary.text[_isAr ? 'ar' : 'en'] %></p>
+    <% } %>
   <%- include('partials/superadmin/c_card_close') %>
+
+  <% if (_breach) { %>
+    <div class="flash err" role="note" style="margin-top:14px;">
+      <%= _tt('refund_create.topup', 'This case already has an automatic SLA-breach refund of ' + fmtMoney(_breach.amount) + ' that has not been paid. Creating a refund here RAISES that refund to the amount you enter (it must be higher) instead of opening a second one.', 'على هذه الحالة استرداد تلقائي لتأخر التسليم بقيمة ' + fmtMoney(_breach.amount) + ' لم يُحوَّل بعد. الإنشاء هنا يرفع ذلك الاسترداد إلى المبلغ الذي تدخله (يجب أن يكون أعلى) بدل فتح استرداد ثانٍ.') %>
+    </div>
+  <% } %>
 
   <div style="margin-top:14px;">
     <%- include('partials/superadmin/c_card_open', { title: _tt('Refund details', 'Refund details', 'تفاصيل الاسترداد') }) %>
-      <form method="post" action="/superadmin/refunds/create" style="display:flex;flex-direction:column;gap:14px;">
+      <form method="post" action="/superadmin/refunds/create" class="rc-form" style="display:flex;flex-direction:column;gap:14px;"
+            data-confirm-msg="<%= _tt('refund_create.confirm', 'Create a refund of {amount} for ' + _ref + '? The patient is told it was opened.', 'إنشاء استرداد بقيمة {amount} للحالة ' + _ref + '؟ سيتم إبلاغ المريض.') %>">
         <%- (typeof csrfField === 'function') ? csrfField() : '' %>
         <input type="hidden" name="order_id" value="<%= _orderId %>" />
 
@@ -108,15 +146,16 @@
             <%= _tt('Amount (EGP)', 'Amount (EGP)', 'المبلغ (جنيه)') %><span class="req">*</span>
           </label>
           <input class="c-input tabular" id="amount" type="number" name="amount" step="0.01" min="0.01" max="<%= fmtAmt(_maxAmt) %>" value="<%= fmtAmt(_maxAmt) %>" required dir="ltr" style="font-size:15px;" />
-          <div class="c-field-help"><%= _tt('Default is the full case price. Edit down for partial refunds.', 'Default is the full case price. Edit down for partial refunds.', 'القيمة الافتراضية هي السعر الكامل. عدّل لأقل لو استرداد جزئي.') %></div>
+          <div class="c-field-help"><%= _tt('refund_create.amount_help', 'Default is everything the case can still refund. Edit down for a partial refund; the rest stays refundable.', 'القيمة الافتراضية هي كل ما يمكن ردّه على الحالة. قلّلها لاسترداد جزئي؛ ويبقى الباقي متاحًا.') %></div>
         </div>
 
         <div class="c-field">
           <label class="c-field-label" for="instapay_handle">
-            <%= _tt('Patient Instapay handle', 'Patient Instapay handle', 'رقم الإنستاباي للمريض') %><span class="req">*</span>
+            <%= _tt('Patient Instapay handle', 'Patient InstaPay number', 'رقم الإنستاباي للمريض') %><span class="req">*</span>
           </label>
-          <input class="c-input" id="instapay_handle" type="text" name="instapay_handle" minlength="3" maxlength="100" required dir="ltr" placeholder="patient@instapay" />
-          <div class="c-field-help"><%= _tt('Required. The patient will see this in the notification — they can reply if it\'s wrong.', 'Required. The patient will see this in the notification — they can reply if it\'s wrong.', 'مطلوب. هيشوف المريض الرقم في الإشعار — يقدر يرد لو غلط.') %></div>
+          <input class="c-input" id="instapay_handle" type="tel" inputmode="tel" name="instapay_handle" minlength="3" maxlength="100" required dir="ltr"
+                 value="<%= (order && order.patient_phone) || '' %>" placeholder="+201012345678" />
+          <div class="c-field-help"><%= _tt('Required. The patient will see this in the notification — they can reply if it\'s wrong.', 'Required. Prefilled from the patient\'s profile. The patient sees it in the notification and can reply if it\'s wrong.', 'مطلوب. من ملف المريض. هيشوف المريض الرقم في الإشعار — يقدر يرد لو غلط.') %></div>
         </div>
 
         <div class="c-field">
@@ -127,14 +166,30 @@
           <div class="c-field-help"><%= _tt('Audit-only. Appears in the operator_refund_created event log.', 'Audit-only. Appears in the operator_refund_created event log.', 'للمراجعة فقط. هيظهر في سجل الأحداث.') %></div>
         </div>
 
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px;">
+        <% if (_maxAmt <= 0) { %>
+          <p style="margin:0;color:var(--red);font-size:12.5px;"><%= _tt('refund_create.nothing_left', 'Nothing is left to refund on this case.', 'لا يتبقى مبلغ للرد على هذه الحالة.') %></p>
+        <% } %>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px;flex-wrap:wrap;">
           <a href="/superadmin/refunds" class="btn"><%= _tt('Cancel', 'Cancel', 'إلغاء') %></a>
-          <button type="submit" class="btn primary"><%= _tt('Create refund', 'Create refund', 'إنشاء الاسترداد') %></button>
+          <button type="submit" class="btn primary"<% if (_maxAmt <= 0) { %> disabled<% } %>><%= _tt('Create refund', 'Create refund', 'إنشاء الاسترداد') %></button>
         </div>
       </form>
     <%- include('partials/superadmin/c_card_close') %>
   </div>
   <% } %>
 </div>
+
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function () {
+  var form = document.querySelector('form.rc-form[data-confirm-msg]');
+  if (!form) return;
+  form.addEventListener('submit', function (ev) {
+    var a = form.querySelector('#amount');
+    var n = Math.round((parseFloat(a && a.value) || 0) * 100) / 100;
+    var money = <%- JSON.stringify(_isAr) %> ? n.toLocaleString('en-US') + ' جنيه' : 'EGP ' + n.toLocaleString('en-US');
+    if (!window.confirm((form.getAttribute('data-confirm-msg') || '').replace('{amount}', money))) ev.preventDefault();
+  });
+})();
+</script>
 
 <%- include('partials/superadmin/footer', { isAr: _isAr }) %>

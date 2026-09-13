@@ -1,27 +1,96 @@
 <%
-  // Refund queue — restyled to cockpit chrome. All form actions, field
-  // names, and HTML5 input bounds preserved verbatim.
-  // Locals: pending[], awaitingPayment[], recent[], flash, flashError,
-  //         prefillOrder, prefillOrderRow.
+  // Refund queue. Part C4 (2026-09-13): usable on a laptop and on a phone.
+  //   - Filter tabs — Pending · Approved, unpaid · Paid · Denied — over the same
+  //     three server buckets (the 30-day paid/denied bucket is split in two).
+  //     Without JavaScript every section shows, one after another.
+  //   - Each row: case reference, the patient's name isolated in <bdi>, what
+  //     was requested, what the case can still refund, what was already
+  //     refunded, the patient's reason, and how long it has waited.
+  //   - Approve is prefilled with the refundable amount (never more than was
+  //     requested) and shows what stays refundable; mark-paid requires the
+  //     InstaPay reference AND the number paid to, and says who paid; deny
+  //     asks for the reason the patient will read. Every action confirms.
+  // Locals: pending[], awaitingPayment[], recent[] — rows carry `.figures`
+  //         (services/refund_summary.refundFigures), reviewed_by_name,
+  //         paid_by_name — flash, flashError, flashWarn, prefillOrder,
+  //         prefillOrderRow.
   const isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  const _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
 
-  // Pure display formatters. Server-side validation is the source of truth.
   function fmtAmt(v) { const n = Number(v || 0); return n.toFixed(2); }
+  // Western digits in both languages: these are the figures typed into InstaPay.
+  function fmtMoney(v) {
+    const n = Number(v || 0);
+    const s = n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+    return isAr ? s + ' جنيه' : 'EGP ' + s;
+  }
   function fmtTime(iso) {
     if (!iso) return '';
     try {
       const d = new Date(iso);
-      return d.toLocaleString(isAr ? 'ar-EG' : 'en-GB', { dateStyle: 'short', timeStyle: 'short' });
+      return d.toLocaleString(isAr ? 'ar-EG-u-nu-latn' : 'en-GB', { dateStyle: 'short', timeStyle: 'short' });
     } catch (_) { return String(iso); }
   }
-  // Map refund.status to a c_chip tone. The legacy view used
-  // amber/blue/green/gray/red — translating to the cockpit palette.
+  function fmtAge(iso) {
+    const t = iso ? new Date(iso).getTime() : NaN;
+    if (!Number.isFinite(t)) return '';
+    const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+    if (mins < 60) return isAr ? ('منذ ' + mins + ' د') : (mins + 'm ago');
+    const hrs = Math.round(mins / 60);
+    if (hrs < 48) return isAr ? ('منذ ' + hrs + ' س') : (hrs + 'h ago');
+    const days = Math.round(hrs / 24);
+    return isAr ? ('منذ ' + days + ' يوم') : (days + 'd ago');
+  }
+  // Map refund.status to a c_chip tone.
   function statusTone(status) {
     return ({ pending: 'amber', auto_approved: 'accent', approved: 'green',
               paid: 'neutral', denied: 'red' })[String(status)] || 'neutral';
   }
-  // Resolve tt() with a stable fallback so render survives without middleware.
   const _tt = (typeof tt === 'function') ? tt : function(_k, en, ar) { return isAr ? ar : en; };
+  function caseRef(r) { return r.reference_id || String(r.order_id || '').slice(0, 12).toUpperCase(); }
+  function origin(r) {
+    const why = String(r.reason || '');
+    if (why === 'sla_breach') return _tt('superadmin.refunds.origin.breach', 'Automatic — the deadline was missed', 'تلقائي — فات موعد التسليم');
+    if (why === 'operator_refund') return _tt('superadmin.refunds.origin.operator', 'Opened by an operator', 'فتحه أحد المشغّلين');
+    return _tt('superadmin.refunds.origin.patient', 'Patient request', 'طلب من المريض');
+  }
+  function figs(r) { return r.figures || { eligibleEgp: 0, alreadyRefundedEgp: 0, remainderEgp: 0 }; }
+  function last4(x) { const d = String(x || '').replace(/[^0-9]/g, ''); return d.length >= 4 ? d.slice(-4) : ''; }
+
+  const paidRows = (recent || []).filter(function (r) { return String(r.status) === 'paid'; });
+  const deniedRows = (recent || []).filter(function (r) { return String(r.status) === 'denied'; });
+
+  const FLASH_OK = {
+    approved: _tt('superadmin.refunds.flash.approved', 'Refund approved.', 'تم اعتماد الاسترداد.'),
+    denied: _tt('superadmin.refunds.flash.denied', 'Refund denied.', 'تم رفض الاسترداد.'),
+    paid: _tt('superadmin.refunds.flash.paid', 'Refund marked as paid.', 'تم تأكيد تحويل المبلغ.'),
+    created: _tt('superadmin.refunds.flash.created', 'Refund request created.', 'تم إنشاء طلب الاسترداد.'),
+    superseded: _tt('superadmin.refunds.flash.superseded', 'The automatic SLA-breach refund was raised to the amount you entered. It is waiting for payment.', 'تم رفع الاسترداد التلقائي لتأخر التسليم إلى المبلغ الذي أدخلته، وهو في انتظار التحويل.')
+  };
+  // Honest error banners: say what happened, and never "try again" when the
+  // money part already succeeded.
+  const FLASH_ERR = {
+    clawback_failed: _tt('superadmin.refunds.err.clawback_failed', 'The refund IS marked paid, but the doctor\'s earnings were NOT adjusted. Reconcile the doctor\'s earnings by hand — do not pay the refund again.', 'تم تسجيل الاسترداد كمدفوع، لكن لم يتم تعديل أرباح الطبيب. عدّل أرباح الطبيب يدويًا — ولا تحوّل المبلغ مرة أخرى.'),
+    invalid_amount: _tt('superadmin.refunds.err.invalid_amount', 'Enter an amount greater than zero.', 'أدخل مبلغًا أكبر من صفر.'),
+    amount_exceeds_requested: _tt('superadmin.refunds.err.amount_exceeds_requested', 'You cannot approve more than the patient asked for.', 'لا يمكن اعتماد مبلغ أكبر من المطلوب.'),
+    amount_exceeds_remaining: _tt('superadmin.refunds.err.amount_exceeds_remaining', 'That is more than the case can still refund (what was paid minus refunds already paid). Nothing was changed.', 'المبلغ أكبر مما يمكن ردّه على الحالة (المدفوع ناقص ما رُدّ بالفعل). لم يتغير شيء.'),
+    ceiling_unavailable: _tt('superadmin.refunds.err.ceiling_unavailable', 'Could not read what the case can still refund, so nothing was approved. Try again in a moment.', 'تعذّر قراءة المبلغ المتبقي للحالة، لذلك لم يُعتمد شيء. حاول بعد قليل.'),
+    denial_reason_required: _tt('superadmin.refunds.err.denial_reason_required', 'Write the reason the patient will see (up to 1,000 characters).', 'اكتب السبب الذي سيراه المريض (حتى 1000 حرف).'),
+    instapay_reference_required: _tt('superadmin.refunds.err.instapay_reference_required', 'Enter the InstaPay transaction reference.', 'أدخل رقم تحويل إنستاباي.'),
+    paid_to_number_invalid: _tt('superadmin.refunds.err.paid_to_number_invalid', 'Enter the mobile number you sent the money to, in international format (+20…). Nothing was marked paid.', 'أدخل رقم الموبايل الذي حوّلت إليه المبلغ بالصيغة الدولية (+20…). لم يُسجَّل أي تحويل.'),
+    invalid_state: _tt('superadmin.refunds.err.invalid_state', 'This refund was already acted on (maybe by someone else). Reload to see where it is.', 'تم التعامل مع هذا الاسترداد بالفعل (ربما بواسطة شخص آخر). أعد تحميل الصفحة.'),
+    not_found: _tt('superadmin.refunds.err.not_found', 'That refund no longer exists.', 'هذا الاسترداد لم يعد موجودًا.'),
+    order_id_required: _tt('superadmin.refunds.err.order_id_required', 'Open a case first to create a refund for it.', 'افتح الحالة أولًا لإنشاء استرداد لها.'),
+    order_not_found: _tt('superadmin.refunds.err.order_not_found', 'That case was not found.', 'لم يتم العثور على الحالة.')
+  };
+
+  const TABS = [
+    { key: 'pending', label: _tt('superadmin.refunds.tab.pending', 'Pending', 'تحت المراجعة'), count: pending.length },
+    { key: 'awaiting', label: _tt('superadmin.refunds.tab.awaiting', 'Approved, unpaid', 'معتمد، لم يُحوَّل'), count: awaitingPayment.length },
+    { key: 'paid', label: _tt('superadmin.refunds.tab.paid', 'Paid', 'تم التحويل'), count: paidRows.length },
+    { key: 'denied', label: _tt('superadmin.refunds.tab.denied', 'Denied', 'مرفوض'), count: deniedRows.length }
+  ];
+  const _mathTmpl = _tt('superadmin.refunds.approve_math', 'Refundable now {eligible} − this approval {amount} = {left} still refundable.', 'المتاح للرد الآن {eligible} − هذا الاعتماد {amount} = يتبقى {left}.');
 %>
 <%- include('partials/superadmin/header', {
       title: _tt('superadmin.refunds.title', 'Refund queue', 'قائمة طلبات الاسترداد'),
@@ -35,9 +104,9 @@
 
 <%- include('partials/superadmin/page_header', {
       title: _tt('superadmin.refunds.title', 'Refund queue', 'قائمة طلبات الاسترداد'),
-      subtitle: _tt('superadmin.refunds.subtitle',
-            'Patient-initiated refund requests awaiting review or payment.',
-            'طلبات استرداد المبلغ من المرضى — تحت المراجعة أو في انتظار التحويل.'),
+      subtitle: _tt('superadmin.refunds.subtitle_v2',
+            'Refunds waiting for a decision or a payment. Paid by InstaPay, by hand.',
+            'استردادات تنتظر قرارًا أو تحويلًا. تُحوَّل يدويًا عبر إنستاباي.'),
       breadcrumb: [
         { label: 'Dashboard', href: '/superadmin' },
         { label: _tt('superadmin.refunds.title', 'Refunds', 'الاستردادات') }
@@ -45,15 +114,40 @@
       actionsHtml: '<a href="/superadmin/refunds/create" class="btn primary">' + (isAr ? '+ استرداد جديد' : '+ New refund') + '</a>'
     }) %>
 
-<div class="page-body">
-  <% if (flash) { %>
-    <div class="flash ok" role="status">
-      <% if (flash === 'approved') { %><%= _tt('superadmin.refunds.flash.approved', 'Refund approved.', 'تم اعتماد الاسترداد.') %>
-      <% } else if (flash === 'denied') { %><%= _tt('superadmin.refunds.flash.denied', 'Refund denied.', 'تم رفض الاسترداد.') %>
-      <% } else if (flash === 'paid') { %><%= _tt('superadmin.refunds.flash.paid', 'Refund marked as paid.', 'تم تأكيد تحويل المبلغ.') %>
-      <% } else if (flash === 'created') { %><%= _tt('superadmin.refunds.flash.created', 'Refund request created.', 'تم إنشاء طلب الاسترداد.') %>
-      <% } %>
-    </div>
+<style>
+  .rq-tabs { overflow-x: auto; scrollbar-width: none; }
+  .rq-tabs .tab { background: none; border: 0; font: inherit; }
+  .rq-note { margin: 4px 0 10px; font-size: 12px; color: var(--fg-3); }
+  .rq-row { padding: 14px; border-block-end: 1px solid var(--line-soft); }
+  .rq-row:last-child { border-block-end: 0; }
+  .rq-row__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; }
+  .rq-ref { color: inherit; font-weight: 700; }
+  .rq-name { font-weight: 600; }
+  .rq-age { margin-inline-start: auto; color: var(--fg-3); font-size: 11.5px; }
+  .rq-figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0 0; }
+  .rq-figs > div { background: var(--bg-2); border-radius: var(--r-sm); padding: 6px 8px; min-width: 0; }
+  .rq-figs dt { font-size: 10.5px; color: var(--fg-3); }
+  .rq-figs dd { margin: 0; font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .rq-why, .rq-meta { margin-block-start: 8px; font-size: 12.5px; color: var(--fg-2); overflow-wrap: anywhere; }
+  .rq-why q { font-style: italic; }
+  .rq-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-block-start: 12px; }
+  .rq-form { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--line-soft); border-radius: var(--r-sm); min-width: 0; }
+  .rq-form .c-input { width: 100%; min-width: 0; }
+  .rq-form .btn { align-self: flex-start; }
+  .rq-math { margin: 0; font-size: 11.5px; color: var(--fg-2); }
+  .rq-empty-note { margin: 0; font-size: 12px; color: var(--red); }
+  @media (max-width: 640px) {
+    .rq-figs { grid-template-columns: 1fr 1fr; }
+    .rq-actions { grid-template-columns: 1fr; }
+    .rq-form .c-input { font-size: 16px; min-height: 44px; }
+    .rq-form .btn, .rq-tabs .tab { min-height: 44px; }
+    .rq-form .btn { align-self: stretch; justify-content: center; }
+  }
+</style>
+
+<div class="page-body" data-refund-queue>
+  <% if (flash && FLASH_OK[flash]) { %>
+    <div class="flash ok" role="status"><%= FLASH_OK[flash] %></div>
   <% } %>
   <% if (typeof flashWarn !== 'undefined' && flashWarn === 'patient_not_notified') { %>
     <div class="flash err" role="alert">
@@ -62,8 +156,12 @@
   <% } %>
   <% if (flashError) { %>
     <div class="flash err" role="alert">
-      <%= _tt('superadmin.refunds.flash.error', 'Action failed. Please try again.', 'الإجراء ما تمش. حاول تاني.') %>
-      <small style="color:var(--fg-3);"> [<%= flashError %>]</small>
+      <% if (FLASH_ERR[flashError]) { %>
+        <%= FLASH_ERR[flashError] %>
+      <% } else { %>
+        <%= _tt('superadmin.refunds.flash.error', 'Action failed. Please try again.', 'الإجراء ما تمش. حاول تاني.') %>
+        <small style="color:var(--fg-3);"> [<%= flashError %>]</small>
+      <% } %>
     </div>
   <% } %>
 
@@ -78,140 +176,270 @@
       </p>
       <p style="margin:0 0 12px 0;font-size:11.5px;color:var(--fg-3);">
         Order ID: <code class="mono"><%= prefillOrder %></code>
-        <% if (prefillOrderRow) { %>
-          · base_price = <%= fmtAmt(prefillOrderRow.base_price) %> EGP · uplift = <%= fmtAmt(prefillOrderRow.urgency_uplift_amount) %> EGP
-        <% } %>
       </p>
       <a href="/superadmin/refunds/create?order_id=<%= encodeURIComponent(prefillOrder) %>" class="btn primary"><%= isAr ? 'إنشاء استرداد لهذا الطلب' : 'Create refund for this order' %></a>
     <%- include('partials/superadmin/c_card_close') %>
   <% } %>
 
-  <%# ── Pending review ─────────────────────────────────── %>
+  <div class="tabs rq-tabs" role="tablist" aria-label="<%= _tt('superadmin.refunds.tabs_label', 'Filter refunds', 'تصفية الاستردادات') %>" style="margin-top:12px;">
+    <% TABS.forEach(function (tab, i) { %>
+      <button type="button" class="tab<%= i === 0 ? ' active' : '' %>" role="tab" id="rq-tab-<%= tab.key %>"
+              aria-controls="rq-panel-<%= tab.key %>" aria-selected="<%= i === 0 ? 'true' : 'false' %>"
+              data-refund-tab="<%= tab.key %>">
+        <%= tab.label %> <span class="count"><%= tab.count %></span>
+      </button>
+    <% }); %>
+  </div>
+
+  <%# ── Pending ──────────────────────────────────────────── %>
+  <section id="rq-panel-pending" role="tabpanel" aria-labelledby="rq-tab-pending" data-refund-panel="pending">
   <div class="section-h standalone" style="margin-top:16px;">
     <h2><%= _tt('superadmin.refunds.section.pending', 'Pending review', 'تحت المراجعة') %> · <%= pending.length %></h2>
   </div>
   <%- include('partials/superadmin/c_card_open', { tight: true }) %>
     <% if (!pending.length) { %>
-      <%- include('partials/superadmin/c_empty', { title: _tt('superadmin.refunds.empty', 'No refund requests right now.', 'مفيش طلبات استرداد دلوقتي.') }) %>
+      <%- include('partials/superadmin/c_empty', { title: _tt('superadmin.refunds.empty.pending', 'Nothing waiting for a decision.', 'لا توجد طلبات تنتظر قرارًا.') }) %>
     <% } else { %>
-      <div style="padding:0;">
-        <% pending.forEach(function(r, idx) { %>
-          <article data-refund-id="<%= r.id %>" style="padding:14px;<% if (idx < pending.length - 1) { %>border-bottom:1px solid var(--line-soft);<% } %>">
-            <header style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
-              <div style="font-size:12.5px;">
-                <a href="/superadmin/orders/<%= r.order_id %>" style="color:inherit;"><strong class="mono"><%= String(r.order_id || '').slice(0, 12).toUpperCase() %></strong></a>
-                <span style="color:var(--fg-3);">·</span> <%= r.patient_name || '—' %>
-                <span style="color:var(--fg-3);">·</span> <%= _tt('superadmin.refunds.col.requested', 'Requested', 'المطلوب') %>:
-                <strong class="tabular"><%= fmtAmt(r.requested_amount) %> EGP</strong>
-                <%- include('partials/superadmin/c_chip', { label: r.status, tone: statusTone(r.status), dot: true }) %>
-              </div>
-              <small style="color:var(--fg-3);"><%= fmtTime(r.refunded_at) %></small>
-            </header>
-            <div style="margin-top:8px;font-size:12.5px;color:var(--fg-2);">
-              <strong><%= _tt('superadmin.refunds.col.instapay', 'Instapay', 'الإنستاباي') %>:</strong>
-              <code class="mono"><%= r.instapay_handle || '—' %></code>
-              <% if (r.patient_reason) { %><br/><em style="color:var(--fg-3);"><%= r.patient_reason %></em><% } %>
-            </div>
-            <div style="margin-top:12px;display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">
-              <form method="post" action="/superadmin/refunds/<%= r.id %>/approve" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
-                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                <div>
-                  <label class="c-field-label" style="font-size:11px;">
-                    <%= _tt('superadmin.refunds.field.approved_amount', 'Approved amount (EGP)', 'المبلغ المعتمد (جنيه)') %>
-                  </label>
-                  <input class="c-input" type="number" name="approved_amount" step="0.01" min="0.01" max="<%= fmtAmt(r.requested_amount) %>" value="<%= fmtAmt(r.requested_amount) %>" required dir="ltr" style="width:140px;" />
-                </div>
-                <div>
-                  <label class="c-field-label" style="font-size:11px;">
-                    <%= _tt('superadmin.refunds.field.notes', 'Notes (optional)', 'ملاحظات (اختياري)') %>
-                  </label>
-                  <input class="c-input" type="text" name="notes" maxlength="1000" style="width:220px;" />
-                </div>
-                <button type="submit" class="btn primary"><%= _tt('superadmin.refunds.action.approve', 'Approve', 'اعتماد') %></button>
-              </form>
-              <form method="post" action="/superadmin/refunds/<%= r.id %>/deny" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
-                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                <div>
-                  <label class="c-field-label" style="font-size:11px;">
-                    <%= _tt('superadmin.refunds.field.denial_reason', 'Denial reason', 'سبب الرفض') %>
-                  </label>
-                  <input class="c-input" type="text" name="denial_reason" maxlength="1000" required style="min-width:240px;" />
-                </div>
-                <button type="submit" class="btn danger"><%= _tt('superadmin.refunds.action.deny', 'Deny', 'رفض') %></button>
-              </form>
-            </div>
-          </article>
-        <% }); %>
-      </div>
+      <% pending.forEach(function(r) { const f = figs(r); const maxApprove = Math.max(0, Math.min(Number(r.requested_amount || 0), f.eligibleEgp)); %>
+        <article class="rq-row" data-refund-id="<%= r.id %>">
+          <header class="rq-row__head">
+            <a class="rq-ref mono" href="/superadmin/orders/<%= r.order_id %>"><bdi dir="ltr"><%= caseRef(r) %></bdi></a>
+            <bdi class="rq-name"><%= r.patient_name || '—' %></bdi>
+            <%- include('partials/superadmin/c_chip', { label: r.status, tone: statusTone(r.status), dot: true }) %>
+            <span class="rq-age" title="<%= fmtTime(r.refunded_at) %>"><%= fmtAge(r.refunded_at) %></span>
+          </header>
+          <dl class="rq-figs">
+            <div><dt><%= _tt('superadmin.refunds.col.requested', 'Requested', 'المطلوب') %></dt><dd><%= fmtMoney(r.requested_amount) %></dd></div>
+            <div><dt><%= _tt('superadmin.refunds.col.eligible', 'Refundable now', 'المتاح للرد') %></dt><dd><%= fmtMoney(f.eligibleEgp) %></dd></div>
+            <div><dt><%= _tt('superadmin.refunds.col.already', 'Already refunded', 'رُدّ بالفعل') %></dt><dd><%= fmtMoney(f.alreadyRefundedEgp) %></dd></div>
+          </dl>
+          <div class="rq-why"><strong><%= origin(r) %></strong><% if (r.patient_reason) { %>: <q><%= r.patient_reason %></q><% } %></div>
+          <div class="rq-meta"><%= _tt('superadmin.refunds.col.instapay', 'InstaPay', 'إنستاباي') %>: <bdi dir="ltr" class="mono"><%= r.instapay_handle || '—' %></bdi></div>
+          <div class="rq-actions">
+            <form method="post" action="/superadmin/refunds/<%= r.id %>/approve" class="rq-form" data-rq-approve
+                  data-confirm-msg="<%= _tt('superadmin.refunds.confirm.approve', 'Approve {amount} for ' + caseRef(r) + '? The patient is told straight away.', 'اعتماد {amount} للحالة ' + caseRef(r) + '؟ سيتم إبلاغ المريض فورًا.') %>">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <label class="c-field-label" for="ap-<%= r.id %>"><%= _tt('superadmin.refunds.field.approved_amount', 'Approved amount (EGP)', 'المبلغ المعتمد (جنيه)') %></label>
+              <input class="c-input" id="ap-<%= r.id %>" type="number" name="approved_amount" step="0.01" min="0.01"
+                     max="<%= fmtAmt(maxApprove) %>" value="<%= fmtAmt(maxApprove) %>" required dir="ltr"
+                     data-rq-amount data-eligible="<%= fmtAmt(f.eligibleEgp) %>" />
+              <p class="rq-math" data-rq-math aria-live="polite"><%= _mathTmpl.replace('{eligible}', fmtMoney(f.eligibleEgp)).replace('{amount}', fmtMoney(maxApprove)).replace('{left}', fmtMoney(Math.max(0, f.eligibleEgp - maxApprove))) %></p>
+              <label class="c-field-label" for="an-<%= r.id %>"><%= _tt('superadmin.refunds.field.notes', 'Notes (optional)', 'ملاحظات (اختياري)') %></label>
+              <input class="c-input" id="an-<%= r.id %>" type="text" name="notes" maxlength="1000" />
+              <% if (maxApprove <= 0) { %>
+                <p class="rq-empty-note"><%= _tt('superadmin.refunds.nothing_left', 'Nothing is left to refund on this case — deny the request.', 'لا يتبقى مبلغ للرد على هذه الحالة — ارفض الطلب.') %></p>
+              <% } %>
+              <button type="submit" class="btn primary"<% if (maxApprove <= 0) { %> disabled<% } %>><%= _tt('superadmin.refunds.action.approve', 'Approve', 'اعتماد') %></button>
+            </form>
+            <form method="post" action="/superadmin/refunds/<%= r.id %>/deny" class="rq-form"
+                  data-confirm-msg="<%= _tt('superadmin.refunds.confirm.deny', 'Deny this refund for ' + caseRef(r) + '? The patient reads your reason.', 'رفض الاسترداد للحالة ' + caseRef(r) + '؟ سيقرأ المريض السبب.') %>">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <label class="c-field-label" for="dn-<%= r.id %>"><%= _tt('superadmin.refunds.field.denial_reason_patient', 'Reason the patient will see', 'السبب الذي سيراه المريض') %></label>
+              <textarea class="c-input" id="dn-<%= r.id %>" name="denial_reason" maxlength="1000" rows="2" required></textarea>
+              <button type="submit" class="btn danger"><%= _tt('superadmin.refunds.action.deny', 'Deny', 'رفض') %></button>
+            </form>
+          </div>
+        </article>
+      <% }); %>
     <% } %>
   <%- include('partials/superadmin/c_card_close') %>
+  </section>
 
-  <%# ── Awaiting payment (auto_approved + approved) ──── %>
+  <%# ── Approved, unpaid (auto_approved + approved) ────────── %>
+  <section id="rq-panel-awaiting" role="tabpanel" aria-labelledby="rq-tab-awaiting" data-refund-panel="awaiting">
   <div class="section-h standalone" style="margin-top:16px;">
     <h2><%= _tt('superadmin.refunds.section.awaiting_payment', 'Awaiting payment', 'في انتظار التحويل') %> · <%= awaitingPayment.length %></h2>
   </div>
   <%- include('partials/superadmin/c_card_open', { tight: true }) %>
     <% if (!awaitingPayment.length) { %>
-      <%- include('partials/superadmin/c_empty', { title: _tt('superadmin.refunds.empty', 'No refund requests right now.', 'مفيش طلبات استرداد دلوقتي.') }) %>
+      <%- include('partials/superadmin/c_empty', { title: _tt('superadmin.refunds.empty.awaiting', 'Nothing approved and waiting to be paid.', 'لا توجد استردادات معتمدة تنتظر التحويل.') }) %>
     <% } else { %>
-      <div style="padding:0;">
-        <% awaitingPayment.forEach(function(r, idx) { %>
-          <article data-refund-id="<%= r.id %>" style="padding:14px;<% if (idx < awaitingPayment.length - 1) { %>border-bottom:1px solid var(--line-soft);<% } %>">
-            <header style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
-              <div style="font-size:12.5px;">
-                <a href="/superadmin/orders/<%= r.order_id %>" style="color:inherit;"><strong class="mono"><%= String(r.order_id || '').slice(0, 12).toUpperCase() %></strong></a>
-                <span style="color:var(--fg-3);">·</span> <%= r.patient_name || '—' %>
-                <span style="color:var(--fg-3);">·</span> <%= _tt('superadmin.refunds.col.approved', 'Approved', 'المعتمد') %>:
-                <strong class="tabular"><%= fmtAmt(r.approved_amount != null ? r.approved_amount : r.requested_amount) %> EGP</strong>
-                <%- include('partials/superadmin/c_chip', { label: r.status, tone: statusTone(r.status), dot: true }) %>
-              </div>
-              <small style="color:var(--fg-3);"><%= fmtTime(r.refunded_at) %></small>
-            </header>
-            <div style="margin-top:8px;font-size:12.5px;color:var(--fg-2);">
-              <strong><%= _tt('superadmin.refunds.col.instapay', 'Instapay', 'الإنستاباي') %>:</strong>
-              <code class="mono"><%= r.instapay_handle || '—' %></code>
-            </div>
-            <form method="post" action="/superadmin/refunds/<%= r.id %>/mark-paid" style="margin-top:12px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+      <% awaitingPayment.forEach(function(r) { const f = figs(r); const toPay = r.approved_amount != null ? r.approved_amount : r.requested_amount; %>
+        <article class="rq-row" data-refund-id="<%= r.id %>">
+          <header class="rq-row__head">
+            <a class="rq-ref mono" href="/superadmin/orders/<%= r.order_id %>"><bdi dir="ltr"><%= caseRef(r) %></bdi></a>
+            <bdi class="rq-name"><%= r.patient_name || '—' %></bdi>
+            <%- include('partials/superadmin/c_chip', { label: r.status, tone: statusTone(r.status), dot: true }) %>
+            <span class="rq-age" title="<%= fmtTime(r.refunded_at) %>"><%= fmtAge(r.refunded_at) %></span>
+          </header>
+          <dl class="rq-figs">
+            <div><dt><%= _tt('superadmin.refunds.col.to_pay', 'To pay', 'المطلوب تحويله') %></dt><dd><%= fmtMoney(toPay) %></dd></div>
+            <div><dt><%= _tt('superadmin.refunds.col.already', 'Already refunded', 'رُدّ بالفعل') %></dt><dd><%= fmtMoney(f.alreadyRefundedEgp) %></dd></div>
+            <div><dt><%= _tt('superadmin.refunds.col.remainder', 'Refundable after this', 'يتبقى بعد التحويل') %></dt><dd><%= fmtMoney(f.remainderEgp) %></dd></div>
+          </dl>
+          <div class="rq-why"><strong><%= origin(r) %></strong><% if (r.patient_reason) { %>: <q><%= r.patient_reason %></q><% } %></div>
+          <% if (r.reviewed_by_name || r.reviewed_at) { %>
+            <div class="rq-meta"><%= r.status === 'auto_approved' ? _tt('superadmin.refunds.meta.auto', 'Approved automatically (no consultant had started)', 'اعتُمد تلقائيًا (لم يبدأ أي استشاري)') : _tt('superadmin.refunds.meta.reviewed', 'Approved by', 'اعتمده') %> <% if (r.status !== 'auto_approved') { %><bdi><%= r.reviewed_by_name || '—' %></bdi> · <%= fmtTime(r.reviewed_at) %><% } %></div>
+          <% } %>
+          <div class="rq-actions">
+            <form method="post" action="/superadmin/refunds/<%= r.id %>/mark-paid" class="rq-form"
+                  data-confirm-msg="<%= _tt('superadmin.refunds.confirm.mark_paid', 'Mark ' + fmtMoney(toPay) + ' as paid to {number}? The patient is told it was sent.', 'تسجيل تحويل ' + fmtMoney(toPay) + ' إلى {number}؟ سيتم إبلاغ المريض بأن المبلغ أُرسل.') %>">
               <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-              <div>
-                <label class="c-field-label" style="font-size:11px;">
-                  <%= _tt('superadmin.refunds.field.instapay_reference', 'Instapay transaction reference', 'رقم تحويل الإنستاباي') %>
-                </label>
-                <input class="c-input" type="text" name="instapay_reference" maxlength="100" required style="min-width:280px;" />
-              </div>
+              <label class="c-field-label" for="pt-<%= r.id %>"><%= _tt('superadmin.refunds.field.paid_to', 'Number you sent it to', 'الرقم الذي حوّلت إليه') %></label>
+              <input class="c-input" id="pt-<%= r.id %>" type="tel" name="paid_to_number" inputmode="tel" dir="ltr" required maxlength="20"
+                     value="<%= r.instapay_handle || '' %>" placeholder="+201012345678" />
+              <label class="c-field-label" for="ref-<%= r.id %>"><%= _tt('superadmin.refunds.field.instapay_reference', 'Instapay transaction reference', 'رقم تحويل الإنستاباي') %></label>
+              <input class="c-input" id="ref-<%= r.id %>" type="text" name="instapay_reference" maxlength="100" required dir="ltr" />
               <button type="submit" class="btn primary"><%= _tt('superadmin.refunds.action.mark_paid', 'Mark paid', 'تحويل تم') %></button>
             </form>
-          </article>
-        <% }); %>
-      </div>
+            <% if (r.status === 'auto_approved') { %>
+              <form method="post" action="/superadmin/refunds/<%= r.id %>/deny" class="rq-form"
+                    data-confirm-msg="<%= _tt('superadmin.refunds.confirm.deny', 'Deny this refund for ' + caseRef(r) + '? The patient reads your reason.', 'رفض الاسترداد للحالة ' + caseRef(r) + '؟ سيقرأ المريض السبب.') %>">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <label class="c-field-label" for="dn-<%= r.id %>"><%= _tt('superadmin.refunds.field.denial_reason_patient', 'Reason the patient will see', 'السبب الذي سيراه المريض') %></label>
+                <textarea class="c-input" id="dn-<%= r.id %>" name="denial_reason" maxlength="1000" rows="2" required></textarea>
+                <button type="submit" class="btn danger"><%= _tt('superadmin.refunds.action.deny', 'Deny', 'رفض') %></button>
+              </form>
+            <% } %>
+          </div>
+        </article>
+      <% }); %>
     <% } %>
   <%- include('partials/superadmin/c_card_close') %>
+  </section>
 
-  <%# ── Recent (paid + denied, last 30 days) ─────────── %>
-  <% if (recent.length) { %>
-    <div class="section-h standalone" style="margin-top:16px;">
-      <h2><%= _tt('superadmin.refunds.section.recent', 'Recent (last 30 days)', 'الأحدث (آخر 30 يوم)') %> · <%= recent.length %></h2>
-    </div>
-    <%- include('partials/superadmin/c_card_open', { tight: true }) %>
-      <%- include('partials/superadmin/c_table_open', { headers: [
-            _tt('superadmin.refunds.col.case', 'Case', 'الحالة'),
-            _tt('superadmin.refunds.col.patient', 'Patient', 'المريض'),
-            { label: _tt('superadmin.refunds.col.approved', 'Approved', 'المعتمد'), align: 'end' },
-            _tt('superadmin.refunds.col.status', 'Status', 'الحالة'),
-            _tt('superadmin.refunds.col.requested_at', 'Requested', 'وقت الطلب')
-          ] }) %>
-        <% recent.forEach(function(r) { %>
-          <tr data-refund-id="<%= r.id %>">
-            <td class="id"><a href="/superadmin/orders/<%= r.order_id %>" style="color:inherit;"><%= String(r.order_id || '').slice(0, 12).toUpperCase() %></a></td>
-            <td><%= r.patient_name || '—' %></td>
-            <td class="num"><%= fmtAmt(r.amount_egp) %> EGP</td>
-            <td><%- include('partials/superadmin/c_chip', { label: r.status, tone: statusTone(r.status), dot: true }) %></td>
-            <td class="mono" style="color:var(--fg-3);font-size:11.5px;"><%= fmtTime(r.refunded_at) %></td>
-          </tr>
-        <% }); %>
-      <%- include('partials/superadmin/c_table_close') %>
-    <%- include('partials/superadmin/c_card_close') %>
-  <% } %>
+  <%# ── Paid (last 30 days) ──────────────────────────────── %>
+  <section id="rq-panel-paid" role="tabpanel" aria-labelledby="rq-tab-paid" data-refund-panel="paid">
+  <div class="section-h standalone" style="margin-top:16px;">
+    <h2><%= _tt('superadmin.refunds.section.paid', 'Paid', 'تم التحويل') %> · <%= paidRows.length %></h2>
+  </div>
+  <p class="rq-note"><%= _tt('superadmin.refunds.section.recent', 'Recent (last 30 days)', 'الأحدث (آخر 30 يوم)') %></p>
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <% if (!paidRows.length) { %>
+      <%- include('partials/superadmin/c_empty', { title: _tt('superadmin.refunds.empty.paid', 'No refunds paid in the last 30 days.', 'لم تُحوَّل استردادات في آخر 30 يومًا.') }) %>
+    <% } else { %>
+      <% paidRows.forEach(function(r) { const f = figs(r); %>
+        <article class="rq-row" data-refund-id="<%= r.id %>">
+          <header class="rq-row__head">
+            <a class="rq-ref mono" href="/superadmin/orders/<%= r.order_id %>"><bdi dir="ltr"><%= caseRef(r) %></bdi></a>
+            <bdi class="rq-name"><%= r.patient_name || '—' %></bdi>
+            <%- include('partials/superadmin/c_chip', { label: r.status, tone: statusTone(r.status), dot: true }) %>
+            <span class="rq-age" title="<%= fmtTime(r.paid_at || r.refunded_at) %>"><%= fmtAge(r.paid_at || r.refunded_at) %></span>
+          </header>
+          <dl class="rq-figs">
+            <div><dt><%= _tt('superadmin.refunds.col.paid', 'Paid', 'المحوَّل') %></dt><dd><%= fmtMoney(r.amount_egp) %></dd></div>
+            <div><dt><%= _tt('superadmin.refunds.col.total_refunded', 'Refunded on case', 'إجمالي المردود') %></dt><dd><%= fmtMoney(f.alreadyRefundedEgp) %></dd></div>
+            <div><dt><%= _tt('superadmin.refunds.col.eligible', 'Refundable now', 'المتاح للرد') %></dt><dd><%= fmtMoney(f.eligibleEgp) %></dd></div>
+          </dl>
+          <div class="rq-why"><strong><%= origin(r) %></strong><% if (r.patient_reason) { %>: <q><%= r.patient_reason %></q><% } %></div>
+          <div class="rq-meta">
+            <%= fmtTime(r.paid_at) %>
+            <% if (last4(r.paid_to_number || r.instapay_handle)) { %> — <%= _tt('superadmin.refunds.meta.to_number', 'to the number ending', 'إلى الرقم المنتهي بـ') %> <bdi dir="ltr" class="mono"><%= last4(r.paid_to_number || r.instapay_handle) %></bdi><% } %>
+            <% if (r.instapay_reference) { %> — <%= _tt('superadmin.refunds.meta.ref', 'ref', 'مرجع') %> <bdi dir="ltr" class="mono"><%= r.instapay_reference %></bdi><% } %>
+            <% if (r.paid_by_name) { %> — <%= _tt('superadmin.refunds.meta.paid_by', 'paid by', 'حوّله') %> <bdi><%= r.paid_by_name %></bdi><% } %>
+          </div>
+        </article>
+      <% }); %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+  </section>
+
+  <%# ── Denied (last 30 days) ────────────────────────────── %>
+  <section id="rq-panel-denied" role="tabpanel" aria-labelledby="rq-tab-denied" data-refund-panel="denied">
+  <div class="section-h standalone" style="margin-top:16px;">
+    <h2><%= _tt('superadmin.refunds.section.denied', 'Denied', 'مرفوض') %> · <%= deniedRows.length %></h2>
+  </div>
+  <p class="rq-note"><%= _tt('superadmin.refunds.section.recent', 'Recent (last 30 days)', 'الأحدث (آخر 30 يوم)') %></p>
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <% if (!deniedRows.length) { %>
+      <%- include('partials/superadmin/c_empty', { title: _tt('superadmin.refunds.empty.denied', 'No refunds denied in the last 30 days.', 'لم تُرفض استردادات في آخر 30 يومًا.') }) %>
+    <% } else { %>
+      <% deniedRows.forEach(function(r) { const f = figs(r); %>
+        <article class="rq-row" data-refund-id="<%= r.id %>">
+          <header class="rq-row__head">
+            <a class="rq-ref mono" href="/superadmin/orders/<%= r.order_id %>"><bdi dir="ltr"><%= caseRef(r) %></bdi></a>
+            <bdi class="rq-name"><%= r.patient_name || '—' %></bdi>
+            <%- include('partials/superadmin/c_chip', { label: r.status, tone: statusTone(r.status), dot: true }) %>
+            <span class="rq-age" title="<%= fmtTime(r.reviewed_at || r.refunded_at) %>"><%= fmtAge(r.reviewed_at || r.refunded_at) %></span>
+          </header>
+          <dl class="rq-figs">
+            <div><dt><%= _tt('superadmin.refunds.col.requested', 'Requested', 'المطلوب') %></dt><dd><%= fmtMoney(r.requested_amount) %></dd></div>
+            <div><dt><%= _tt('superadmin.refunds.col.eligible', 'Refundable now', 'المتاح للرد') %></dt><dd><%= fmtMoney(f.eligibleEgp) %></dd></div>
+            <div><dt><%= _tt('superadmin.refunds.col.already', 'Already refunded', 'رُدّ بالفعل') %></dt><dd><%= fmtMoney(f.alreadyRefundedEgp) %></dd></div>
+          </dl>
+          <div class="rq-why"><strong><%= origin(r) %></strong><% if (r.patient_reason) { %>: <q><%= r.patient_reason %></q><% } %></div>
+          <div class="rq-meta">
+            <%= _tt('superadmin.refunds.meta.denied_by', 'Denied by', 'رفضه') %> <bdi><%= r.reviewed_by_name || '—' %></bdi> · <%= fmtTime(r.reviewed_at) %>
+            <% if (r.denial_reason) { %><br/><%= _tt('superadmin.refunds.meta.patient_reads', 'The patient reads:', 'يقرأ المريض:') %> <q><%= r.denial_reason %></q><% } %>
+          </div>
+        </article>
+      <% }); %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+  </section>
 </div>
+
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function () {
+  var root = document.querySelector('[data-refund-queue]');
+  if (!root) return;
+  var isAr = (document.documentElement.getAttribute('lang') || '').toLowerCase().indexOf('ar') === 0;
+  function money(n) {
+    var s = (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 });
+    return isAr ? s + ' جنيه' : 'EGP ' + s;
+  }
+
+  // Tabs. Without this script every section stays visible.
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[data-refund-tab]'));
+  var panels = Array.prototype.slice.call(document.querySelectorAll('[data-refund-panel]'));
+  function show(key, focus) {
+    tabs.forEach(function (t) {
+      var on = t.getAttribute('data-refund-tab') === key;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+      if (on && focus) t.focus();
+    });
+    panels.forEach(function (p) { p.hidden = p.getAttribute('data-refund-panel') !== key; });
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener('click', function () {
+      var key = t.getAttribute('data-refund-tab');
+      show(key);
+      try { history.replaceState(null, '', '#' + key); } catch (e) {}
+    });
+    t.addEventListener('keydown', function (e) {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      var rtl = getComputedStyle(t).direction === 'rtl';
+      var step = (e.key === 'ArrowRight') !== rtl ? 1 : -1;
+      var next = tabs[(i + step + tabs.length) % tabs.length];
+      show(next.getAttribute('data-refund-tab'), true);
+      e.preventDefault();
+    });
+  });
+  var fromHash = (location.hash || '').slice(1);
+  var params = new URLSearchParams(location.search);
+  var initial = tabs.some(function (t) { return t.getAttribute('data-refund-tab') === fromHash; }) ? fromHash
+    : (params.get('flash') === 'paid' ? 'paid' : params.get('flash') === 'denied' ? 'denied'
+    : params.get('flash') === 'approved' || params.get('flash') === 'superseded' ? 'awaiting' : 'pending');
+  show(initial);
+
+  // Approve: what stays refundable, as the amount is edited.
+  var tmpl = <%- JSON.stringify(_mathTmpl) %>;
+  document.querySelectorAll('[data-rq-approve]').forEach(function (form) {
+    var input = form.querySelector('[data-rq-amount]');
+    var out = form.querySelector('[data-rq-math]');
+    if (!input || !out) return;
+    input.addEventListener('input', function () {
+      var eligible = parseFloat(input.getAttribute('data-eligible')) || 0;
+      var amount = parseFloat(input.value) || 0;
+      out.textContent = tmpl.replace('{eligible}', money(eligible)).replace('{amount}', money(amount))
+        .replace('{left}', money(Math.max(0, eligible - amount)));
+    });
+  });
+
+  // Every refund action confirms, naming the amount and the number.
+  document.querySelectorAll('form[data-confirm-msg]').forEach(function (form) {
+    form.addEventListener('submit', function (ev) {
+      var msg = form.getAttribute('data-confirm-msg') || '';
+      var amount = form.querySelector('[data-rq-amount]');
+      if (amount) msg = msg.replace('{amount}', money(parseFloat(amount.value) || 0));
+      var number = form.querySelector('[name="paid_to_number"]');
+      if (number) msg = msg.replace('{number}', number.value || '—');
+      if (!window.confirm(msg)) ev.preventDefault();
+    });
+  });
+})();
+</script>
 
 <%- include('partials/superadmin/footer', { isAr: isAr }) %>

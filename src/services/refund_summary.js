@@ -192,6 +192,59 @@ async function refundSummaryForOrder(order, opts) {
   });
 }
 
+// ── Part C4/C7 (2026-09-13): per-row figures for the operator queue (web) and
+// the Command API, computed identically in both and without a query per row.
+// Select the order columns maxRefundableEgp reads plus paidRefundedSql().
+
+// EGP already PAID back on the refund row's order — the same COALESCE chain as
+// refund_eligibility.paidRefundedEgp, as a correlated subquery.
+function paidRefundedSql(refundAlias) {
+  const a = refundAlias || 'r';
+  return `(SELECT COALESCE(SUM(COALESCE(px.amount_egp, px.approved_amount, px.requested_amount, 0)), 0)
+             FROM refunds px WHERE px.order_id = ${a}.order_id AND px.status = 'paid')`;
+}
+
+/**
+ * @param {Object} row refunds row + order columns (price, base_price,
+ *   urgency_uplift_amount, addons_json, video_consultation_*) + paid_refunded_egp.
+ * @returns {{ceilingEgp:number, alreadyRefundedEgp:number, eligibleEgp:number, thisRefundEgp:number, remainderEgp:number}}
+ *   eligibleEgp  — what the case can still refund now (charged minus refunds PAID);
+ *   remainderEgp — what stays refundable once THIS refund is paid (for a paid or
+ *                  denied row it already is: equal to eligibleEgp).
+ */
+function refundFigures(row) {
+  const r = row || {};
+  let ceiling = 0;
+  try {
+    ceiling = maxRefundableEgp({
+      id: r.order_id, price: r.price, base_price: r.base_price,
+      urgency_uplift_amount: r.urgency_uplift_amount, addons_json: r.addons_json,
+      video_consultation_selected: r.video_consultation_selected,
+      video_consultation_price: r.video_consultation_price
+    });
+  } catch (_) { ceiling = 0; }
+  const already = round2(r.paid_refunded_egp);
+  const thisRefund = round2(r.approved_amount != null ? r.approved_amount : (r.requested_amount != null ? r.requested_amount : r.amount_egp));
+  const eligible = Math.max(0, round2(ceiling - already));
+  const open = ['pending', 'auto_approved', 'approved'].indexOf(String(r.status || '')) !== -1;
+  return {
+    ceilingEgp: ceiling,
+    alreadyRefundedEgp: already,
+    eligibleEgp: eligible,
+    thisRefundEgp: thisRefund,
+    remainderEgp: open ? Math.max(0, round2(eligible - thisRefund)) : eligible
+  };
+}
+
+// "+201012345678" → "+20******5678" for API consumers that must not hold the
+// whole number (the patient-facing timeline uses maskInstapay's words instead).
+function maskNumber(number) {
+  const l4 = last4(number);
+  if (!l4) return null;
+  const s = String(number || '').trim();
+  return (s.charAt(0) === '+' ? s.replace(/[^0-9+]/g, '').slice(0, 3) : '') + '******' + l4;
+}
+
 // "+201012345678" → "•••• 5678" is exactly the glyph the timeline must not
 // show, so the masked form is words: "ending 5678" / "المنتهي بـ 5678".
 function last4(number) {
@@ -211,5 +264,8 @@ module.exports = {
   tierOf,
   last4,
   maskInstapay,
+  maskNumber,
+  paidRefundedSql,
+  refundFigures,
   TIER_NAMES
 };

@@ -496,7 +496,7 @@ async function main() {
     const meta = r.docHeight != null
       ? `content@${r.contentTop} text@${r.textTop} sidebar=${r.sidebarPos} h=${r.docHeight} ovX=${r.overflowX} footer=${r.hasPublicFooter ? 'public' : 'no'} tierBanner=${r.tierBanners} small=${(r.smallTargets || []).length}`
       : '';
-    console.log((r.fails.length ? '  FAIL ' : '  ok   ') + r.id.padEnd(26) + ' ' + meta + (r.fails.length ? '\n         ↳ ' + r.fails.join('; ') : '') +
+    console.log((r.fails.length ? '  FAIL ' : '  ok   ') + r.id.padEnd(26) + ' ' + meta + (r.note ? ' · ' + r.note : '') + (r.fails.length ? '\n         ↳ ' + r.fails.join('; ') : '') +
       ((r.smallTargets && r.smallTargets.length) ? '\n         · under 44px: ' + r.smallTargets.slice(0, 6).join(' | ') : ''));
   }
   console.log('\nScreenshots: ' + path.relative(ROOT, docsDir) + ' (390px + 1440px report pages), ' + tmpDir + ' (rest)');
@@ -538,6 +538,25 @@ async function refundPass({ browser, base, jwt, cookieName, docsDir, rows, failu
           return {
             path: location.pathname,
             overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            // Superadmin pages: the frame's own header is not part of this job
+            // (see the audit's "deliberately not done"), so measure the page body —
+            // anything inside .page-body that runs past the screen and is not
+            // inside its own horizontal scroller.
+            contentOverflowX: (function () {
+              const body = document.querySelector('.page-body');
+              if (!body) return null;
+              const W = document.documentElement.clientWidth;
+              let worst = 0;
+              body.querySelectorAll('*').forEach(function (el) {
+                const b = el.getBoundingClientRect();
+                if (!b.width || b.right <= W + 1) return;
+                for (let a = el.parentElement; a && a !== body; a = a.parentElement) {
+                  if (/(auto|scroll)/.test(getComputedStyle(a).overflowX)) return;
+                }
+                worst = Math.max(worst, Math.round(b.right - W));
+              });
+              return worst;
+            })(),
             kind: elig ? elig.getAttribute('data-kind') : null,
             eligText: elig ? elig.textContent.replace(/\s+/g, ' ').trim() : '',
             submitDisabled: submit ? submit.disabled : null,
@@ -555,7 +574,7 @@ async function refundPass({ browser, base, jwt, cookieName, docsDir, rows, failu
             tabs: document.querySelectorAll('[data-refund-tab]').length,
             rowsWithBdi: Array.from(document.querySelectorAll('[data-refund-id]')).filter((r) => r.querySelector('bdi')).length,
             rowCount: document.querySelectorAll('[data-refund-id]').length,
-            confirmForms: document.querySelectorAll('form[data-confirm][action*="/superadmin/refunds/"]').length,
+            confirmForms: document.querySelectorAll('form[data-confirm-msg][action*="/superadmin/refunds/"]').length,
             amountMax: (q('#amount') || {}).max || null
           };
         });
@@ -564,7 +583,9 @@ async function refundPass({ browser, base, jwt, cookieName, docsDir, rows, failu
         // 304: the same page revisited at the next width, served from the ETag.
         if (status !== 200 && status !== 304) fails.push('HTTP ' + status);
         if (!m.path.startsWith(pg.path.split('?')[0])) fails.push('landed on ' + m.path);
-        if (m.overflowX > 0) fails.push('horizontal scroll ' + m.overflowX + 'px');
+        if (pg.as === 'ops') {
+          if (m.contentOverflowX > 0) fails.push('queue content runs ' + m.contentOverflowX + 'px past the screen');
+        } else if (m.overflowX > 0) fails.push('horizontal scroll ' + m.overflowX + 'px');
         if (pg.kind) {
           if (m.kind !== pg.kind) fails.push('eligibility kind ' + m.kind + ' (expected ' + pg.kind + ')');
           if (!m.eligText) fails.push('no eligibility text');
@@ -590,7 +611,7 @@ async function refundPass({ browser, base, jwt, cookieName, docsDir, rows, failu
           if (m.confirmForms < 3) fails.push('actions without a confirm step');
         }
         if (pg.max && m.amountMax !== pg.max) fails.push('create max ' + m.amountMax + ' (expected ' + pg.max + ')');
-        rows.push({ id, status, fails });
+        rows.push({ id, status, fails, note: (pg.as === 'ops' && m.overflowX > 0) ? 'superadmin frame header overflows ' + m.overflowX + 'px (not this page)' : '' });
         if (fails.length) failures.push(id + ': ' + fails.join('; '));
         // Request forms: the first screen (facts, eligibility, sticky submit). A
         // full-page capture would paint the fixed tab bar half-way down.

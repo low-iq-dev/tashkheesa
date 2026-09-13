@@ -169,6 +169,7 @@ const {
 // number the server will accept rather than a number it derives itself.
 const { chargedEgpSql, chargedEgpForOrder } = require('../../services/order_pricing');
 const { maxRefundableEgp, remainingRefundableEgp } = require('../../services/refund_eligibility');
+const { paidRefundedSql, refundFigures, maskNumber, last4: refundLast4 } = require('../../services/refund_summary');
 const { bulkAutoAssign } = require('../../services/admin_bulk_assign');
 const { issueRefund } = require('../../services/admin_refund');
 const { setDoctorPause } = require('../../services/admin_doctor_pause');
@@ -432,6 +433,48 @@ module.exports = function (db, helpers, deploy, deps) {
   const mustGet = helpers.mustGet || strictSql.mustGet;
   const mustAll = helpers.mustAll || strictSql.mustAll;
   const router = express.Router();
+
+  // Part C7 (2026-09-13) — the refund figures the web queue shows, for the
+  // Command app: what the case can still refund, what was already paid back,
+  // what stays refundable after this refund, the reason the patient gave, and
+  // the numbers masked. ADDITIVE: no existing response key changes.
+  const REFUND_FIGURE_COLS = `r.patient_reason, r.paid_to_number, r.paid_by,
+                   o.base_price, o.urgency_uplift_amount, o.addons_json,
+                   o.video_consultation_selected, o.video_consultation_price,
+                   ${paidRefundedSql('r')} AS paid_refunded_egp`;
+  function refundApiExtras(r) {
+    const f = refundFigures(r);
+    return {
+      eligibleEgp: f.eligibleEgp,
+      alreadyRefundedEgp: f.alreadyRefundedEgp,
+      remainderEgp: f.remainderEgp,
+      instapayMasked: maskNumber(r.instapay_handle),
+      instapayLast4: refundLast4(r.paid_to_number || r.instapay_handle) || null,
+      paidToMasked: maskNumber(r.paid_to_number),
+      paidBy: r.paid_by || null,
+      patientReason: r.patient_reason || null,
+    };
+  }
+  // The action endpoints return the service's refund object; this adds the
+  // same fields to it. Any failure returns the object unchanged.
+  async function withRefundExtras(refund) {
+    if (!refund || !refund.id) return refund;
+    try {
+      const row = await safeGet(
+        `SELECT r.id, r.order_id, r.status, r.amount_egp, r.requested_amount, r.approved_amount,
+                r.instapay_handle, o.price, ${REFUND_FIGURE_COLS}
+           FROM refunds r
+           -- include-deleted-ok: refunds exist only on paid orders (see GET /refunds).
+           JOIN orders o ON o.id = r.order_id
+          WHERE r.id = $1`,
+        [refund.id]
+      );
+      if (!row || String(row.id) !== String(refund.id)) return refund;
+      return Object.assign({}, refund, refundApiExtras(row));
+    } catch (_) {
+      return refund;
+    }
+  }
 
   // Post-commit notification helpers for POST /cases/:id/assign. Injectable so
   // the atomic assign write stays hermetically testable; default to the real
@@ -833,7 +876,8 @@ module.exports = function (db, helpers, deploy, deps) {
       const ROW = `r.id, r.order_id, r.amount_egp, r.requested_amount, r.approved_amount,
                    r.status, r.reason, r.instapay_handle, r.instapay_reference,
                    r.refunded_at, r.reviewed_at, r.paid_at,
-                   p.name AS patient_name, o.reference_id, o.service_id, o.price, o.currency
+                   p.name AS patient_name, o.reference_id, o.service_id, o.price, o.currency,
+                   ${REFUND_FIGURE_COLS}
               FROM refunds r
               -- include-deleted-ok: every refund-insert path gates on
               -- payment_status='paid', and soft-delete only ever touches
@@ -958,6 +1002,7 @@ module.exports = function (db, helpers, deploy, deps) {
         refundedAt: toIso(r.refunded_at),
         reviewedAt: toIso(r.reviewed_at),
         paidAt: toIso(r.paid_at),
+        ...refundApiExtras(r),
       });
 
       const pending = (pendingRows || []).map(mapRefund);
@@ -2521,7 +2566,7 @@ module.exports = function (db, helpers, deploy, deps) {
         notification = 'failed';
       }
 
-      return res.ok({ refund, notification });
+      return res.ok({ refund: await withRefundExtras(refund), notification });
     } catch (err) {
       // setRefundApproval already rolled back before re-throwing; map known rejects.
       if (err && err.http) return res.fail(err.message, err.http, err.code);
@@ -2595,7 +2640,7 @@ module.exports = function (db, helpers, deploy, deps) {
         notification = 'failed';
       }
 
-      return res.ok({ refund, notification });
+      return res.ok({ refund: await withRefundExtras(refund), notification });
     } catch (err) {
       // setRefundDenial already rolled back before re-throwing; map known rejects.
       if (err && err.http) return res.fail(err.message, err.http, err.code);
@@ -2684,7 +2729,7 @@ module.exports = function (db, helpers, deploy, deps) {
             amount: Number(refund.finalAmount).toFixed(2),
             currency: 'EGP',
             instapayReference: refund.instapayReference,
-            instapayLast4: require('../../services/refund_summary').last4(refund.paidToNumber || refund.instapayHandle),
+            instapayLast4: (await withRefundExtras(refund)).instapayLast4 || '',
           },
           dedupe_key: 'refund_paid:' + refundId,
         });
@@ -2693,7 +2738,7 @@ module.exports = function (db, helpers, deploy, deps) {
         notification = 'failed';
       }
 
-      return res.ok({ refund, notification, clawback });
+      return res.ok({ refund: await withRefundExtras(refund), notification, clawback });
     } catch (err) {
       // setRefundPaid already rolled back before re-throwing; map known rejects.
       if (err && err.http) return res.fail(err.message, err.http, err.code);

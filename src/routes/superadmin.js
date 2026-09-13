@@ -6243,33 +6243,46 @@ router.get('/superadmin/refunds', requireSuperadmin, async (req, res) => {
   // Pending review (oldest first — FIFO so the operator picks them up
   // in order). Auto_approved + approved go to the "awaiting payment"
   // bucket. Paid + denied go to the "recent" bucket (last 30 days).
-  const pending = await safeAll(
-    `SELECT r.*, u.name AS patient_name
+  // Part C4 (2026-09-13): the patient is the ORDER's patient — requested_by
+  // is the operator on an operator refund and 'system' on a breach refund, so
+  // those rows showed the operator's name or a dash. Every row also carries
+  // what its case can still refund (services/refund_summary.refundFigures, the
+  // same figures the Command API ships) and who reviewed / paid it. Paid and
+  // denied now include operator refunds; automatic breach rows stay out of the
+  // 30-day list as before.
+  const { paidRefundedSql, refundFigures } = require('../services/refund_summary');
+  const QUEUE_ROW = `SELECT r.*, u.name AS patient_name, o.reference_id, o.price, o.base_price,
+            o.urgency_uplift_amount, o.addons_json, o.video_consultation_selected,
+            o.video_consultation_price, o.urgency_tier,
+            rb.name AS reviewed_by_name, pb.name AS paid_by_name,
+            ${paidRefundedSql('r')} AS paid_refunded_egp
        FROM refunds r
-       LEFT JOIN users u ON u.id = r.requested_by
+       LEFT JOIN orders_active o ON o.id = r.order_id
+       LEFT JOIN users u ON u.id = o.patient_id
+       LEFT JOIN users rb ON rb.id = r.reviewed_by
+       LEFT JOIN users pb ON pb.id = r.paid_by`;
+  const withFigures = (rows) => (rows || []).map((row) => Object.assign(row, { figures: refundFigures(row) }));
+  const pending = withFigures(await safeAll(
+    `${QUEUE_ROW}
       WHERE r.status = 'pending'
       ORDER BY r.refunded_at ASC`,
     []
-  );
-  const awaitingPayment = await safeAll(
-    `SELECT r.*, u.name AS patient_name
-       FROM refunds r
-       LEFT JOIN users u ON u.id = r.requested_by
+  ));
+  const awaitingPayment = withFigures(await safeAll(
+    `${QUEUE_ROW}
       WHERE r.status IN ('auto_approved','approved')
       ORDER BY r.refunded_at ASC`,
     []
-  );
-  const recent = await safeAll(
-    `SELECT r.*, u.name AS patient_name
-       FROM refunds r
-       LEFT JOIN users u ON u.id = r.requested_by
+  ));
+  const recent = withFigures(await safeAll(
+    `${QUEUE_ROW}
       WHERE r.status IN ('paid','denied')
         AND r.refunded_at > NOW() - INTERVAL '30 days'
-        AND r.reason = 'patient_request'
+        AND (r.reason = 'patient_request' OR r.reason = 'operator_refund')
       ORDER BY r.refunded_at DESC
       LIMIT 50`,
     []
-  );
+  ));
 
   // If prefill_order is set (legacy redirect from
   // /superadmin/orders/:id/payment with payment_status=refunded),
@@ -6328,10 +6341,12 @@ router.get('/superadmin/refunds/create', requireSuperadmin, async (req, res) => 
 
   // AUDIT (2026-08-17) — widened for maxRefundableEgp (needs price + add-ons).
   const order = await queryOne(
-    `SELECT o.id, o.patient_id, o.payment_status,
+    `SELECT o.id, o.patient_id, o.payment_status, o.status, o.urgency_tier, o.tier,
+            o.no_sla_refund_eligibility,
             o.price, o.base_price, o.urgency_uplift_amount, o.addons_json,
             o.video_consultation_selected, o.video_consultation_price,
-            o.reference_id, u.name AS patient_name, u.email AS patient_email
+            o.reference_id, u.name AS patient_name, u.email AS patient_email,
+            u.phone AS patient_phone
        FROM orders_active o
        LEFT JOIN users u ON u.id = o.patient_id
       WHERE o.id = $1`,
@@ -6348,7 +6363,7 @@ router.get('/superadmin/refunds/create', requireSuperadmin, async (req, res) => 
   // that an unpaid SLA-breach auto-refund is a TOP-UP, not a dead end — the
   // POST below supersedes it in place. See services/admin_refund.
   const existingRefund = await queryOne(
-    `SELECT id, status, reason FROM refunds
+    `SELECT id, status, reason, COALESCE(approved_amount, amount_egp) AS amount FROM refunds
       WHERE order_id = $1
         AND status IN ('pending','auto_approved','approved')
       LIMIT 1`,
@@ -6362,6 +6377,12 @@ router.get('/superadmin/refunds/create', requireSuperadmin, async (req, res) => 
   // wrote base_price, pre-filling the operator form with a zero refund.
   // Part B item 8 (2026-09-13): pre-fill with what is STILL owed.
   const defaultAmount = await remainingRefundableEgp(order);
+  // Part C5 (2026-09-13): the same description of the case's refund position
+  // the patient form and the queue show (services/refund_summary).
+  let summary = null;
+  try {
+    summary = await require('../services/refund_summary').refundSummaryForOrder(order);
+  } catch (_) { summary = null; }
 
   // AUDIT-2026-08-22 (M7): an UNPAID SLA-breach auto-refund must not hide the
   // form. superadmin_refund_create.ejs renders a "refund already exists — use
@@ -6388,6 +6409,7 @@ router.get('/superadmin/refunds/create', requireSuperadmin, async (req, res) => 
     lang, isAr,
     order: order,
     defaultAmount: defaultAmount,
+    summary,
     existingRefund: supersedableBreach ? null : (existingRefund || null),
     supersedingBreachRefund: supersedableBreach ? existingRefund : null,
     formError: String((req.query && req.query.error) || '').trim() || null
@@ -6422,7 +6444,7 @@ router.post('/superadmin/refunds/create', requireSuperadmin, async (req, res) =>
   // between two operators can't double-write.
   // AUDIT-2026-08-22 (M7): `reason` projected — see the supersede branch below.
   const existingRefund = await queryOne(
-    `SELECT id, status, reason FROM refunds
+    `SELECT id, status, reason, COALESCE(approved_amount, amount_egp) AS amount FROM refunds
       WHERE order_id = $1
         AND status IN ('pending','auto_approved','approved')
       LIMIT 1`,
@@ -6480,6 +6502,11 @@ router.post('/superadmin/refunds/create', requireSuperadmin, async (req, res) =>
         },
         actorUserId: req.user.id,
         actorRole: 'superadmin'
+      });
+      // Part C5 (2026-09-13): operator-created refunds are case events too.
+      await caseLifecycle.logCaseEvent(orderId, 'REFUND_CREATED_BY_OPERATOR', {
+        refund_id: out.id, amount_egp: out.amountEgp, superseded_breach_refund: true,
+        operator_user_id: req.user.id
       });
       return res.redirect('/superadmin/refunds?flash=superseded');
     } catch (err) {
@@ -6576,6 +6603,12 @@ router.post('/superadmin/refunds/create', requireSuperadmin, async (req, res) =>
     },
     actorUserId: operatorId,
     actorRole: 'superadmin'
+  });
+  // Part C5 (2026-09-13): on the case timeline, not only in order_events —
+  // with the ceiling the amount was checked against.
+  await caseLifecycle.logCaseEvent(orderId, 'REFUND_CREATED_BY_OPERATOR', {
+    refund_id: refundId, amount_egp: amountRaw, still_refundable_egp: maxAmount,
+    operator_user_id: operatorId
   });
 
   // Notify patient — honest copy ("opened on your behalf"), not the
@@ -6679,6 +6712,24 @@ router.post('/superadmin/refunds/:id/approve', requireSuperadmin, async (req, re
   if (approvedAmountRaw > requestedAmount + 0.001) {
     // Tiny epsilon to absorb float weirdness. No upgrades.
     return res.redirect('/superadmin/refunds?error=amount_exceeds_requested');
+  }
+  // Part C4 (2026-09-13): nor more than the case can STILL refund. A request
+  // sent before an earlier partial refund was paid asks for more than is left.
+  // Fail closed if the ceiling cannot be read.
+  let stillRefundable = null;
+  try {
+    const ord = await queryOne(
+      `SELECT id, price, base_price, urgency_uplift_amount, addons_json,
+              video_consultation_selected, video_consultation_price
+         FROM orders_active WHERE id = $1`,
+      [refund.order_id]
+    );
+    stillRefundable = ord ? await remainingRefundableEgp(ord) : null;
+  } catch (_) {
+    return res.redirect('/superadmin/refunds?error=ceiling_unavailable');
+  }
+  if (stillRefundable != null && approvedAmountRaw > stillRefundable + 0.001) {
+    return res.redirect('/superadmin/refunds?error=amount_exceeds_remaining');
   }
 
   // Re-validate state in the UPDATE to defend against concurrent admins.
@@ -6813,6 +6864,16 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
   if (!reference || reference.length < 1 || reference.length > 100) {
     return res.redirect('/superadmin/refunds?error=instapay_reference_required');
   }
+  // Part C4 (2026-09-13): the number the money was actually SENT to is
+  // required — it can differ from the one the patient typed (corrected on the
+  // phone) — and is stored with the operator who sent it. The patient's
+  // timeline and the paid notification show its last four digits.
+  const paidToCheck = require('../validators/phone').validatePhoneE164(
+    String((req.body && req.body.paid_to_number) || ''), 'en');
+  if (!paidToCheck.ok) {
+    return res.redirect('/superadmin/refunds?error=paid_to_number_invalid');
+  }
+  const paidToNumber = paidToCheck.normalized;
 
   const refund = await queryOne(
     "SELECT id, order_id, status, approved_amount, requested_amount, requested_by, instapay_handle FROM refunds WHERE id = $1",
@@ -6836,9 +6897,11 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
             instapay_reference = $1,
             paid_at = NOW(),
             amount_egp = $2,
-            approved_amount = COALESCE(approved_amount, $2)
+            approved_amount = COALESCE(approved_amount, $2),
+            paid_to_number = $4,
+            paid_by = $5
       WHERE id = $3 AND status IN ('approved','auto_approved')`,
-    [reference, finalAmount, refundId]
+    [reference, finalAmount, refundId, paidToNumber, payerId]
   );
   if (!result || result.rowCount === 0) {
     return res.redirect('/superadmin/refunds?error=invalid_state');
@@ -6899,6 +6962,7 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
       refund_id: refundId,
       amount_egp: finalAmount,
       instapay_reference: reference,
+      paid_to_last4: require('../services/refund_summary').last4(paidToNumber),
       payer_id: payerId,
       order_payment_status: psOutcome.flipped ? 'refunded' : 'unchanged',
       order_payment_status_reason: psOutcome.reason,
@@ -7000,7 +7064,7 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
           amount: finalAmount.toFixed(2),
           currency: 'EGP',
           instapayReference: reference,
-          instapayLast4: require('../services/refund_summary').last4(refund.instapay_handle)
+          instapayLast4: require('../services/refund_summary').last4(paidToNumber)
         },
         dedupe_key: 'refund_paid:' + refundId + ':patient'
       });
