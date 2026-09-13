@@ -2192,6 +2192,9 @@ router.get('/superadmin', requireSuperadmin, async (req, res) => {
     patients,
     marketing,
     health,
+    // Part B item 3 — outcome of the manual SLA sweep button (both halves).
+    slaRan: String(query.sla_ran || '') === '1',
+    slaError: String(query.error || '') === 'sla_sweep_failed',
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
   });
   console.log('[superadmin_dashboard] data=' + dataMs + 'ms render+data=' + (Date.now() - t0) + 'ms range=' + range);
@@ -5579,18 +5582,23 @@ router.get('/superadmin/tools/run-sla-sweep', requireSuperadmin, async (req, res
   // Side issue #47 — was `runSlaSweep(new Date())` against the no-op
   // sla_watcher stub. Repointed at the canonical worker so the
   // operator-triggered manual sweep actually does something.
+  // Part B item 3 (2026-09-13) — a failed sweep still redirected with
+  // ?sla_ran=1, so the operator who pressed the button to find out why the
+  // sweep was not running was told it had run. The failure now carries its
+  // own code and the dashboard renders it.
+  let sweepFailed = false;
   try {
     const { runCaseSlaSweep } = require('../case_sla_worker');
     await runCaseSlaSweep(new Date());
   } catch (e) {
-    // Best-effort manual trigger; surface in error_logs if it fails.
+    sweepFailed = true;
     require('../logger').logErrorToDb(e, {
       context: 'superadmin.run_sla_sweep_manual',
       userId: req.user && req.user.id,
       category: 'superadmin_action'
     });
   }
-  return res.redirect('/superadmin?sla_ran=1');
+  return res.redirect(sweepFailed ? '/superadmin?error=sla_sweep_failed' : '/superadmin?sla_ran=1');
 });
 
 // P1-SEC-1: Email the reset link via the existing password-reset template
@@ -6281,6 +6289,8 @@ router.get('/superadmin/refunds', requireSuperadmin, async (req, res) => {
     recent: recent || [],
     flash,
     flashError,
+    // Part B item 3 — the action succeeded but the patient could not be told.
+    flashWarn: String((req.query && req.query.warn) || '').trim(),
     prefillOrder,
     prefillOrderRow
   });
@@ -6566,9 +6576,15 @@ router.post('/superadmin/refunds/create', requireSuperadmin, async (req, res) =>
   // Notify patient — honest copy ("opened on your behalf"), not the
   // patient-self-initiated template. Skip admin fan-out: the operator
   // IS the admin.
+  // Part B item 3 (2026-09-13) — this was fire-and-forget inside a swallowing
+  // catch, followed by ?flash=created: a patient who was never told a refund
+  // had been opened for them looked, to the operator, exactly like one who
+  // was. The queue result is now read; a total failure is a case event the
+  // /ops/silent-failures view lists, and the operator sees a warning.
+  let patientNotified = true;
   if (order.patient_id) {
     try {
-      queueMultiChannelNotification({
+      const r = await queueMultiChannelNotification({
         orderId: orderId,
         toUserId: order.patient_id,
         channels: ['internal', 'email'],
@@ -6582,11 +6598,45 @@ router.post('/superadmin/refunds/create', requireSuperadmin, async (req, res) =>
         },
         dedupe_key: 'refund_opened_by_operator:' + refundId + ':patient'
       });
-    } catch (_) { /* best-effort — never block the redirect */ }
+      patientNotified = refundNotifyLanded(r);
+    } catch (_) { patientNotified = false; }
+    if (!patientNotified) await flagRefundNotifyFailed({ orderId, refundId, stage: 'opened', req });
   }
 
-  return res.redirect('/superadmin/refunds?flash=created');
+  return res.redirect('/superadmin/refunds?flash=created' + (patientNotified ? '' : '&warn=patient_not_notified'));
 });
+
+// Part B item 3 (2026-09-13) — did a patient notification actually land?
+// queueMultiChannelNotification never throws; it returns { ok, results } with
+// one entry per channel. A channel that was SKIPPED for a legitimate reason
+// (no email on file) is not a delivery, so "landed" means at least one channel
+// queued a row (or found the dedupe row already there).
+function refundNotifyLanded(result) {
+  if (!result || !result.ok) return false;
+  const rs = result.results || {};
+  return Object.keys(rs).some((ch) => rs[ch] && rs[ch].ok && !rs[ch].skipped);
+}
+
+// The loud half: a case event (listed by /ops/silent-failures via its
+// '%_FAILED' pattern; registered in case_lifecycle.SILENT_FAILURE_EVENTS) and
+// an error_logs row. Non-throwing — the refund write is already committed and
+// must not be undone by a reporting failure.
+async function flagRefundNotifyFailed({ orderId, refundId, stage, req }) {
+  try {
+    await caseLifecycle.logCaseEvent(orderId, 'REFUND_PATIENT_NOTIFY_FAILED', {
+      refund_id: refundId, stage, actor_user_id: req && req.user ? req.user.id : null
+    });
+  } catch (_) { /* the error_logs row below is the fallback record */ }
+  try {
+    logErrorToDb(new Error('patient refund notification failed (' + stage + ')'), {
+      context: 'superadmin.refund_patient_notify_failed',
+      requestId: req && req.requestId,
+      userId: req && req.user ? req.user.id : null,
+      orderId,
+      category: 'refund'
+    });
+  } catch (_) { /* nothing left to try */ }
+}
 
 router.post('/superadmin/refunds/:id/approve', requireSuperadmin, async (req, res) => {
   const refundId = req.params.id;
@@ -6636,12 +6686,15 @@ router.post('/superadmin/refunds/:id/approve', requireSuperadmin, async (req, re
     actorRole: 'superadmin'
   });
 
-  // Patient notification (in-app + email).
+  // Patient notification (in-app + email). Part B item 3 (2026-09-13): the
+  // result is read and a total failure is flagged — see the opened-by-operator
+  // handler above for why.
+  let patientNotified = true;
   try {
     const patient = await queryOne(
       "SELECT requested_by FROM refunds WHERE id = $1", [refundId]);
     if (patient && patient.requested_by) {
-      queueMultiChannelNotification({
+      const r = await queueMultiChannelNotification({
         orderId: refund.order_id,
         toUserId: patient.requested_by,
         channels: ['internal', 'email'],
@@ -6653,10 +6706,12 @@ router.post('/superadmin/refunds/:id/approve', requireSuperadmin, async (req, re
         },
         dedupe_key: 'refund_approved:' + refundId + ':patient'
       });
+      patientNotified = refundNotifyLanded(r);
     }
-  } catch (_) { /* best-effort */ }
+  } catch (_) { patientNotified = false; }
+  if (!patientNotified) await flagRefundNotifyFailed({ orderId: refund.order_id, refundId, stage: 'approved', req });
 
-  return res.redirect('/superadmin/refunds?flash=approved');
+  return res.redirect('/superadmin/refunds?flash=approved' + (patientNotified ? '' : '&warn=patient_not_notified'));
 });
 
 router.post('/superadmin/refunds/:id/deny', requireSuperadmin, async (req, res) => {
@@ -6698,9 +6753,12 @@ router.post('/superadmin/refunds/:id/deny', requireSuperadmin, async (req, res) 
     actorRole: 'superadmin'
   });
 
+  // Part B item 3 (2026-09-13): result read, total failure flagged — a patient
+  // who is never told their refund was denied keeps waiting for money.
+  let patientNotified = true;
   try {
     if (refund.requested_by) {
-      queueMultiChannelNotification({
+      const r = await queueMultiChannelNotification({
         orderId: refund.order_id,
         toUserId: refund.requested_by,
         channels: ['internal', 'email'],
@@ -6712,10 +6770,12 @@ router.post('/superadmin/refunds/:id/deny', requireSuperadmin, async (req, res) 
         },
         dedupe_key: 'refund_denied:' + refundId + ':patient'
       });
+      patientNotified = refundNotifyLanded(r);
     }
-  } catch (_) { /* best-effort */ }
+  } catch (_) { patientNotified = false; }
+  if (!patientNotified) await flagRefundNotifyFailed({ orderId: refund.order_id, refundId, stage: 'denied', req });
 
-  return res.redirect('/superadmin/refunds?flash=denied');
+  return res.redirect('/superadmin/refunds?flash=denied' + (patientNotified ? '' : '&warn=patient_not_notified'));
 });
 
 router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, res) => {

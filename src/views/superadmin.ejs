@@ -27,6 +27,23 @@
     }) %>
 
   <%- include('partials/ai_health_banner') %>
+  <%
+    // Part B item 3 (2026-09-13) — outcome of the manual SLA sweep button.
+    // ?error=sla_sweep_failed used to be ?sla_ran=1 (a failed sweep reported
+    // as run), and neither code rendered anything at all.
+    var _slaRan = (typeof slaRan !== 'undefined') && !!slaRan;
+    var _slaError = (typeof slaError !== 'undefined') && !!slaError;
+    var _isAr = String((typeof lang !== 'undefined' && lang) || 'en') === 'ar';
+  %>
+  <% if (_slaError) { %>
+    <div class="flash err" role="alert" style="margin:12px 16px;padding:10px 14px;border:1px solid #c0392b;border-radius:8px;color:#c0392b;">
+      <%= _isAr ? 'فشل تشغيل مسح المهل يدويًا — راجع سجل الأخطاء. الحالات المتأخرة لم تُفحص.' : 'The manual SLA sweep FAILED — check the error log. Overdue cases were not checked.' %>
+    </div>
+  <% } else if (_slaRan) { %>
+    <div class="flash ok" role="status" style="margin:12px 16px;padding:10px 14px;border:1px solid #0B6B5F;border-radius:8px;color:#0B6B5F;">
+      <%= _isAr ? 'تم تشغيل مسح المهل.' : 'SLA sweep ran.' %>
+    </div>
+  <% } %>
 
   <div class="tab-pane<%= _activeTab === 'operations' ? ' active' : '' %>" id="pane-operations">
     <%- include('partials/superadmin/tab_operations', { data: ops, csrfField: typeof csrfField === 'function' ? csrfField : null }) %>

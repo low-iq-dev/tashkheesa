@@ -4902,19 +4902,34 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
   });
 
   // Notify assigned doctor that additional files were uploaded.
+  //
+  // Part B item 3 (2026-09-13) — this was fire-and-forget: the queue's
+  // {ok:false} result was never read, and the direct-email fallback's catch
+  // only logged. A doctor who was never told the files had arrived left the
+  // case sitting in REJECTED_FILES with a paused clock and nobody looking.
+  // The upload itself IS durable, so the patient still sees uploaded=1 — the
+  // failure is made loud on the ops side: a DOCTOR_FILES_NOTIFY_FAILED case
+  // event (listed by /ops/silent-failures) plus an error_logs row, written
+  // only when NEITHER path reached the doctor.
   if (order.doctor_id) {
-    queueMultiChannelNotification({
-      orderId,
-      toUserId: order.doctor_id,
-      channels: ['internal', 'email', 'whatsapp'],
-      template: 'patient_uploaded_files_doctor',
-      response: {
-        case_id: orderId,
-        caseReference: orderId.slice(0, 12).toUpperCase(),
-        patientName: req.user.name || 'Patient'
-      },
-      dedupe_key: 'patient_uploaded:' + orderId + ':' + Date.now()
-    });
+    let queueLanded = false;
+    let emailLanded = false;
+    try {
+      const qr = await queueMultiChannelNotification({
+        orderId,
+        toUserId: order.doctor_id,
+        channels: ['internal', 'email', 'whatsapp'],
+        template: 'patient_uploaded_files_doctor',
+        response: {
+          case_id: orderId,
+          caseReference: orderId.slice(0, 12).toUpperCase(),
+          patientName: req.user.name || 'Patient'
+        },
+        dedupe_key: 'patient_uploaded:' + orderId + ':' + Date.now()
+      });
+      const rs = (qr && qr.ok && qr.results) || {};
+      queueLanded = Object.keys(rs).some((ch) => rs[ch] && rs[ch].ok && !rs[ch].skipped);
+    } catch (_) { queueLanded = false; }
 
     // Phase 4: parallel direct email to the doctor so the notification lands
     // even if the queueMultiChannelNotification system is gated off
@@ -4930,6 +4945,7 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
       const refId = (refRow && refRow.reference_id) || String(orderId).slice(0, 12).toUpperCase();
       if (doctor && doctor.email) {
         await emailService.notifyDoctorFileUploaded(doctor.email, refId, req.user.name || 'Patient');
+        emailLanded = true;
       }
     } catch (err) {
       logErrorToDb(err, {
@@ -4942,6 +4958,22 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
         orderId
       });
       console.error('[EMAIL] notifyDoctorFileUploaded failed:', err && err.message);
+    }
+    if (!queueLanded && !emailLanded) {
+      try {
+        await caseLifecycle.logCaseEvent(orderId, 'DOCTOR_FILES_NOTIFY_FAILED', {
+          doctor_id: order.doctor_id, uploaded_by: patientId, files: filtered.length
+        });
+      } catch (_) { /* error_logs row below is the fallback record */ }
+      logErrorToDb(new Error('doctor was not notified of newly uploaded files'), {
+        context: 'patient.doctor_files_notify_failed',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'patient_case',
+        orderId
+      });
     }
   }
 

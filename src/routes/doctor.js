@@ -1072,7 +1072,11 @@ router.get('/portal/doctor/services', requireDoctor, async (req, res) => {
     slaTiers,
     tiersUnconfirmed,
     servicesUnconfirmed,
-    success: req.query.success || null
+    success: req.query.success || null,
+    // Part B item 3 — the turnaround POST's failure code (was a green card).
+    error: String(req.query.error || '') === 'turnaround_save_failed'
+      ? (isAr ? 'تعذَّر حفظ سرعات التسليم. يرجى المحاولة مرة أخرى.' : 'Could not save your turnaround speeds. Please try again.')
+      : null
   });
 });
 
@@ -1149,10 +1153,10 @@ router.post('/portal/doctor/turnaround', requireDoctor, async (req, res) => {
       context: 'doctor.turnaround_save', requestId: req.requestId,
       userId: doctorId, url: req.originalUrl, method: req.method
     });
-    return res.redirect(back.split('#')[0] + '?success=' + encodeURIComponent(
-      isAr ? 'تعذَّر حفظ سرعات التسليم. يرجى المحاولة مرة أخرى.'
-           : 'Could not save your turnaround speeds. Please try again.'
-    ) + '#turnaround');
+    // Part B item 3 (2026-09-13) — this rode `?success=` and rendered in the
+    // GREEN card, so a doctor whose tiers failed to save was told they had
+    // saved. It is an error and the page renders it as one.
+    return res.redirect(back.split('#')[0] + '?error=turnaround_save_failed#turnaround');
   }
 });
 
@@ -2422,6 +2426,16 @@ const canAccept =
     reason_required: {
       en: 'A reason is required before the uploaded files can be rejected.',
       ar: 'السبب مطلوب قبل رفض الملفات المرفوعة.'
+    },
+    // Part B item 3 (2026-09-13) — reject-files outcomes that used to be a
+    // bare bounce to this page.
+    reject_files_failed: {
+      en: 'The file request could not be saved, so the patient has NOT been asked for more files and the case is unchanged. Please try again.',
+      ar: 'تعذّر حفظ طلب الملفات، فلم يُطلب من المريض أي ملفات والحالة كما هي. حاول مرة أخرى.'
+    },
+    reject_files_sla_pause_failed: {
+      en: 'The patient has been asked for more files, but the review deadline could NOT be paused — the clock is still running on this case. Please tell clinical operations.',
+      ar: 'تم طلب ملفات إضافية من المريض، لكن تعذّر إيقاف مهلة المراجعة — العدّاد لسه شغّال على الحالة دي. من فضلك بلّغ فريق العمليات.'
     }
   };
   const submitErrorEntry = REPORT_SUBMIT_ERRORS[String((req.query && req.query.error) || '')];
@@ -3575,9 +3589,15 @@ router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, async (re
     // The canonical helper case_lifecycle.markOrderRejectedFiles would
     // do this automatically, but converting this route to canonical is
     // P1-STATE-8 territory (a future theme).
+    // Part B item 3 (2026-09-13) — a pause failure was logged and forgotten,
+    // and the doctor was bounced to the case page with no code: the request
+    // went out but the deadline clock kept running against them. The code
+    // below tells them exactly that.
+    let slaPauseFailed = false;
     try {
       await caseLifecycle.pauseSla(orderId, 'doctor_rejected_files');
     } catch (err) {
+      slaPauseFailed = true;
       logErrorToDb(err, {
         context: 'doctor.reject_files_pause_sla',
         requestId: req.requestId,
@@ -3632,6 +3652,9 @@ router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, async (re
         orderId
       });
     } catch (_) {}
+    if (slaPauseFailed) {
+      return res.redirect(`/portal/doctor/case/${orderId}?error=reject_files_sla_pause_failed`);
+    }
   } catch (err) {
     logErrorToDb(err, {
       context: 'doctor.reject_files',
@@ -3643,6 +3666,9 @@ router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, async (re
       orderId
     });
     console.error('[DOCTOR] reject-files error:', err.message);
+    // Part B item 3 — the status write failed: the patient was NOT asked for
+    // files and the case is unchanged. Say so instead of a bare bounce.
+    return res.redirect(`/portal/doctor/case/${orderId}?error=reject_files_failed`);
   }
 
   return res.redirect(`/portal/doctor/case/${orderId}`);
@@ -4182,6 +4208,9 @@ router.post('/portal/doctor/profile', requireDoctor, async function(req, res) {
       });
     }
 
+    // silent-failure-ok: the profile UPDATE committed above; the swallowed
+    // catch is only the session-cookie re-sign, logged to error_logs, and a
+    // stale cookie is a wrong queue for ≤7 days, not a lost save.
     return res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تم تحديث الملف الشخصي' : 'Profile updated'));
   } catch (err) {
     logErrorToDb(err, {

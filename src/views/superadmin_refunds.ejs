@@ -55,6 +55,11 @@
       <% } %>
     </div>
   <% } %>
+  <% if (typeof flashWarn !== 'undefined' && flashWarn === 'patient_not_notified') { %>
+    <div class="flash err" role="alert">
+      <%= _tt('superadmin.refunds.flash.patient_not_notified', 'Saved — but the patient could NOT be notified (no bell row or email was queued). Tell them directly; the failure is logged under Silent failures.', 'اتحفظ — بس ما قدرناش نبلّغ المريض (لا إشعار ولا إيميل اتبعت). بلّغه بنفسك؛ الخطأ متسجّل تحت الأخطاء الصامتة.') %>
+    </div>
+  <% } %>
   <% if (flashError) { %>
     <div class="flash err" role="alert">
       <%= _tt('superadmin.refunds.flash.error', 'Action failed. Please try again.', 'الإجراء ما تمش. حاول تاني.') %>

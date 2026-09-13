@@ -109,7 +109,14 @@ const SILENT_FAILURE_EVENTS = Object.freeze([
   // six columns. CASE_UNASSIGN_FAILED is the serious one: the case is sitting at
   // REASSIGNED with a doctor still attached, which matches no sweep at all.
   'CASE_UNASSIGN_FAILED',
-  'CASE_SLA_RESET_FAILED'
+  'CASE_SLA_RESET_FAILED',
+  // Part B item 3 (2026-09-13) — routes/superadmin.js refund opened / approved /
+  // denied: the patient notification queued nothing on any channel. The refund
+  // write itself is committed; the patient just has not been told.
+  'REFUND_PATIENT_NOTIFY_FAILED',
+  // routes/patient.js order upload: neither the multi-channel queue nor the
+  // direct email reached the assigned doctor after new files arrived.
+  'DOCTOR_FILES_NOTIFY_FAILED'
 ]);
 
 
