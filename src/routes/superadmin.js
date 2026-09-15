@@ -40,6 +40,9 @@ const { broadcastOrderToSpecialty } = require('../notify/broadcast');
 // manual-queue approve opens the doctor_assignments handshake instead of just
 // writing doctor_id and stopping.
 const { checkHandpickedDoctorEligibility, finalizeHandpickedAssignment, REASONS: ASSIGN_REASONS } = require('../services/assign_case');
+// Launch gates 2026-09-15 (Task 1) — "may this doctor take a new case", for the
+// create-order hand-pick.
+const { doctorNewCaseBlockReason } = require('../services/doctor_eligibility');
 const { sendCriticalAlert } = require('../critical-alert');
 // Refund ceiling — the single source of truth for "how much of this order may
 // be returned to the patient". See services/refund_eligibility.maxRefundableEgp.
@@ -2319,6 +2322,39 @@ router.get('/superadmin/orders/new', requireSuperadmin, async (req, res) => {
   });
 });
 
+// Launch gates 2026-09-15 (Task 1) — why a hand-picked doctor was refused on
+// POST /superadmin/orders. Keyed by doctor_eligibility.DOCTOR_ACCOUNT_BLOCK;
+// fixed sentences only, never request text. Listed in the precedence the rule
+// names them (rejected > pending_approval > inactive > paused): signup and both
+// reject flows also write is_active = false, and must not read "deactivated".
+const MANUAL_PICK_REFUSAL_COPY = Object.freeze({
+  rejected: {
+    en: "That doctor's application was rejected, so they can't be given a case.",
+    ar: 'طلب انضمام الدكتور ده اترفض، فمش ممكن نسند له حالة.'
+  },
+  pending_approval: {
+    en: "That doctor is still awaiting approval, so they can't be given a case yet.",
+    ar: 'الدكتور ده لسه مستني الموافقة، فمش ممكن نسند له حالة دلوقتي.'
+  },
+  inactive: {
+    en: "That doctor's account is deactivated, so they can't be given a case.",
+    ar: 'حساب الدكتور ده مش مفعّل، فمش ممكن نسند له حالة.'
+  },
+  paused: {
+    en: "That doctor's account is paused, so they can't be given a new case.",
+    ar: 'حساب الدكتور ده متوقف مؤقتًا، فمش ممكن نسند له حالة جديدة.'
+  }
+});
+function manualPickRefusalMessage(reason, lang) {
+  const isAr = lang === 'ar';
+  const copy = Object.prototype.hasOwnProperty.call(MANUAL_PICK_REFUSAL_COPY, reason)
+    ? MANUAL_PICK_REFUSAL_COPY[reason]
+    : { en: "That doctor can't be given a case right now.", ar: 'مش ممكن نسند حالة للدكتور ده دلوقتي.' };
+  return isAr
+    ? copy.ar + ' اختار دكتور تاني، أو سيب خانة الدكتور فاضية علشان يتسند لدكتور متاح تلقائيًا.'
+    : copy.en + ' Pick another doctor, or leave Doctor empty to auto-assign an eligible one.';
+}
+
 // Create manual order (superadmin)
 router.post('/superadmin/orders', requireSuperadmin, async (req, res) => {
   const {
@@ -2333,7 +2369,27 @@ router.post('/superadmin/orders', requireSuperadmin, async (req, res) => {
   } = req.body || {};
 
   const requiredMissing = !patient_id || !specialty_id || !service_id || !sla_hours;
-  if (requiredMissing) {
+
+  // Launch gates 2026-09-15 (Task 1) — a hand-picked doctor must be able to
+  // take a new case. This lookup checked role only, so an order could be
+  // created 'accepted' on a paused, still-pending, deactivated or rejected
+  // doctor. The rule is doctor_eligibility.doctorNewCaseBlockReason, the one
+  // the doctor's own pool accept applies. An unknown id keeps its old
+  // behaviour (the order is created unassigned). The auto path below,
+  // pickDoctorForOrder, already excludes all four states in its SQL.
+  let selectedDoctor = null;
+  let pickRefusal = null;
+  if (!requiredMissing && doctor_id) {
+    const pickedRow = await queryOne(
+      `SELECT id, name, email, phone, is_active, is_paused, pending_approval, rejection_reason
+         FROM users WHERE id = $1 AND role = 'doctor'`,
+      [doctor_id]
+    );
+    pickRefusal = pickedRow ? doctorNewCaseBlockReason(pickedRow) : null;
+    if (!pickRefusal) selectedDoctor = pickedRow || null;
+  }
+
+  if (requiredMissing || pickRefusal) {
     const patients = await queryAll(
       "SELECT id, name, email FROM users WHERE role = 'patient'"
     );
@@ -2347,14 +2403,31 @@ router.post('/superadmin/orders', requireSuperadmin, async (req, res) => {
       'SELECT id, specialty_id, code, name FROM services ORDER BY name'
     );
 
+    // Keep the operator's own patient / specialty / service selected so a
+    // refusal does not cost them the order they typed. The select partial only
+    // compares these against its option list and never prints them; anything
+    // that is not a plain string (a qs array or object) is dropped. The doctor
+    // picker comes back EMPTY so the refused doctor is not re-submitted.
+    const keep = (v) => (typeof v === 'string' ? v : '');
     return res.status(400).render('superadmin_order_new', {
       user: req.user,
       patients,
       doctors,
       specialties,
       services,
-      defaults: { sla_hours: Number(sla_hours) || 72, price, doctor_fee, notes },
-      error: 'Please fill all required fields.'
+      defaults: {
+        patient_id: keep(patient_id),
+        specialty_id: keep(specialty_id),
+        service_id: keep(service_id),
+        doctor_id: '',
+        sla_hours: Number(sla_hours) || 72,
+        price,
+        doctor_fee,
+        notes
+      },
+      error: pickRefusal
+        ? manualPickRefusalMessage(pickRefusal, getLang(req, res))
+        : 'Please fill all required fields.'
     });
   }
 
@@ -2370,9 +2443,7 @@ router.post('/superadmin/orders', requireSuperadmin, async (req, res) => {
   const orderDoctorFee = doctor_fee ? Number(doctor_fee) : service ? service.doctor_fee : null;
   const orderPaymentLink = service ? service.payment_link : null;
   const orderCurrency = service ? service.currency || 'EGP' : 'EGP';
-  const selectedDoctor = doctor_id
-    ? await queryOne("SELECT id, name, email, phone FROM users WHERE id = $1 AND role = 'doctor'", [doctor_id])
-    : null;
+  // selectedDoctor is resolved (and account-checked) above, before any write.
   const autoDoctor = !doctor_id ? await pickDoctorForOrder({ specialtyId: specialty_id, serviceId: service_id }) : null;
   const chosenDoctor = selectedDoctor || autoDoctor;
   const status = chosenDoctor ? 'accepted' : 'new';

@@ -4,6 +4,7 @@ const path = require('path');
 const { acceptOrder, markOrderCompleted } = require('../db');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { logErrorToDb } = require('../logger');
+const { doctorNewCaseBlockReason } = require('../services/doctor_eligibility');
 const { requireRole } = require('../middleware');
 // AUDIT-2026-09-06 (D2): src/auth.js:33 — "Routes that mutate
 // users.specialty_id MUST call refreshSessionCookie." POST
@@ -2169,6 +2170,45 @@ function escapeHtml(s) {
 
 // ---- end doctor alerts ----
 
+// Launch gates 2026-09-15 (Task 1) — the pool accept's account refusal
+// (Guardrail 3c in POST /portal/doctor/case/:caseId/accept) and the copy the
+// case page shows for it. Keyed by the ?msg= code; fixed sentences only, never
+// request text.
+function poolAcceptRefusalCode(reason) {
+  if (!reason) return null;
+  // One ?msg= code per doctor-facing message, listed in the precedence
+  // doctorNewCaseBlockReason already applies (rejected > pending > inactive >
+  // paused). Signup writes is_active = false with pending_approval, so a
+  // pending doctor must read "awaiting approval", not "isn't active".
+  if (reason === 'rejected') return 'account_inactive';
+  if (reason === 'pending_approval') return 'pending_approval';
+  if (reason === 'inactive') return 'account_inactive';
+  if (reason === 'paused') return 'paused';
+  return 'account_inactive'; // no users row, or a reason this map does not know: fail closed
+}
+const POOL_ACCEPT_REFUSAL_COPY = Object.freeze({
+  paused: {
+    en: "Your account is paused, so you can't take new cases right now. Cases already assigned to you aren't affected, so please finish those. Contact support to lift the pause.",
+    ar: 'حسابك متوقف مؤقتًا، فمش هتقدر تاخد حالات جديدة دلوقتي. الحالات اللي معاك بالفعل مش متأثرة، كمّلها عادي. كلّم الدعم علشان يرفعوا الإيقاف.'
+  },
+  pending_approval: {
+    en: "Your account is still awaiting approval, so you can't take cases yet. We'll let you know as soon as it's approved.",
+    ar: 'حسابك لسه مستني الموافقة، فمش هتقدر تاخد حالات دلوقتي. هنبلغك أول ما نوافق على حسابك.'
+  },
+  account_inactive: {
+    en: "Your account isn't active, so you can't accept this case. Contact support if you think this is a mistake.",
+    ar: 'حسابك مش مفعّل، فمش هتقدر تقبل الحالة دي. لو فيه غلط، كلّم الدعم.'
+  },
+  account_check_failed: {
+    en: "We couldn't confirm your account status just now, so the case wasn't accepted. Please try again in a moment.",
+    ar: 'مقدرناش نتأكد من حالة حسابك دلوقتي، فالحالة متقبلتش. جرّب تاني كمان شوية.'
+  }
+});
+function poolAcceptRefusalMessage(msg, isAr) {
+  if (!Object.prototype.hasOwnProperty.call(POOL_ACCEPT_REFUSAL_COPY, msg)) return null;
+  return isAr ? POOL_ACCEPT_REFUSAL_COPY[msg].ar : POOL_ACCEPT_REFUSAL_COPY[msg].en;
+}
+
 // ---- Portal doctor case view ----
 router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
   const lang = getLang(req, res);
@@ -2193,7 +2233,9 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
       ? (isAr
           ? 'طبيب تاني قبل الحالة دي قبلك بلحظات. شوف باقي الحالات المتاحة في قائمتك.'
           : 'Another doctor accepted this case moments before you. Check your queue for other available cases.')
-      : null;
+      // Launch gates 2026-09-15 (Task 1): the accept-time account refusal
+      // (paused, awaiting approval, inactive/rejected, unreadable account).
+      : poolAcceptRefusalMessage(msg, isAr);
   // Guardrail: never render or redirect with an undefined case id.
   if (!orderId) return res.redirect('/portal/doctor/dashboard');
 
@@ -3295,6 +3337,47 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
     }
     if (doctorSpecialtyId !== orderSpecialtyId) {
       return res.redirect(`/portal/doctor/case/${orderId}?msg=specialty`);
+    }
+  }
+
+  // Guardrail 3c (launch gates 2026-09-15, Task 1): account state, POOL only.
+  //
+  // Nothing on this path read the account. requireRole blocks is_active=false
+  // and pending doctors through the access_revocation cache, which fails open
+  // and lags up to 60 s, and it never blocks is_paused (pause is not a
+  // lockout). So a doctor auto-paused for three SLA breaches in 30 days kept
+  // taking open-pool cases, and a deactivated or pending one could inside the
+  // cache window.
+  //
+  //   * The LIVE users row, not req.user or the cache: this is a write.
+  //   * Unassigned pool only. A case already assigned to THIS doctor is left
+  //     alone: a paused doctor finishes the cases they hold.
+  //   * Every pool case, with or without a specialty (not nested in 3b).
+  //   * Before capacity, so a refused doctor cannot trigger the overflow
+  //     reassign below; before any transaction.
+  //   * Fail closed on a read error, as 3b does.
+  if (!assignedDoctorId) {
+    let accountRefusal = null;
+    try {
+      const accountRow = await queryOne(
+        'SELECT is_active, is_paused, pending_approval, rejection_reason FROM users WHERE id = $1',
+        [doctorId]
+      );
+      accountRefusal = poolAcceptRefusalCode(doctorNewCaseBlockReason(accountRow));
+    } catch (e) {
+      logErrorToDb(e, {
+        context: 'doctor.accept_account_check',
+        requestId: req.requestId,
+        userId: doctorId,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_case',
+        orderId
+      });
+      accountRefusal = 'account_check_failed';
+    }
+    if (accountRefusal) {
+      return res.redirect(`/portal/doctor/case/${orderId}?msg=${accountRefusal}`);
     }
   }
 
