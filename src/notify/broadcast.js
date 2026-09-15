@@ -90,9 +90,14 @@ async function broadcastOrderToSpecialty(orderId) {
   // the column acceptance_watcher's expiry sweep reads. Gated today only by
   // auto_assign_enabled being off by default; it arms the moment that flips.
   //
-  // The SELECT-side check is the cheap exit; the `doctor_id IS NULL` predicate
-  // on the UPDATE is the one that actually closes the race, because the assign
-  // can land between this read and that write.
+  // The SELECT-side check is the cheap exit; the unassigned predicate on the
+  // UPDATE is the one that actually closes the race, because the assign can
+  // land between this read and that write.
+  //
+  // Launch gate 2026-09-15 — that predicate is NULLIF(doctor_id, '') IS NULL.
+  // doctor_id is TEXT; '' means nobody holds the case (this JS check already
+  // treats it as falsy), but `doctor_id IS NULL` refused the claim, so a paid
+  // case with doctor_id = '' was never broadcast.
   if (order.doctor_id) {
     console.warn('[broadcast] order already assigned, skipping:', orderId, order.doctor_id);
     return { ok: false, reason: 'already_assigned' };
@@ -132,7 +137,7 @@ async function broadcastOrderToSpecialty(orderId) {
          acceptance_deadline_at = $3,
          updated_at = $2
      WHERE id = $4
-       AND doctor_id IS NULL`,
+       AND NULLIF(doctor_id, '') IS NULL`,
     [tier, now.toISOString(), acceptanceDeadline, orderId]
   );
   // A doctor was assigned between the SELECT above and this UPDATE. Bail

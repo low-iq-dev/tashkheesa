@@ -2862,6 +2862,10 @@ router.post('/superadmin/manual-queue/:id/approve', requireSuperadmin, async (re
           WHERE id = $5`,
         [specialtyId, serviceId, nextAssignmentStatus, nowIso, orderId]
       );
+      // Launch gate 2026-09-15 (T2-R3) — released to automatic routing with no
+      // doctor. No transaction here, so the reset marker is written right after
+      // the routing write (see writeManualQueueRoutingReset below).
+      await writeManualQueueRoutingReset(req, orderId, 'approve');
     }
 
     await execute(
@@ -2958,17 +2962,29 @@ router.post('/superadmin/manual-queue/:id/approve', requireSuperadmin, async (re
       Promise.resolve(caseLifecycle.logCaseEvent(orderId, 'CASE_ROUTING_FAILED', {
         stage: 'finalize_handpick', reason: fin.reason, via: 'manual_queue_approve'
       })).catch(function () {});
+      let releasedToAuto = false;
       try {
         // LOWER(status)='paid' is the race guard: only unwind if THIS handler's
         // routing write is still the latest state (status has not been walked to
         // ASSIGNED by a concurrent approve that DID succeed). Otherwise we would
         // undo a good assignment another operator just won.
-        await execute(
+        const reset = await execute(
           `UPDATE orders SET doctor_id = NULL, assignment_status = 'auto', updated_at = $1
             WHERE id = $2 AND assignment_status = 'assigned' AND LOWER(status) = 'paid'`,
           [new Date().toISOString(), orderId]
         );
-      } catch (_) { /* the A2 sweep is the durable net if this reset fails */ }
+        releasedToAuto = !!(reset && reset.rowCount > 0);
+      } catch (_) {
+        // If this reset fails, the case keeps the hand-picked doctor_id with no
+        // handshake. The stranded-paid sweep only scans cases with no doctor, so
+        // nothing retries it automatically; the finalize failure logged above
+        // (error_logs + CASE_ROUTING_FAILED) is what an operator sees.
+      }
+      // Launch gate 2026-09-15 (T2-R3) — only a reset that landed released the
+      // case to automatic routing with no doctor, and only then is the marker
+      // written: with it, the stranded-paid sweep gives the case a fresh retry
+      // budget if the broadcast below fails before its claim.
+      if (releasedToAuto) await writeManualQueueRoutingReset(req, orderId, 'finalize_fallback');
       if (isPaid) {
         enqueueAutoAssign(orderId).catch(function () {});
         broadcastOrderToSpecialty(orderId).catch(function () {});
@@ -3024,6 +3040,33 @@ router.post('/superadmin/manual-queue/:id/approve', requireSuperadmin, async (re
   }
   return res.redirect('/superadmin/manual-queue?flash=approved');
 });
+
+// Launch gate 2026-09-15 (T2-R3) — the routing-reset contract. When the approve
+// above releases a case to automatic routing with no doctor (assignment_status
+// 'auto'), CASE_ROUTING_RESET goes on the case timeline. The stranded-paid sweep
+// (case_sla_worker) honours its terminal event, and counts attempts, only AFTER
+// the case's latest reset. Without the marker, a case the sweep parked before
+// stays excluded forever, so if its re-broadcast fails before the claim nothing
+// ever retries it. The write throws on failure (logCaseEvent would swallow it);
+// a failure goes to error_logs and never fails the approve itself.
+async function writeManualQueueRoutingReset(req, orderId, stage) {
+  try {
+    await caseLifecycle.insertCaseEventOrThrow(orderId, caseLifecycle.CASE_ROUTING_RESET_EVENT, {
+      via: 'manual_queue_approve',
+      stage: stage,
+      operator_user_id: (req.user && req.user.id) || null,
+    }, execute);
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'manual_queue_approve.routing_reset_event',
+      category: 'assignment',
+      orderId: orderId,
+      userId: req.user && req.user.id,
+      requestId: req.requestId,
+      stage: stage,
+    });
+  }
+}
 
 // Theme 14 Phase 5 — Mark a manual-queue case unsuitable.
 //
