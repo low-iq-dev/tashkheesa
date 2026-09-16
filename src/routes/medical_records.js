@@ -8,6 +8,8 @@ const { requireRole } = require('../middleware');
 const { sanitizeHtml, sanitizeString } = require('../validators/sanitize');
 const { logErrorToDb } = require('../logger');
 const { safeAll, safeGet } = require('../sql-utils');
+// A4 (FIX PLAN 2026-09-15) — assignment is not acceptance; see the doctor route below.
+const { doctorHasAcceptedCase } = require('../services/doctor_case_access');
 
 const router = express.Router();
 
@@ -213,9 +215,16 @@ router.get('/portal/doctor/case/:caseId/patient-records', requireRole('doctor'),
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
 
-    // Verify doctor is assigned to this case
-    var order = await safeGet('SELECT patient_id FROM orders_active WHERE id = $1 AND doctor_id = $2', [caseId, doctorId], null);
-    if (!order) return res.status(403).json({ ok: false, error: 'Forbidden' });
+    // Verify the doctor has ACCEPTED this case.
+    //
+    // A4 (FIX PLAN 2026-09-15): `doctor_id = $2` alone was true from the moment
+    // the case was OFFERED to this doctor — case_lifecycle.assignDoctor writes
+    // orders.doctor_id at assignment. This endpoint returns the patient's whole
+    // shared record history (labs, imaging, discharge summaries, chronic
+    // conditions), which is the "full history" that must stay hidden until a
+    // doctor takes the case. Same 403 as before, asked of acceptance.
+    var order = await safeGet('SELECT patient_id, doctor_id, status FROM orders_active WHERE id = $1 AND doctor_id = $2', [caseId, doctorId], null);
+    if (!order || !doctorHasAcceptedCase(order, doctorId)) return res.status(403).json({ ok: false, error: 'Forbidden' });
 
     var records = await safeAll(
       'SELECT id, record_type, title, description, file_url, file_name, date_of_record, provider, tags, created_at FROM medical_records WHERE patient_id = $1 AND is_shared_with_doctors = true AND is_hidden = false ORDER BY date_of_record DESC, created_at DESC',

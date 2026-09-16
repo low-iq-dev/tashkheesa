@@ -9,6 +9,9 @@ const { randomUUID } = require('crypto');
 const { queryOne, queryAll, execute } = require('../pg');
 const { requireRole, requireAuth } = require('../middleware');
 const { major: logMajor } = require('../logger');
+// A4 (FIX PLAN 2026-09-15) — assignment is not acceptance; see the two access
+// helpers below.
+const { doctorHasAcceptedCase } = require('../services/doctor_case_access');
 
 const router = express.Router();
 
@@ -32,17 +35,29 @@ async function safeAll(sql, params) {
   }
 }
 
-// Verify the doctor has access to a specific case (must be assigned/accepted)
+// Verify the doctor may work on a specific case.
+//
+// A4 (FIX PLAN 2026-09-15): this asked `doctor_id = $2` — assignment, not
+// acceptance — so a doctor who had accepted nothing could WRITE markup onto
+// the patient's scan. `status` is selected so the shared rule can answer.
 async function doctorOwnsCase(doctorId, caseId) {
   const row = await safeGet(
-    'SELECT id FROM orders_active WHERE id = $1 AND doctor_id = $2',
+    'SELECT id, doctor_id, status FROM orders_active WHERE id = $1 AND doctor_id = $2',
     [caseId, doctorId],
     null
   );
-  return !!row;
+  return doctorHasAcceptedCase(row, doctorId);
 }
 
 // Verify the user (patient/doctor/admin) can view a case
+//
+// A4 (FIX PLAN 2026-09-15): the doctor arm was `order.doctor_id === user.id`,
+// and three GETs ride this helper — including /api/annotations/:imageId/image,
+// which returns annotated_image_data: the patient's actual scan with the
+// previous doctor's markup on it. case_lifecycle's REASSIGNED -> ASSIGNED
+// transition sets the new doctor_id with accepted_at = null, and the
+// case_annotations rows are not deleted on reassignment, so the replacement
+// doctor could pull the images before deciding whether to take the case.
 async function userCanViewCase(user, caseId) {
   if (!user) return false;
   const role = String(user.role || '').toLowerCase();
@@ -50,13 +65,13 @@ async function userCanViewCase(user, caseId) {
   if (role === 'superadmin' || role === 'admin') return true;
 
   const order = await safeGet(
-    'SELECT id, patient_id, doctor_id FROM orders_active WHERE id = $1 LIMIT 1',
+    'SELECT id, patient_id, doctor_id, status FROM orders_active WHERE id = $1 LIMIT 1',
     [caseId],
     null
   );
   if (!order) return false;
 
-  if (role === 'doctor') return order.doctor_id === user.id;
+  if (role === 'doctor') return doctorHasAcceptedCase(order, user.id);
   if (role === 'patient') return order.patient_id === user.id;
 
   return false;

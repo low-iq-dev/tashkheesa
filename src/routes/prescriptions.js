@@ -17,6 +17,8 @@ const upload = require('../middleware/upload');
 const { uploadFile, getSignedDownloadUrl } = require('../storage');
 const { computeDoctorStreakCount } = require('./messaging');
 const { queryOne } = require('../pg');
+// A4 (FIX PLAN 2026-09-15) — assignment is not acceptance; see the prescribe route.
+const { doctorHasAcceptedCase } = require('../services/doctor_case_access');
 const { getAddon } = require('../services/addons/registry');
 const { resolvePrescriptionAccess, ensurePrescriptionAddonRow } = require('../services/addons/prescription_access');
 const { prescriptionsComingSoon } = require('../services/prescriptions_flag');
@@ -61,6 +63,15 @@ router.get('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), async
       [caseId, doctorId], null
     );
     if (!order) return res.status(404).send(isAr ? 'الحالة غير موجودة' : 'Case not found');
+
+    // A4 (FIX PLAN 2026-09-15) — the screen below renders the patient's name,
+    // date of birth and sex alongside the whole order row. `o.doctor_id = $2`
+    // is true from ASSIGNMENT, not from acceptance, so a doctor still deciding
+    // whether to take the case could open all of it whenever the prescription
+    // add-on happened to be paid. Same refusal as a case that is not theirs.
+    if (!doctorHasAcceptedCase(order, doctorId)) {
+      return res.status(404).send(isAr ? 'الحالة غير موجودة' : 'Case not found');
+    }
 
     // Coming soon (2026-08-24) — checked BEFORE the add-on gate, so a doctor
     // who reaches this URL while the feature is held back gets "not live yet",
@@ -179,6 +190,18 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), uplo
       [caseId, doctorId], null
     );
     if (!order) return res.status(404).send(isAr ? 'الحالة غير موجودة' : 'Case not found');
+
+    // A4 (FIX PLAN 2026-09-15) — the same gate as the GET form, for the same
+    // reason this file already gives twice below: gating only the GET leaves
+    // the POST openly craftable. `o.doctor_id = $2` is true from ASSIGNMENT,
+    // and the no-medications-and-no-file path further down re-renders
+    // doctor_prescribe with the whole order row — patient name, email, date of
+    // birth and sex included — so a doctor still deciding whether to take the
+    // case could read all of it by posting the form empty. Same refusal as a
+    // case that is not theirs.
+    if (!doctorHasAcceptedCase(order, doctorId)) {
+      return res.status(404).send(isAr ? 'الحالة غير موجودة' : 'Case not found');
+    }
 
     // Coming soon (2026-08-24), enforced on the write as well as the form —
     // gating only the GET would leave the POST openly craftable.

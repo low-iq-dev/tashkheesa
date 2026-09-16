@@ -5,6 +5,17 @@ const { acceptOrder, markOrderCompleted } = require('../db');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { logErrorToDb } = require('../logger');
 const { doctorNewCaseBlockReason } = require('../services/doctor_eligibility');
+// A4 (FIX PLAN 2026-09-15) — the single rule for "how much of this case may
+// this doctor see", and the redactions that go with a pre-accept payload.
+const {
+  CASE_ACCEPTED_STATUSES,
+  CASE_UNACCEPTED_STATUSES,
+  CASE_ACCESS,
+  doctorCaseAccess,
+  doctorHasAcceptedCase,
+  redactPreAcceptOrderRow,
+  redactPreAcceptFiles
+} = require('../services/doctor_case_access');
 const { requireRole } = require('../middleware');
 // AUDIT-2026-09-06 (D2): src/auth.js:33 — "Routes that mutate
 // users.specialty_id MUST call refreshSessionCookie." POST
@@ -48,18 +59,14 @@ const sendWhatsApp = (wa && typeof wa.sendWhatsApp === 'function') ? wa.sendWhat
 // fallback. Migration 047 converts existing rows to 'REJECTED_FILES';
 // new code never writes the legacy value. Removed in a follow-up
 // cleanup PR after 30 days.
-const ACCEPTED_STATUSES = [
-  'in_review',
-  'review',
-  'awaiting_files',
-  'rejected_files',
-  'breached',
-  'sla_breach'
-];
+// A4 (FIX PLAN 2026-09-15) — the bucket lists now live beside the access rule
+// that reads them (services/doctor_case_access), so "accepted" cannot come to
+// mean one thing here and another there. The lists themselves are unchanged.
+const ACCEPTED_STATUSES = CASE_ACCEPTED_STATUSES;
 
 // Legacy/backward-compat: some flows may have written payment state into `orders.status` (e.g., 'PAID').
 // Also treat 'assigned/accepted' as NOT accepted yet (acceptance is when `accepted_at` is set).
-const UNACCEPTED_STATUSES = ['new', 'submitted', 'paid', 'assigned', 'accepted'];
+const UNACCEPTED_STATUSES = CASE_UNACCEPTED_STATUSES;
 
 // ---- Doctor capacity guardrails ----
 const MAX_ACTIVE_CASES = 4;
@@ -216,10 +223,12 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
   );
   const assignedPendingTotal = await countAssignedPendingCases(doctorId);
 
+  // A4 — assigned to this doctor but NOT yet accepted (accepted_at IS NULL),
+  // so these are offers, not cases in hand. Same redaction as the pool rows.
   const assignedPendingMapped = enrichOrders(assignedPendingCases).map((order) => {
     const ps = String(order.payment_status || '').toLowerCase();
     const isPaid = ps === 'paid' || ps === 'captured';
-    return mapPortalCaseItem(order, lang, { isPaid });
+    return mapPortalCaseItem(redactPreAcceptOrderRow(order), lang, { isPaid });
   });
 
   const poolNewCases = await buildPortalCasesUnassigned(doctorSpecialtyId, newStatuses, 6, lang);
@@ -344,10 +353,27 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
         LIMIT 5`,
       [doctorId]
     );
+    // A4 (FIX PLAN 2026-09-15) — this bucket is ('accepted','in_review') and
+    // the SELECT is `o.*`, so every row carried the patient's name, question,
+    // history and medications into the dashboard payload. 'accepted' is a
+    // status this codebase counts as NOT accepted — it is in
+    // UNACCEPTED_STATUSES, because acceptance is when accepted_at is set — and
+    // portal_doctor_dashboard.ejs renders _initials(c.patient_name) off these
+    // rows. So a doctor who had merely been HANDED a case saw the patient's
+    // initials on their dashboard and carried the whole clinical row in the
+    // payload behind it. Redact per row by the same shared rule the case page
+    // uses; an in_review row is untouched.
+    //
+    // Asked of the RAW db status, not the enriched one: enrichOrders rewrites
+    // `status` to the effective status, and an overdue not-yet-accepted case
+    // becomes 'breached', which IS in the accepted bucket — that would have
+    // un-redacted exactly the rows that sat longest unaccepted.
     priorityQueue = enrichOrders(priorityRows).map(function (order) {
       var ps = String(order.payment_status || '').toLowerCase();
       var isPaid = ps === 'paid' || ps === 'captured';
-      return mapPortalCaseItem(order, lang, { isPaid: isPaid });
+      var rawForAccess = { doctor_id: order.doctor_id, status: order.db_status || order.status };
+      var row = doctorHasAcceptedCase(rawForAccess, doctorId) ? order : redactPreAcceptOrderRow(order);
+      return mapPortalCaseItem(row, lang, { isPaid: isPaid });
     });
   } catch (e) {
     logErrorToDb(e, {
@@ -2428,6 +2454,58 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
     );
   }
 
+  // A4 (FIX PLAN 2026-09-15) — a status bucket is not an authorisation.
+  //
+  // Everything above asks only "is this case in a state SOME doctor could act
+  // on?". It asks nothing about THIS doctor, so possession of the case id was
+  // the whole gate: any doctor on the platform could open the pre-accept brief
+  // of any unassigned case, in any specialty, paid or not, whatever state their
+  // own account was in, and read the patient's referring question, medical
+  // history and current medications.
+  //
+  // Entitlement is decided from the case and the doctor: the case is paid, it
+  // is assigned to them or open to their specialty, and they are eligible to
+  // take it. Neither half of "eligible" is restated here — the account half is
+  // the launch-gates rule (services/doctor_eligibility), the specialty half is
+  // the pool queries' fail-closed specialtyMatchSql.
+  //
+  // The LIVE users row, not req.user: the JWT's copy of specialty_id can be up
+  // to seven days stale (src/auth.js:33) and both halves hang off this row.
+  // Fail closed on a read error, exactly as the accept handler does — an
+  // unreadable account is not an eligible one.
+  //
+  // Runs BEFORE the payload is assembled, so a case this doctor is not entitled
+  // to is never loaded into a payload at all. A doctor who has already accepted
+  // skips this entirely: their access was settled above and no later pause can
+  // take back a case they are mid-way through.
+  if (!isAcceptedByThisDoctor) {
+    let doctorAccountRow = null;
+    try {
+      doctorAccountRow = await queryOne(
+        'SELECT specialty_id, is_active, is_paused, pending_approval, rejection_reason FROM users WHERE id = $1',
+        [doctorId]
+      );
+    } catch (e) {
+      logErrorToDb(e, {
+        context: 'doctor.case_view_entitlement_check',
+        requestId: req.requestId,
+        userId: doctorId,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_case',
+        orderId
+      });
+      doctorAccountRow = null;
+    }
+    const caseAccess = doctorCaseAccess({ order, doctorId, doctorRow: doctorAccountRow });
+    if (caseAccess.level !== CASE_ACCESS.OFFER) {
+      return await renderAccessDenied(
+        caseAccess.reason || 'case_not_available',
+        'This case is no longer available for review.'
+      );
+    }
+  }
+
   // Accept eligibility logic
 const canAccept =
   isPaid &&
@@ -2888,6 +2966,33 @@ const canAccept =
                           hasPrescription: false, prescriptionId: null, priceEgp: null };
   }
 
+  // A4 — what the payload may carry before the doctor has accepted.
+  //
+  // The withheld things are ABSENT from the payload, not blanked and not merely
+  // gated in the template: a template gate is one careless edit away from a
+  // leak (that is exactly how the patient's name leaked from an <h2> two lines
+  // above the gate), and this payload is also what any future JSON view of the
+  // page would serialise.
+  //
+  //   * clinicalContext — the referring question, the medical history and the
+  //     current medications. The three the fix plan names as the exposure.
+  //   * file names and their /files/:id urls — a scan is routinely named after
+  //     the patient, so the offer keeps the COUNT and the KIND and nothing
+  //     else. That is what the pre-accept inventory chips render.
+  //   * the AI image checks — AI extractions stay locked until accept.
+  //   * annotations — there are none before a doctor takes the case, and they
+  //     name the doctor who drew them.
+  //
+  // Everything an unaccepted doctor DOES still get is listed in
+  // services/doctor_case_access.PRE_ACCEPT_ORDER_FIELDS, and is built into
+  // viewOrder above.
+  const preAcceptFiles = showFullCase ? files : redactPreAcceptFiles(files);
+  const clinicalContext = !showFullCase ? null : {
+    question: (order && (order.clinical_question || order.primary_concern || order.concern)) || '',
+    medicalHistory: (order && (order.medical_history || order.history)) || '',
+    medications: (order && (order.current_medications || order.medications)) || ''
+  };
+
   const payload = {
     portalFrame: true,
     portalRole: 'doctor',
@@ -2898,19 +3003,17 @@ const canAccept =
     lang,
     isAr,
     order: viewOrder,
-    files,
-    annotatedFiles,
+    files: preAcceptFiles,
+    annotatedFiles: showFullCase ? annotatedFiles : [],
     blurred: !showFullCase,
     canViewDetails: showFullCase,
     accessDenied: false,
     activeTab: 'cases',
     nextPath: `/portal/doctor/case/${orderId}`,
     acceptActionUrl: `/portal/doctor/case/${orderId}/accept`,
-    clinicalContext: {
-      question: (order && (order.clinical_question || order.primary_concern || order.concern)) || '',
-      medicalHistory: (order && (order.medical_history || order.history)) || '',
-      medications: (order && (order.current_medications || order.medications)) || ''
-    },
+    // Spread in only when the doctor has accepted: pre-accept the key itself is
+    // absent, so there is nothing to blank and nothing to leak.
+    ...(clinicalContext ? { clinicalContext } : {}),
     routingFacts,
     prescriptionAddon,
     rxFlash,
@@ -2920,7 +3023,7 @@ const canAccept =
     acceptBlockedReason,
     isPaid,
     caseConversationId,
-    fileAiChecks,
+    fileAiChecks: showFullCase ? fileAiChecks : {},
     pendingVideoAppt,
     streakCount: await computeDoctorStreakCount(doctorId),
     ...(reportMissingMessage ? { errorMessage: reportMissingMessage } : {}),
@@ -2970,13 +3073,23 @@ router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(r
   var order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return res.status(404).render('404', { message: 'Case not found' });
 
-  // Only the assigned doctor can view.
+  // Only the doctor who has ACCEPTED the case can view.
+  //
   // AUDIT-P1: this was `order.doctor_id && ...`, which passes when doctor_id
   // is NULL -- the normal state of every unassigned and every broadcast case.
   // This page renders case_extractions lab values, AI-extracted patient_info
   // and the patient's name, so the fail-open leaked clinical data on every
   // unclaimed paid case to any authenticated doctor. Fail closed.
-  if (!order.doctor_id || String(order.doctor_id) !== doctorId) {
+  //
+  // A4 (FIX PLAN 2026-09-15): "doctor_id is me" was still too weak, because
+  // case_lifecycle.assignDoctor writes orders.doctor_id when the case is
+  // OFFERED, not when it is accepted. So every doctor who had merely been
+  // handed a case to consider could open the patient's name, the AI-extracted
+  // patient_info and the extracted lab values while still deciding whether to
+  // take it. None of that is part of an offer: the case file opens on
+  // acceptance. Same 403 as before — the refusal is not widened, only its
+  // question is corrected.
+  if (!doctorHasAcceptedCase(order, doctorId)) {
     return res.status(403).send('Access denied');
   }
 
@@ -4995,9 +5108,14 @@ async function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6
     } catch (_) {}
   }
 
+  // A4 — every row here is an UNACCEPTED pool case, and the SELECT above is
+  // `o.*`, so each one carried the patient's question, history and medications
+  // into the dashboard payload. No template printed them, which is exactly the
+  // problem: a field withheld only by a template is one edit from being
+  // rendered. Strip them from the row instead.
   return enriched.map((order) => {
     const isPaid = String(order.payment_status || '').toLowerCase() === 'paid';
-    return mapPortalCaseItem(order, lang, { isPaid, hasVideoSlot: unasgVideoSlotSet.has(String(order.id)) });
+    return mapPortalCaseItem(redactPreAcceptOrderRow(order), lang, { isPaid, hasVideoSlot: unasgVideoSlotSet.has(String(order.id)) });
   });
 }
 
@@ -5178,10 +5296,13 @@ async function buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, statuses, li
     } catch (_) {}
   }
 
+  // A4 — the queue's "new" bucket is entirely unaccepted cases (pool + assigned
+  // -but-not-accepted) and the SELECT is `o.*`. Same redaction as the pool
+  // builder above.
   return enrichedNew.map((order) => {
     const ps = String(order.payment_status || '').toLowerCase();
     const isPaid = ps === 'paid' || ps === 'captured';
-    return mapPortalCaseItem(order, lang, { isPaid, hasVideoSlot: newVideoSlotSet.has(String(order.id)) });
+    return mapPortalCaseItem(redactPreAcceptOrderRow(order), lang, { isPaid, hasVideoSlot: newVideoSlotSet.has(String(order.id)) });
   });
 }
 

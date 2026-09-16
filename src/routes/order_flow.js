@@ -12,6 +12,8 @@ const express = require('express');
 //                         hard to reason about. Keep the import list honest.
 // requireAuth is DELIBERATELY RETAINED — see the note above its require.
 const { queryOne, queryAll } = require('../pg');
+// A4 (FIX PLAN 2026-09-15) — assignment is not acceptance; see below.
+const { doctorHasAcceptedCase } = require('../services/doctor_case_access');
 const { logErrorToDb } = require('../logger');
 var { enqueueCaseReprocess } = require('../job_queue');
 var { rateLimit } = require('express-rate-limit');
@@ -130,7 +132,7 @@ router.get('/api/cases/:id/intelligence', requireAuth(), async function(req, res
   try {
     var caseId = String(req.params.id);
 
-    var caseRow = await queryOne('SELECT id, patient_id, doctor_id, intelligence_status FROM orders_active WHERE id = $1', [caseId]);
+    var caseRow = await queryOne('SELECT id, patient_id, doctor_id, status, intelligence_status FROM orders_active WHERE id = $1', [caseId]);
     if (!caseRow) return res.status(404).json({ error: 'Case not found' });
 
     // Ownership: only the case's patient, the assigned doctor, or an admin
@@ -138,7 +140,12 @@ router.get('/api/cases/:id/intelligence', requireAuth(), async function(req, res
     var user = req.user;
     var isStaff = user && (user.role === 'admin' || user.role === 'superadmin');
     var isPatientOwner = user && caseRow.patient_id && String(caseRow.patient_id) === String(user.id);
-    var isAssignedDoctor = user && caseRow.doctor_id && String(caseRow.doctor_id) === String(user.id);
+    // A4 (FIX PLAN 2026-09-15) — this was `doctor_id === me`, and
+    // case_lifecycle.assignDoctor writes orders.doctor_id when the case is
+    // OFFERED. So a doctor who had not accepted anything could pull the
+    // AI-extracted patient_info and the extracted lab values for a case they
+    // were still deciding about. The extractions open on acceptance.
+    var isAssignedDoctor = user && doctorHasAcceptedCase(caseRow, user.id);
     if (!isStaff && !isPatientOwner && !isAssignedDoctor) {
       return res.status(403).json({ error: 'Forbidden' });
     }
