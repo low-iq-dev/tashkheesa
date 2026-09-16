@@ -758,10 +758,15 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       const nowIso = new Date().toISOString();
 
       await withTransaction(async (client) => {
+        // A4 — a password change ends old sessions too (tokens_valid_after).
+        // Launch gates 2026-09-15 (Task 3): the cut is an APP timestamp taken
+        // immediately before the statement, never the database's NOW(). JWT iat
+        // is app-clock seconds, so a database clock running ahead of this host
+        // would revoke the token the user signs in with right after the reset.
+        const revokedAt = new Date();
         await client.query(
-          // A4 — a password change ends old sessions too (tokens_valid_after).
-          `UPDATE users SET password_hash = $1, tokens_valid_after = NOW() WHERE id = $2`,
-          [hashed, user.id]
+          `UPDATE users SET password_hash = $1, tokens_valid_after = $3::timestamptz WHERE id = $2`,
+          [hashed, user.id, revokedAt]
         );
         await client.query(
           `UPDATE password_reset_tokens SET used_at = $1 WHERE token = $2`,

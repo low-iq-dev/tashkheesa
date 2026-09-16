@@ -55,8 +55,14 @@ check('a token minted AFTER the cut is NOT stale', () => {
   if (rev._isStaleRow({ tva_ms: CUT }, after) !== false) return 'post-cut token wrongly flagged';
 });
 check('a token minted in the SAME second as the cut is NOT stale (fresh-cookie safety)', () => {
-  // The reset flow stamps tokens_valid_after then re-issues a cookie in the same
-  // request — its iat must survive. Second-granularity comparison guarantees it.
+  // No password handler re-mints in the same request: Task 3's guard
+  // (tests/core/revocation-app-clock-2026-09-15.test.js) reports 0 session/token
+  // mints inside all four of them. So what this rule protects is the credential
+  // the user is issued NEXT — it must not be killed by a cut stamped in the same
+  // second. It does NOT save a credential minted BEFORE the stamp: the
+  // magic-link cookie a doctor is holding at POST /set-password predates the cut
+  // and dies within one 60 s cache window. Re-issuing that cookie is second-branch
+  // work, not something this assertion covers.
   if (rev._isStaleRow({ tva_ms: CUT }, Math.floor(CUT / 1000)) !== false) {
     return 'a token from the cut second was revoked — reset would log the user out';
   }
@@ -105,13 +111,21 @@ check('doctor requireRole blocks a deactivated/rejected doctor via login_gate', 
 
 // ── STRUCTURAL: the cut is stamped everywhere it must be, and NOWHERE it must not ──
 
+// Launch gates 2026-09-15 (Task 3): these pinned `tokens_valid_after = NOW()`.
+// The cut is now an APP timestamp bound as $n::timestamptz, because JWT iat is
+// app-clock seconds and a database-clock cut mixed the two clocks. Each site is
+// still pinned; tests/core/revocation-app-clock-2026-09-15.test.js pins the
+// clock itself (no NOW(), revokedAt taken immediately before each statement,
+// behaviour with a skewed database clock, real-Postgres round trip).
+// Every regex pins the EXACT placeholder, not any `$n`, so dropping the
+// ::timestamptz cast and re-ordering the bound arguments both fail here.
 const WRITE_SITES = [
-  ['deactivate (superadmin)', 'src/routes/superadmin.js', /is_active = false, refresh_token = NULL, tokens_valid_after = NOW\(\)/],
-  ['reject (superadmin)', 'src/routes/superadmin.js', /refresh_token = NULL,\s*tokens_valid_after = NOW\(\),\s*rejection_reason/],
-  ['reject (service)', 'src/services/admin_doctor_reject.js', /refresh_token = NULL,\s*tokens_valid_after = NOW\(\),\s*rejection_reason/],
-  ['password (api/auth)', 'src/routes/api/auth.js', /password_hash = \$1, tokens_valid_after = NOW\(\)/],
-  ['password (routes/auth reset+set)', 'src/routes/auth.js', /password_hash = \$1,\s*tokens_valid_after = NOW\(\)/],
-  ['password (api/profile)', 'src/routes/api/profile.js', /password_hash = \$1, tokens_valid_after = NOW\(\)/],
+  ['deactivate (superadmin)', 'src/routes/superadmin.js', /is_active = false, refresh_token = NULL, tokens_valid_after = \$2::timestamptz/],
+  ['reject (superadmin)', 'src/routes/superadmin.js', /refresh_token = NULL,\s*tokens_valid_after = \$3::timestamptz,\s*rejection_reason/],
+  ['reject (service)', 'src/services/admin_doctor_reject.js', /refresh_token = NULL,\s*tokens_valid_after = \$3::timestamptz,\s*rejection_reason/],
+  ['password (api/auth)', 'src/routes/api/auth.js', /password_hash = \$1, tokens_valid_after = \$3::timestamptz/],
+  ['password (routes/auth reset+set)', 'src/routes/auth.js', /password_hash = \$1,\s*tokens_valid_after = \$3::timestamptz/],
+  ['password (api/profile)', 'src/routes/api/profile.js', /password_hash = \$1, tokens_valid_after = \$3::timestamptz/],
 ];
 for (const [label, rel, re] of WRITE_SITES) {
   check('stamps the cut on: ' + label, () => {

@@ -4268,13 +4268,19 @@ router.post('/superadmin/doctors/outreach/state', requireSuperadmin, async (req,
     // doctor (migrations/040 — "excluded from open-pool broadcasts", not
     // logged out), and pause is set AUTOMATICALLY on SLA breach with no human
     // in the loop, so signing them out would be a silent lockout.
-    if (action === 'deactivate')      sql = "UPDATE users SET is_active = false, refresh_token = NULL, tokens_valid_after = NOW() WHERE id = $1 AND role = 'doctor'";
+    if (action === 'deactivate')      sql = "UPDATE users SET is_active = false, refresh_token = NULL, tokens_valid_after = $2::timestamptz WHERE id = $1 AND role = 'doctor'";
     else if (action === 'activate')   sql = "UPDATE users SET is_active = true  WHERE id = $1 AND role = 'doctor'";
     else if (action === 'pause')      sql = "UPDATE users SET is_paused = true,  paused_at = NOW() WHERE id = $1 AND role = 'doctor'";
     else if (action === 'unpause')    sql = "UPDATE users SET is_paused = false, paused_at = NULL   WHERE id = $1 AND role = 'doctor'";
     else return res.redirect(back + '?error=state');
 
-    await execute(sql, [id]);
+    // Launch gates 2026-09-15 (Task 3) — deactivate's revocation cut is an APP
+    // timestamp taken immediately before the statement (bound as $2), never the
+    // database's NOW(): JWT iat is app-clock seconds, and a database clock
+    // running behind this host would let a token minted just before the
+    // deactivation survive it. The other actions bind only the id.
+    const revokedAt = new Date();
+    await execute(sql, action === 'deactivate' ? [id, revokedAt] : [id]);
 
     // AUDIT 2026-09-06 (BLOCKER 4) — deactivate also burns unused welcome /
     // magic links, for the reason given above the SQL. Only deactivate: an
@@ -4900,16 +4906,20 @@ router.post('/superadmin/doctors/:id/reject', requireSuperadmin, async (req, res
   const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [doctorId]);
   if (!doctor) return res.redirect('/superadmin/doctors');
   const { rejection_reason } = req.body || {};
+  // Launch gates 2026-09-15 (Task 3) — the revocation cut is an APP timestamp
+  // taken immediately before the statement, never the database's NOW(): JWT
+  // iat is app-clock seconds.
+  const revokedAt = new Date();
   await execute(
     `UPDATE users
      SET pending_approval = false,
          is_active = false,
          approved_at = NULL,
          refresh_token = NULL,
-         tokens_valid_after = NOW(),
+         tokens_valid_after = $3::timestamptz,
          rejection_reason = $1
      WHERE id = $2 AND role = 'doctor'`,
-    [rejection_reason || 'Not approved', doctorId]
+    [rejection_reason || 'Not approved', doctorId, revokedAt]
   );
 
   // AUDIT 2026-09-06 (BLOCKER 4) — burn any welcome/magic link still in

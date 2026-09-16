@@ -873,6 +873,13 @@ router.post('/set-password', welcomeTokenIpLimiter, async (req, res) => {
   const passwordHash = await hash(password);
 
   await withTransaction(async (client) => {
+    // Launch gates 2026-09-15 (Task 3) — the revocation cut is an APP timestamp
+    // taken immediately before the statement, never the database's NOW(). JWT
+    // iat is app-clock seconds: a database clock running ahead of this host
+    // would put the cut after the session the user gets next and sign them
+    // out; one running behind would let a token minted just before this write
+    // survive it.
+    const revokedAt = new Date();
     await client.query(
       // AUDIT 2026-09-06 (BLOCKER 4) — was an unconditional
       // `is_active = true`, with no filter on who was setting the password.
@@ -891,13 +898,13 @@ router.post('/set-password', welcomeTokenIpLimiter, async (req, res) => {
       // password operation; it is not an appeal.
       `UPDATE users
        SET password_hash = $1,
-           tokens_valid_after = NOW(),
+           tokens_valid_after = $3::timestamptz,
            is_active = CASE
              WHEN password_hash IS NULL AND rejection_reason IS NULL THEN true
              ELSE is_active
            END
        WHERE id = $2`,
-      [passwordHash, user.id]
+      [passwordHash, user.id, revokedAt]
     );
 
     await client.query(
@@ -975,6 +982,13 @@ router.post('/reset-password/:token', welcomeTokenIpLimiter, async (req, res) =>
   const passwordHash = await hash(password);
 
   await withTransaction(async (client) => {
+    // Launch gates 2026-09-15 (Task 3) — the revocation cut is an APP timestamp
+    // taken immediately before the statement, never the database's NOW(). JWT
+    // iat is app-clock seconds: a database clock running ahead of this host
+    // would put the cut after the session the user gets next and sign them
+    // out; one running behind would let a token minted just before this write
+    // survive it.
+    const revokedAt = new Date();
     await client.query(
       // AUDIT 2026-09-06 (BLOCKER 4) — was an unconditional
       // `is_active = true`, with no filter on who was setting the password.
@@ -993,13 +1007,13 @@ router.post('/reset-password/:token', welcomeTokenIpLimiter, async (req, res) =>
       // password operation; it is not an appeal.
       `UPDATE users
        SET password_hash = $1,
-           tokens_valid_after = NOW(),
+           tokens_valid_after = $3::timestamptz,
            is_active = CASE
              WHEN password_hash IS NULL AND rejection_reason IS NULL THEN true
              ELSE is_active
            END
        WHERE id = $2`,
-      [passwordHash, user.id]
+      [passwordHash, user.id, revokedAt]
     );
 
     await client.query(
