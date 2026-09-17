@@ -517,6 +517,10 @@ module.exports = function (db, helpers, deploy, deps) {
     || require('../../logger').logErrorToDb;
   const logCaseEvent = assignDeps.logCaseEvent
     || require('../../case_lifecycle').logCaseEvent;
+  // Launch gate 2026-09-15 (T2-R3) — the routing-reset marker written by
+  // POST /manual-queue/:id/approve. Not injected: it runs on the txn client or
+  // through helpers.safeRun, and those are the seams.
+  const { insertCaseEventOrThrow, CASE_ROUTING_RESET_EVENT } = require('../../case_lifecycle');
 
   // ─── POST /auth/login (public) ─────────────────────────────
   // Generic 401 INVALID_CREDENTIALS for every failure mode — no account
@@ -3559,6 +3563,18 @@ module.exports = function (db, helpers, deploy, deps) {
           );
       if (!upd.rows[0]) af('Case is not in the manual queue', 409, 'NOT_IN_QUEUE');
 
+      // Launch gate 2026-09-15 (T2-R3) — released to automatic routing with no
+      // doctor: CASE_ROUTING_RESET goes in THIS transaction, so the routing write
+      // and its marker commit or roll back together. The stranded-paid sweep
+      // honours its terminal event, and counts attempts, only after the latest
+      // reset; without the marker a case it parked before stays excluded forever,
+      // even if the broadcast below fails before its claim.
+      if (!effectiveDoctorId) {
+        await insertCaseEventOrThrow(id, CASE_ROUTING_RESET_EVENT, {
+          via: 'command_manual_queue_approve', stage: 'approve', operator_user_id: req.user.id,
+        }, client);
+      }
+
       await client.query(
         `INSERT INTO specialty_classification_overrides
            (id, case_id, ai_specialty_id, ai_service_id, ai_confidence,
@@ -3708,16 +3724,44 @@ module.exports = function (db, helpers, deploy, deps) {
         // broadcast/auto-assign.
         routing = 'assign_failed_fell_back';
         onRoutingError('finalize_handpick')(new Error(fin.reason || 'assign failed'));
+        let releasedToAuto = false;
         try {
           // LOWER(status)='paid' is the race guard: only unwind if the routing
           // write is still the latest state (status not already walked to
           // ASSIGNED by a concurrent approve that succeeded).
-          await safeRun(
+          const reset = await safeRun(
             `UPDATE orders SET doctor_id = NULL, assignment_status = 'auto', updated_at = NOW()
               WHERE id = $1 AND assignment_status = 'assigned' AND LOWER(status) = 'paid'`,
             [id]
           );
-        } catch (_) { /* the A2 sweep is the durable net if this reset fails */ }
+          releasedToAuto = !!(reset && reset.rowCount > 0);
+        } catch (_) {
+          // If this reset fails, the case keeps the hand-picked doctor_id with no
+          // handshake. The stranded-paid sweep only scans cases with no doctor,
+          // so nothing retries it automatically; the finalize_handpick failure
+          // logged above (error_logs + CASE_ROUTING_FAILED) is the signal.
+        }
+        // Launch gate 2026-09-15 (T2-R3) — no transaction here, so the marker is
+        // written right after the reset that released the case, and only when
+        // that reset landed. A failed write is logged loudly: without the marker
+        // the stranded-paid sweep keeps ignoring a case it parked before.
+        if (releasedToAuto) {
+          try {
+            await insertCaseEventOrThrow(id, CASE_ROUTING_RESET_EVENT, {
+              via: 'command_manual_queue_approve', stage: 'finalize_fallback', operator_user_id: req.user && req.user.id,
+            }, safeRun);
+          } catch (err) {
+            try {
+              logErrorToDb(err, {
+                context: 'admin_api.manual_queue_approve.routing_reset_event',
+                category: 'assignment',
+                orderId: id,
+                userId: req.user && req.user.id,
+                requestId: req.requestId,
+              });
+            } catch (_) { /* the sink itself must never throw into the response */ }
+          }
+        }
         if (isPaid) { fire(enqueueAutoAssign, 'auto_assign'); fire(broadcastOrderToSpecialty, 'broadcast'); }
       }
     } else if (isPaid) {

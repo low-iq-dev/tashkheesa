@@ -52,4 +52,60 @@ function eligibleDoctorClause({ alias, serviceIdParam }) {
   );
 }
 
-module.exports = { eligibleDoctorClause };
+// Launch gates 2026-09-15 (Task 1) — why a doctor may not take a NEW case.
+// Listed in the order doctorNewCaseBlockReason names them.
+const DOCTOR_ACCOUNT_BLOCK = Object.freeze({
+  NOT_FOUND: 'not_found',
+  REJECTED: 'rejected',
+  PENDING_APPROVAL: 'pending_approval',
+  INACTIVE: 'inactive',
+  PAUSED: 'paused',
+});
+
+/**
+ * The JS form of "may this doctor take a NEW case", for the places that decide
+ * it on ONE users row rather than in a WHERE clause: the doctor's own pool
+ * accept (routes/doctor.js POST /portal/doctor/case/:caseId/accept) and an
+ * operator's hand-pick on POST /superadmin/orders.
+ *
+ * Account state only, and the same flags, with the same NULL defaults, as the
+ * COALESCE predicates of eligibleDoctorClause above:
+ *   * is_active is not false         — COALESCE(is_active, true) = true
+ *   * is_paused is not true          — COALESCE(is_paused, false) = false
+ *   * pending_approval is not true   — COALESCE(pending_approval, false) = false
+ *   * not rejected: rejection_reason non-blank after trimming AND is_active IS
+ *     NOT TRUE. An operator's explicit is_active = true overrides a stale
+ *     reason. The SQL clause has no rejection predicate; both reject flows
+ *     (services/admin_doctor_reject.js, superadmin POST .../reject) write
+ *     is_active = false with the reason, so on rows they write the two agree —
+ *     this adds the legacy is_active NULL + reason row.
+ *
+ * NOT here, on purpose: role, onboarding_complete, specialty, service match and
+ * capacity stay with the caller (onboarding is not required at pool accept or
+ * for a hand-pick). And this is never a login or request gate: a paused doctor
+ * must still sign in to finish the cases they hold (services/login_gate.js).
+ *
+ * Only strict comparisons block, so a NULL flag reads as its column default.
+ *
+ * Which reason is named when several hold: rejected > pending_approval >
+ * inactive > paused. This picks the message only; the refused set is the same
+ * in any order. It matters because the live writers of the first two also
+ * write is_active = false: doctor signup (routes/auth.js: pending_approval =
+ * true, is_active = false) and both reject flows (is_active = false with the
+ * reason). Checking inactive first told every real pending or rejected doctor,
+ * and the operator hand-picking them, "deactivated".
+ *
+ * @param {object|null} row users row with is_active, is_paused, pending_approval, rejection_reason
+ * @returns {string|null} a DOCTOR_ACCOUNT_BLOCK value, or null when the doctor may take a new case
+ */
+function doctorNewCaseBlockReason(row) {
+  if (!row) return DOCTOR_ACCOUNT_BLOCK.NOT_FOUND;
+  const reason = row.rejection_reason == null ? '' : String(row.rejection_reason).trim();
+  if (reason !== '' && row.is_active !== true) return DOCTOR_ACCOUNT_BLOCK.REJECTED;
+  if (row.pending_approval === true) return DOCTOR_ACCOUNT_BLOCK.PENDING_APPROVAL;
+  if (row.is_active === false) return DOCTOR_ACCOUNT_BLOCK.INACTIVE;
+  if (row.is_paused === true) return DOCTOR_ACCOUNT_BLOCK.PAUSED;
+  return null;
+}
+
+module.exports = { eligibleDoctorClause, DOCTOR_ACCOUNT_BLOCK, doctorNewCaseBlockReason };

@@ -10,6 +10,10 @@ const { queueNotification } = require('../notify');
 const { verifyPaymobHmac } = require('../paymob-hmac');
 const { logOrderEvent } = require('../audit');
 const { generateToken, getRoomName, isVideoEnabled } = require('../video_helpers');
+// A4 (FIX PLAN 2026-09-15) — assignment is not acceptance. See
+// doctorHasAcceptedOrder below: appointments.doctor_id is bound to
+// orders.doctor_id at booking time, which is the ASSIGNED doctor.
+const { doctorHasAcceptedCase, redactPatientIdentity } = require('../services/doctor_case_access');
 const { sendCriticalAlert } = require('../critical-alert');
 const { getAddon, safeDualWrite } = require('../services/addons/registry');
 // AUDIT-2026-08-22 (M1): the SAME parser routes/payments.js uses to read the
@@ -74,6 +78,33 @@ function inputMinFromNow(hours) {
 
 function ensureParticipant(appointment, userId) {
   return appointment.patient_id === userId || appointment.doctor_id === userId;
+}
+
+/**
+ * A4 (FIX PLAN 2026-09-15) — has this doctor ACCEPTED the case the
+ * appointment hangs off?
+ *
+ * Every screen in this file that shows a doctor who they are meeting asked
+ * only `appointments.doctor_id = me`. That column is written from
+ * `order.doctor_id` when the slot is booked (see the INSERT in POST
+ * /portal/video/book), and case_lifecycle.assignDoctor writes
+ * orders.doctor_id at ASSIGNMENT — so it is already true for a doctor who is
+ * still deciding whether to take the case. The question belongs to the CASE,
+ * and it is answered by the one shared rule rather than restated here.
+ *
+ * Fails closed: no order, no id, or an unreadable row means no identity.
+ */
+async function doctorHasAcceptedOrder(orderId, doctorId) {
+  if (!orderId || !doctorId) return false;
+  try {
+    const row = await queryOne(
+      'SELECT doctor_id, status FROM orders_active WHERE id = $1',
+      [orderId]
+    );
+    return doctorHasAcceptedCase(row, doctorId);
+  } catch (e) {
+    return false;
+  }
 }
 
 /**
@@ -888,7 +919,13 @@ router.get('/portal/video/appointment/:id', requireRole('patient', 'doctor'), as
   }
 
   const doctor = await queryOne('SELECT id, name, email, specialty_id FROM users WHERE id = $1', [appointment.doctor_id]);
-  const patient = await queryOne('SELECT id, name, email FROM users WHERE id = $1', [appointment.patient_id]);
+  const patientRow = await queryOne('SELECT id, name, email FROM users WHERE id = $1', [appointment.patient_id]);
+  // A4 — a doctor who has not accepted the case sees the appointment, not the
+  // patient. The patient's own view of their appointment is untouched.
+  const patient = (String(req.user.role || '').toLowerCase() === 'doctor' &&
+                   !(await doctorHasAcceptedOrder(appointment.order_id, req.user.id)))
+    ? redactPatientIdentity(patientRow)
+    : patientRow;
   const payment = appointment.payment_id
     ? await queryOne('SELECT * FROM appointment_payments WHERE id = $1', [appointment.payment_id])
     : null;
@@ -1229,12 +1266,17 @@ router.get('/portal/video/call/:appointmentId', requireRole('patient', 'doctor')
   }
 
   const doctor = await queryOne('SELECT id, name, email FROM users WHERE id = $1', [appointment.doctor_id]);
-  const patient = await queryOne('SELECT id, name, email FROM users WHERE id = $1', [appointment.patient_id]);
+  const patientRow = await queryOne('SELECT id, name, email FROM users WHERE id = $1', [appointment.patient_id]);
   const videoCall = appointment.video_call_id
     ? await queryOne('SELECT * FROM video_calls WHERE id = $1', [appointment.video_call_id])
     : null;
 
   const isDoctor = req.user.role === 'doctor';
+  // A4 — same rule in the call room. The view already falls back to
+  // "Participant" when there is no name, so the call itself still works.
+  const patient = (isDoctor && !(await doctorHasAcceptedOrder(appointment.order_id, req.user.id)))
+    ? redactPatientIdentity(patientRow)
+    : patientRow;
   const roomName = getRoomName(appointment.id);
 
   res.render('video_call_room', {
@@ -1638,12 +1680,16 @@ router.get('/portal/video/ended/:appointmentId', requireRole('patient', 'doctor'
   }
 
   const doctor = await queryOne('SELECT id, name, email FROM users WHERE id = $1', [appointment.doctor_id]);
-  const patient = await queryOne('SELECT id, name, email FROM users WHERE id = $1', [appointment.patient_id]);
+  const patientRow = await queryOne('SELECT id, name, email FROM users WHERE id = $1', [appointment.patient_id]);
   const videoCall = appointment.video_call_id
     ? await queryOne('SELECT * FROM video_calls WHERE id = $1', [appointment.video_call_id])
     : null;
 
   const isDoctor = req.user.role === 'doctor';
+  // A4 — and on the way out of the call too.
+  const patient = (isDoctor && !(await doctorHasAcceptedOrder(appointment.order_id, req.user.id)))
+    ? redactPatientIdentity(patientRow)
+    : patientRow;
   const earnings = isDoctor
     ? await queryOne('SELECT * FROM doctor_earnings WHERE appointment_id = $1', [appointment.id])
     : null;
@@ -2208,7 +2254,13 @@ router.get('/portal/doctor/appointments', requireRole('doctor'), async (req, res
     paramIdx += 2;
   }
 
-  const allAppointments = await queryAll(`
+  // A4 (FIX PLAN 2026-09-15) — this selected the patient's name AND their
+  // email address filtered on `a.doctor_id = $1` alone. appointments.doctor_id
+  // is the ASSIGNED doctor (see the INSERT in POST /portal/video/book), so a
+  // video-add-on case that had merely been offered to this doctor put the
+  // patient's name and email on their board. The case is joined so the row can
+  // be asked the only question that matters: has this doctor accepted it?
+  const allAppointmentRows = await queryAll(`
     SELECT a.*,
            u_pat.name AS patient_name,
            u_pat.email AS patient_email,
@@ -2216,16 +2268,28 @@ router.get('/portal/doctor/appointments', requireRole('doctor'), async (req, res
            vc.status AS vc_status,
            ap.status AS payment_status,
            ap.amount AS payment_amount,
-           ap.currency AS currency
+           ap.currency AS currency,
+           o.status AS case_status,
+           o.doctor_id AS case_doctor_id
     FROM appointments a
     LEFT JOIN users u_pat ON u_pat.id = a.patient_id
     LEFT JOIN services s ON s.id = a.specialty_id
     LEFT JOIN video_calls vc ON vc.id = a.video_call_id
     LEFT JOIN appointment_payments ap ON ap.id = a.payment_id
+    LEFT JOIN orders_active o ON o.id = a.order_id
     WHERE ${whereClauses.join(' AND ')}
     ORDER BY a.scheduled_at ASC
     LIMIT 100
   `, params);
+
+  // The appointment stays on the board — the doctor has to be able to act on
+  // it — but until they accept the case it carries no patient. An appointment
+  // whose case row has gone is redacted too: no case, no acceptance.
+  const allAppointments = (allAppointmentRows || []).map(function (a) {
+    return doctorHasAcceptedCase({ doctor_id: a.case_doctor_id, status: a.case_status }, doctorId)
+      ? a
+      : redactPatientIdentity(a);
+  });
 
   // Separate into categories
   const upcoming = allAppointments.filter(a =>

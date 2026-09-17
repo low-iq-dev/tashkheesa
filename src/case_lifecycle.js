@@ -116,7 +116,12 @@ const SILENT_FAILURE_EVENTS = Object.freeze([
   'REFUND_PATIENT_NOTIFY_FAILED',
   // routes/patient.js order upload: neither the multi-channel queue nor the
   // direct email reached the assigned doctor after new files arrived.
-  'DOCTOR_FILES_NOTIFY_FAILED'
+  'DOCTOR_FILES_NOTIFY_FAILED',
+  // Launch gate 2026-09-15 — case_sla_worker stranded-paid sweep: a paid case
+  // used every automatic broadcast (STRANDED_PAID_MAX_ATTEMPTS) and still has
+  // no doctor. Written once, after the park UPDATE ran; payload.parked says
+  // whether the case landed in manual_queue or the guard refused the park.
+  'CASE_ROUTING_RETRY_FAILED'
 ]);
 
 
@@ -2023,6 +2028,34 @@ async function logCaseEvent(caseId, eventType, payload = null, client) {
   }
 }
 
+// Launch gate 2026-09-15 (T2-R3) — the routing-reset marker. Both manual-queue
+// approve handlers write it when they release a case to automatic routing with
+// no doctor (assignment_status 'auto'); the stranded-paid sweep in
+// case_sla_worker honours its terminal event, and counts attempts, only AFTER
+// the case's latest reset. A timeline event, not a failure: it must never be
+// added to SILENT_FAILURE_EVENTS.
+const CASE_ROUTING_RESET_EVENT = 'CASE_ROUTING_RESET';
+
+// logCaseEvent's column shape, but a failed INSERT THROWS. For the rows whose
+// absence changes routing — the sweep's attempt counter and the reset marker —
+// logCaseEvent's swallow would mean uncapped retries or a case the sweep keeps
+// ignoring. `runner` is a transaction client (`.query`), a `(sql, params)`
+// function such as execute, or omitted for the module pool. Returns the new id.
+async function insertCaseEventOrThrow(caseId, eventType, payload, runner) {
+  const id = randomUUID();
+  const params = [id, caseId, eventType, payload ? JSON.stringify(payload) : null, nowIso()];
+  const sql = `INSERT INTO case_events (id, case_id, event_type, event_payload, created_at)
+       VALUES ($1, $2, $3, $4, $5)`;
+  if (runner && typeof runner.query === 'function') {
+    await runner.query(sql, params);
+  } else if (typeof runner === 'function') {
+    await runner(sql, params);
+  } else {
+    await execute(sql, params);
+  }
+  return id;
+}
+
 async function triggerNotification(caseId, type, payload, client) {
   await logCaseEvent(caseId, `notification:${type}`, payload, client);
 }
@@ -2979,8 +3012,9 @@ async function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) 
   // A7 (AUDIT 2026-09-09) — optimistic claim so two doctors accepting the SAME
   // broadcast cannot both "win" and both email the patient "assigned to Dr X".
   // Only the FIRST assignment (PAID) races; a REASSIGNED case is a deliberate
-  // hand-off, not a race, so it is exempt. `doctor_id IS NULL OR doctor_id = $1`
-  // also lets a hand-assign that PRE-SET doctor_id (manual queue, A1) pass. A
+  // hand-off, not a race, so it is exempt. `NULLIF(doctor_id, '') IS NULL OR
+  // doctor_id = $1` also lets a hand-assign that PRE-SET doctor_id (manual
+  // queue, A1) pass. A
   // 0-row result means another doctor claimed it first, so throw BEFORE
   // finalizePreviousAssignment / the transition / the patient email — the loser
   // sends nothing and the accept handler shows "already taken". No wrapping txn:
@@ -2988,10 +3022,16 @@ async function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) 
   // the deadlock-free optimistic concurrency the accept path's comment claimed
   // but never actually had (the "doctor_id != $5 check" it named no longer
   // exists).
+  //
+  // Launch gate 2026-09-15 — NULLIF. doctor_id is TEXT and '' means nobody
+  // holds the case (the doctor pool and case routes already read it that way),
+  // but the bare `doctor_id IS NULL` arm refused such a case to every doctor:
+  // the accept threw CASE_ALREADY_TAKEN on a case nobody had. A case held by
+  // ANOTHER doctor still matches neither arm, so the race outcome is unchanged.
   if (wasInitialAssignment) {
     const claim = await execute(
       `UPDATE ${CASE_TABLE} SET doctor_id = $1
-        WHERE id = $2 AND (doctor_id IS NULL OR doctor_id = $1)`,
+        WHERE id = $2 AND (NULLIF(doctor_id, '') IS NULL OR doctor_id = $1)`,
       [doctorId, caseId]
     );
     if (!claim || claim.rowCount === 0) {
@@ -3436,6 +3476,8 @@ module.exports = {
   attachFileToCase,
   getCase,
   logCaseEvent,
+  insertCaseEventOrThrow,
+  CASE_ROUTING_RESET_EVENT,
   logNotification,
   SILENT_FAILURE_EVENTS,
   pickSlaReminderLevel,

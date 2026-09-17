@@ -8,7 +8,7 @@
 // comment claimed a "doctor_id != $5 check" guarded this; it does not exist.
 //
 // The fix is an optimistic claim in assignDoctor's FIRST-assignment path
-// (WHERE doctor_id IS NULL OR doctor_id = $1) — atomically serialized by
+// (WHERE NULLIF(doctor_id, '') IS NULL OR doctor_id = $1) — atomically serialized by
 // Postgres, no wrapping txn, no deadlock. The loser's claim matches 0 rows and
 // throws CASE_ALREADY_TAKEN BEFORE the transition / email; the accept handler
 // turns that into an "already taken" message, not accept_failed.
@@ -46,9 +46,13 @@ const assignBody = aStart >= 0 && aEnd > aStart ? cl.slice(aStart, aEnd) : '';
 check('assignDoctor carries the optimistic claim on the first assignment', () => {
   if (!assignBody) return 'assignDoctor not found';
   if (!/wasInitialAssignment/.test(assignBody)) return 'no first-assignment gate';
-  // The claim UPDATE must set doctor_id under the IS-NULL-or-mine predicate.
-  if (!/UPDATE\s+\$\{CASE_TABLE\}\s+SET\s+doctor_id\s*=\s*\$1[\s\S]*?doctor_id IS NULL OR doctor_id = \$1/.test(assignBody)) {
-    return 'no guarded claim UPDATE (doctor_id IS NULL OR doctor_id = $1)';
+  // The claim UPDATE must set doctor_id under the unassigned-or-mine predicate.
+  // Launch gate 2026-09-15 (Task 2): updated deliberately — an empty-string
+  // doctor_id is unassigned too, so the arm is NULLIF(doctor_id, '') IS NULL.
+  // Behaviour (empty string, NULL, same-doctor retry, CASE_ALREADY_TAKEN) is
+  // exercised in tests/core/stranded-paid-case-rebroadcast.test.js.
+  if (!/UPDATE\s+\$\{CASE_TABLE\}\s+SET\s+doctor_id\s*=\s*\$1[\s\S]*?NULLIF\(doctor_id, ''\) IS NULL OR doctor_id = \$1/.test(assignBody)) {
+    return "no guarded claim UPDATE (NULLIF(doctor_id, '') IS NULL OR doctor_id = $1)";
   }
 });
 
@@ -67,7 +71,7 @@ check('a lost claim throws CASE_ALREADY_TAKEN before the transition/email', () =
 check('a REASSIGNED hand-off is exempt from the claim (not a race)', () => {
   // The claim is inside `if (wasInitialAssignment)`, and wasInitialAssignment is
   // (currentStatus === PAID) — so a REASSIGNED transition never claims.
-  if (!/if \(wasInitialAssignment\) \{[\s\S]*?doctor_id IS NULL OR doctor_id = \$1/.test(assignBody)) {
+  if (!/if \(wasInitialAssignment\) \{[\s\S]*?NULLIF\(doctor_id, ''\) IS NULL OR doctor_id = \$1/.test(assignBody)) {
     return 'the claim is not gated on wasInitialAssignment';
   }
 });

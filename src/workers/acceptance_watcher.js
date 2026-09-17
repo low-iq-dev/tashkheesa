@@ -33,6 +33,12 @@ async function runAcceptanceWatcherSweep() {
     //
     // REGRESSION FIX (F5) — `o.status` added so the rollback below can restore
     // the status the row actually had, instead of forcing every row to 'paid'.
+    //
+    // Launch gate 2026-09-15 — NULLIF(o.doctor_id, '') IS NULL. doctor_id is
+    // TEXT and '' means unassigned; a broadcast case with doctor_id = '' whose
+    // window expired was invisible here. The no-doctor backoff and the claim
+    // UPDATE in autoAssignOrder carry the same predicate — otherwise such a row
+    // would be selected on every sweep and never claimed or pushed back.
     const expiredOrders = await queryAll(`
       SELECT o.id, o.specialty_id, o.service_id, o.reference_id, o.patient_id,
              o.tier, o.urgency_tier, o.sla_hours, o.status,
@@ -48,7 +54,7 @@ async function runAcceptanceWatcherSweep() {
              o.paid_at,
              o.urgency_flag, o.sla_24hr_selected
       FROM orders_active o
-      WHERE o.doctor_id IS NULL
+      WHERE NULLIF(o.doctor_id, '') IS NULL
         AND o.acceptance_deadline_at IS NOT NULL
         AND o.acceptance_deadline_at < NOW()
         -- AUDIT-2026-08-22 (P0) — 'reassigned' added. case_lifecycle.reassignCase
@@ -60,7 +66,7 @@ async function runAcceptanceWatcherSweep() {
         -- dropped permanently. reassignCase now also stamps
         -- acceptance_deadline_at = now, so the predicate above matches on the
         -- next tick and this sweep retries auto-assign against a fresh pool.
-        -- doctor_id IS NULL above keeps a normally-reassigned case (which goes
+        -- NULLIF(o.doctor_id, '') IS NULL above keeps a normally-reassigned case (which goes
         -- straight on to ASSIGNED with a new doctor) out of this set.
         AND LOWER(COALESCE(o.status, '')) IN ('pending', 'available', 'submitted', 'new', 'paid', 'reassigned')
         AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured')
@@ -346,7 +352,8 @@ async function autoAssignOrder(order) {
     // still picked up by this sweep, just later. It is never nulled: an
     // unassignable case must not become invisible.
     //
-    // Guarded on doctor_id IS NULL so this can never disturb a case another
+    // Guarded on NULLIF(doctor_id, '') IS NULL — the expired-order query's own
+    // predicate, '' is unassigned too — so this can never disturb a case another
     // process claimed between the SELECT and here.
     try {
       const backoffMinutes = noDoctorBackoffMinutes(order.reassigned_count);
@@ -356,7 +363,7 @@ async function autoAssignOrder(order) {
             SET acceptance_deadline_at = $1,
                 updated_at = $1
           WHERE id = $2
-            AND doctor_id IS NULL`,
+            AND NULLIF(doctor_id, '') IS NULL`,
         [retryAt, order.id]
       );
     } catch (e) {
@@ -398,7 +405,7 @@ async function autoAssignOrder(order) {
          reassigned_count = COALESCE(reassigned_count, 0) + 1,
          updated_at = $2
      WHERE id = $3
-       AND doctor_id IS NULL`,
+       AND NULLIF(doctor_id, '') IS NULL`,
     [doctor.id, nowIso, order.id, acceptByAt]
   );
 

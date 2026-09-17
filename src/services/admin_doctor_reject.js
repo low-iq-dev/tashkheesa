@@ -64,17 +64,21 @@ async function setDoctorRejection(client, opts) {
     // (3) the write — clears pending + active, clears approved_at, stamps the
     //     reason. Matches the web reject's columns exactly. approved_by is left
     //     untouched (unlike approve, which sets it).
+    //     The revocation cut is an APP timestamp taken immediately before the
+    //     statement, never the database's NOW(): JWT iat is app-clock seconds
+    //     (launch gates 2026-09-15, Task 3).
+    const revokedAt = new Date();
     const upd = await client.query(
       `UPDATE users
           SET pending_approval = false,
               is_active = false,
               approved_at = NULL,
               refresh_token = NULL,
-              tokens_valid_after = NOW(),
+              tokens_valid_after = $3::timestamptz,
               rejection_reason = $2
         WHERE id = $1
        RETURNING id, is_active, pending_approval, rejection_reason`,
-      [doctorId, reason]
+      [doctorId, reason, revokedAt]
     );
     const row = upd.rows[0];
 

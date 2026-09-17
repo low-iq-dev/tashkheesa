@@ -11,6 +11,8 @@ const { generateMedicalReportPdf } = require('../report-generator');
 const { getSignedDownloadUrl } = require('../storage');
 const { major: logMajor } = require('../logger');
 const { loadReportContentForPatient } = require('../helpers/load-report-content');
+// A4 (FIX PLAN 2026-09-15) — assignment is not acceptance; see userCanViewCase.
+const { doctorHasAcceptedCase } = require('../services/doctor_case_access');
 
 const router = express.Router();
 
@@ -47,7 +49,23 @@ function userCanViewCase(user, caseRow) {
   if (!user || !caseRow) return false;
   var role = String(user.role || '').toLowerCase();
   if (role === 'superadmin' || role === 'admin') return true;
-  if (role === 'doctor') return caseRow.doctor_id === user.id;
+  if (role === 'doctor') {
+    // A4 (FIX PLAN 2026-09-15) — this was `caseRow.doctor_id === user.id`, and
+    // /download-report deliberately exempts doctors from the delivered-status
+    // gate below so the assigned doctor can check the PDF before submitting
+    // it. On a case that was delivered and then REASSIGNED — status back to
+    // ASSIGNED, accepted_at cleared, orders.report_url still written — that
+    // exemption handed the finished report to the replacement doctor before
+    // they had accepted anything.
+    if (doctorHasAcceptedCase(caseRow, user.id)) return true;
+    // The doctor who delivered it keeps their own report. Acceptance is the
+    // question everywhere else, but a delivered case has left the accepted
+    // statuses behind, and isDeliveredStatus is this file's single definition
+    // of "delivered" — including the spellings ('done', 'delivered',
+    // 'report_ready') that the accepted-status buckets do not carry.
+    return String(caseRow.doctor_id || '').trim() === String(user.id || '').trim() &&
+           isDeliveredStatus(caseRow.status);
+  }
   if (role === 'patient') return caseRow.patient_id === user.id;
   return false;
 }

@@ -40,6 +40,9 @@ const { broadcastOrderToSpecialty } = require('../notify/broadcast');
 // manual-queue approve opens the doctor_assignments handshake instead of just
 // writing doctor_id and stopping.
 const { checkHandpickedDoctorEligibility, finalizeHandpickedAssignment, REASONS: ASSIGN_REASONS } = require('../services/assign_case');
+// Launch gates 2026-09-15 (Task 1) — "may this doctor take a new case", for the
+// create-order hand-pick.
+const { doctorNewCaseBlockReason } = require('../services/doctor_eligibility');
 const { sendCriticalAlert } = require('../critical-alert');
 // Refund ceiling — the single source of truth for "how much of this order may
 // be returned to the patient". See services/refund_eligibility.maxRefundableEgp.
@@ -2319,6 +2322,39 @@ router.get('/superadmin/orders/new', requireSuperadmin, async (req, res) => {
   });
 });
 
+// Launch gates 2026-09-15 (Task 1) — why a hand-picked doctor was refused on
+// POST /superadmin/orders. Keyed by doctor_eligibility.DOCTOR_ACCOUNT_BLOCK;
+// fixed sentences only, never request text. Listed in the precedence the rule
+// names them (rejected > pending_approval > inactive > paused): signup and both
+// reject flows also write is_active = false, and must not read "deactivated".
+const MANUAL_PICK_REFUSAL_COPY = Object.freeze({
+  rejected: {
+    en: "That doctor's application was rejected, so they can't be given a case.",
+    ar: 'طلب انضمام الدكتور ده اترفض، فمش ممكن نسند له حالة.'
+  },
+  pending_approval: {
+    en: "That doctor is still awaiting approval, so they can't be given a case yet.",
+    ar: 'الدكتور ده لسه مستني الموافقة، فمش ممكن نسند له حالة دلوقتي.'
+  },
+  inactive: {
+    en: "That doctor's account is deactivated, so they can't be given a case.",
+    ar: 'حساب الدكتور ده مش مفعّل، فمش ممكن نسند له حالة.'
+  },
+  paused: {
+    en: "That doctor's account is paused, so they can't be given a new case.",
+    ar: 'حساب الدكتور ده متوقف مؤقتًا، فمش ممكن نسند له حالة جديدة.'
+  }
+});
+function manualPickRefusalMessage(reason, lang) {
+  const isAr = lang === 'ar';
+  const copy = Object.prototype.hasOwnProperty.call(MANUAL_PICK_REFUSAL_COPY, reason)
+    ? MANUAL_PICK_REFUSAL_COPY[reason]
+    : { en: "That doctor can't be given a case right now.", ar: 'مش ممكن نسند حالة للدكتور ده دلوقتي.' };
+  return isAr
+    ? copy.ar + ' اختار دكتور تاني، أو سيب خانة الدكتور فاضية علشان يتسند لدكتور متاح تلقائيًا.'
+    : copy.en + ' Pick another doctor, or leave Doctor empty to auto-assign an eligible one.';
+}
+
 // Create manual order (superadmin)
 router.post('/superadmin/orders', requireSuperadmin, async (req, res) => {
   const {
@@ -2333,7 +2369,27 @@ router.post('/superadmin/orders', requireSuperadmin, async (req, res) => {
   } = req.body || {};
 
   const requiredMissing = !patient_id || !specialty_id || !service_id || !sla_hours;
-  if (requiredMissing) {
+
+  // Launch gates 2026-09-15 (Task 1) — a hand-picked doctor must be able to
+  // take a new case. This lookup checked role only, so an order could be
+  // created 'accepted' on a paused, still-pending, deactivated or rejected
+  // doctor. The rule is doctor_eligibility.doctorNewCaseBlockReason, the one
+  // the doctor's own pool accept applies. An unknown id keeps its old
+  // behaviour (the order is created unassigned). The auto path below,
+  // pickDoctorForOrder, already excludes all four states in its SQL.
+  let selectedDoctor = null;
+  let pickRefusal = null;
+  if (!requiredMissing && doctor_id) {
+    const pickedRow = await queryOne(
+      `SELECT id, name, email, phone, is_active, is_paused, pending_approval, rejection_reason
+         FROM users WHERE id = $1 AND role = 'doctor'`,
+      [doctor_id]
+    );
+    pickRefusal = pickedRow ? doctorNewCaseBlockReason(pickedRow) : null;
+    if (!pickRefusal) selectedDoctor = pickedRow || null;
+  }
+
+  if (requiredMissing || pickRefusal) {
     const patients = await queryAll(
       "SELECT id, name, email FROM users WHERE role = 'patient'"
     );
@@ -2347,14 +2403,31 @@ router.post('/superadmin/orders', requireSuperadmin, async (req, res) => {
       'SELECT id, specialty_id, code, name FROM services ORDER BY name'
     );
 
+    // Keep the operator's own patient / specialty / service selected so a
+    // refusal does not cost them the order they typed. The select partial only
+    // compares these against its option list and never prints them; anything
+    // that is not a plain string (a qs array or object) is dropped. The doctor
+    // picker comes back EMPTY so the refused doctor is not re-submitted.
+    const keep = (v) => (typeof v === 'string' ? v : '');
     return res.status(400).render('superadmin_order_new', {
       user: req.user,
       patients,
       doctors,
       specialties,
       services,
-      defaults: { sla_hours: Number(sla_hours) || 72, price, doctor_fee, notes },
-      error: 'Please fill all required fields.'
+      defaults: {
+        patient_id: keep(patient_id),
+        specialty_id: keep(specialty_id),
+        service_id: keep(service_id),
+        doctor_id: '',
+        sla_hours: Number(sla_hours) || 72,
+        price,
+        doctor_fee,
+        notes
+      },
+      error: pickRefusal
+        ? manualPickRefusalMessage(pickRefusal, getLang(req, res))
+        : 'Please fill all required fields.'
     });
   }
 
@@ -2370,9 +2443,7 @@ router.post('/superadmin/orders', requireSuperadmin, async (req, res) => {
   const orderDoctorFee = doctor_fee ? Number(doctor_fee) : service ? service.doctor_fee : null;
   const orderPaymentLink = service ? service.payment_link : null;
   const orderCurrency = service ? service.currency || 'EGP' : 'EGP';
-  const selectedDoctor = doctor_id
-    ? await queryOne("SELECT id, name, email, phone FROM users WHERE id = $1 AND role = 'doctor'", [doctor_id])
-    : null;
+  // selectedDoctor is resolved (and account-checked) above, before any write.
   const autoDoctor = !doctor_id ? await pickDoctorForOrder({ specialtyId: specialty_id, serviceId: service_id }) : null;
   const chosenDoctor = selectedDoctor || autoDoctor;
   const status = chosenDoctor ? 'accepted' : 'new';
@@ -2791,6 +2862,10 @@ router.post('/superadmin/manual-queue/:id/approve', requireSuperadmin, async (re
           WHERE id = $5`,
         [specialtyId, serviceId, nextAssignmentStatus, nowIso, orderId]
       );
+      // Launch gate 2026-09-15 (T2-R3) — released to automatic routing with no
+      // doctor. No transaction here, so the reset marker is written right after
+      // the routing write (see writeManualQueueRoutingReset below).
+      await writeManualQueueRoutingReset(req, orderId, 'approve');
     }
 
     await execute(
@@ -2887,17 +2962,29 @@ router.post('/superadmin/manual-queue/:id/approve', requireSuperadmin, async (re
       Promise.resolve(caseLifecycle.logCaseEvent(orderId, 'CASE_ROUTING_FAILED', {
         stage: 'finalize_handpick', reason: fin.reason, via: 'manual_queue_approve'
       })).catch(function () {});
+      let releasedToAuto = false;
       try {
         // LOWER(status)='paid' is the race guard: only unwind if THIS handler's
         // routing write is still the latest state (status has not been walked to
         // ASSIGNED by a concurrent approve that DID succeed). Otherwise we would
         // undo a good assignment another operator just won.
-        await execute(
+        const reset = await execute(
           `UPDATE orders SET doctor_id = NULL, assignment_status = 'auto', updated_at = $1
             WHERE id = $2 AND assignment_status = 'assigned' AND LOWER(status) = 'paid'`,
           [new Date().toISOString(), orderId]
         );
-      } catch (_) { /* the A2 sweep is the durable net if this reset fails */ }
+        releasedToAuto = !!(reset && reset.rowCount > 0);
+      } catch (_) {
+        // If this reset fails, the case keeps the hand-picked doctor_id with no
+        // handshake. The stranded-paid sweep only scans cases with no doctor, so
+        // nothing retries it automatically; the finalize failure logged above
+        // (error_logs + CASE_ROUTING_FAILED) is what an operator sees.
+      }
+      // Launch gate 2026-09-15 (T2-R3) — only a reset that landed released the
+      // case to automatic routing with no doctor, and only then is the marker
+      // written: with it, the stranded-paid sweep gives the case a fresh retry
+      // budget if the broadcast below fails before its claim.
+      if (releasedToAuto) await writeManualQueueRoutingReset(req, orderId, 'finalize_fallback');
       if (isPaid) {
         enqueueAutoAssign(orderId).catch(function () {});
         broadcastOrderToSpecialty(orderId).catch(function () {});
@@ -2953,6 +3040,33 @@ router.post('/superadmin/manual-queue/:id/approve', requireSuperadmin, async (re
   }
   return res.redirect('/superadmin/manual-queue?flash=approved');
 });
+
+// Launch gate 2026-09-15 (T2-R3) — the routing-reset contract. When the approve
+// above releases a case to automatic routing with no doctor (assignment_status
+// 'auto'), CASE_ROUTING_RESET goes on the case timeline. The stranded-paid sweep
+// (case_sla_worker) honours its terminal event, and counts attempts, only AFTER
+// the case's latest reset. Without the marker, a case the sweep parked before
+// stays excluded forever, so if its re-broadcast fails before the claim nothing
+// ever retries it. The write throws on failure (logCaseEvent would swallow it);
+// a failure goes to error_logs and never fails the approve itself.
+async function writeManualQueueRoutingReset(req, orderId, stage) {
+  try {
+    await caseLifecycle.insertCaseEventOrThrow(orderId, caseLifecycle.CASE_ROUTING_RESET_EVENT, {
+      via: 'manual_queue_approve',
+      stage: stage,
+      operator_user_id: (req.user && req.user.id) || null,
+    }, execute);
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'manual_queue_approve.routing_reset_event',
+      category: 'assignment',
+      orderId: orderId,
+      userId: req.user && req.user.id,
+      requestId: req.requestId,
+      stage: stage,
+    });
+  }
+}
 
 // Theme 14 Phase 5 — Mark a manual-queue case unsuitable.
 //
@@ -4154,13 +4268,19 @@ router.post('/superadmin/doctors/outreach/state', requireSuperadmin, async (req,
     // doctor (migrations/040 — "excluded from open-pool broadcasts", not
     // logged out), and pause is set AUTOMATICALLY on SLA breach with no human
     // in the loop, so signing them out would be a silent lockout.
-    if (action === 'deactivate')      sql = "UPDATE users SET is_active = false, refresh_token = NULL, tokens_valid_after = NOW() WHERE id = $1 AND role = 'doctor'";
+    if (action === 'deactivate')      sql = "UPDATE users SET is_active = false, refresh_token = NULL, tokens_valid_after = $2::timestamptz WHERE id = $1 AND role = 'doctor'";
     else if (action === 'activate')   sql = "UPDATE users SET is_active = true  WHERE id = $1 AND role = 'doctor'";
     else if (action === 'pause')      sql = "UPDATE users SET is_paused = true,  paused_at = NOW() WHERE id = $1 AND role = 'doctor'";
     else if (action === 'unpause')    sql = "UPDATE users SET is_paused = false, paused_at = NULL   WHERE id = $1 AND role = 'doctor'";
     else return res.redirect(back + '?error=state');
 
-    await execute(sql, [id]);
+    // Launch gates 2026-09-15 (Task 3) — deactivate's revocation cut is an APP
+    // timestamp taken immediately before the statement (bound as $2), never the
+    // database's NOW(): JWT iat is app-clock seconds, and a database clock
+    // running behind this host would let a token minted just before the
+    // deactivation survive it. The other actions bind only the id.
+    const revokedAt = new Date();
+    await execute(sql, action === 'deactivate' ? [id, revokedAt] : [id]);
 
     // AUDIT 2026-09-06 (BLOCKER 4) — deactivate also burns unused welcome /
     // magic links, for the reason given above the SQL. Only deactivate: an
@@ -4786,16 +4906,20 @@ router.post('/superadmin/doctors/:id/reject', requireSuperadmin, async (req, res
   const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [doctorId]);
   if (!doctor) return res.redirect('/superadmin/doctors');
   const { rejection_reason } = req.body || {};
+  // Launch gates 2026-09-15 (Task 3) — the revocation cut is an APP timestamp
+  // taken immediately before the statement, never the database's NOW(): JWT
+  // iat is app-clock seconds.
+  const revokedAt = new Date();
   await execute(
     `UPDATE users
      SET pending_approval = false,
          is_active = false,
          approved_at = NULL,
          refresh_token = NULL,
-         tokens_valid_after = NOW(),
+         tokens_valid_after = $3::timestamptz,
          rejection_reason = $1
      WHERE id = $2 AND role = 'doctor'`,
-    [rejection_reason || 'Not approved', doctorId]
+    [rejection_reason || 'Not approved', doctorId, revokedAt]
   );
 
   // AUDIT 2026-09-06 (BLOCKER 4) — burn any welcome/magic link still in

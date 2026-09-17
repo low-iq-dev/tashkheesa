@@ -188,7 +188,12 @@ module.exports = function (db, { safeGet, safeRun }) {
 
     const hashed = await bcrypt.hash(req.body.newPassword, 10);
     // A4 — a password change ends old sessions too (tokens_valid_after).
-    await safeRun('UPDATE users SET password_hash = $1, tokens_valid_after = NOW() WHERE id = $2', [hashed, req.user.id]);
+    // Launch gates 2026-09-15 (Task 3): the cut is an APP timestamp taken
+    // immediately before the statement, never the database's NOW(). JWT iat is
+    // app-clock seconds, so a database clock running ahead of this host would
+    // revoke the access token the app refreshes right after the change.
+    const revokedAt = new Date();
+    await safeRun('UPDATE users SET password_hash = $1, tokens_valid_after = $3::timestamptz WHERE id = $2', [hashed, req.user.id, revokedAt]);
 
     return res.ok({ message: 'Password updated successfully' });
   });

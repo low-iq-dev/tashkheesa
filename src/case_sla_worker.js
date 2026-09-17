@@ -4,6 +4,8 @@ const {
   markSlaBreach,
   reassignCase,
   logCaseEvent,
+  insertCaseEventOrThrow,
+  CASE_ROUTING_RESET_EVENT,
   dbStatusValuesFor
 } = require('./case_lifecycle');
 const { major: logMajor, fatal: logFatal } = require('./logger');
@@ -644,56 +646,250 @@ let _slaSweepRunning = false;
 // This sweep is the durable path. It re-runs the broadcast for any paid case
 // older than STRANDED_PAID_MIN_AGE_MINUTES with no doctor and no acceptance
 // window that is NOT parked in the manual queue. broadcast itself sets
-// acceptance_deadline_at (under its own doctor_id IS NULL guard), so a case it
+// acceptance_deadline_at (under its own NULLIF(doctor_id, '') guard), so a case it
 // successfully places drops out of this SELECT on the next tick — that column
 // IS the "already broadcast" marker, which is exactly why re-running is
 // idempotent and never double-broadcasts a case that already went out.
+//
+// Launch gate 2026-09-15 — four bounds the first version lacked:
+//   * PAYMENT. status PAID is not proof of money: a refunded or never-captured
+//     row can still carry it. broadcast.js refuses such a row (not_paid) BEFORE
+//     its claim UPDATE, so the marker never landed and the row was re-broadcast
+//     every tick forever. The fetch now mirrors broadcast's own payment gate.
+//   * START DATE. The first tick after deploy broadcast every historical match,
+//     oldest first. Rows paid before STRANDED_PAID_START_ISO (bound as a query
+//     parameter) are a human's to route. Age is measured from paid_at only:
+//     COALESCE(paid_at, updated_at) let a row with no payment timestamp in.
+//   * RETRY CAP. After STRANDED_PAID_MAX_ATTEMPTS broadcasts (6 ≈ 30 minutes at
+//     the 5-minute cadence) the case is parked at assignment_status =
+//     'manual_queue' — the state both the web console and the Command API list —
+//     with ONE registered terminal event (STRANDED_PAID_PARKED_EVENT) and ONE
+//     final ops push. The terminal event takes the case out of the fetch, so it
+//     is written only after the park UPDATE actually ran: a park that throws
+//     writes nothing and is retried on the next tick; a park refused by its
+//     guard is still terminal — quietly (reason 'taken', no push) when the case
+//     got a doctor or an acceptance window meanwhile. A case whose attempts hit
+//     the cap before a restart finishes the park on the next tick without
+//     broadcasting again. Each attempt row is written BEFORE its broadcast with
+//     an INSERT that throws: if it cannot be written the case is skipped for
+//     the tick, because a silently lost row would never advance the count.
+//   * RESET (T2-R3). Both manual-queue approve handlers write
+//     CASE_ROUTING_RESET when they release a case to automatic routing with no
+//     doctor. The terminal-event exclusion and both counts only consider events
+//     after the case's latest reset (created_at compared with created_at), so a
+//     case that was parked, sent back by an operator and fails again gets a
+//     fresh budget of STRANDED_PAID_MAX_ATTEMPTS and parks again. A terminal
+//     event with no later reset keeps the case excluded.
+//   * EMPTY-STRING DOCTOR. doctor_id is TEXT and the doctor routes already read
+//     '' as unassigned, but `doctor_id IS NULL` hid such a row from this sweep
+//     and from every claim on its way to a doctor. NULLIF(doctor_id, '') IS NULL.
 const STRANDED_PAID_MIN_AGE_MINUTES = 10;
+const STRANDED_PAID_START_ISO = '2026-09-15T00:00:00Z';
+const STRANDED_PAID_MAX_ATTEMPTS = 6;
+const STRANDED_PAID_RETRY_EVENT = 'CASE_ROUTING_RETRIED';        // timeline event, not a silent failure
+const STRANDED_PAID_PARKED_EVENT = 'CASE_ROUTING_RETRY_FAILED';  // registered in SILENT_FAILURE_EVENTS
+const STRANDED_PAID_RESET_EVENT = CASE_ROUTING_RESET_EVENT;      // written by both manual-queue approve handlers
+const STRANDED_PAID_OPS_KIND = 'case_routing_stuck';
 
-async function fetchStrandedPaidCases() {
-  const rows = await queryAll(
-    `SELECT id
-       FROM orders_active
-      WHERE LOWER(COALESCE(status, '')) = 'paid'
-        AND doctor_id IS NULL
-        AND acceptance_deadline_at IS NULL
-        AND COALESCE(assignment_status, '') NOT IN ('manual_queue', 'manual_pending', 'manual_claimed')
-        AND COALESCE(paid_at, updated_at) < NOW() - make_interval(mins => $1)
-      ORDER BY COALESCE(paid_at, updated_at) ASC
+async function fetchStrandedPaidCases(opts = {}) {
+  const d = opts.deps || {};
+  const _queryAll = d.queryAll || queryAll;
+  const rows = await _queryAll(
+    `SELECT o.id
+       FROM orders_active o
+      WHERE LOWER(COALESCE(o.status, '')) = 'paid'
+        AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured')
+        AND NULLIF(o.doctor_id, '') IS NULL
+        AND o.acceptance_deadline_at IS NULL
+        AND COALESCE(o.assignment_status, '') NOT IN ('manual_queue', 'manual_pending', 'manual_claimed')
+        AND o.paid_at IS NOT NULL
+        AND o.paid_at >= $2::timestamptz
+        AND o.paid_at < NOW() - make_interval(mins => $1)
+        AND NOT EXISTS (
+              SELECT 1 FROM case_events ce
+               WHERE ce.case_id = o.id AND ce.event_type = $3
+                 AND NOT EXISTS (
+                       SELECT 1 FROM case_events r
+                        WHERE r.case_id = ce.case_id AND r.event_type = $4
+                          AND r.created_at >= ce.created_at
+                     )
+            )
+      ORDER BY o.paid_at ASC
       LIMIT 100`,
-    [STRANDED_PAID_MIN_AGE_MINUTES]
+    [STRANDED_PAID_MIN_AGE_MINUTES, STRANDED_PAID_START_ISO, STRANDED_PAID_PARKED_EVENT, STRANDED_PAID_RESET_EVENT]
   );
   return rows || [];
 }
 
+// Counts one event type for the case, ignoring every event at or before the
+// case's latest CASE_ROUTING_RESET: an operator who sends a parked case back to
+// automatic routing starts a new episode with a fresh budget.
+async function countStrandedCaseEvents(queryOneFn, caseId, eventType) {
+  const row = await queryOneFn(
+    `SELECT COUNT(*)::int AS c
+       FROM case_events ce
+      WHERE ce.case_id = $1 AND ce.event_type = $2
+        AND NOT EXISTS (
+              SELECT 1 FROM case_events r
+               WHERE r.case_id = ce.case_id AND r.event_type = $3
+                 AND r.created_at >= ce.created_at
+            )`,
+    [caseId, eventType, STRANDED_PAID_RESET_EVENT]
+  );
+  const n = Number(row && row.c);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function logStrandedSweepError(logFn, err, ctx) {
+  try {
+    logFn(err, Object.assign({ category: 'assignment', level: 'error' }, ctx));
+  } catch (_) { /* fire-and-forget */ }
+}
+
+// Park a capped case for a human. Returns false when the park UPDATE threw —
+// nothing is recorded, so the fetch selects the case again next tick and the
+// park is retried. Returns true once the terminal state is recorded, whether
+// the guard let the park land or refused it.
+async function parkStrandedPaidCase(caseId, attempts, reason, deps) {
+  let parked = false;
+  try {
+    // Guarded so it only lands on a case that is still unassigned, not yet
+    // announced and still in automatic routing: a doctor who accepted a moment
+    // ago, a broadcast claim that landed between this tick's fetch and here (it
+    // sets acceptance_deadline_at), or an operator who already moved the case,
+    // is never overwritten. doctor_id is written NULL — the guard admits only
+    // NULL or '' — so every operator view that reads doctor_id IS NULL lists
+    // the parked case.
+    const res = await deps.execute(
+      `UPDATE orders
+          SET assignment_status = 'manual_queue',
+              doctor_id = NULL,
+              updated_at = $1
+        WHERE id = $2
+          AND NULLIF(doctor_id, '') IS NULL
+          AND acceptance_deadline_at IS NULL
+          AND COALESCE(assignment_status, 'auto') = 'auto'
+          AND deleted_at IS NULL`,
+      [new Date().toISOString(), caseId]
+    );
+    parked = !!(res && res.rowCount > 0);
+  } catch (err) {
+    logStrandedSweepError(deps.logErrorToDb, err, {
+      context: 'case_sla_worker.strandedPaid.park', orderId: caseId, attempts: attempts,
+    });
+    return false;
+  }
+
+  // A refused park is not always a problem: if the case now has a doctor or an
+  // acceptance window, routing placed it meanwhile. Record the terminal state
+  // quietly and raise no alarm. The alarm stays for a case that is still
+  // unrouted, and for one whose row cannot be re-read.
+  let taken = false;
+  if (!parked) {
+    try {
+      const row = await deps.queryOne(
+        `SELECT (NULLIF(doctor_id, '') IS NOT NULL OR acceptance_deadline_at IS NOT NULL) AS taken
+           FROM orders_active
+          WHERE id = $1`,
+        [caseId]
+      );
+      taken = !!(row && row.taken === true);
+    } catch (err) {
+      logStrandedSweepError(deps.logErrorToDb, err, {
+        context: 'case_sla_worker.strandedPaid.parkReread', orderId: caseId, attempts: attempts,
+      });
+    }
+  }
+
+  try {
+    await deps.logCaseEvent(caseId, STRANDED_PAID_PARKED_EVENT, taken
+      ? { attempts: attempts, reason: 'taken', parked: false, via: 'sla_sweep', lastReason: reason }
+      : { attempts: attempts, reason: reason, parked: parked, via: 'sla_sweep' });
+  } catch (_) { /* logCaseEvent swallows its own failures; this guards an injected one */ }
+  if (taken) return true;
+
+  const ref = String(caseId).slice(0, 12).toUpperCase();
+  const why = reason || 'unknown';
+  try {
+    await deps.pushOpsEvent({
+      kind: STRANDED_PAID_OPS_KIND,
+      // NOT String(caseId): that is the per-order stuck alert's key, and its
+      // claim cooldown would swallow this one.
+      dedupeKey: String(caseId) + ':parked',
+      title: parked ? 'Paid case moved to the manual queue' : 'Paid case could not be routed',
+      body: parked
+        ? 'Case ' + ref + ': automatic routing stopped after ' + attempts + ' attempts (' + why + '). ' +
+          'It is in the manual queue — assign a doctor by hand.'
+        : 'Case ' + ref + ': automatic routing stopped after ' + attempts + ' attempts (' + why + '), ' +
+          'and it could not be moved to the manual queue (it left automatic routing meanwhile). ' +
+          'Open the case and check it has a doctor.',
+      orderId: caseId,
+      data: { attempts: attempts, reason: reason, parked: parked },
+    });
+  } catch (_) { /* the terminal case event above is the durable record */ }
+  return true;
+}
+
 async function handleStrandedPaidCase(candidate, opts = {}) {
   const d = opts.deps || {};
-  const _queryOne = d.queryOne || queryOne;
-  const _logCaseEvent = d.logCaseEvent || logCaseEvent;
-  const _broadcast = d.broadcast || require('./notify/broadcast').broadcastOrderToSpecialty;
-  const _pushOpsEvent = d.pushOpsEvent || require('./services/ops_push').pushOpsEvent;
+  const deps = {
+    queryOne: d.queryOne || queryOne,
+    execute: d.execute || execute,
+    logCaseEvent: d.logCaseEvent || logCaseEvent,
+    broadcast: d.broadcast || require('./notify/broadcast').broadcastOrderToSpecialty,
+    pushOpsEvent: d.pushOpsEvent || require('./services/ops_push').pushOpsEvent,
+    logErrorToDb: d.logErrorToDb || require('./logger').logErrorToDb,
+  };
 
-  const caseId = candidate.id || candidate.case_id;
+  const caseId = candidate && (candidate.id || candidate.case_id);
   if (!caseId) return 0;
 
-  // How many times has the sweep already retried this case? The count of prior
-  // CASE_ROUTING_RETRIED events is the attempt number, so the ops alert fires
-  // AFTER the second failed retry, not on the first transient hiccup.
-  let priorRetries = 0;
+  // The count of CASE_ROUTING_RETRIED events since the case's latest
+  // CASE_ROUTING_RESET IS the durable attempt counter. If it cannot be read,
+  // skip the case this tick: assuming "first attempt" would let a persistent
+  // read failure broadcast past the cap forever.
+  let priorRetries;
   try {
-    const c = await _queryOne(
-      `SELECT COUNT(*)::int AS c FROM case_events
-        WHERE case_id = $1 AND event_type = 'CASE_ROUTING_RETRIED'`,
-      [caseId]
-    );
-    priorRetries = (c && c.c) || 0;
-  } catch (_) { /* case_events optional; treat as first attempt */ }
+    priorRetries = await countStrandedCaseEvents(deps.queryOne, caseId, STRANDED_PAID_RETRY_EVENT);
+  } catch (err) {
+    logStrandedSweepError(deps.logErrorToDb, err, { context: 'case_sla_worker.strandedPaid.countAttempts', orderId: caseId });
+    return 0;
+  }
+
+  if (priorRetries >= STRANDED_PAID_MAX_ATTEMPTS) {
+    // The cap was reached on an earlier tick but the terminal event never
+    // landed: a restart between the last attempt and the park, or a park that
+    // threw. Finish the park now; never broadcast again.
+    let alreadyParked;
+    try {
+      alreadyParked = await countStrandedCaseEvents(deps.queryOne, caseId, STRANDED_PAID_PARKED_EVENT);
+    } catch (err) {
+      logStrandedSweepError(deps.logErrorToDb, err, { context: 'case_sla_worker.strandedPaid.countParked', orderId: caseId });
+      return 0;
+    }
+    if (alreadyParked > 0) return 0;
+    await parkStrandedPaidCase(caseId, priorRetries, 'retries_exhausted', deps);
+    return 0;
+  }
   const attempt = priorRetries + 1;
+
+  // Record the attempt BEFORE broadcasting, with an INSERT that throws. This row
+  // IS the attempt counter, and logCaseEvent swallows a failed write: a write
+  // that kept failing silently would let the sweep broadcast every tick with no
+  // cap. If it cannot be written, skip the case this tick — no broadcast — and
+  // log it.
+  let attemptEventId;
+  try {
+    attemptEventId = await insertCaseEventOrThrow(caseId, STRANDED_PAID_RETRY_EVENT, { attempt, via: 'sla_sweep' }, deps.execute);
+  } catch (err) {
+    logStrandedSweepError(deps.logErrorToDb, err, { context: 'case_sla_worker.strandedPaid.recordAttempt', orderId: caseId, attempt: attempt });
+    return 0;
+  }
 
   let ok = false;
   let reason = null;
   try {
-    const result = await _broadcast(caseId);
+    const result = await deps.broadcast(caseId);
     ok = !!(result && result.ok);
     reason = ok ? null : ((result && result.reason) || 'broadcast_returned_not_ok');
   } catch (err) {
@@ -701,31 +897,46 @@ async function handleStrandedPaidCase(candidate, opts = {}) {
     reason = (err && err.message) || 'broadcast_threw';
   }
 
+  // The outcome is detail on the attempt row, not the counter: best-effort,
+  // but a failure is logged.
   try {
-    await _logCaseEvent(caseId, 'CASE_ROUTING_RETRIED', { attempt, ok, reason, via: 'sla_sweep' });
-  } catch (_) { /* best-effort */ }
+    await deps.execute(
+      'UPDATE case_events SET event_payload = $1 WHERE id = $2',
+      [JSON.stringify({ attempt, ok, reason, via: 'sla_sweep' }), attemptEventId]
+    );
+  } catch (err) {
+    logStrandedSweepError(deps.logErrorToDb, err, { context: 'case_sla_worker.strandedPaid.recordOutcome', orderId: caseId, attempt: attempt, level: 'warn' });
+  }
+
+  if (ok) return 1;
+
+  // The capped attempt: stop broadcasting, park for a human, one final push.
+  if (attempt >= STRANDED_PAID_MAX_ATTEMPTS) {
+    await parkStrandedPaidCase(caseId, attempt, reason, deps);
+    return 0;
+  }
 
   // After the SECOND failed retry, raise an ops event that PERSISTS to the
   // Activity feed (pushOpsEvent, NOT notifySuperadmins directly — the operator
   // must be able to scroll back to it). Deduped per order so a case that stays
   // stuck does not buzz on every 5-minute tick.
-  if (!ok && attempt >= 2) {
+  if (attempt >= 2) {
     try {
-      await _pushOpsEvent({
-        kind: 'case_routing_stuck',
+      await deps.pushOpsEvent({
+        kind: STRANDED_PAID_OPS_KIND,
         dedupeKey: String(caseId),
         title: 'Paid case cannot be routed',
         body: 'Case ' + String(caseId).slice(0, 12).toUpperCase() + ' has been paid with no ' +
               'doctor for over ' + STRANDED_PAID_MIN_AGE_MINUTES + ' minutes; the broadcast has ' +
-              'failed ' + attempt + ' times (' + (reason || 'unknown') + '). Assign it by hand ' +
-              'from the manual queue.',
+              'failed ' + attempt + ' times (' + (reason || 'unknown') + '). Retrying every 5 minutes; ' +
+              'after ' + STRANDED_PAID_MAX_ATTEMPTS + ' attempts it moves to the manual queue.',
         orderId: caseId,
         data: { attempt, reason },
       });
     } catch (_) { /* the CASE_ROUTING_RETRIED event above is the durable record */ }
   }
 
-  return ok ? 1 : 0;
+  return 0;
 }
 
 async function runCaseSlaSweep(runAt = new Date()) {
@@ -788,11 +999,13 @@ async function _runCaseSlaSweepInner(runAt = new Date()) {
     logFatal('SLA pre-breach candidates fetch failed', err);
   }
   // A2: paid cases stranded with no doctor and no acceptance window.
+  // Launch gate 2026-09-15 — a failure here is logged but does NOT join
+  // fetchError: a routing problem must never fail (and retry-storm) the SLA
+  // job that detects breaches. The next tick runs the fetch again anyway.
   let stranded = [];
   try {
     stranded = await fetchStrandedPaidCases();
   } catch (err) {
-    fetchError = fetchError || err;
     try {
       const { logErrorToDb } = require('./logger');
       logErrorToDb(err, { context: 'case_sla_worker.runCaseSlaSweep.fetchStrandedPaidCases', level: 'error' });
@@ -936,4 +1149,9 @@ module.exports = {
   fetchStrandedPaidCases,
   handleStrandedPaidCase,
   STRANDED_PAID_MIN_AGE_MINUTES,
+  STRANDED_PAID_START_ISO,
+  STRANDED_PAID_MAX_ATTEMPTS,
+  STRANDED_PAID_RETRY_EVENT,
+  STRANDED_PAID_PARKED_EVENT,
+  STRANDED_PAID_RESET_EVENT,
 };

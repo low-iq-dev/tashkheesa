@@ -8,6 +8,9 @@ const { requireRole } = require('../middleware');
 const { major: logMajor } = require('../logger');
 const { tableExists } = require('../sql-utils');
 const { logAdminAudit } = require('../services/admin_audit');
+// A4 (FIX PLAN 2026-09-15) — assignment is not acceptance. See recentCases in
+// GET /portal/doctor/analytics.
+const { doctorHasAcceptedCase, redactPatientIdentity } = require('../services/doctor_case_access');
 
 const router = express.Router();
 
@@ -322,14 +325,30 @@ router.get(
       );
 
       // Recent cases
-      var recentCases = await safeAll(
+      var recentCasesRows = await safeAll(
         // AUDIT-2026-09-06 (D3): the per-case column was o.price under an
         // "Amount" header — the patient's price again. It now carries the
         // doctor's own earning for that case, and o.price is not selected at
         // all so it cannot reach the template by accident.
-        "SELECT o.id, o.status, o.created_at, o.completed_at, COALESCE(sv.name, 'Service') as service_name, COALESCE(u.name, 'Patient') as patient_name, COALESCE(de.earned_amount, 0) as doctor_fee_egp FROM orders_active o LEFT JOIN services sv ON sv.id = o.service_id LEFT JOIN users u ON u.id = o.patient_id LEFT JOIN doctor_earnings de ON de.appointment_id = o.id AND de.doctor_id = o.doctor_id WHERE o.doctor_id = $1 ORDER BY o.created_at DESC LIMIT 20",
+        //
+        // A4 (FIX PLAN 2026-09-15): o.doctor_id is selected because the filter
+        // below is `o.doctor_id = $1` with NO acceptance and no status test,
+        // and doctor_analytics.ejs prints c.patient_name. assignDoctor writes
+        // orders.doctor_id at ASSIGNMENT, so this table named the patient of
+        // every case that had merely been OFFERED to this doctor — no
+        // reassignment or any other precondition needed.
+        "SELECT o.id, o.status, o.doctor_id, o.created_at, o.completed_at, COALESCE(sv.name, 'Service') as service_name, COALESCE(u.name, 'Patient') as patient_name, COALESCE(de.earned_amount, 0) as doctor_fee_egp FROM orders_active o LEFT JOIN services sv ON sv.id = o.service_id LEFT JOIN users u ON u.id = o.patient_id LEFT JOIN doctor_earnings de ON de.appointment_id = o.id AND de.doctor_id = o.doctor_id WHERE o.doctor_id = $1 ORDER BY o.created_at DESC LIMIT 20",
         [doctorId]
       );
+
+      // The row stays — the case is the doctor's own work and belongs in their
+      // analytics — but until they have accepted it, it is an offer, and an
+      // offer carries no patient. The view already falls back to an em-dash
+      // when the name is absent, and the row is still identified by its case
+      // reference in the first column.
+      var recentCases = (recentCasesRows || []).map(function (c) {
+        return doctorHasAcceptedCase(c, doctorId) ? c : redactPatientIdentity(c);
+      });
 
       // Upcoming appointments
       var upcomingAppts = 0;
