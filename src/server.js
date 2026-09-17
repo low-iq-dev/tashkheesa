@@ -465,7 +465,7 @@ app.use(function(req, res, next) {
       "base-uri 'self'",
       "object-src 'none'",
       "frame-ancestors 'none'",
-      "img-src 'self' data: blob: https://ucarecdn.com https://res.cloudinary.com https://api.qrserver.com",
+      "img-src 'self' data: blob: https://ucarecdn.com https://res.cloudinary.com https://api.qrserver.com https://www.facebook.com",
       "font-src 'self' data: https://ucarecdn.com https://fonts.gstatic.com",
       "style-src 'self' 'unsafe-inline' https://ucarecdn.com https://fonts.googleapis.com",
       // 'unsafe-eval' is required by Uploadcare File Uploader 3.x — it compiles
@@ -502,14 +502,14 @@ app.use(function(req, res, next) {
       // byte-identical to the src="" in those views, or the charts 403.
       // Removing the CDN entirely needs chart.js vendored under public/vendor/
       // — see the report.
-      "script-src 'self' 'unsafe-eval' 'nonce-" + nonce + "' https://ucarecdn.com https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js https://media.twiliocdn.com",
+      "script-src 'self' 'unsafe-eval' 'nonce-" + nonce + "' https://ucarecdn.com https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js https://media.twiliocdn.com https://connect.facebook.net",
       // AUDIT-P0-5 — Twilio Video added. media.twiliocdn.com was already in
       // script-src so the SDK loaded, and the token fetch is same-origin so it
       // succeeded — but Twilio.Video.connect() opens a WebSocket to
       // wss://global.vss.twilio.com and an HTTPS call to ecs.*.twilio.com, both
       // governed by connect-src. Every paid video consultation rendered its UI
       // and then failed at connect time, looking like a Twilio outage.
-      "connect-src 'self' https://upload.uploadcare.com https://api.uploadcare.com https://ucarecdn.com https://*.twilio.com wss://*.twilio.com",
+      "connect-src 'self' https://upload.uploadcare.com https://api.uploadcare.com https://ucarecdn.com https://*.twilio.com wss://*.twilio.com https://www.facebook.com https://connect.facebook.net",
       "frame-src 'self' https://uploadcare.com https://ucarecdn.com",
       // media-src / worker-src / form-action were absent from this array while
       // helmet ALSO set a CSP header. res.setHeader REPLACES, so this array is

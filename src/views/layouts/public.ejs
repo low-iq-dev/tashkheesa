@@ -129,7 +129,8 @@
   <% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
   <link rel="icon" href="/favicon.ico" />
 </head>
-<body class="layout layout-public">
+<body class="layout layout-public" data-meta-pixel="1">
+<script src="/js/meta_pixel.js" defer></script>
 
 <% if (renderNav) { %>
 <header class="site-header">
