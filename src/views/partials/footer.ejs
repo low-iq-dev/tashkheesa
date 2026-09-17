@@ -83,7 +83,13 @@
               home in the global footer. %>
           <h4 class="footer-col-title"><%= __footerIsAr ? 'للأطباء' : 'For Doctors' %></h4>
           <a href="<%= locals.publicLinkPrefix || '' %>/apply"><%= __footerIsAr ? 'قدِّم كاستشاري' : 'Apply as a Specialist' %></a>
-          <a href="/doctor/signup"><%= __footerIsAr ? 'تسجيل الأطباء' : 'Doctor Sign-up' %></a>
+          <%# /doctor/signup is a cookie-driven auth page with NO /ar/ twin
+              (deliberately outside the public URL scheme — /ar/doctor/signup
+              is a 404), so it cannot take the /ar prefix. Like the header's
+              /login link, it carries the page's language as ?lang= instead:
+              a public page no longer sets the cookie, so without this an
+              Arabic visitor landed on the English signup form. %>
+          <a href="/doctor/signup<%= locals.langParam ? '?' + locals.langParam : '' %>"><%= __footerIsAr ? 'تسجيل الأطباء' : 'Doctor Sign-up' %></a>
         </div>
         <div class="footer-col">
           <h4 class="footer-col-title"><%= __footerIsAr ? 'تواصل معنا' : 'Contact' %></h4>

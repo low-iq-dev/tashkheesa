@@ -113,6 +113,21 @@ try {
     }
     if (!seen) bad.push(rel + ': no /login or /register link found (the check is not seeing it)');
   }
+  // SEO 2026-09-18 (mop-up item 6) — the global footer's Doctor Sign-up link.
+  // /doctor/signup is a cookie-driven auth page with no /ar/ twin, so it takes
+  // ?lang= (like /login above), never the /ar prefix. Without it, the one
+  // doctor-recruitment link on every Arabic page opened the English form.
+  {
+    const rel = 'partials/footer.ejs';
+    const src = fs.readFileSync(path.join(VIEWS, rel), 'utf8');
+    const re = /\bhref="\/doctor\/signup([^"]*)"/g;
+    let m, seen = 0;
+    while ((m = re.exec(src))) {
+      seen++;
+      if (m[1] !== AUTH_LANG_EXPR) bad.push(rel + ':' + lineOf(src, m.index) + ' — /doctor/signup' + m[1]);
+    }
+    if (!seen) bad.push(rel + ': no /doctor/signup link found (the check is not seeing it)');
+  }
   if (bad.length) throw new Error('auth links without the page language:\n    ' + bad.join('\n    '));
-  t.pass('header/homepage auth links carry the page language');
+  t.pass('header/homepage auth links and the footer doctor-signup link carry the page language');
 } catch (e) { t.fail('auth links carry lang', e); }
