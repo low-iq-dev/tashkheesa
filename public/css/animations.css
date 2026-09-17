@@ -3,7 +3,14 @@
 /* ========================================
    SCROLL REVEAL BASE
    ======================================== */
-.reveal {
+/* Hidden ONLY when JS is running (the inline <head> snippet sets html.js
+   before this sheet applies). With JS off nothing here matches, so every
+   card and step ships visible — a page that hides content and relies on
+   script to un-hide it renders blank for no-JS visitors.
+   :where() keeps each selector at .reveal's old (0,1,0) specificity, so
+   .reveal.active and the prefers-reduced-motion override below still win
+   exactly as they did before the html.js scoping. */
+:where(html.js) .reveal {
   opacity: 0;
   transform: translateY(20px);
   transition: opacity 0.6s ease, transform 0.6s ease;
@@ -14,7 +21,7 @@
   transform: none;
 }
 
-.reveal-left {
+:where(html.js) .reveal-left {
   opacity: 0;
   transform: translateX(-30px);
   transition: opacity 0.6s ease, transform 0.6s ease;
@@ -25,7 +32,7 @@
   transform: none;
 }
 
-.reveal-right {
+:where(html.js) .reveal-right {
   opacity: 0;
   transform: translateX(30px);
   transition: opacity 0.6s ease, transform 0.6s ease;

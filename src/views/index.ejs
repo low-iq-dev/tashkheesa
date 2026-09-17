@@ -95,6 +95,13 @@
     }
   }
   </script>
+  <%# No-JS fallback. animations.css hides .reveal/.reveal-left/.reveal-right
+      only under html.js, and this snippet is what sets that class — with JS
+      off it never runs and every card ships visible. It must stay INLINE and
+      SYNCHRONOUS, before the animations.css <link> below: a deferred script
+      would let the page paint unhidden and then blink out. The nonce keeps it
+      runnable under the CSP (script-src has no 'unsafe-inline' — server.js). %>
+  <script<%- __nonceAttr %>>document.documentElement.classList.add('js');</script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet" />
@@ -120,6 +127,8 @@
         <a href="<%= locals.publicLinkPrefix || '' %>/services"><%= tt('nav.services', 'Services', 'الخدمات') %></a>
         <a href="<%= locals.publicLinkPrefix || '' %>/about"><%= tt('nav.about', 'About', 'عن تشخيصة') %></a>
         <a href="<%= locals.publicLinkPrefix || '' %>/specialties"><%= tt('nav.doctors', 'Doctors', 'الدكاترة') %></a>
+        <a href="<%= locals.publicLinkPrefix || '' %>/blog"><%= tt('nav.blog', 'Blog', 'المدونة') %></a>
+        <a href="<%= locals.publicLinkPrefix || '' %>/faq"><%= tt('nav.faq', 'FAQ', 'الأسئلة الشائعة') %></a>
         <a href="<%= locals.publicLinkPrefix || '' %>/contact"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a>
         <div class="nav-lang-toggle">
           <a href="/" class="lang-btn <%= lang === 'en' ? 'active' : '' %>" id="lang-en" rel="alternate" hreflang="en" lang="en">EN</a>
@@ -418,27 +427,33 @@
     <!-- Stats -->
     <section class="site-section bg-dark">
       <div class="site-container">
+        <%# The element's text is the REAL figure, suffix included — with JS
+            off it is all a visitor ever sees, and it used to be a literal 0
+            ("0 Beds · 0 Consultants"). site-animations.js resets it to 0
+            itself before counting up, so only a page that is actually
+            running JS ever shows a zero. %>
         <div class="stats-grid">
           <div class="stat-item reveal stagger-1">
-            <div class="stat-number" data-count-to="220" data-count-suffix="">0</div>
+            <div class="stat-number" data-count-to="220" data-count-suffix="">220</div>
             <div class="stat-label"><%= tt('home.stat.beds',
               'Beds at Shifa Hospital Group',
               'سرير في مجموعة مستشفيات شفا') %></div>
           </div>
           <div class="stat-item reveal stagger-2">
-            <div class="stat-number" data-count-to="150" data-count-suffix="+">0</div>
+            <div class="stat-number" data-count-to="150" data-count-suffix="+">150+</div>
             <div class="stat-label"><%= tt('home.stat.consultants',
               'Shifa Hospital Group Consultants',
               'استشاري في مجموعة مستشفيات شفا') %></div>
           </div>
           <div class="stat-item reveal stagger-3">
-            <div class="stat-number" data-count-to="<%= typeof specialtyCount !== 'undefined' ? specialtyCount : 6 %>" data-count-suffix="">0</div>
+            <% var __specialtyStat = typeof specialtyCount !== 'undefined' ? specialtyCount : 7; %>
+            <div class="stat-number" data-count-to="<%= __specialtyStat %>" data-count-suffix=""><%= __specialtyStat %></div>
             <div class="stat-label"><%= tt('home.stat.specialties',
               'Specialties on Tashkheesa',
               'تخصص طبي على تشخيصة') %></div>
           </div>
           <div class="stat-item reveal stagger-4">
-            <div class="stat-number" data-count-to="48" data-count-suffix="h">0</div>
+            <div class="stat-number" data-count-to="48" data-count-suffix="h">48h</div>
             <div class="stat-label"><%= tt('home.stat.turnaround',
               'Standard Report Turnaround',
               'وقت تسليم التقرير الأساسي') %></div>
@@ -471,14 +486,17 @@
           <p><%= tt('home.footer.brand_blurb',
             'Hospital-based specialist medical second opinions. Expert consultations delivered with speed and clarity.',
             'آراء طبية تانية من دكاترة بتشتغل في مستشفيات. استشارات طبية بتوصلك بسرعة ووضوح.') %></p>
+          <%# Only channels that actually exist: Instagram (@tashkheesaa, the
+              live channel) first, then the Facebook Page (id 927504083784815)
+              linked to it. Twitter and LinkedIn were href="#" with no account
+              behind them — dead links, removed. %>
           <div class="footer-social">
-            <a href="#" aria-label="Twitter">
-              <svg viewBox="0 0 24 24"><path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2c9 5 20 0 20-11.5a4.5 4.5 0 00-.08-.83A7.72 7.72 0 0023 3z"/></svg>
+            <a href="https://www.instagram.com/tashkheesaa/" target="_blank" rel="noopener"
+               aria-label="<%= tt('home.footer.instagram', 'Tashkheesa on Instagram', 'تشخيصة على إنستجرام') %>">
+              <svg viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
             </a>
-            <a href="#" aria-label="LinkedIn">
-              <svg viewBox="0 0 24 24"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6zM2 9h4v12H2zM4 6a2 2 0 100-4 2 2 0 000 4z"/></svg>
-            </a>
-            <a href="#" aria-label="Facebook">
+            <a href="https://www.facebook.com/profile.php?id=927504083784815" target="_blank" rel="noopener"
+               aria-label="<%= tt('home.footer.facebook', 'Tashkheesa on Facebook', 'تشخيصة على فيسبوك') %>">
               <svg viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>
             </a>
           </div>

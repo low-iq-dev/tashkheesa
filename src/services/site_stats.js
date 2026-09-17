@@ -35,10 +35,11 @@ async function getVisibleSpecialtyCount() {
   return _cachedCount(
     'specialties',
     "SELECT count(*)::int AS n FROM specialties WHERE COALESCE(is_visible, true) = true",
-    // 6 visible today (28 rows, 22 deliberately hidden). The old fallback of
+    // 7 visible today (2026-09-17: Cardiology, Internal Medicine, OB/GYN,
+    // Orthopedics, Pediatrics, Radiology, Urology). The old fallback of
     // 19 predates migrations 060/066 and would have printed a claim three
     // times the truth on the one request where the DB blipped.
-    6
+    7
   );
 }
 

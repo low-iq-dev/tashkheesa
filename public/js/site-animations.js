@@ -62,6 +62,10 @@
     }, { threshold: 0.3 });
 
     document.querySelectorAll('[data-count-to]').forEach(function (el) {
+      // The server renders the real figure as the element's text so a no-JS
+      // visitor never reads "0". Only this script — which is about to animate
+      // the count-up — may zero it out.
+      el.textContent = '0';
       countObserver.observe(el);
     });
   }
