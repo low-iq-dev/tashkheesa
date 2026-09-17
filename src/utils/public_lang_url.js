@@ -25,6 +25,10 @@ const PUBLIC_EXACT = new Set([
   '/', '/services', '/specialties', '/about', '/contact', '/faq', '/blog',
   '/privacy', '/terms', '/refund-policy', '/delivery-policy', '/apply',
   '/help-me-choose', '/app', '/coming-soon',
+  // A legacy redirect-only URL (301 → /#how-it-works). In the scheme so the
+  // Arabic form redirects to the Arabic homepage; NOT in the sitemap
+  // (static-pages.js SITEMAP_STATIC_PATHS does not list it).
+  '/how-it-works',
   // Legacy .html addresses. They only redirect, but an Arabic one must
   // redirect to the Arabic page, so they need to know the prefix too.
   '/services.html', '/privacy.html', '/terms.html', '/about.html', '/contact.html', '/doctors.html',

@@ -603,7 +603,15 @@ function setupStaticPages(opts) {
       : specialty.name + ' second opinion from board-certified Egyptian consultants, with a written report within 48 hours.';
   }
 
-  router.get('/how-it-works', function(req, res) { res.redirect(302, '/#how-it-works'); });
+  // SEO 2026-09-18 — this was a 302 to an anchor that did not exist on the
+  // homepage. Now a 301 (a legacy URL that permanently moved), and index.ejs's
+  // "How It Works" section carries id="how-it-works". Language-aware: the path
+  // is in PUBLIC_EXACT, so /ar/how-it-works reaches this handler with
+  // langPrefix='/ar' and lands on the Arabic homepage's anchor.
+  router.get('/how-it-works', function(req, res) {
+    var prefix = (res.locals && res.locals.langPrefix) ? '/ar/' : '/';
+    res.redirect(301, prefix + '#how-it-works');
+  });
   router.get('/doctors', function(req, res) { res.redirect(302, '/about'); });
 
   // POST /contact
