@@ -37,6 +37,13 @@ function canonicalHostRedirect(opts) {
 
   return function canonicalHostRedirectMiddleware(req, res, next) {
     if (!enabled) return next();
+    // GET/HEAD only. The duplicate-content problem is a crawler problem, and
+    // crawlers fetch. A 301 on a POST helps no one and would break any
+    // webhook (Paymob, Resend, Twilio) that was ever registered against the
+    // .onrender.com address — a client that even follows a 307-less 301
+    // typically re-issues it as a GET, dropping the body.
+    var method = String(req.method || 'GET').toUpperCase();
+    if (method !== 'GET' && method !== 'HEAD') return next();
     if (EXEMPT_PATHS.has(req.path)) return next();
 
     // req.hostname: Host (or X-Forwarded-Host under trust proxy), no port.

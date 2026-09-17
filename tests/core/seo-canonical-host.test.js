@@ -37,6 +37,7 @@ function buildApp(mwOpts) {
   app.use(canonicalHostRedirect(mwOpts));
   app.get('/healthz', (req, res) => res.json({ ok: true }));
   app.get('/__version', (req, res) => res.json({ ok: true }));
+  app.post('*', (req, res) => res.status(200).type('text/plain').send('posted: ' + req.originalUrl));
   app.get('*', (req, res) => res.status(200).type('text/plain').send('page: ' + req.originalUrl));
   return app;
 }
@@ -54,7 +55,7 @@ async function withServer(mwOpts, fn) {
     });
     return { status: r.status, location: r.headers.get('location'), body: await r.text() };
   };
-  try { await fn(get); } finally { await new Promise((res) => server.close(res)); }
+  try { await fn(get, base); } finally { await new Promise((res) => server.close(res)); }
 }
 
 (async () => {
@@ -105,6 +106,22 @@ async function withServer(mwOpts, fn) {
       if (r.status !== 200) throw new Error('localhost got ' + r.status + ' ' + (r.location || ''));
       t.pass('localhost is never redirected, even force-enabled');
     } catch (e) { t.fail('localhost exempt', e); }
+  });
+
+  await withServer({ canonicalHost: 'tashkheesa.com', enabled: true }, async (get, base) => {
+    try {
+      // A webhook registered against the .onrender.com host must keep
+      // working: POSTs are never redirected (a followed 301 becomes a GET
+      // and drops the body).
+      const r = await fetch((base || '') + '/payments/webhook', {
+        method: 'POST',
+        redirect: 'manual',
+        headers: { 'X-Forwarded-Host': 'tashkheesa.onrender.com', 'content-type': 'application/json' },
+        body: '{}'
+      });
+      if (r.status !== 200) throw new Error('POST on a non-canonical host got ' + r.status);
+      t.pass('POST is never redirected — webhooks on the old host keep working');
+    } catch (e) { t.fail('POST exempt', e); }
   });
 
   await withServer({ canonicalHost: 'tashkheesa.com', enabled: false }, async (get) => {
