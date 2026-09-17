@@ -422,6 +422,11 @@ process.on('uncaughtException', function(err) {
 // baseMiddlewares, which resolves the language for every other route from
 // ?lang= / session / cookie and would otherwise overwrite it.
 app.use(require("./utils/public_lang_url").publicLangPrefix());
+// SEO 2026-09-18 — auth pages and the orphaned /coming-soon page carry
+// `X-Robots-Tag: noindex, follow`. After publicLangPrefix on purpose: the /ar
+// twins are already rewritten to their base path, so one list covers both
+// languages. See src/middleware/robots_noindex.js.
+app.use(require('./middleware/robots_noindex').robotsNoindex());
 baseMiddlewares(app);
 
 // P0-FORM-1: Backfill gate for patients without a phone. Self-gates on

@@ -386,6 +386,9 @@ function setupStaticPages(opts) {
       BUSINESS_INFO: BUSINESS_INFO,
       description: (res.locals && res.locals.isAr) ? comingSoonDescAr : comingSoonDesc,
       canonical: '/coming-soon',
+      // SEO 2026-09-18 — an orphaned pre-launch page must not outrank the live
+      // site. noindex, follow (not none): its links onward still pass.
+      robots: 'noindex, follow',
       utm_source: utm('utm_source'),
       utm_medium: utm('utm_medium'),
       utm_campaign: utm('utm_campaign'),
@@ -776,6 +779,7 @@ function setupStaticPages(opts) {
       BUSINESS_INFO: BUSINESS_INFO,
       description: (res.locals && res.locals.isAr) ? comingSoonDescAr : comingSoonDesc,
       canonical: '/coming-soon',
+      robots: 'noindex, follow',
       utm_source: utmFromBody('utm_source'),
       utm_medium: utmFromBody('utm_medium'),
       utm_campaign: utmFromBody('utm_campaign'),
