@@ -328,6 +328,16 @@ var COOKIE_SAMESITE = 'lax';
 app.use(attachRequestId);
 app.use(accessLogger());
 
+// SEO 2026-09-18 — one canonical host. tashkheesa.onrender.com served the
+// whole site as a duplicate; every non-canonical Host now 301s to
+// https://tashkheesa.com<path+query>. Mounted before the static mounts and
+// every route so assets and pages redirect alike; /healthz, /__version,
+// /health and /status stay exempt so Render's health checks keep answering.
+// Production-only (see src/middleware/canonical_host.js) — local dev, tests
+// and preview deploys are untouched unless CANONICAL_HOST is set for them.
+var { canonicalHostRedirect } = require('./middleware/canonical_host');
+app.use(canonicalHostRedirect());
+
 // Staging Basic Auth
 setupStagingAuth(app, CONFIG);
 
