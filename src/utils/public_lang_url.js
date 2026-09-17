@@ -25,6 +25,10 @@ const PUBLIC_EXACT = new Set([
   '/', '/services', '/specialties', '/about', '/contact', '/faq', '/blog',
   '/privacy', '/terms', '/refund-policy', '/delivery-policy', '/apply',
   '/help-me-choose', '/app', '/coming-soon',
+  // A legacy redirect-only URL (301 → /#how-it-works). In the scheme so the
+  // Arabic form redirects to the Arabic homepage; NOT in the sitemap
+  // (static-pages.js SITEMAP_STATIC_PATHS does not list it).
+  '/how-it-works',
   // Legacy .html addresses. They only redirect, but an Arabic one must
   // redirect to the Arabic page, so they need to know the prefix too.
   '/services.html', '/privacy.html', '/terms.html', '/about.html', '/contact.html', '/doctors.html',
@@ -146,6 +150,16 @@ function publicLangPrefix() {
       // '/ar' -> '/ar/': the Arabic home has exactly one address.
       if (split.isAr && req.path === '/ar') {
         return res.redirect(301, '/ar/' + rawQuery);
+      }
+      // SEO 2026-09-18 — trailing-slash duplicates. /services/ and
+      // /ar/services/ answered 200, a second URL for every public page. One
+      // 301 to the canonical no-slash form. pathFor() normalises, and for the
+      // two roots it RETURNS their canonical slashed form ('/' and '/ar/'), so
+      // the roots compare equal to themselves and can never redirect — no
+      // loop is constructible here.
+      const canonicalPath = pathFor(split.isAr ? 'ar' : 'en', split.path);
+      if (req.path !== canonicalPath) {
+        return res.redirect(301, canonicalPath + rawQuery);
       }
     }
 

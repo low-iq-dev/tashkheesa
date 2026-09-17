@@ -328,6 +328,16 @@ var COOKIE_SAMESITE = 'lax';
 app.use(attachRequestId);
 app.use(accessLogger());
 
+// SEO 2026-09-18 — one canonical host. tashkheesa.onrender.com served the
+// whole site as a duplicate; every non-canonical Host now 301s to
+// https://tashkheesa.com<path+query>. Mounted before the static mounts and
+// every route so assets and pages redirect alike; /healthz, /__version,
+// /health and /status stay exempt so Render's health checks keep answering.
+// Production-only (see src/middleware/canonical_host.js) — local dev, tests
+// and preview deploys are untouched unless CANONICAL_HOST is set for them.
+var { canonicalHostRedirect } = require('./middleware/canonical_host');
+app.use(canonicalHostRedirect());
+
 // Staging Basic Auth
 setupStagingAuth(app, CONFIG);
 
@@ -340,12 +350,20 @@ var marketingSiteDir = path.join(__dirname, '..', 'public', 'site');
 var marketingStaticDir = fs.existsSync(marketingSiteDir)
   ? marketingSiteDir
   : path.join(__dirname, '..', 'public');
-app.use('/site', express.static(marketingStaticDir));
-app.use('/assets', express.static(path.join(__dirname, '..', 'public', 'assets')));
-app.use('/js', express.static(path.join(__dirname, '..', 'public', 'js')));
-app.use('/css', express.static(path.join(__dirname, '..', 'public', 'css')));
-app.use('/vendor', express.static(path.join(__dirname, '..', 'public', 'vendor')));
-app.use('/uploads', express.static(path.join(__dirname, '..', 'public', 'uploads')));
+// SEO 2026-09-18 — these mounts served `max-age=0`: every visit re-downloaded
+// every stylesheet and script. The asset URLs are NOT cache-busted (no content
+// hash, no ?v=), so a year-long cache would pin a stale bundle across deploys;
+// one hour is the ceiling until versioned URLs exist. express.static still
+// sends ETag + Last-Modified, so after the hour a revalidation is a cheap 304.
+// /fonts below keeps 1y+immutable (font files never change in place) and
+// /icons keeps 7d.
+var STATIC_CACHE = { maxAge: '1h' };
+app.use('/site', express.static(marketingStaticDir, STATIC_CACHE));
+app.use('/assets', express.static(path.join(__dirname, '..', 'public', 'assets'), STATIC_CACHE));
+app.use('/js', express.static(path.join(__dirname, '..', 'public', 'js'), STATIC_CACHE));
+app.use('/css', express.static(path.join(__dirname, '..', 'public', 'css'), STATIC_CACHE));
+app.use('/vendor', express.static(path.join(__dirname, '..', 'public', 'vendor'), STATIC_CACHE));
+app.use('/uploads', express.static(path.join(__dirname, '..', 'public', 'uploads'), STATIC_CACHE));
 // AUDIT-P0-5 — /fonts and /icons were referenced everywhere but served nowhere.
 //   * public/css/fonts.css declares every @font-face src as
 //     url('/fonts/cormorant-garamond/...'), and partials/patient/head.ejs
@@ -362,18 +380,18 @@ app.use('/fonts', express.static(path.join(__dirname, '..', 'public', 'fonts'), 
 app.use('/icons', express.static(path.join(__dirname, '..', 'public', 'icons'), {
   maxAge: '7d'
 }));
-app.use('/styles.css', express.static(path.join(__dirname, '..', 'public', 'styles.css')));
-app.use('/favicon.ico', express.static(path.join(__dirname, '..', 'public', 'favicon.ico')));
-app.use('/favicon.svg', express.static(path.join(__dirname, '..', 'public', 'assets', 'favicon.svg')));
+app.use('/styles.css', express.static(path.join(__dirname, '..', 'public', 'styles.css'), STATIC_CACHE));
+app.use('/favicon.ico', express.static(path.join(__dirname, '..', 'public', 'favicon.ico'), STATIC_CACHE));
+app.use('/favicon.svg', express.static(path.join(__dirname, '..', 'public', 'assets', 'favicon.svg'), STATIC_CACHE));
 // AUDIT-P0-5 — partials/patient/head.ejs asks for /apple-touch-icon.png and
 // /site.webmanifest at the public root; neither had a mount.
-app.use('/apple-touch-icon.png', express.static(path.join(__dirname, '..', 'public', 'apple-touch-icon.png')));
-app.use('/site.webmanifest', express.static(path.join(__dirname, '..', 'public', 'site.webmanifest')));
+app.use('/apple-touch-icon.png', express.static(path.join(__dirname, '..', 'public', 'apple-touch-icon.png'), STATIC_CACHE));
+app.use('/site.webmanifest', express.static(path.join(__dirname, '..', 'public', 'site.webmanifest'), STATIC_CACHE));
 // 2026-09-13 (mobile B9) — the consultant portal's web app manifest, linked from
 // layouts/portal.ejs for the doctor frame only. Static files are mounted one by
 // one here, so without this line the link 404s.
-app.use('/manifest.webmanifest', express.static(path.join(__dirname, '..', 'public', 'manifest.webmanifest')));
-app.use('/annotator.html', express.static(path.join(__dirname, '..', 'public', 'annotator.html')));
+app.use('/manifest.webmanifest', express.static(path.join(__dirname, '..', 'public', 'manifest.webmanifest'), STATIC_CACHE));
+app.use('/annotator.html', express.static(path.join(__dirname, '..', 'public', 'annotator.html'), STATIC_CACHE));
 
 // ----------------------------------------------------
 // CRASH GUARDRAILS
@@ -412,6 +430,11 @@ process.on('uncaughtException', function(err) {
 // baseMiddlewares, which resolves the language for every other route from
 // ?lang= / session / cookie and would otherwise overwrite it.
 app.use(require("./utils/public_lang_url").publicLangPrefix());
+// SEO 2026-09-18 — auth pages and the orphaned /coming-soon page carry
+// `X-Robots-Tag: noindex, follow`. After publicLangPrefix on purpose: the /ar
+// twins are already rewritten to their base path, so one list covers both
+// languages. See src/middleware/robots_noindex.js.
+app.use(require('./middleware/robots_noindex').robotsNoindex());
 baseMiddlewares(app);
 
 // P0-FORM-1: Backfill gate for patients without a phone. Self-gates on

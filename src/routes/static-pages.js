@@ -386,6 +386,9 @@ function setupStaticPages(opts) {
       BUSINESS_INFO: BUSINESS_INFO,
       description: (res.locals && res.locals.isAr) ? comingSoonDescAr : comingSoonDesc,
       canonical: '/coming-soon',
+      // SEO 2026-09-18 — an orphaned pre-launch page must not outrank the live
+      // site. noindex, follow (not none): its links onward still pass.
+      robots: 'noindex, follow',
       utm_source: utm('utm_source'),
       utm_medium: utm('utm_medium'),
       utm_campaign: utm('utm_campaign'),
@@ -600,7 +603,15 @@ function setupStaticPages(opts) {
       : specialty.name + ' second opinion from board-certified Egyptian consultants, with a written report within 48 hours.';
   }
 
-  router.get('/how-it-works', function(req, res) { res.redirect(302, '/#how-it-works'); });
+  // SEO 2026-09-18 — this was a 302 to an anchor that did not exist on the
+  // homepage. Now a 301 (a legacy URL that permanently moved), and index.ejs's
+  // "How It Works" section carries id="how-it-works". Language-aware: the path
+  // is in PUBLIC_EXACT, so /ar/how-it-works reaches this handler with
+  // langPrefix='/ar' and lands on the Arabic homepage's anchor.
+  router.get('/how-it-works', function(req, res) {
+    var prefix = (res.locals && res.locals.langPrefix) ? '/ar/' : '/';
+    res.redirect(301, prefix + '#how-it-works');
+  });
   router.get('/doctors', function(req, res) { res.redirect(302, '/about'); });
 
   // POST /contact
@@ -776,6 +787,7 @@ function setupStaticPages(opts) {
       BUSINESS_INFO: BUSINESS_INFO,
       description: (res.locals && res.locals.isAr) ? comingSoonDescAr : comingSoonDesc,
       canonical: '/coming-soon',
+      robots: 'noindex, follow',
       utm_source: utmFromBody('utm_source'),
       utm_medium: utmFromBody('utm_medium'),
       utm_campaign: utmFromBody('utm_campaign'),
