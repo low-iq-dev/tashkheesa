@@ -147,6 +147,16 @@ function publicLangPrefix() {
       if (split.isAr && req.path === '/ar') {
         return res.redirect(301, '/ar/' + rawQuery);
       }
+      // SEO 2026-09-18 — trailing-slash duplicates. /services/ and
+      // /ar/services/ answered 200, a second URL for every public page. One
+      // 301 to the canonical no-slash form. pathFor() normalises, and for the
+      // two roots it RETURNS their canonical slashed form ('/' and '/ar/'), so
+      // the roots compare equal to themselves and can never redirect — no
+      // loop is constructible here.
+      const canonicalPath = pathFor(split.isAr ? 'ar' : 'en', split.path);
+      if (req.path !== canonicalPath) {
+        return res.redirect(301, canonicalPath + rawQuery);
+      }
     }
 
     const lang = split.isAr ? 'ar' : 'en';
