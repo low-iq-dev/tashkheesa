@@ -372,8 +372,8 @@ module.exports = (async function run() {
       if (/FROM case_extractions WHERE case_id = \$1/.test(s)) {
         return { lab_values: JSON.stringify([{ name: SECRET.labValue, value: '1.2' }]), patient_info: JSON.stringify({ name: SECRET.name }) };
       }
-      if (/COUNT\(\*\) as c FROM orders_active WHERE doctor_id = \$1/.test(s)) return { c: 0 };
-      if (/COUNT\(\*\) AS c/.test(s)) return { c: 0 };
+      if (/COUNT\(\*\) as c FROM orders_active WHERE doctor_id = \$1/.test(s)) return { c: scn.loadCount == null ? 0 : scn.loadCount };
+      if (/COUNT\(\*\) AS c/.test(s)) return { c: scn.loadCount == null ? 0 : scn.loadCount };
       if (/FROM conversations WHERE order_id/.test(s)) return null;
       if (/FROM appointments/.test(s)) return null;
       if (/FROM doctor_assignments/.test(s)) return null;
@@ -533,6 +533,19 @@ module.exports = (async function run() {
     await checkAsync('(3) case page — pool case with NO specialty is not open to everyone: refused', async () => {
       return refused(await drive(casePage, { order: order({ specialty_id: null }), doctor: doctorRow() }));
     });
+    await checkAsync('(3) case page — A4 eligibility also asks tier and cap: a VIP case is refused to a standard-only doctor, a doctor AT their cap is refused, one UNDER it sees the offer', async () => {
+      // Tier: sla_tiers_supported = ["standard"] on a VIP case → refused.
+      let why = refused(await drive(casePage, { order: order({ urgency_tier: 'vip' }), doctor: doctorRow({ sla_tiers_supported: ['standard'] }) }));
+      if (why) return 'standard-only doctor on a VIP case: ' + why;
+      // Capacity: at their max_active_cases → refused; one under it → offer.
+      why = refused(await drive(casePage, { order: order(), doctor: doctorRow({ max_active_cases: 2 }), loadCount: 2 }));
+      if (why) return 'doctor at their cap: ' + why;
+      const r = await drive(casePage, { order: order(), doctor: doctorRow({ max_active_cases: 2 }), loadCount: 1 });
+      why = isOffer(r);
+      if (why) return 'doctor under their cap: ' + why;
+      return null;
+    });
+
     await checkAsync('(3) case page — doctor who fails the launch-gates account rule (paused / pending / deactivated / rejected): refused', async () => {
       for (const [label, dr] of [
         ['paused', doctorRow({ is_paused: true })],
