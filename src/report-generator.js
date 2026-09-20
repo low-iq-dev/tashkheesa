@@ -284,7 +284,11 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
     impression: 'الانطباع / الخلاصة',
     recommendations: 'التوصيات',
     disclaimer: 'إخلاء المسؤولية',
-    signature: 'توقيع الطبيب',
+    // A8 (fix plan 2026-09-15): "Consultant", not "Doctor Signature" — no
+    // signature image is placed on this document, and a heading that promises
+    // one above a typed name misdescribes what the reader is looking at.
+    signature: 'الاستشاري',
+    signedElectronically: 'موقّع إلكترونياً',
   };
 
   const arabicFontPath = findArabicFontPath();
@@ -762,10 +766,24 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
     'This report represents a professional medical opinion based on the files provided. It is intended to assist in medical decision-making and does not replace in-person clinical evaluation.';
   notesBox(disclaimer);
 
-  // Signature
-  // AUDIT-2026-08-22 (L3): reserve the header + rule + name as one unit so the
-  // signature is never split across a continuation page break.
-  sectionHeader('Doctor Signature', ar.signature, 92);
+  // Signature block — A8 (fix plan 2026-09-15): the heading is "Consultant /
+  // الاستشاري" with a "Signed electronically" line beneath it. The old
+  // "Doctor Signature / توقيع الطبيب" heading sat above a typed name and no
+  // signature image, promising something the document does not carry.
+  // AUDIT-2026-08-22 (L3): reserve the header + subline + rule + name as one
+  // unit so the block is never split across a continuation page break.
+  sectionHeader('Consultant', ar.signature, 106);
+  doc.fillColor(MUTED).font('Helvetica').fontSize(9).text('Signed electronically', x0, doc.y);
+  if (arabicFontPath) {
+    try {
+      const sigArW = 220;
+      doc.font(arabicFontPath).fontSize(9);
+      doc.text(arabicLabel(ar.signedElectronically), x1 - sigArW, doc.y - 11, { width: sigArW, align: 'right' });
+      doc.font('Helvetica');
+    } catch (_) {
+      // ignore — the English line above already says it
+    }
+  }
   doc.moveTo(x0, doc.y + 8).lineTo(x0 + 240, doc.y + 8).strokeColor('#111827').stroke();
   doc.moveDown(1.2);
   doc.fillColor('#111827');
@@ -1013,9 +1031,15 @@ async function generateStyledReportPdfLegacy({ caseId, doctorName, specialty, cr
 
   y -= boxH + 18;
 
-  // Signature
-  cs += text('F2', 12, left, y, 'Doctor Signature /', BLUE);
+  // Signature block — A8 (fix plan 2026-09-15): "Consultant", not "Doctor
+  // Signature" — no signature image exists on this document. This raw-PDF
+  // fallback cannot shape Arabic, so the Arabic halves stay placeholder
+  // blocks, exactly like every other Arabic label on this path.
+  cs += text('F2', 12, left, y, 'Consultant /', BLUE);
   cs += arBlock(left + 140, y - 10, 90, 10);
+  y -= 14;
+  cs += text('F1', 9, left, y, 'Signed electronically', null);
+  cs += arBlock(left + 140, y - 8, 80, 8);
   y -= 10;
 
   cs += hline(left, left + 240, y, '0 0 0');
