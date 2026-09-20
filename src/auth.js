@@ -100,8 +100,31 @@ function attachUser(req, res, next) {
     if (payload && typeof payload === 'object') {
       req.user = payload;
 
-      // Keep lang consistent across templates
-      const lang = (payload.lang || (req.cookies && req.cookies.lang) || 'en').toString().toLowerCase() === 'ar' ? 'ar' : 'en';
+      // Keep lang consistent across templates.
+      //
+      // AUDIT-I18N-2026-09-20 — payload.lang is a snapshot taken when the token
+      // was MINTED (login) and never refreshes until the next login, so it must
+      // not outrank the language the patient just chose. /lang/:code writes the
+      // choice to the session, the cookie AND users.lang; preferring the stale
+      // JWT value here meant the EN/عربي toggle changed everything except the
+      // page. Worse, it split the request against itself: src/middleware.js
+      // resolves (?lang= > session > cookie) and closes res.locals.tt over THAT
+      // language, then this line overwrote res.locals.lang with the JWT's. The
+      // patient dashboard reads res.locals.lang for `isAr` (sidebar labels, and
+      // dir on <html>) but renders its body copy through tt() — so the page came
+      // out as English body text inside a right-to-left Arabic frame, and the
+      // toggle looked like it did nothing.
+      //
+      // Priority below is deliberately identical to src/middleware.js:262 so the
+      // two can no longer disagree. payload.lang stays as the last resort for a
+      // request that carries no explicit choice at all.
+      const chosenLang =
+        (req.query && req.query.lang) ||
+        (req.session && req.session.lang) ||
+        (req.cookies && req.cookies.lang) ||
+        payload.lang ||
+        'en';
+      const lang = String(chosenLang).toLowerCase() === 'ar' ? 'ar' : 'en';
       if (res && res.locals) res.locals.lang = lang;
     } else {
       // Fall back to cookie lang even if not logged in
