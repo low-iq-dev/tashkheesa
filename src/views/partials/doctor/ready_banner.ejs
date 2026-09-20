@@ -1,0 +1,48 @@
+<%
+  /* "Your account is complete" (2026-09-20, AUDIT-NO-COMPLETION-STATE).
+
+     The counterpart to services_banner and tier_banner. Those two tell a
+     doctor what is still missing; when the last one clears they simply
+     disappear and the doctor is left on an empty dashboard with no signal
+     that anything succeeded. Dr Ahmed Hegazy finished on 13 Sep and was
+     still asking how to finish two days later.
+
+     Shown only when BOTH nudges are off, the doctor is assignable, and they
+     have never held a case — so it retires itself on the first assignment.
+     Conditions are computed in doctor.js (_computeReadyBannerFlag); this
+     partial only renders. */
+  var _rbAr = (typeof isAr !== 'undefined') ? !!isAr : false;
+  var _rbShow = (typeof locals !== 'undefined' && locals && locals.doctorReadyBanner) ? true : false;
+  var _rbTiers = (typeof locals !== 'undefined' && locals && locals.doctorReadyTiers) || [];
+  var _rbTierLabel = function (t) {
+    if (t === 'vip')     return _rbAr ? 'VIP (١٨ ساعة)'   : 'VIP (18h)';
+    if (t === 'urgent')  return _rbAr ? 'عاجل (٤ ساعات)'  : 'Urgent (4h)';
+    return _rbAr ? 'قياسي (٤٨ ساعة)' : 'Standard (48h)';
+  };
+%>
+<% if (_rbShow) { %>
+<div class="v2-ready-note" role="status" style="margin:0 0 12px;padding:14px 16px;border:1px solid #BFE3C8;background:#F0F8F2;border-radius:10px;">
+  <div style="display:flex;align-items:flex-start;gap:10px;">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E7A3C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;margin-top:2px;">
+      <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+    </svg>
+    <div style="min-width:0;">
+      <div style="color:#14532D;font-weight:650;">
+        <%= _rbAr ? 'حسابك مكتمل' : 'Your account is complete' %>
+      </div>
+      <div style="color:#2C3A4A;font-size:12.5px;line-height:1.6;margin-block-start:3px;">
+        <%= _rbAr
+              ? 'مفيش أي خطوة ناقصة من ناحيتك. هتوصلك إشعار أول ما تتسند لحضرتك حالة، وهتلاقيها هنا في صفحة اليوم وفي قائمة الحالات.'
+              : 'There is nothing further for you to do. You will be notified when a case is assigned to you, and it will appear here on Today and in your case queue.' %>
+      </div>
+      <% if (_rbTiers.length) { %>
+        <div style="color:#3F5163;font-size:12px;line-height:1.6;margin-block-start:6px;">
+          <%= _rbAr ? 'أنت مُدرج حالياً لسرعات التسليم:' : 'You are currently listed for:' %>
+          <% _rbTiers.forEach(function (t, i) { %><span style="display:inline-block;background:#fff;border:1px solid #CBDDD1;border-radius:999px;padding:1px 9px;margin-inline-start:<%= i === 0 ? '4px' : '0' %>;margin-inline-end:4px;font-weight:600;color:#14532D;"><%= _rbTierLabel(t) %></span><% }); %>
+          <a href="/portal/doctor/services#turnaround" style="color:#0B6B5F;text-decoration:underline;font-weight:600;white-space:nowrap;"><%= _rbAr ? 'تعديل' : 'Change' %></a>
+        </div>
+      <% } %>
+    </div>
+  </div>
+</div>
+<% } %>
