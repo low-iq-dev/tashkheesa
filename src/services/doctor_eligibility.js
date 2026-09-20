@@ -108,4 +108,61 @@ function doctorNewCaseBlockReason(row) {
   return null;
 }
 
-module.exports = { eligibleDoctorClause, DOCTOR_ACCOUNT_BLOCK, doctorNewCaseBlockReason };
+// ── Tier support and per-doctor capacity (A4/A5, fix plan 2026-09-15) ────────
+//
+// MOVED VERBATIM from routes/api/_assign_helpers.js (which now re-exports
+// them), because the doctor-side gates — the case-page offer rule
+// (services/doctor_case_access.js) and the pool accept handler — need the same
+// two answers the admin assign gates already use, and a services module must
+// not require a routes module to get them. One definition, three consumers.
+//
+// 2026-08-24 — accepts BOTH spellings of the middle tier.
+//
+// This used to translate the order's tier one way only: vip → 'priority',
+// because that is what users.sla_tiers_supported held. Migration 086
+// normalises the column to 'vip', which would have inverted the bug — a
+// freshly normalised doctor would stop matching here even though the
+// assignment gate matched them fine. And it was already broken in the other
+// direction before that: the doctor signup form has always POSTed 'vip'
+// (views/doctor_signup.ejs:326) and validators/doctor_signup.js rejects
+// 'priority' outright, so every doctor who signed up through the live form was
+// shown as NOT supporting a VIP case they were perfectly eligible for.
+//
+// Matching the synonym set rather than translating means the badge stays
+// correct whichever spelling a row happens to carry, before or after the
+// migration. Mirrors tierSpellings() in src/auto_assign.js — keep the two in
+// sync if a tier is ever added.
+const TIER_SPELLINGS = {
+  vip:        ['vip', 'priority', 'fast_track'],
+  fast_track: ['vip', 'priority', 'fast_track'],
+  priority:   ['vip', 'priority', 'fast_track'],
+  standard:   ['standard'],
+  urgent:     ['urgent']
+};
+function doctorSupportsTier(slaTiers, orderTier) {
+  const x = String(orderTier || 'standard').trim().toLowerCase() || 'standard';
+  const accepted = TIER_SPELLINGS[x] || [x];
+  let arr = slaTiers;
+  if (typeof arr === 'string') {
+    try { arr = JSON.parse(arr); } catch (_) { arr = null; }
+  }
+  if (!Array.isArray(arr)) arr = ['standard'];
+  const have = arr.map((s) => String(s).toLowerCase());
+  return accepted.some((want) => have.includes(want));
+}
+// Capacity is by tier: urgent cases count against max_active_cases_urgent.
+// A cap of 0 / NULL / non-numeric means "no cap configured" and callers skip
+// the check — the same fail direction services/assign_case.js has always used.
+function capFor(doctor, orderTier) {
+  const urgent = String(orderTier || '').toLowerCase() === 'urgent';
+  const cap = Number(urgent ? doctor.max_active_cases_urgent : doctor.max_active_cases);
+  return Number.isFinite(cap) && cap > 0 ? cap : 0;
+}
+
+module.exports = {
+  eligibleDoctorClause,
+  DOCTOR_ACCOUNT_BLOCK,
+  doctorNewCaseBlockReason,
+  doctorSupportsTier,
+  capFor
+};

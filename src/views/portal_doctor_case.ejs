@@ -178,9 +178,17 @@
     return g;
   })();
 
-  // Fee — doctors only see fee, never patient price (stripPricingFields strips that already)
-  var _fee = (_order && (_order.doctor_fee != null ? _order.doctor_fee : _order.fee)) || null;
-  var _feeFmt = _fee ? ('EGP ' + Number(_fee).toLocaleString('en-EG')) : null;
+  // Fee — doctors only see THEIR fee, never patient price. A4 (fix plan
+  // 2026-09-15): the figure arrives as the `feeBreakdown` payload key
+  // (base + uplift share, from earnings_writer.previewCaseEarnings — the same
+  // code that writes the ledger row). The old _order.doctor_fee read had been
+  // dead since stripPricingFields started deleting the column (C5), so the
+  // fee card and the commitment fee line silently never rendered; it is kept
+  // only as a fallback shape for any caller that still passes it.
+  var _feeBd = (typeof feeBreakdown !== 'undefined' && feeBreakdown && Number(feeBreakdown.total) > 0) ? feeBreakdown : null;
+  var _fee = _feeBd ? _feeBd.total : ((_order && (_order.doctor_fee != null ? _order.doctor_fee : _order.fee)) || null);
+  var _feeEgp = function (n) { return 'EGP ' + Number(n).toLocaleString('en-EG'); };
+  var _feeFmt = _fee ? _feeEgp(_fee) : null;
 
   /* Existing report draft (server saved).
      `report_findings` / `report_impression` / `report_recommendations` are
@@ -604,7 +612,13 @@
       <div class="v2-card">
         <div class="v2-card__header"><div class="v2-card__title"><%= tt('Fee breakdown', 'Fee breakdown', 'تفاصيل الأجر') %></div></div>
         <div class="v2-card__body">
-          <div class="v2-fee-row"><span><%= tt('Specialist fee', 'Specialist fee', 'أجر الاستشاري') %></span><span data-numeric><%= _feeFmt %></span></div>
+          <%# A4 (fix plan 2026-09-15): a real breakdown when the parts are
+              known — base fee, plus the doctor's share of the urgency uplift
+              on VIP/urgent cases. %>
+          <div class="v2-fee-row"><span><%= tt('Specialist fee', 'Specialist fee', 'أجر الاستشاري') %></span><span data-numeric><%= _feeBd ? _feeEgp(_feeBd.baseShare) : _feeFmt %></span></div>
+          <% if (_feeBd && Number(_feeBd.upliftShare) > 0) { %>
+          <div class="v2-fee-row"><span><%= tt('Urgency uplift share', 'Urgency uplift share', 'نصيبك من علاوة الاستعجال') %></span><span data-numeric><%= _feeEgp(_feeBd.upliftShare) %></span></div>
+          <% } %>
           <div class="v2-fee-row"><span class="muted"><%= tt('Platform fee (already deducted)', 'Platform fee (already deducted)', 'رسوم المنصة (مخصومة)') %></span><span class="muted">—</span></div>
           <div class="v2-fee-row v2-fee-row--total"><span><%= tt('You receive', 'You receive', 'تستلم') %></span><span data-numeric><%= _feeFmt %></span></div>
         </div>

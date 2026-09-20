@@ -165,7 +165,10 @@ try {
                     'the action, not only on the queue that lists it — a typed URL was ' +
                     'enough to take a case in another field');
   }
-  if (!/SELECT specialty_id FROM users WHERE id = \$1/.test(handler)) {
+  // A4/A5 (fix plan 2026-09-15): the specialty read merged into the single
+  // live users read that also powers the account, tier and capacity gates —
+  // still a live read keyed on the doctor, still selecting specialty_id.
+  if (!/SELECT specialty_id[^;]{0,220}FROM users WHERE id = \$1/.test(handler)) {
     throw new Error("accept must read the doctor's specialty from the users row: req.user's " +
                     'copy comes from a JWT that can be up to seven days stale');
   }

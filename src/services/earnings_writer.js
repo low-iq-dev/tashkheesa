@@ -107,6 +107,26 @@ function buildResult(inputs) {
   });
 }
 
+// A4 (fix plan 2026-09-15) — the fee figure the doctor case page shows, READ
+// ONLY, computed by the SAME snapshot query and the SAME pure calc that write
+// the doctor_earnings ledger row at acceptance (loadEarningsInputs +
+// computeDoctorEarnings). The pre-accept brief must state the fee; a second,
+// hand-rolled fee expression on a compensation screen is how a shown number
+// and a paid number drift apart — so there isn't one. Case fee only
+// (base + uplift share): add-on shares are contingent on fulfilling the
+// add-on and are settled separately in addon_earnings, exactly as the
+// 'pending' ledger row itself excludes them.
+async function previewCaseEarnings(orderId) {
+  const inputs = await loadEarningsInputs(orderId);
+  if (!inputs || !inputs.order) return null;
+  const result = buildResult({ order: inputs.order, addons: [] });
+  return {
+    baseShare: result.baseShare,
+    upliftShare: result.upliftShare,
+    total: Math.round((result.baseShare + result.upliftShare) * 100) / 100
+  };
+}
+
 async function findExistingMainRow(orderId, doctorId) {
   // Side issue #43 — include clawback_* columns so recomputeOnRefund can
   // enforce idempotency without a second query. Existing callers
@@ -829,6 +849,7 @@ async function markPartialPayOnReassignment(originalDoctorId, orderId, reason) {
 module.exports = {
   writePendingForCase,
   markCaseEarningsPaid,
+  previewCaseEarnings,
   recomputeOnBreach,
   recomputeOnRefund,
   markPartialPayOnReassignment,

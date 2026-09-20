@@ -28,19 +28,27 @@
  *   1. the case is PAID (payment_status paid or captured);
  *   2. it is assigned to this doctor, or unassigned and open to their
  *      specialty;
- *   3. the doctor is eligible to take a new case.
+ *   3. the doctor is eligible to take a new case — Batch A (fix plan
+ *      2026-09-15) spells this out as: active, not paused, not deactivated,
+ *      supports the case's tier, and under their max_active_cases.
  *
- * Neither half of "eligible" is redefined here:
+ * No part of "eligible" is redefined here:
  *
- *   * the ACCOUNT half is doctor_eligibility.doctorNewCaseBlockReason — the
+ *   * the ACCOUNT part is doctor_eligibility.doctorNewCaseBlockReason — the
  *     rule the launch-gates work established for the pool accept and the
  *     operator hand-pick. This module never reads an account flag itself, so
  *     there is exactly one answer to "may this doctor take a new case" and it
  *     cannot drift;
- *   * the SPECIALTY half mirrors routes/doctor.js specialtyMatchSql, the
+ *   * the SPECIALTY part mirrors routes/doctor.js specialtyMatchSql, the
  *     fail-closed predicate the four unassigned-pool queries already use: a
  *     blank specialty on EITHER side is FALSE, never a wildcard. A missing
- *     specialty is an unanswered question, not a match.
+ *     specialty is an unanswered question, not a match;
+ *   * the TIER and CAPACITY parts are doctor_eligibility.doctorSupportsTier
+ *     and capFor — the same two answers every admin assign gate already uses
+ *     (services/assign_case.js, services/admin_bulk_assign.js,
+ *     routes/api/admin.js). The caller supplies the doctor's current load
+ *     (activeCaseCount) because this module does no I/O; an unknown load
+ *     fails CLOSED whenever a cap is configured.
  *
  * Why acceptance and not `orders.doctor_id === me`, which is what four separate
  * surfaces used: case_lifecycle.assignDoctor writes orders.doctor_id at
@@ -57,7 +65,7 @@
  * (services/login_gate.js makes the same promise at sign-in).
  */
 
-const { doctorNewCaseBlockReason } = require('./doctor_eligibility');
+const { doctorNewCaseBlockReason, doctorSupportsTier, capFor } = require('./doctor_eligibility');
 
 // The canonical status buckets. routes/doctor.js re-exports these under its own
 // ACCEPTED_STATUSES / UNACCEPTED_STATUSES names so the buckets and the access
@@ -101,16 +109,21 @@ const CASE_DENY_REASON = Object.freeze({
 /**
  * Everything an unaccepted doctor may see on the case itself.
  *
- * Chosen from the fix plan's wording: enough to decide whether to take a
- * 48-hour clinical commitment, with no patient identity, no AI extractions and
- * no history. These are the facts a worklist has always shown at triage — what
- * the case is, which specialty and service, how urgent and by when, who the
- * patient is CLINICALLY (age and sex, which are scheduling facts, not identity)
- * and in what language the report is due.
+ * Batch A (fix plan 2026-09-15) settles the contents of the pre-accept brief:
+ * enough to decide, nothing more — the clinical question, the specialty, the
+ * urgency tier and its deadline, the fee breakdown, and the count and types of
+ * attached files. Age, sex and report language are scheduling facts a worklist
+ * has always shown at triage, not identity.
+ *
+ * The clinical question is HERE — on the entitlement-checked case page only —
+ * and deliberately NOT in PRE_ACCEPT_LIST_FIELDS below: the brief is what a
+ * doctor reads to decide, the lists are bulk payloads that never render it.
+ * The question reaches the page via the same clinicalContext object the
+ * post-accept view uses, carrying ONLY the question key pre-accept.
  *
  * Deliberately NOT here: the patient's name, date of birth and contact details;
- * the referring question, medical history and current medications; the file
- * names and their urls; the AI image checks and the extracted lab values.
+ * the medical history and current medications; the file names and their urls;
+ * the AI image checks and the extracted lab values.
  */
 const PRE_ACCEPT_ORDER_FIELDS = Object.freeze([
   'id',
@@ -124,7 +137,8 @@ const PRE_ACCEPT_ORDER_FIELDS = Object.freeze([
   'patient_age',
   'patient_gender',
   'report_language',
-  'created_at_human'
+  'created_at_human',
+  'clinical_question'
 ]);
 
 /**
@@ -136,7 +150,10 @@ const PRE_ACCEPT_ORDER_FIELDS = Object.freeze([
  * from being rendered; a field that is not in the payload is not.
  */
 const WITHHELD_UNTIL_ACCEPT = Object.freeze([
-  // the patient's own words
+  // The patient's own words. The clinical QUESTION is policy-visible on the
+  // entitlement-checked case page (see PRE_ACCEPT_ORDER_FIELDS) but stays out
+  // of the bulk LIST payloads this list governs — no list template renders it,
+  // so carrying it in every queue row would be exposure with no reader.
   'clinical_question', 'primary_concern', 'concern',
   'medical_history', 'history',
   'current_medications', 'medications',
@@ -270,10 +287,17 @@ function doctorHasAcceptedCase(order, doctorId) {
 }
 
 /**
- * @param {object}      args.order      the orders row (status, payment_status, doctor_id, specialty_id)
+ * @param {object}      args.order      the orders row (status, payment_status, doctor_id,
+ *                                      specialty_id, urgency_tier/tier)
  * @param {string}      args.doctorId   the requesting doctor
- * @param {object|null} args.doctorRow  the LIVE users row (specialty_id + the account flags).
+ * @param {object|null} args.doctorRow  the LIVE users row (specialty_id, the account flags,
+ *                                      sla_tiers_supported, max_active_cases,
+ *                                      max_active_cases_urgent).
  *                                      null — an unreadable or missing account — denies.
+ * @param {number|null} args.activeCaseCount  the doctor's current load (the canonical
+ *                                      doctorLoadSql count). null/undefined — an unreadable
+ *                                      load — denies whenever the doctor has a cap, because
+ *                                      an unknown load is not a load under it.
  * @returns {{level: string, reason: string|null, blockReason: string|null}}
  */
 function doctorCaseAccess(args) {
@@ -281,6 +305,7 @@ function doctorCaseAccess(args) {
   const order = opts.order;
   const doctorId = opts.doctorId;
   const doctorRow = opts.doctorRow;
+  const activeCaseCount = opts.activeCaseCount;
 
   const deny = (reason, blockReason) => ({
     level: CASE_ACCESS.DENIED,
@@ -319,9 +344,35 @@ function doctorCaseAccess(args) {
     (!assigned && specialtyMatches(order.specialty_id, doctorRow && doctorRow.specialty_id));
   if (!offered) return deny(CASE_DENY_REASON.NOT_AVAILABLE);
 
-  // 6. Eligible to take it — the launch-gates rule, reused whole.
+  // 6. Eligible to take it — the launch-gates account rule, reused whole.
   const blockReason = doctorNewCaseBlockReason(doctorRow);
   if (blockReason) return deny(CASE_DENY_REASON.NOT_AVAILABLE, blockReason);
+
+  // 7. Supports the tier — A4/A5 (fix plan 2026-09-15). The same answer the
+  //    admin assign gates give, from the same helper: NULL sla_tiers_supported
+  //    reads as standard-only, exactly as auto_assign.js treats it. The tier
+  //    is read urgency_tier-first for the reason acceptance_window.js
+  //    documents: orders.tier carries DEFAULT 'standard' from migration 010
+  //    and is only overwritten at broadcast, so tier-first would read
+  //    'standard' on every not-yet-broadcast VIP/urgent case.
+  const orderTier = (order.urgency_tier || order.tier || 'standard');
+  if (!doctorSupportsTier(doctorRow && doctorRow.sla_tiers_supported, orderTier)) {
+    return deny(CASE_DENY_REASON.NOT_AVAILABLE, 'tier_not_supported');
+  }
+
+  // 8. Under their cap — A4/A5 (fix plan 2026-09-15). capFor is tier-aware
+  //    (urgent counts against max_active_cases_urgent) and a cap of 0/NULL
+  //    means "no cap configured", the direction services/assign_case.js has
+  //    always failed. When a cap IS configured, an unknown load (the caller
+  //    could not count) fails closed: an unread load is not a load under the
+  //    cap.
+  const cap = capFor(doctorRow || {}, orderTier);
+  if (cap > 0) {
+    const load = Number(activeCaseCount);
+    if (!Number.isFinite(load) || load >= cap) {
+      return deny(CASE_DENY_REASON.NOT_AVAILABLE, 'at_capacity');
+    }
+  }
 
   return { level: CASE_ACCESS.OFFER, reason: null, blockReason: null };
 }

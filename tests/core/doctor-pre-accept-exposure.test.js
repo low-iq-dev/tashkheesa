@@ -230,10 +230,14 @@ module.exports = (async function run() {
 
   check('(2) the pre-accept field list is declared, and names nothing the patient owns', () => {
     if (!A || !Array.isArray(A.PRE_ACCEPT_ORDER_FIELDS)) return 'PRE_ACCEPT_ORDER_FIELDS is not exported as an array';
-    const banned = ['patient_name', 'clinical_question', 'medical_history', 'current_medications', 'notes', 'patient_date_of_birth', 'date_of_birth'];
+    // Batch A (fix plan 2026-09-15): the clinical QUESTION is part of the
+    // pre-accept brief — it is what the doctor reads to decide — so it moved
+    // from the banned list to the required list. History, medications, notes
+    // and every identity column stay banned.
+    const banned = ['patient_name', 'medical_history', 'history', 'current_medications', 'medications', 'notes', 'patient_date_of_birth', 'date_of_birth', 'patient_email', 'patient_phone'];
     const bad = A.PRE_ACCEPT_ORDER_FIELDS.filter((f) => banned.indexOf(f) !== -1);
     if (bad.length) return 'the pre-accept field list names ' + bad.join(', ');
-    for (const need of ['id', 'status', 'payment_status', 'service_name', 'specialty_name', 'urgency_tier', 'sla_hours']) {
+    for (const need of ['id', 'status', 'payment_status', 'service_name', 'specialty_name', 'urgency_tier', 'sla_hours', 'clinical_question']) {
       if (A.PRE_ACCEPT_ORDER_FIELDS.indexOf(need) === -1) return 'the offer must still carry ' + need + ' — the doctor has to be able to decide';
     }
     return null;
@@ -477,13 +481,17 @@ module.exports = (async function run() {
       return null;
     }
 
-    await checkAsync('(3) case page — entitled doctor (paid, unassigned, specialty match, account clear): sees the offer, and question / history / medications / patient name / filename / AI checks are ABSENT FROM THE PAYLOAD', async () => {
+    await checkAsync('(3) case page — entitled doctor (paid, unassigned, specialty match, account clear): sees the offer WITH the clinical question, and history / medications / patient name / filename / AI checks are ABSENT FROM THE PAYLOAD', async () => {
       const r = await drive(casePage, { order: order(), doctor: doctorRow() });
       const why = isOffer(r); if (why) return why;
-      const leaked = leakedSecrets(r.res.payload, SECRET);
+      // Batch A (fix plan 2026-09-15): the question is policy-visible on the
+      // entitlement-checked brief. Everything else the patient owns stays out.
+      const leaked = leakedSecrets(r.res.payload, SECRET).filter((k) => k !== 'question');
       if (leaked.length) return 'the pre-accept payload still carries: ' + leaked.join(', ');
-      if ('clinicalContext' in r.res.payload) {
-        return 'clinicalContext is still a key on the pre-accept payload — the withheld fields must be absent, not blanked';
+      const ctx = r.res.payload.clinicalContext;
+      if (!ctx || ctx.question !== SECRET.question) return 'the entitled doctor was not shown the clinical question — the brief is what they decide on';
+      if ('medicalHistory' in ctx || 'medications' in ctx) {
+        return 'pre-accept clinicalContext must carry ONLY the question — history/medications keys must be absent, not blanked';
       }
       return null;
     });
@@ -544,11 +552,14 @@ module.exports = (async function run() {
       return refused(await drive(casePage, { order: order({ doctor_id: 'doc-2', status: 'ASSIGNED' }), doctor: doctorRow() }));
     });
 
-    await checkAsync('(3) case page — assigned to this doctor but NOT yet accepted: sees the offer, not the patient', async () => {
+    await checkAsync('(3) case page — assigned to this doctor but NOT yet accepted: sees the offer (with the question), not the patient', async () => {
       const r = await drive(casePage, { order: order({ doctor_id: 'doc-1', status: 'ASSIGNED' }), doctor: doctorRow() });
       const why = isOffer(r); if (why) return why;
-      const leaked = leakedSecrets(r.res.payload, SECRET);
+      const leaked = leakedSecrets(r.res.payload, SECRET).filter((k) => k !== 'question');
       if (leaked.length) return 'an assigned-but-unaccepted doctor was shown: ' + leaked.join(', ');
+      const ctx = r.res.payload.clinicalContext;
+      if (!ctx || ctx.question !== SECRET.question) return 'the assigned-but-unaccepted doctor lost the question their offer is decided on';
+      if ('medicalHistory' in ctx || 'medications' in ctx) return 'history/medications keys reached an unaccepted doctor';
       return null;
     });
 
@@ -1343,7 +1354,7 @@ module.exports = (async function run() {
     return null;
   });
 
-  check('(7) the case payload no longer builds clinicalContext unconditionally', () => {
+  check('(7) the case payload gates history and medications on acceptance (the question alone is the pre-accept brief)', () => {
     const src = code('src/routes/doctor.js');
     const i = src.indexOf("router.get('/portal/doctor/case/:caseId'");
     if (i < 0) return 'the case handler is gone';
@@ -1351,8 +1362,12 @@ module.exports = (async function run() {
     const m = body.match(/clinicalContext/g) || [];
     if (!m.length) return 'clinicalContext is gone entirely — the ACCEPTING doctor still needs it';
     if (/clinicalContext:\s*\{\s*\n?\s*question:/.test(body)) {
-      return 'clinicalContext is still built inline and unconditionally in the payload literal — ' +
-             'it must only be spread in when the doctor has accepted';
+      return 'clinicalContext is built inline in the payload literal — the pre/post-accept split above it is what keeps history out of the offer';
+    }
+    // Batch A (fix plan 2026-09-15): the pre-accept branch may carry ONLY the
+    // question; history and medications must sit in the showFullCase branch.
+    if (!/!showFullCase\s*\?\s*\{\s*question:/.test(body.replace(/\n/g, ' ').replace(/\s+/g, ' '))) {
+      return 'the pre-accept clinicalContext branch no longer carries exactly the question — the offer brief must show it, and nothing else';
     }
     return null;
   });

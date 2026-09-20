@@ -4,7 +4,12 @@ const path = require('path');
 const { acceptOrder, markOrderCompleted } = require('../db');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { logErrorToDb } = require('../logger');
-const { doctorNewCaseBlockReason } = require('../services/doctor_eligibility');
+const { doctorNewCaseBlockReason, doctorSupportsTier, capFor } = require('../services/doctor_eligibility');
+// A4/A5 (fix plan 2026-09-15) — the ONE definition of a doctor's current load,
+// shared with the Command candidate pickers and the hand-pick gate
+// (services/assign_case.js), so the load a picker shows and the load this
+// file's gates enforce cannot drift apart.
+const { doctorLoadSql } = require('./api/_assign_helpers');
 // A4 (FIX PLAN 2026-09-15) — the single rule for "how much of this case may
 // this doctor see", and the redactions that go with a pre-accept payload.
 const {
@@ -37,6 +42,9 @@ const dbStatusValuesFor = caseLifecycle.dbStatusValuesFor;
 // action is implemented directly against the `orders` table to support human-friendly case IDs.
 const { generateMedicalReportPdf } = require('../report-generator');
 const { computeDoctorEarnings } = require('../services/earnings_calc');
+// A4 (fix plan 2026-09-15): the case page's fee figure, computed by the same
+// code that writes the doctor_earnings ledger row.
+const { previewCaseEarnings } = require('../services/earnings_writer');
 const { getAddon } = require('../services/addons/registry');
 const { resolvePrescriptionAccess, resolvePrescriptionQuote, prescriptionCommissionPct } = require('../services/addons/prescription_access');
 const { loadDoctorServiceCatalog, diffServiceSelection } = require('../services/doctor_service_catalog');
@@ -69,6 +77,14 @@ const ACCEPTED_STATUSES = CASE_ACCEPTED_STATUSES;
 const UNACCEPTED_STATUSES = CASE_UNACCEPTED_STATUSES;
 
 // ---- Doctor capacity guardrails ----
+// A4/A5 (fix plan 2026-09-15): the accept gate and the case-page offer rule
+// now enforce the PER-DOCTOR, tier-aware cap (users.max_active_cases /
+// max_active_cases_urgent via doctor_eligibility.capFor — the same figures the
+// broadcast pool and every admin assign gate already use). This constant is
+// only the fallback when the users row cannot be read, and the threshold
+// findNextAvailableDoctor's overflow query still applies (that query is a
+// reassignment-target picker and was deliberately left alone — see the Batch A
+// progress notes).
 const MAX_ACTIVE_CASES = 4;
 
 // AUDIT-2026-09-06 (D2) — fail-closed specialty matching.
@@ -93,14 +109,21 @@ function specialtyMatchSql(specialtyId, column, bind) {
   return `${column} = ${bind(spec)}`;
 }
 
+// A4/A5 (fix plan 2026-09-15): counted with the canonical doctorLoadSql
+// predicate rather than a hand-typed five-status list, so the load this file's
+// accept gate and case-page offer rule enforce is the SAME number the Command
+// candidate picker displays and services/assign_case.js's hand-pick gate
+// enforces (AUDIT-PREDICATE-PARITY, 2026-08-29). The old inline list missed
+// 'paid', 'submitted', 'in_progress' and 'reassigned' rows that carry a
+// doctor_id, and never guarded on completed_at.
 async function countActiveCasesForDoctor(doctorId) {
   const row = await queryOne(`
     SELECT COUNT(*) AS c
-    FROM orders_active
-    WHERE doctor_id = $1
-      AND LOWER(status) IN ('assigned','in_review','rejected_files','breached','sla_breach')
+    FROM orders_active o
+    WHERE o.doctor_id = $1
+      AND ${doctorLoadSql('o.')}
   `, [doctorId]);
-  return row ? row.c : 0;
+  return row ? Number(row.c) : 0;
 }
 
 async function findNextAvailableDoctor(specialtyId, excludeDoctorId) {
@@ -2228,6 +2251,12 @@ const POOL_ACCEPT_REFUSAL_COPY = Object.freeze({
   account_check_failed: {
     en: "We couldn't confirm your account status just now, so the case wasn't accepted. Please try again in a moment.",
     ar: 'مقدرناش نتأكد من حالة حسابك دلوقتي، فالحالة متقبلتش. جرّب تاني كمان شوية.'
+  },
+  // A5 (fix plan 2026-09-15) — Guardrail 3d: the case's turnaround tier is not
+  // in the doctor's sla_tiers_supported list.
+  tier_not_supported: {
+    en: "This case's turnaround tier isn't one you currently offer, so it can't be accepted. You can change the tiers you serve from My Services.",
+    ar: 'مدة الإنجاز المطلوبة في الحالة دي مش من الفئات اللي بتقدمها حالياً، فمش هتقدر تقبلها. تقدر تعدّل الفئات اللي بتخدمها من صفحة خدماتي.'
   }
 });
 function poolAcceptRefusalMessage(msg, isAr) {
@@ -2241,10 +2270,12 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
   const isAr = String(lang).toLowerCase() === 'ar';
   const orderId = String(req.params.caseId || '');
   const msg = (req.query && req.query.msg) ? String(req.query.msg) : '';
+  // A4/A5 (fix plan 2026-09-15): the limit is per-doctor and tier-aware now,
+  // so the copy no longer hardcodes a number that is wrong for most doctors.
   const capacityMessage = msg === 'capacity'
     ? (isAr
-        ? 'لقد وصلت للحد الأقصى للحالات النشطة (4). أكمل حالاتك أولاً ثم حاول مرة أخرى.'
-        : 'Active case limit reached (4). Complete cases first, then try accepting again.')
+        ? 'لقد وصلت للحد الأقصى لحالاتك النشطة. أكمل حالاتك أولاً ثم حاول مرة أخرى.'
+        : 'You have reached your active case limit. Complete cases first, then try accepting again.')
     // AUDIT-2026-09-06 (D2): outcome of the accept-time specialty check. A
     // silent bounce back to a page still showing an Accept button would read
     // as a platform fault, so the refusal names the reason and the remedy.
@@ -2480,11 +2511,20 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
   // take back a case they are mid-way through.
   if (!isAcceptedByThisDoctor) {
     let doctorAccountRow = null;
+    let doctorLoadCount = null;
     try {
+      // A4/A5 (fix plan 2026-09-15): the eligibility rule now also asks
+      // "supports the tier?" and "under their cap?", so the LIVE read carries
+      // the tier list and both cap columns, and the doctor's current load is
+      // counted with the same canonical predicate the accept gate uses. A
+      // failed count leaves doctorLoadCount null, which the rule treats as
+      // NOT under any configured cap — fail closed, like everything else on
+      // this path.
       doctorAccountRow = await queryOne(
-        'SELECT specialty_id, is_active, is_paused, pending_approval, rejection_reason FROM users WHERE id = $1',
+        'SELECT specialty_id, is_active, is_paused, pending_approval, rejection_reason, sla_tiers_supported, max_active_cases, max_active_cases_urgent FROM users WHERE id = $1',
         [doctorId]
       );
+      doctorLoadCount = await countActiveCasesForDoctor(doctorId);
     } catch (e) {
       logErrorToDb(e, {
         context: 'doctor.case_view_entitlement_check',
@@ -2495,9 +2535,15 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
         category: 'doctor_case',
         orderId
       });
-      doctorAccountRow = null;
+      // Whichever read threw stays at its initial value: a null doctorRow
+      // denies outright, a null load denies whenever a cap is configured.
     }
-    const caseAccess = doctorCaseAccess({ order, doctorId, doctorRow: doctorAccountRow });
+    const caseAccess = doctorCaseAccess({
+      order,
+      doctorId,
+      doctorRow: doctorAccountRow,
+      activeCaseCount: doctorLoadCount
+    });
     if (caseAccess.level !== CASE_ACCESS.OFFER) {
       return await renderAccessDenied(
         caseAccess.reason || 'case_not_available',
@@ -2756,20 +2802,16 @@ const canAccept =
         patient_age: patientAge,
         patient_gender: (order && order.patient_gender) || null,
         report_language: (order && (order.report_language || order.language)) || null,
-        created_at_human: createdAtHuman
-        // NOT doctor_fee. `order` here is the output of stripPricingFields(),
-        // which deletes doctor_fee outright, so passing it would be dead.
-        //
-        // AUDIT-2026-08-23 (C5, unresolved) — that strip means the fee has
-        // NEVER rendered on this page in either state: portal_doctor_case.ejs
-        // reads _order.doctor_fee for both the "Fee breakdown" card and the
-        // fee line in the accept commitments, and both have silently been
-        // false since the strip was introduced. A specialist is therefore
-        // asked to commit to a deadline without being told what the case
-        // pays. Deliberately NOT patched here: reconstructing the figure
-        // means going through computeDoctorEarnings with base fee, urgency
-        // uplift and uplift share, and a wrong number on a compensation
-        // screen is worse than no number. Raised for a decision instead.
+        created_at_human: createdAtHuman,
+        // A4 (fix plan 2026-09-15): the referring question is part of the
+        // pre-accept brief — it is what the doctor reads to decide. The
+        // entitlement rule above has already run before this object is built.
+        clinical_question: (order && (order.clinical_question || order.primary_concern || order.concern)) || null
+        // Still NOT doctor_fee: `order` here is the output of
+        // stripPricingFields(), which deletes it. The fee the page shows (both
+        // states) is the separate `feeBreakdown` payload key, computed by
+        // earnings_writer.previewCaseEarnings — the same code that writes the
+        // ledger — which resolves AUDIT-2026-08-23 (C5).
       }
     : {
         ...order,
@@ -2974,8 +3016,13 @@ const canAccept =
   // above the gate), and this payload is also what any future JSON view of the
   // page would serialise.
   //
-  //   * clinicalContext — the referring question, the medical history and the
-  //     current medications. The three the fix plan names as the exposure.
+  //   * clinicalContext — pre-accept it carries ONLY the referring question.
+  //     Batch A (fix plan 2026-09-15) settles the brief's contents: the
+  //     clinical question is what a doctor reads to DECIDE, so it is visible
+  //     to an entitled doctor before they commit — the entitlement rule above
+  //     has already established paid + offered-to-them + eligible before this
+  //     line runs. The medical history and the medication list stay locked
+  //     until accept: their KEYS are absent pre-accept, not blanked.
   //   * file names and their /files/:id urls — a scan is routinely named after
   //     the patient, so the offer keeps the COUNT and the KIND and nothing
   //     else. That is what the pre-accept inventory chips render.
@@ -2987,11 +3034,39 @@ const canAccept =
   // services/doctor_case_access.PRE_ACCEPT_ORDER_FIELDS, and is built into
   // viewOrder above.
   const preAcceptFiles = showFullCase ? files : redactPreAcceptFiles(files);
-  const clinicalContext = !showFullCase ? null : {
-    question: (order && (order.clinical_question || order.primary_concern || order.concern)) || '',
-    medicalHistory: (order && (order.medical_history || order.history)) || '',
-    medications: (order && (order.current_medications || order.medications)) || ''
-  };
+  const clinicalQuestion =
+    (order && (order.clinical_question || order.primary_concern || order.concern)) || '';
+  const clinicalContext = !showFullCase
+    ? { question: clinicalQuestion }
+    : {
+        question: clinicalQuestion,
+        medicalHistory: (order && (order.medical_history || order.history)) || '',
+        medications: (order && (order.current_medications || order.medications)) || ''
+      };
+
+  // A4 (fix plan 2026-09-15) — the fee breakdown, in BOTH states. The brief
+  // says the pre-accept screen states the fee, and the post-accept "Fee
+  // breakdown" card has been silently blank since stripPricingFields started
+  // deleting doctor_fee (AUDIT-2026-08-23 C5, raised for a decision — this is
+  // the decision). The figure comes from earnings_writer.previewCaseEarnings,
+  // the same snapshot query + pure calc that write the ledger row, so the
+  // number shown is the number paid. null on any failure: the template
+  // renders no fee rather than a wrong one.
+  let feeBreakdown = null;
+  try {
+    feeBreakdown = await previewCaseEarnings(orderId);
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.case_view_fee_preview',
+      requestId: req.requestId,
+      userId: doctorId,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case',
+      orderId
+    });
+    feeBreakdown = null;
+  }
 
   const payload = {
     portalFrame: true,
@@ -3011,9 +3086,13 @@ const canAccept =
     activeTab: 'cases',
     nextPath: `/portal/doctor/case/${orderId}`,
     acceptActionUrl: `/portal/doctor/case/${orderId}/accept`,
-    // Spread in only when the doctor has accepted: pre-accept the key itself is
-    // absent, so there is nothing to blank and nothing to leak.
-    ...(clinicalContext ? { clinicalContext } : {}),
+    // A4 (fix plan 2026-09-15): pre-accept this carries ONLY the question key;
+    // medicalHistory and medications exist post-accept alone, so there is
+    // still nothing to blank and nothing for a template edit to leak.
+    clinicalContext,
+    // The doctor's own money for this case (base + uplift share), never the
+    // patient's price. null when it could not be computed.
+    feeBreakdown,
     routingFacts,
     prescriptionAddon,
     rxFlash,
@@ -3408,7 +3487,38 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
     return res.redirect(`/portal/doctor/case/${orderId}`);
   }
 
-  // Guardrail 3b (AUDIT-2026-09-06, D2): specialty.
+  // A4/A5 (fix plan 2026-09-15): ONE live users read powers guardrails 3b
+  // (specialty), 3c (account), 3d (tier) and 4 (capacity). Live, not req.user
+  // or the revocation cache: the JWT's copy of specialty_id is up to seven
+  // days stale (auth.js:33) and this is a write. A failed read fails CLOSED —
+  // the pool gates refuse with account_check_failed, and capacity falls back
+  // to the old global constant rather than reading "no cap".
+  let liveDoctorRow = null;
+  let liveDoctorReadFailed = false;
+  try {
+    liveDoctorRow = await queryOne(
+      'SELECT specialty_id, is_active, is_paused, pending_approval, rejection_reason, sla_tiers_supported, max_active_cases, max_active_cases_urgent FROM users WHERE id = $1',
+      [doctorId]
+    );
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.accept_account_check',
+      requestId: req.requestId,
+      userId: doctorId,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case',
+      orderId
+    });
+    liveDoctorReadFailed = true;
+  }
+  // urgency_tier first, for the reason acceptance_window.js documents:
+  // orders.tier carries DEFAULT 'standard' and is only overwritten at
+  // broadcast, so tier-first reads 'standard' on every un-broadcast VIP or
+  // urgent case.
+  const acceptOrderTier = (order.urgency_tier || order.tier || 'standard');
+
+  // Guardrail 3b (AUDIT-2026-09-06, D2; A5 fix plan 2026-09-15): specialty.
   //
   // Accept had NO specialty check of any kind. Every defence lived in the
   // queue query, so anything that put a case id in a doctor's hands — a
@@ -3417,38 +3527,33 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
   // medical platform the authorisation has to sit on the action, not on the
   // listing that leads to it.
   //
-  // Read from the users row rather than req.user: the JWT's copy is up to
-  // seven days stale (auth.js:33) and this is a write, so it is worth one
-  // query to authorise against what the database actually says.
+  // A5 — a case with NO specialty is not acceptable by ANYONE. The original
+  // 3b skipped the check when the case carried no specialty, so a pool case
+  // whose specialty was never set could be accepted by any doctor holding the
+  // link — while the case PAGE (doctor_case_access.specialtyMatches) already
+  // refused to show it to anybody. Blank-on-either-side now means refuse, the
+  // same fail-closed answer the pool queries and the view rule give. Such a
+  // case is routable again the moment an operator sets its specialty.
   //
   // Scope — this guards the POOL accept, which is the one nobody authorised
-  // case by case:
-  //   * skipped when the case carries no specialty (most production rows), as
-  //     there is nothing to match against and such cases never appear in a
-  //     specialty pool;
-  //   * skipped when the case is already assigned to THIS doctor, because an
-  //     admin or the router put it there deliberately and a cross-specialty
-  //     assignment is then a human decision, not a self-service one.
-  const orderSpecialtyId = order.specialty_id == null ? '' : String(order.specialty_id).trim();
-  if (orderSpecialtyId && !assignedDoctorId) {
-    let doctorSpecialtyId = '';
-    try {
-      const doctorRow = await queryOne('SELECT specialty_id FROM users WHERE id = $1', [doctorId]);
-      doctorSpecialtyId = (doctorRow && doctorRow.specialty_id != null) ? String(doctorRow.specialty_id).trim() : '';
-    } catch (e) {
-      // Fail closed: an unreadable specialty is not a matching one.
-      logErrorToDb(e, {
-        context: 'doctor.accept_specialty_check',
-        requestId: req.requestId,
-        userId: doctorId,
-        url: req.originalUrl,
-        method: req.method,
-        category: 'doctor_case',
-        orderId
-      });
-      doctorSpecialtyId = '';
+  // case by case. It is skipped when the case is already assigned to THIS
+  // doctor, because an admin or the router put it there deliberately and a
+  // cross-specialty assignment is then a human decision, not a self-service
+  // one.
+  if (!assignedDoctorId) {
+    // An unreadable or missing account refuses on the ACCOUNT footing, not on
+    // specialty — telling a doctor whose row could not be read "wrong
+    // specialty" would be false, and this is the same fail-closed answer the
+    // old separate reads gave.
+    if (liveDoctorReadFailed) {
+      return res.redirect(`/portal/doctor/case/${orderId}?msg=account_check_failed`);
     }
-    if (doctorSpecialtyId !== orderSpecialtyId) {
+    if (!liveDoctorRow) {
+      return res.redirect(`/portal/doctor/case/${orderId}?msg=account_inactive`);
+    }
+    const orderSpecialtyId = order.specialty_id == null ? '' : String(order.specialty_id).trim();
+    const doctorSpecialtyId = liveDoctorRow.specialty_id != null ? String(liveDoctorRow.specialty_id).trim() : '';
+    if (!orderSpecialtyId || !doctorSpecialtyId || doctorSpecialtyId !== orderSpecialtyId) {
       return res.redirect(`/portal/doctor/case/${orderId}?msg=specialty`);
     }
   }
@@ -3462,42 +3567,50 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
   // taking open-pool cases, and a deactivated or pending one could inside the
   // cache window.
   //
-  //   * The LIVE users row, not req.user or the cache: this is a write.
   //   * Unassigned pool only. A case already assigned to THIS doctor is left
   //     alone: a paused doctor finishes the cases they hold.
   //   * Every pool case, with or without a specialty (not nested in 3b).
   //   * Before capacity, so a refused doctor cannot trigger the overflow
   //     reassign below; before any transaction.
-  //   * Fail closed on a read error, as 3b does.
+  //   * Fail closed on a read error, exactly as 3b does.
   if (!assignedDoctorId) {
-    let accountRefusal = null;
-    try {
-      const accountRow = await queryOne(
-        'SELECT is_active, is_paused, pending_approval, rejection_reason FROM users WHERE id = $1',
-        [doctorId]
-      );
-      accountRefusal = poolAcceptRefusalCode(doctorNewCaseBlockReason(accountRow));
-    } catch (e) {
-      logErrorToDb(e, {
-        context: 'doctor.accept_account_check',
-        requestId: req.requestId,
-        userId: doctorId,
-        url: req.originalUrl,
-        method: req.method,
-        category: 'doctor_case',
-        orderId
-      });
-      accountRefusal = 'account_check_failed';
-    }
+    const accountRefusal = liveDoctorReadFailed
+      ? 'account_check_failed'
+      : poolAcceptRefusalCode(doctorNewCaseBlockReason(liveDoctorRow));
     if (accountRefusal) {
       return res.redirect(`/portal/doctor/case/${orderId}?msg=${accountRefusal}`);
     }
   }
 
-  // Guardrail 4: Doctor capacity (max active cases)
-  const activeCount = await countActiveCasesForDoctor(doctorId);
+  // Guardrail 3d (A5, fix plan 2026-09-15): tier support, POOL only.
+  //
+  // The broadcast pool, auto-assign and every admin gate already refuse to
+  // route a case to a doctor whose sla_tiers_supported does not carry its
+  // tier; the self-service accept was the one door with no such check. Same
+  // helper, same NULL-reads-as-standard-only default as auto_assign.js. The
+  // read-failure case was already refused by 3c above.
+  if (!assignedDoctorId) {
+    if (!doctorSupportsTier(liveDoctorRow && liveDoctorRow.sla_tiers_supported, acceptOrderTier)) {
+      return res.redirect(`/portal/doctor/case/${orderId}?msg=tier_not_supported`);
+    }
+  }
 
-  if (activeCount >= MAX_ACTIVE_CASES) {
+  // Guardrail 4: Doctor capacity — A4/A5 (fix plan 2026-09-15): the
+  // PER-DOCTOR, tier-aware cap (capFor over users.max_active_cases /
+  // max_active_cases_urgent), counted with the canonical load predicate —
+  // the same two numbers the broadcast pool and every admin assign gate use.
+  // The old check compared a hand-typed five-status count against a global
+  // constant of 4 while broadcast invited doctors under per-doctor caps
+  // defaulting to 5, so a doctor could be invited to a case the accept
+  // handler then bounced. capFor of 0/NULL means "no cap configured" and
+  // skips the check (services/assign_case.js semantics); an unreadable users
+  // row falls back to the old global constant rather than to "no cap".
+  const activeCount = await countActiveCasesForDoctor(doctorId);
+  const acceptCap = (!liveDoctorReadFailed && liveDoctorRow)
+    ? capFor(liveDoctorRow, acceptOrderTier)
+    : MAX_ACTIVE_CASES;
+
+  if (acceptCap > 0 && activeCount >= acceptCap) {
     const nextDoctor = await findNextAvailableDoctor(order.specialty_id, doctorId);
 
     if (nextDoctor && nextDoctor.id) {

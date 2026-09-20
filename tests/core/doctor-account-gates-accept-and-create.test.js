@@ -97,7 +97,12 @@ function truthRows() {
   }
   return out;
 }
-const doctorRow = (over) => Object.assign({ role: 'doctor', is_active: true, is_paused: false, pending_approval: false, onboarding_complete: true, rejection_reason: null }, over || {});
+// A4/A5 (fix plan 2026-09-15): the accept handler reads ONE live users row
+// carrying specialty, tier support and the per-doctor caps alongside the
+// account flags, so the fixture carries them too. The defaults are a doctor
+// the pool order matches: right specialty, all tiers, caps of 4/8 (so the
+// old capacity expectations — refuse at count 99, pass at 0 — still hold).
+const doctorRow = (over) => Object.assign({ role: 'doctor', is_active: true, is_paused: false, pending_approval: false, onboarding_complete: true, rejection_reason: null, specialty_id: 'spec-1', sla_tiers_supported: ['standard', 'vip', 'urgent'], max_active_cases: 4, max_active_cases_urgent: 8 }, over || {});
 
 // The row shapes the live flows actually write (fix round 1, review I2). Every
 // one carries is_active = false, which is why the reason precedence matters:
@@ -290,7 +295,9 @@ module.exports = (async function run() {
           if (scn.throwAccount) throw new Error('simulated users read failure');
           return scn.doctor;
         }
-        if (/COUNT\(\*\) AS c FROM orders_active WHERE doctor_id = \$1/.test(s)) { rec.seq.push('capacity'); return { c: scn.capacity == null ? 99 : scn.capacity }; }
+        // A4/A5: the load count carries the canonical doctorLoadSql predicate
+        // and a table alias now, so match the head of the statement only.
+        if (/COUNT\(\*\) AS c FROM orders_active/.test(s)) { rec.seq.push('capacity'); return { c: scn.capacity == null ? 99 : scn.capacity }; }
         if (/FROM users u WHERE LOWER\(COALESCE\(u\.role/.test(s)) { rec.seq.push('next_doctor'); return null; }
         rec.seq.push('other_read');
         return null;
@@ -346,15 +353,16 @@ module.exports = (async function run() {
     };
 
     try {
-      await checkAsync('(4b) accept, PAUSED doctor on an unassigned pool case → ?msg=paused; one live users read keyed on the doctor, after the specialty read; no capacity, assignment or transaction work', async () => {
+      await checkAsync('(4b) accept, PAUSED doctor on an unassigned pool case → ?msg=paused; ONE live users read keyed on the doctor, carrying specialty, account, tier and cap columns together; no capacity, assignment or transaction work', async () => {
         const r = await accept({ order: poolOrder(), doctor: doctorRow({ is_paused: true }) });
         if (r.accountReads.length !== 1) return 'expected ONE live users read carrying the account columns, saw ' + r.accountReads.length + ' (sequence ' + r.seq.join(' → ') + ')';
         const cols = r.accountReads[0].sql;
-        for (const c of ['is_active', 'is_paused', 'pending_approval', 'rejection_reason']) {
+        // A4/A5 (fix plan 2026-09-15): guardrails 3b/3c/3d/4 share one live
+        // read, so it must carry all four gates' columns.
+        for (const c of ['specialty_id', 'is_active', 'is_paused', 'pending_approval', 'rejection_reason', 'sla_tiers_supported', 'max_active_cases', 'max_active_cases_urgent']) {
           if (!new RegExp('\\b' + c + '\\b').test(cols)) return 'the live users read does not select ' + c + ': ' + cols;
         }
         if (JSON.stringify(r.accountReads[0].params) !== JSON.stringify(['doc-1'])) return 'the users read is not keyed on the requesting doctor: ' + JSON.stringify(r.accountReads[0].params);
-        if (!(r.seq.indexOf('specialty') !== -1 && r.seq.indexOf('specialty') < r.seq.indexOf('account'))) return 'the account read did not follow the specialty gate: ' + r.seq.join(' → ');
         return refusedWith(r, 'paused');
       });
       await checkAsync('(4b) accept, is_paused NULL (and onboarding incomplete) → not refused; the handler goes on to the capacity check', async () => {
@@ -390,10 +398,11 @@ module.exports = (async function run() {
       await checkAsync('(4b) accept, stale rejection_reason on an is_active = true account → allowed (operator re-activation wins)', async () => {
         return passedGuard(await accept({ order: poolOrder(), doctor: doctorRow({ is_active: true, rejection_reason: 'old reason' }) }));
       });
-      await checkAsync('(4b) accept, ACTIVE doctor with room → goes all the way: specialty → account → capacity → assignDoctor → withTransaction', async () => {
+      await checkAsync('(4b) accept, ACTIVE doctor with room → goes all the way: one live read → capacity → assignDoctor → withTransaction', async () => {
         const r = await accept({ order: poolOrder(), doctor: doctorRow(), capacity: 0 });
         if (r.threw) return 'handler threw: ' + (r.threw.message || r.threw);
-        const want = ['order', 'specialty', 'account', 'capacity', 'assign', 'tx'];
+        // A4/A5: the separate specialty read merged into the single live read.
+        const want = ['order', 'account', 'capacity', 'assign', 'tx'];
         if (r.seq.join('|') !== want.join('|')) return 'sequence ' + r.seq.join(' → ') + ', want ' + want.join(' → ');
         if (/msg=/.test(String(r.redirected))) return 'redirected with a message: ' + r.redirected;
         return null;
@@ -408,13 +417,58 @@ module.exports = (async function run() {
         if (!r.errors.some((e) => e.ctx && e.ctx.context === 'doctor.accept_account_check' && e.ctx.category === 'doctor_case' && e.ctx.orderId === 'ord-t1')) return 'failure not logged: ' + JSON.stringify(r.errors);
         return null;
       });
-      await checkAsync('(4b) accept, PAUSED doctor on a pool case with NO specialty → still ?msg=paused (not nested in the specialty gate)', async () => {
-        return refusedWith(await accept({ order: poolOrder({ specialty_id: null }), doctor: doctorRow({ is_paused: true }) }), 'paused');
+      await checkAsync('(4b) accept, pool case with NO specialty → ?msg=specialty for EVERY doctor (A5: an unroutable case is nobody\'s to take, whatever their account state)', async () => {
+        // A5 (fix plan 2026-09-15): the old 3b SKIPPED the check when the case
+        // carried no specialty, so any doctor holding the link could take it.
+        // Blank-on-either-side now refuses — the same fail-closed answer the
+        // pool queries and the case-page rule give — so the paused doctor is
+        // told about the CASE (unroutable), not about their account.
+        const clean = refusedWith(await accept({ order: poolOrder({ specialty_id: null }), doctor: doctorRow() }), 'specialty');
+        if (clean) return 'eligible doctor: ' + clean;
+        const paused = refusedWith(await accept({ order: poolOrder({ specialty_id: null }), doctor: doctorRow({ is_paused: true }) }), 'specialty');
+        if (paused) return 'paused doctor: ' + paused;
+        return null;
       });
-      await checkAsync('(4b) accept, a case ALREADY assigned to this (paused) doctor → no account read, no refusal; proceeds to capacity and the transaction', async () => {
+      await checkAsync('(4b) accept, doctor whose specialty is BLANK on a specialty pool case → ?msg=specialty (blank matches nothing)', async () => {
+        return refusedWith(await accept({ order: poolOrder(), doctor: doctorRow({ specialty_id: null }) }), 'specialty');
+      });
+      await checkAsync('(4b) accept, doctor who does not support the case\'s TIER → ?msg=tier_not_supported, with bilingual copy (A5 Guardrail 3d)', async () => {
+        const r = await accept({ order: poolOrder({ urgency_tier: 'urgent' }), doctor: doctorRow({ sla_tiers_supported: ['standard'] }) });
+        const why = refusedWith(r, 'tier_not_supported');
+        if (why) return why;
+        const msgFor = loadPoolCopy(doctorRaw);
+        if (!msgFor) return 'POOL_ACCEPT_REFUSAL_COPY / poolAcceptRefusalMessage not found in routes/doctor.js';
+        if (!/tier/i.test(String(msgFor('tier_not_supported', false)))) return 'no English copy for ?msg=tier_not_supported';
+        if (!String(msgFor('tier_not_supported', true)).trim()) return 'no Arabic copy for ?msg=tier_not_supported';
+        return null;
+      });
+      await checkAsync('(4b) accept, NULL sla_tiers_supported reads as standard-only: a standard case is accepted, a VIP case is refused', async () => {
+        const std = await accept({ order: poolOrder(), doctor: doctorRow({ sla_tiers_supported: null }), capacity: 0 });
+        if (std.threw) return 'standard case threw: ' + (std.threw.message || std.threw);
+        if (/msg=/.test(String(std.redirected))) return 'standard case refused: ' + std.redirected;
+        return refusedWith(await accept({ order: poolOrder({ urgency_tier: 'vip' }), doctor: doctorRow({ sla_tiers_supported: null }) }), 'tier_not_supported');
+      });
+      await checkAsync('(4b) accept, capacity is the PER-DOCTOR tier-aware cap: refused at their own max_active_cases, an urgent case measured against max_active_cases_urgent, and cap 0/NULL means no cap', async () => {
+        // At their own (small) cap: 2 active vs max_active_cases 2 → capacity path.
+        const at = await accept({ order: poolOrder(), doctor: doctorRow({ max_active_cases: 2 }), capacity: 2 });
+        if (at.threw) return 'at-cap threw: ' + (at.threw.message || at.threw);
+        if (!/msg=capacity/.test(String(at.redirected))) return 'at their own cap, got ' + at.redirected + ' (sequence ' + at.seq.join(' → ') + ')';
+        // Under the same cap → proceeds.
+        const under = await accept({ order: poolOrder(), doctor: doctorRow({ max_active_cases: 2 }), capacity: 1 });
+        if (/msg=/.test(String(under.redirected))) return 'under their cap the doctor was refused: ' + under.redirected;
+        // Urgent case measures against max_active_cases_urgent, not max_active_cases.
+        const urgent = await accept({ order: poolOrder({ urgency_tier: 'urgent' }), doctor: doctorRow({ max_active_cases: 2, max_active_cases_urgent: 8 }), capacity: 5 });
+        if (/msg=/.test(String(urgent.redirected))) return 'an urgent case was measured against the standard cap: ' + urgent.redirected;
+        // No cap configured (NULL) → the check is skipped, assign_case semantics.
+        const nocap = await accept({ order: poolOrder(), doctor: doctorRow({ max_active_cases: null }), capacity: 99 });
+        if (/msg=/.test(String(nocap.redirected))) return 'a NULL cap refused the doctor: ' + nocap.redirected;
+        return null;
+      });
+      await checkAsync('(4b) accept, a case ALREADY assigned to this (paused) doctor → no pool refusal; proceeds to capacity and the transaction', async () => {
         const r = await accept({ order: poolOrder({ doctor_id: 'doc-1', status: 'ASSIGNED' }), doctor: doctorRow({ is_paused: true }), capacity: 0 });
         if (r.threw) return 'handler threw: ' + (r.threw.message || r.threw);
-        if (r.accountReads.length) return 'the account check ran on a case already assigned to the doctor';
+        // A4/A5: the single live read now also feeds the capacity cap, so it
+        // runs for assigned accepts too — what must NOT happen is a refusal.
         if (/msg=/.test(String(r.redirected))) return 'redirected with a message: ' + r.redirected;
         if (r.seq.indexOf('tx') === -1) return 'the assigned case did not reach the transaction: ' + r.seq.join(' → ');
         return null;
