@@ -11,6 +11,7 @@ const { isLaunchMarket } = require('../launch-market');
 const rateLimit = require('express-rate-limit');
 const { sendOtpViaTwilio, verifyOtpCode } = require('../services/twilio_verify');
 const { validatePhoneE164 } = require('../validators/phone');
+const { normalizePhone } = require('../validators/phone_identity');
 const { resolveDoctorLanding } = require('../services/doctor_landing');
 const { buildDoctorWelcomePayload, WELCOME_EXPIRY_HOURS, SERVICES_READY_SQL } = require('../services/doctor_welcome_payload');
 const { captureSignup } = require('../services/analytics');
@@ -411,8 +412,24 @@ router.post('/login', async (req, res) => {
 function parseOtpPhone(req, res, next) {
   const cc = String((req.body && req.body.countryCode) || '').trim();
   const ph = String((req.body && req.body.phone) || '').trim();
-  const full = (cc + ph).replace(/\s+/g, '');
-  const chk = validatePhoneE164(full, getReqLang(req));
+  // AUDIT-PHONE-TRUNK-ZERO-2026-09-20 — the doubled-country-code trap.
+  //
+  // This was `(cc + ph)` string concatenation. An Egyptian who picks "+20" in
+  // the dropdown and types their number the way every Egyptian writes it —
+  // 01003225382 — produced "+2001003225382": 13 digits starting with a 2, so
+  // it sails through validatePhoneE164 as a PERFECTLY VALID number. It is just
+  // not THEIR number. The lookup below then missed their real row and the
+  // find-or-use-existing created a brand-new PATIENT account on the bogus
+  // string. It cost Dr Nancy Ghoneim five days and produced two stray rows
+  // that had to be deleted by hand on 17 and 18 Sep.
+  //
+  // normalizePhone (validators/phone_identity.js) already solves exactly this,
+  // with a per-country dial table and nationalLen, and the MOBILE OTP door
+  // (routes/api/auth.js) has used it since the +1277399043 incident. The web
+  // door never got it. Same function on both doors now — a number must resolve
+  // identically whichever one the person walks through.
+  const full = ph;
+  const chk = normalizePhone(ph, cc, getReqLang(req));
   req.otpPhone = {
     normalized: chk.ok ? chk.normalized : null,
     key: chk.ok ? chk.normalized : ('raw:' + full.replace(/[^0-9]/g, '').slice(0, 18)),
@@ -1111,8 +1128,12 @@ router.post('/register', async (req, res) => {
   // P0-FORM-1: phone required + E.164 enforced. Was optional with no
   // format check, which produced the 78%-no-phone + truncated-format
   // mess that broke WhatsApp lifecycle dispatch (P1-NOTIF-1).
-  const { validatePhoneE164 } = require('../validators/phone');
-  const phoneCheck = validatePhoneE164(phone, langForMsg);
+  // AUDIT-PHONE-TRUNK-ZERO-2026-09-20: same normaliser as both OTP doors.
+  // validatePhoneE164 alone sees only the phone field, so "01003225382" — how
+  // every Egyptian writes their number — normalised to "+01003225382" and was
+  // REJECTED as invalid, telling the user their own number was wrong with no
+  // hint as to why. The country code is right there in the form; use it.
+  const phoneCheck = normalizePhone(phone, country_code || normalizedCountry, langForMsg);
   if (!phoneCheck.ok) {
     return res
       .status(400)
