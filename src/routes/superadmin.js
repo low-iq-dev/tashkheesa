@@ -5476,6 +5476,7 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, async (req, re
         AND u.role = 'doctor'
         AND COALESCE(u.is_active, true) = true
         AND COALESCE(u.is_paused, false) = false
+        AND COALESCE(u.pending_approval, false) = false
         AND COALESCE(u.onboarding_complete, false) = true
         AND EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = u.id AND ds.service_id = $2)`,
     [newDoctorId, order.service_id]
@@ -5488,14 +5489,47 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, async (req, re
     return res.redirect(`/superadmin/orders/${orderId}`);
   }
 
-  await execute(
-    `UPDATE orders
-     SET doctor_id = $1,
-         reassigned_count = COALESCE(reassigned_count,0) + 1,
-         updated_at = $2
-     WHERE id = $3`,
-    [newDoctor.id, new Date().toISOString(), orderId]
-  );
+  // A6 (fix plan 2026-09-15) — this was a bare
+  //   UPDATE orders SET doctor_id, reassigned_count + 1
+  // and nothing else: the EXACT defect routes/admin.js (2026-08-17) and the
+  // Command route already document as fixed, surviving verbatim on the
+  // superadmin web route. Everything reassignment means was skipped —
+  // finalizePreviousAssignment (outgoing doctor kept the case against their
+  // capacity), markPartialPayOnReassignment (outgoing doctor kept 100% of
+  // pending earnings on top of the incoming doctor's full fee — double-pay),
+  // no doctor_assignments row and no accept_by_at (the new doctor's
+  // acceptance window did not exist, so no sweep could ever time the case
+  // out: doctor set + no open dated assignment row is invisible to
+  // fetchDoctorTimeouts, acceptance_watcher AND the stranded-paid sweep),
+  // and accepted_at / deadline_at / breached_at were inherited from the old
+  // doctor. reassignCase does all of it and ends in assignDoctor, the same
+  // canonical writer every other reassign route now uses — both deadline
+  // columns from one acceptance_window value.
+  try {
+    await caseLifecycle.reassignCase(orderId, newDoctor.id, { reason: 'superadmin_manual' });
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.reassign.reassignCase',
+      orderId,
+      userId: req.user && req.user.id,
+      category: 'assignment'
+    });
+    return res.redirect(`/superadmin/orders/${orderId}?reassign=failed`);
+  }
+
+  // reassignCase writes reassigned_to_doctor_id / reassigned_at /
+  // reassignment_reason but deliberately leaves the display counter alone
+  // (workers/acceptance_watcher owns its own bump). Keep the counter the
+  // superadmin list badges read.
+  try {
+    await execute(
+      `UPDATE orders
+          SET reassigned_count = COALESCE(reassigned_count,0) + 1,
+              updated_at = $1
+        WHERE id = $2`,
+      [new Date().toISOString(), orderId]
+    );
+  } catch (_) { /* non-fatal: the reassignment itself already succeeded */ }
 
   logOrderEvent({
     orderId,

@@ -335,15 +335,22 @@ async function upsertOrder(client, specialtyId, o) {
   );
 
   // Mirror into doctor_assignments for handlers that read from it.
+  // A6 (fix plan 2026-09-15): accept_by_at included — a NULL accept_by_at row
+  // is the exact legacy shape case_sla_worker reports hourly as stranded, and
+  // this seed was still minting new ones. Demo rows get the standard 2h
+  // window from the assignment time, like every live writer.
   await client.query(
-    `INSERT INTO doctor_assignments (id, case_id, doctor_id, assigned_at, accepted_at, completed_at)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO doctor_assignments (id, case_id, doctor_id, assigned_at, accept_by_at, accepted_at, completed_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (id) DO UPDATE SET
        assigned_at = EXCLUDED.assigned_at,
+       accept_by_at = EXCLUDED.accept_by_at,
        accepted_at = EXCLUDED.accepted_at,
        completed_at = EXCLUDED.completed_at`,
     ['da-' + ID_PREFIX + '-' + o.id.replace('order-' + ID_PREFIX + '-', ''),
-     o.id, DOCTOR_ID, o.createdAt, o.acceptedAt || null, o.completedAt || null]
+     o.id, DOCTOR_ID, o.createdAt,
+     new Date(new Date(o.createdAt).getTime() + 120 * 60 * 1000).toISOString(),
+     o.acceptedAt || null, o.completedAt || null]
   );
 }
 

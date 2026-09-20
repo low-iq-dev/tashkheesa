@@ -3097,6 +3097,26 @@ async function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) 
   await transitionCase(caseId, CASE_STATUS.ASSIGNED, assignUpdates);
   const now = nowIso();
 
+  // A6 (fix plan 2026-09-15) — this INSERT used to sit in
+  // `catch (e) { /* doctor_assignments table may not exist */ }`. The table
+  // has existed since migration 001 and accept_by_at since 014, so the excuse
+  // was dead — and the row it silently dropped is the ONLY thing that makes an
+  // assigned case sweepable. case_sla_worker.fetchDoctorTimeouts requires an
+  // open doctor_assignments row with accept_by_at, and acceptance_watcher only
+  // sees cases with NO doctor: a swallowed INSERT therefore parked a PAID case
+  // on a doctor who might never open it — no timeout, no re-offer, no event,
+  // no error_logs row, permanently. This is the busiest assignment writer in
+  // the system (broadcast accept, auto-assign, force-assign, both reassign
+  // routes, both manual-queue approves), and it was the one place the failure
+  // was still silent: workers/acceptance_watcher.js removed the identical
+  // catch (AUDIT-ACCEPT-4) and answered it with a rollback. Same answer here.
+  //
+  // ROLLBACK: the claim above is undone — doctor_id cleared, the PRIOR status
+  // restored, acceptance_deadline_at reset to now — so the case returns to
+  // the exact shape the pool sweeps select on and the next tick retries. The
+  // guard predicates (this doctor, still ASSIGNED, not accepted) mean a
+  // concurrent acceptance is never clobbered. Then the failure is THROWN, so
+  // no caller can report an assignment that did not fully happen.
   try {
     await execute(
       `INSERT INTO doctor_assignments (
@@ -3118,7 +3138,60 @@ VALUES ($1, $2, $3, $4, $5, $6)`,
       ]
     );
   } catch (e) {
-    // doctor_assignments table may not exist
+    try {
+      const { logErrorToDb } = require('./logger');
+      logErrorToDb(e, {
+        context: 'case_lifecycle.assignment_row_insert',
+        category: 'doctor_case',
+        orderId: caseId,
+        userId: doctorId
+      });
+    } catch (_) {}
+    console.error('[case_lifecycle.assignDoctor] doctor_assignments INSERT failed for case ' +
+                  caseId + ' — rolling back the claim: ' + (e && e.message));
+
+    let rolledBack = null;
+    try {
+      rolledBack = await execute(
+        `UPDATE ${CASE_TABLE}
+            SET doctor_id = NULL,
+                status = COALESCE($4, 'paid'),
+                acceptance_deadline_at = $1,
+                updated_at = $1
+          WHERE id = $2
+            AND doctor_id = $3
+            AND LOWER(COALESCE(status, '')) = 'assigned'
+            AND accepted_at IS NULL`,
+        [nowIso(), caseId, doctorId, (existing && existing.status) || null]
+      );
+    } catch (rollbackErr) {
+      try {
+        const { logErrorToDb } = require('./logger');
+        logErrorToDb(rollbackErr, {
+          context: 'case_lifecycle.assignment_row_insert_rollback',
+          category: 'doctor_case',
+          orderId: caseId,
+          userId: doctorId
+        });
+      } catch (_) {}
+    }
+
+    // Registered SILENT_FAILURE_EVENTS label — /ops/silent-failures surfaces
+    // it whether or not the rollback applied.
+    try {
+      await logCaseEvent(caseId, 'ASSIGNMENT_MIRROR_FAILED', {
+        doctor_id: doctorId,
+        source: 'case_lifecycle.assignDoctor',
+        error: String((e && e.message) || e).slice(0, 500),
+        rolled_back: Boolean(rolledBack && rolledBack.rowCount)
+      });
+    } catch (_) {}
+
+    const failure = new Error('ASSIGNMENT_ROW_FAILED');
+    failure.code = 'ASSIGNMENT_ROW_FAILED';
+    failure.cause = e;
+    failure.rolledBack = Boolean(rolledBack && rolledBack.rowCount);
+    throw failure;
   }
   await logCaseEvent(caseId, 'CASE_ASSIGNED', { doctorId, replacedDoctorId });
 
