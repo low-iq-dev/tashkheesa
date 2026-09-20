@@ -227,8 +227,8 @@ const OPENCLAW_TEMPLATES = {
     ar: (v) => `حالة عاجلة متاحة (${v.caseReference}) — مهلة ${v.slaHours || 4} ساعات. أول قبول ياخدها: ${appUrl()}/portal/doctor/cases\n— تشخيصة`
   },
   tashkheesa_new_case_fasttrack: {
-    en: (v) => `Fast-track case available (${v.caseReference}) — ${v.slaHours || 18}h SLA. Accept here: ${appUrl()}/portal/doctor/cases\n— Tashkheesa`,
-    ar: (v) => `حالة سريعة متاحة (${v.caseReference}) — مهلة ${v.slaHours || 18} ساعة. القبول من هنا: ${appUrl()}/portal/doctor/cases\n— تشخيصة`
+    en: (v) => `VIP case available (${v.caseReference}) — ${v.slaHours || 18}h SLA. Accept here: ${appUrl()}/portal/doctor/cases\n— Tashkheesa`,
+    ar: (v) => `حالة VIP متاحة (${v.caseReference}) — مهلة ${v.slaHours || 18} ساعة. القبول من هنا: ${appUrl()}/portal/doctor/cases\n— تشخيصة`
   },
   tashkheesa_new_case_standard: {
     en: (v) => `New case available (${v.caseReference}) — ${v.slaHours || 48}h SLA. Accept here: ${appUrl()}/portal/doctor/cases\n— Tashkheesa`,

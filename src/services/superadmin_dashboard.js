@@ -450,7 +450,7 @@ async function getOperationsTabData({ range = '7d' } = {}) {
           patient: c.patient_name,
           spec: c.specialty_name,
           service: c.service_name,
-          tier: ({ urgent: 'Urgent', fast_track: 'Urgent', vip: 'VIP', standard: 'Standard' }[String(c.urgency_tier || '').toLowerCase()] || 'Standard'),
+          tier: ({ urgent: 'Urgent', fast_track: 'VIP', vip: 'VIP', standard: 'Standard' }[String(c.urgency_tier || '').toLowerCase()] || 'Standard'),
           deadline: c.completed_at ? 'delivered' : (hr == null ? '—' : (hr < 0 ? 'overdue' : fmtHoursAsHm(hr))),
           status: humanStatus(c.status),
           doc: c.doctor_name,
@@ -663,11 +663,11 @@ async function getFinanceTabData({ range = '7d' } = {}) {
       ],
       revenueBySpecialty: revBySpec.map(r => ({ name: r.specialty_name || '—', cases: Number(r.cases), revenue: Number(r.revenue) })),
       urgencyTier: urgencyTier.map(u => ({
-        name: ({ urgent: 'Urgent', fast_track: 'Urgent', vip: 'VIP', standard: 'Standard' }[String(u.tier).toLowerCase()] || 'Standard'),
-        mult: ({ urgent: '1.6×', fast_track: '1.6×', vip: '1.3×', standard: '1.0×' }[String(u.tier).toLowerCase()] || '—'),
+        name: ({ urgent: 'Urgent', fast_track: 'VIP', vip: 'VIP', standard: 'Standard' }[String(u.tier).toLowerCase()] || 'Standard'),
+        mult: ({ urgent: '1.6×', fast_track: '1.3×', vip: '1.3×', standard: '1.0×' }[String(u.tier).toLowerCase()] || '—'),
         cases: Number(u.cases) || 0,
         uplift: Number(u.uplift) || 0,
-        color: ({ urgent: 'var(--amber)', fast_track: 'var(--amber)', vip: 'var(--violet)', standard: 'var(--accent)' }[String(u.tier).toLowerCase()] || 'var(--accent)')
+        color: ({ urgent: 'var(--amber)', fast_track: 'var(--violet)', vip: 'var(--violet)', standard: 'var(--accent)' }[String(u.tier).toLowerCase()] || 'var(--accent)')
       })),
       fxZone: fxZone.map(z => ({
         name: z.country || '—',

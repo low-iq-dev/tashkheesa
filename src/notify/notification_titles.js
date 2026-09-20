@@ -268,7 +268,7 @@ const TEMPLATE_TITLES = {
   // any other row and hit the same humanizeTemplate fallback
   // ("Tashkheesa New Case Urgent").
   tashkheesa_new_case_urgent:             { en: 'Urgent case available in your specialty',     ar: 'حالة عاجلة متاحة في تخصصك' },
-  tashkheesa_new_case_fasttrack:          { en: 'Fast-track case available in your specialty', ar: 'حالة سريعة متاحة في تخصصك' },
+  tashkheesa_new_case_fasttrack:          { en: 'VIP case available in your specialty',        ar: 'حالة VIP متاحة في تخصصك' },
   tashkheesa_new_case_standard:           { en: 'New case available in your specialty',        ar: 'حالة جديدة متاحة في تخصصك' },
   tashkheesa_case_assigned:               { en: 'Your case has been assigned to a doctor',     ar: 'تم إسناد حالتك إلى طبيب' },
   tashkheesa_case_auto_assigned:          { en: 'Case auto-assigned to you',                   ar: 'تم إسناد حالة إليك تلقائيًا' },

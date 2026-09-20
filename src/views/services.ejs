@@ -677,9 +677,9 @@
               <span class="currency">EGP</span> <%= service.base_price ? Number(service.base_price).toLocaleString('en-GB', { maximumFractionDigits: 0 }) : '—' %>
             </div>
             <% } %>
-            <div class="service-sla"><%= (service.sla_hours && service.sla_hours <= 24)
-              ? tt('svc.sla.24', '24-hour', '24 ساعة')
-              : tt('svc.sla.standard', '48-hour', '48 ساعة') %></div>
+            <div class="service-sla"><%# A4/A7 (fix plan 2026-09-15): tiers are 48/18/4 — there is no
+                24-hour tier. This page shows the service's own standard turnaround, so
+                print the real number instead of a retired bucket label. %><%= __isAr ? ((service.sla_hours || 48) + ' ساعة') : ((service.sla_hours || 48) + '-hour') %></div>
           </div>
         </div>
         <% } else { %>
@@ -692,9 +692,9 @@
             <div class="service-price">
               <span class="currency">EGP</span> <%= service.base_price ? Number(service.base_price).toLocaleString('en-GB', { maximumFractionDigits: 0 }) : '—' %>
             </div>
-            <div class="service-sla"><%= (service.sla_hours && service.sla_hours <= 24)
-              ? tt('svc.sla.24', '24-hour', '24 ساعة')
-              : tt('svc.sla.standard', '48-hour', '48 ساعة') %></div>
+            <div class="service-sla"><%# A4/A7 (fix plan 2026-09-15): tiers are 48/18/4 — there is no
+                24-hour tier. This page shows the service's own standard turnaround, so
+                print the real number instead of a retired bucket label. %><%= __isAr ? ((service.sla_hours || 48) + ' ساعة') : ((service.sla_hours || 48) + '-hour') %></div>
           </div>
         </a>
         <% } %>

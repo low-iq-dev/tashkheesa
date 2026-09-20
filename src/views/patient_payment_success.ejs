@@ -72,7 +72,18 @@
         </div>
         <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">
           <div style="font-weight:600;color:var(--ink);"><%= tt('Turnaround', 'Turnaround', 'التسليم') %></div>
-          <div><%= Number(__order.sla_hours) === 24 ? tt('Priority — within 24 hours', 'Priority — within 24 hours', 'عاجل — خلال 24 ساعة') : tt('Standard — within 48 hours', 'Standard — within 48 hours', 'قياسي — خلال 48 ساعة') %></div>
+          <div><%
+            // A7 (fix plan 2026-09-15): the tiers are Standard 48h / VIP 18h /
+            // Urgent 4h. This line hardcoded a 24-hour "Priority" tier that has
+            // never existed, so every VIP and Urgent payer was told "Standard —
+            // within 48 hours" on the receipt for the speed they just paid for.
+            const __slaH = Number(__order.sla_hours);
+            const __slaLabel = (Number.isFinite(__slaH) && __slaH > 0 && __slaH <= 4)
+              ? tt('Urgent — within 4 hours', 'Urgent — within 4 hours', 'عاجل — خلال 4 ساعات')
+              : (Number.isFinite(__slaH) && __slaH > 4 && __slaH <= 24)
+              ? tt('VIP — within 18 hours', 'VIP — within 18 hours', 'VIP — خلال 18 ساعة')
+              : tt('Standard — within 48 hours', 'Standard — within 48 hours', 'قياسي — خلال 48 ساعة');
+          %><%= __slaLabel %></div>
         </div>
         <% if (expectedBy) { %>
           <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">

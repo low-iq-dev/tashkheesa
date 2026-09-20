@@ -154,7 +154,7 @@ function assertUrgentWindowOpen(urgencyTier) {
   if (urgencyTier === 'urgent' && !isUrgentWindowOpen()) {
     throw new IntakeError(
       'URGENT_UNAVAILABLE', 400,
-      'Urgent orders are only available between 7:00am and 7:00pm Cairo time. Please select standard or fast-track.'
+      'Urgent orders are only available between 7:00am and 7:00pm Cairo time. Please select Standard or VIP.'
     );
   }
 }

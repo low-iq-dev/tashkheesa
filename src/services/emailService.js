@@ -599,7 +599,7 @@ async function notifyCaseReceived(patient, referenceId, slaHours) {
   const urgencyNote = slaHours && slaHours <= 4
     ? ' Your case is marked URGENT and will be prioritised immediately.'
     : slaHours && slaHours <= 24
-    ? ' Your case is marked Fast Track and will be reviewed within 24 hours.'
+    ? ' Your case is marked VIP and will be prioritised.'
     : '';
   const fullLead = lead + urgencyNote;
   return sendMail({
