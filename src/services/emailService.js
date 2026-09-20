@@ -596,9 +596,12 @@ async function notifyCaseReceived(patient, referenceId, slaHours) {
   const subject = 'Your case ' + referenceId + ' has been received';
   const timeframe = slaHours ? ('within ' + slaHours + ' hours') : 'within 48 hours';
   const lead = 'Your case ' + referenceId + ' has been received. Our specialist team will review your files and deliver your report ' + timeframe + '.';
+  // A7 fix round 2026-09-20: the VIP band is <= 18 (the VIP SLA), not <= 24 —
+  // a legacy or off-policy 19-24h row must not be called VIP; its real window
+  // is already stated by `timeframe` above.
   const urgencyNote = slaHours && slaHours <= 4
     ? ' Your case is marked URGENT and will be prioritised immediately.'
-    : slaHours && slaHours <= 24
+    : slaHours && slaHours <= 18
     ? ' Your case is marked VIP and will be prioritised.'
     : '';
   const fullLead = lead + urgencyNote;

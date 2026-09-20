@@ -48,7 +48,11 @@
  *     (services/assign_case.js, services/admin_bulk_assign.js,
  *     routes/api/admin.js). The caller supplies the doctor's current load
  *     (activeCaseCount) because this module does no I/O; an unknown load
- *     fails CLOSED whenever a cap is configured.
+ *     fails CLOSED whenever a cap is configured. Like the specialty part,
+ *     these two apply to POOL offers only: a case ASSIGNED to this doctor is
+ *     a deliberate human/router decision, and an assigned case sits inside
+ *     its own load count, so testing it against the cap denied the assignee
+ *     every case that filled their last slot (fix round, 2026-09-20).
  *
  * Why acceptance and not `orders.doctor_id === me`, which is what four separate
  * surfaces used: case_lifecycle.assignDoctor writes orders.doctor_id at
@@ -348,29 +352,43 @@ function doctorCaseAccess(args) {
   const blockReason = doctorNewCaseBlockReason(doctorRow);
   if (blockReason) return deny(CASE_DENY_REASON.NOT_AVAILABLE, blockReason);
 
-  // 7. Supports the tier — A4/A5 (fix plan 2026-09-15). The same answer the
-  //    admin assign gates give, from the same helper: NULL sla_tiers_supported
-  //    reads as standard-only, exactly as auto_assign.js treats it. The tier
-  //    is read urgency_tier-first for the reason acceptance_window.js
-  //    documents: orders.tier carries DEFAULT 'standard' from migration 010
-  //    and is only overwritten at broadcast, so tier-first would read
-  //    'standard' on every not-yet-broadcast VIP/urgent case.
-  const orderTier = (order.urgency_tier || order.tier || 'standard');
-  if (!doctorSupportsTier(doctorRow && doctorRow.sla_tiers_supported, orderTier)) {
-    return deny(CASE_DENY_REASON.NOT_AVAILABLE, 'tier_not_supported');
-  }
+  // 7 + 8. Tier support and capacity — A4/A5 (fix plan 2026-09-15), POOL
+  //    offers only, the same scope as conjunct 5's specialty test and the
+  //    accept handler's guardrails 3b/3d. A case ASSIGNED to this doctor is a
+  //    deliberate routing decision (an admin's hand-pick or the router), and
+  //    the fix round (spec review S1/S2, adversarial X3) showed why the
+  //    exemption is load-bearing here too:
+  //      * an ASSIGNED case sits inside its own doctorLoadSql count, so an
+  //        unconditional cap test denied the assignee every case that filled
+  //        their last slot — routed to them, then unopenable until the
+  //        acceptance window expired;
+  //      * the accept handler's tier gate is pool-only, so an unconditional
+  //        view gate made the offered case invisible while still POSTable.
+  //    Viewing and accepting now draw the same line: pool offers pass all of
+  //    specialty, tier and capacity; assigned offers pass the account rule
+  //    (conjunct 6, unchanged) and nothing else.
+  if (!assigned) {
+    //    Tier: the same answer the admin assign gates give, from the same
+    //    helper — NULL sla_tiers_supported reads as standard-only, exactly as
+    //    auto_assign.js treats it. urgency_tier first, for the reason
+    //    acceptance_window.js documents (orders.tier defaults 'standard' and
+    //    is only overwritten at broadcast).
+    const orderTier = (order.urgency_tier || order.tier || 'standard');
+    if (!doctorSupportsTier(doctorRow && doctorRow.sla_tiers_supported, orderTier)) {
+      return deny(CASE_DENY_REASON.NOT_AVAILABLE, 'tier_not_supported');
+    }
 
-  // 8. Under their cap — A4/A5 (fix plan 2026-09-15). capFor is tier-aware
-  //    (urgent counts against max_active_cases_urgent) and a cap of 0/NULL
-  //    means "no cap configured", the direction services/assign_case.js has
-  //    always failed. When a cap IS configured, an unknown load (the caller
-  //    could not count) fails closed: an unread load is not a load under the
-  //    cap.
-  const cap = capFor(doctorRow || {}, orderTier);
-  if (cap > 0) {
-    const load = Number(activeCaseCount);
-    if (!Number.isFinite(load) || load >= cap) {
-      return deny(CASE_DENY_REASON.NOT_AVAILABLE, 'at_capacity');
+    //    Capacity: capFor is tier-aware (urgent counts against
+    //    max_active_cases_urgent) and a cap of 0/NULL means "no cap
+    //    configured", the direction services/assign_case.js has always
+    //    failed. When a cap IS configured, an unknown load (the caller could
+    //    not count) fails closed: an unread load is not a load under the cap.
+    const cap = capFor(doctorRow || {}, orderTier);
+    if (cap > 0) {
+      const load = Number(activeCaseCount);
+      if (!Number.isFinite(load) || load >= cap) {
+        return deny(CASE_DENY_REASON.NOT_AVAILABLE, 'at_capacity');
+      }
     }
   }
 

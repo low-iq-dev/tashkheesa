@@ -69,8 +69,10 @@ function caseFeeCollectedEgp(order) {
   return sum > 0 ? Math.round(sum * 100) / 100 : 0;
 }
 
-async function loadEarningsInputs(orderId) {
-  const order = await queryOne(
+// The one snapshot query behind both the ledger writers and the case-page
+// fee preview — split out so the preview can skip the order_addons scan.
+async function loadEarningsOrderRow(orderId) {
+  return queryOne(
     `SELECT o.id, o.doctor_id, o.doctor_fee, o.urgency_uplift_amount,
             sv.urgency_uplift_doctor_pct
        FROM orders_active o
@@ -78,6 +80,10 @@ async function loadEarningsInputs(orderId) {
       WHERE o.id = $1`,
     [orderId]
   );
+}
+
+async function loadEarningsInputs(orderId) {
+  const order = await loadEarningsOrderRow(orderId);
   if (!order) return null;
 
   const addons = await queryAll(
@@ -109,17 +115,19 @@ function buildResult(inputs) {
 
 // A4 (fix plan 2026-09-15) — the fee figure the doctor case page shows, READ
 // ONLY, computed by the SAME snapshot query and the SAME pure calc that write
-// the doctor_earnings ledger row at acceptance (loadEarningsInputs +
-// computeDoctorEarnings). The pre-accept brief must state the fee; a second,
-// hand-rolled fee expression on a compensation screen is how a shown number
-// and a paid number drift apart — so there isn't one. Case fee only
-// (base + uplift share): add-on shares are contingent on fulfilling the
+// the doctor_earnings ledger row at acceptance (loadEarningsOrderRow +
+// buildResult / computeDoctorEarnings). The pre-accept brief must state the
+// fee; a second, hand-rolled fee expression on a compensation screen is how a
+// shown number and a paid number drift apart — so there isn't one. Case fee
+// only (base + uplift share): add-on shares are contingent on fulfilling the
 // add-on and are settled separately in addon_earnings, exactly as the
-// 'pending' ledger row itself excludes them.
+// 'pending' ledger row itself excludes them — which is also why this skips
+// the order_addons scan (fix round 2026-09-20, adversarial X7: the case page
+// is the busiest authenticated page, and the scan's result was discarded).
 async function previewCaseEarnings(orderId) {
-  const inputs = await loadEarningsInputs(orderId);
-  if (!inputs || !inputs.order) return null;
-  const result = buildResult({ order: inputs.order, addons: [] });
+  const order = await loadEarningsOrderRow(orderId);
+  if (!order) return null;
+  const result = buildResult({ order, addons: [] });
   return {
     baseShare: result.baseShare,
     upliftShare: result.upliftShare,

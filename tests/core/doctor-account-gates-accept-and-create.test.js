@@ -417,16 +417,20 @@ module.exports = (async function run() {
         if (!r.errors.some((e) => e.ctx && e.ctx.context === 'doctor.accept_account_check' && e.ctx.category === 'doctor_case' && e.ctx.orderId === 'ord-t1')) return 'failure not logged: ' + JSON.stringify(r.errors);
         return null;
       });
-      await checkAsync('(4b) accept, pool case with NO specialty → ?msg=specialty for EVERY doctor (A5: an unroutable case is nobody\'s to take, whatever their account state)', async () => {
+      await checkAsync('(4b) accept, pool case with NO specialty → ?msg=case_unroutable for EVERY doctor, with its own bilingual copy (A5: an unroutable case is nobody\'s to take, whatever their account state)', async () => {
         // A5 (fix plan 2026-09-15): the old 3b SKIPPED the check when the case
         // carried no specialty, so any doctor holding the link could take it.
-        // Blank-on-either-side now refuses — the same fail-closed answer the
-        // pool queries and the case-page rule give — so the paused doctor is
-        // told about the CASE (unroutable), not about their account.
-        const clean = refusedWith(await accept({ order: poolOrder({ specialty_id: null }), doctor: doctorRow() }), 'specialty');
+        // Blank-on-either-side now refuses. Fix round (spec review A5/S1): the
+        // refusal carries its OWN code — the ?msg=specialty copy ("update your
+        // profile") is false here; only an operator routing the case fixes it.
+        const clean = refusedWith(await accept({ order: poolOrder({ specialty_id: null }), doctor: doctorRow() }), 'case_unroutable');
         if (clean) return 'eligible doctor: ' + clean;
-        const paused = refusedWith(await accept({ order: poolOrder({ specialty_id: null }), doctor: doctorRow({ is_paused: true }) }), 'specialty');
+        const paused = refusedWith(await accept({ order: poolOrder({ specialty_id: null }), doctor: doctorRow({ is_paused: true }) }), 'case_unroutable');
         if (paused) return 'paused doctor: ' + paused;
+        const msgFor = loadPoolCopy(doctorRaw);
+        if (!msgFor) return 'POOL_ACCEPT_REFUSAL_COPY / poolAcceptRefusalMessage not found in routes/doctor.js';
+        if (!/specialty/i.test(String(msgFor('case_unroutable', false)))) return 'no English copy for ?msg=case_unroutable';
+        if (!ARABIC.test(String(msgFor('case_unroutable', true)))) return 'no Arabic copy for ?msg=case_unroutable';
         return null;
       });
       await checkAsync('(4b) accept, doctor whose specialty is BLANK on a specialty pool case → ?msg=specialty (blank matches nothing)', async () => {
@@ -447,6 +451,15 @@ module.exports = (async function run() {
         if (std.threw) return 'standard case threw: ' + (std.threw.message || std.threw);
         if (/msg=/.test(String(std.redirected))) return 'standard case refused: ' + std.redirected;
         return refusedWith(await accept({ order: poolOrder({ urgency_tier: 'vip' }), doctor: doctorRow({ sla_tiers_supported: null }) }), 'tier_not_supported');
+      });
+      await checkAsync('(4b) accept, the load count EXCLUDES the case being accepted (fix round X3: an assigned case sits inside its own count, so counting it refused the accept that filled the last slot)', async () => {
+        const body = routeBody(doctorSrc, "router.post('/portal/doctor/case/:caseId/accept'");
+        if (!/countActiveCasesForDoctor\(doctorId,\s*orderId\)/.test(body)) {
+          return 'the accept handler no longer excludes the subject case from its load count';
+        }
+        const def = doctorSrc.slice(doctorSrc.indexOf('async function countActiveCasesForDoctor'), doctorSrc.indexOf('async function countActiveCasesForDoctor') + 900);
+        if (!/o\.id <> \$2/.test(def)) return 'countActiveCasesForDoctor lost its excludeOrderId predicate';
+        return null;
       });
       await checkAsync('(4b) accept, capacity is the PER-DOCTOR tier-aware cap: refused at their own max_active_cases, an urgent case measured against max_active_cases_urgent, and cap 0/NULL means no cap', async () => {
         // At their own (small) cap: 2 active vs max_active_cases 2 → capacity path.

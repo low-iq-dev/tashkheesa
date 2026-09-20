@@ -77,12 +77,19 @@
             // Urgent 4h. This line hardcoded a 24-hour "Priority" tier that has
             // never existed, so every VIP and Urgent payer was told "Standard —
             // within 48 hours" on the receipt for the speed they just paid for.
+            //
+            // Fix round 2026-09-20 (adversarial X14): a tier NAME is only
+            // claimed when sla_hours matches that tier exactly; anything else
+            // (a legacy 24h or 72h row) states its own real window, so the
+            // receipt can never promise a window shorter than the case's SLA.
             const __slaH = Number(__order.sla_hours);
-            const __slaLabel = (Number.isFinite(__slaH) && __slaH > 0 && __slaH <= 4)
+            const __slaLabel = (__slaH === 4)
               ? tt('Urgent — within 4 hours', 'Urgent — within 4 hours', 'عاجل — خلال 4 ساعات')
-              : (Number.isFinite(__slaH) && __slaH > 4 && __slaH <= 24)
+              : (__slaH === 18)
               ? tt('VIP — within 18 hours', 'VIP — within 18 hours', 'VIP — خلال 18 ساعة')
-              : tt('Standard — within 48 hours', 'Standard — within 48 hours', 'قياسي — خلال 48 ساعة');
+              : (__slaH === 48 || !Number.isFinite(__slaH) || __slaH <= 0)
+              ? tt('Standard — within 48 hours', 'Standard — within 48 hours', 'قياسي — خلال 48 ساعة')
+              : (__isAr ? ('خلال ' + __slaH + ' ساعة') : ('Within ' + __slaH + ' hours'));
           %><%= __slaLabel %></div>
         </div>
         <% if (expectedBy) { %>

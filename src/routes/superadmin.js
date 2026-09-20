@@ -5482,7 +5482,9 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, async (req, re
     [newDoctorId, order.service_id]
   );
   if (!newDoctor) {
-    return res.redirect(`/superadmin/orders/${orderId}`);
+    // Fix round 2026-09-20: name the refusal — a silent bounce reads as a
+    // click that did not register.
+    return res.redirect(`/superadmin/orders/${orderId}?error=reassign_ineligible`);
   }
 
   if (order.doctor_id === newDoctor.id) {
@@ -5505,8 +5507,30 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, async (req, re
   // doctor. reassignCase does all of it and ends in assignDoctor, the same
   // canonical writer every other reassign route now uses — both deadline
   // columns from one acceptance_window value.
+  // Fix round 2026-09-20:
+  //   * (adversarial X1) an UNASSIGNED order is a FIRST assignment, not a
+  //     reassignment — this page is the documented human fallback when
+  //     auto_assign parks a paid case at manual_pending, and reassignCase
+  //     refuses a PAID status. First assignments go through assignDoctor,
+  //     the same canonical writer force-assign uses.
+  //   * (adversarial X2) reason 'admin_manual_superadmin' — the
+  //     doctor_pause backstop excludes reassignment_reason LIKE
+  //     'admin_manual%', and operatorInitiated suppresses the pause check
+  //     directly. 'superadmin_manual' matched neither, so three operator
+  //     reassigns in 30 days would have auto-paused a blameless doctor.
+  //   * failures surface: ?error=reassign_failed rides the order page's
+  //     existing flashError banner (the ?reassign=failed spelling rendered
+  //     nowhere).
+  const outgoingDoctorId = order.doctor_id == null ? '' : String(order.doctor_id).trim();
   try {
-    await caseLifecycle.reassignCase(orderId, newDoctor.id, { reason: 'superadmin_manual' });
+    if (!outgoingDoctorId) {
+      await caseLifecycle.assignDoctor(orderId, newDoctor.id);
+    } else {
+      await caseLifecycle.reassignCase(orderId, newDoctor.id, {
+        reason: 'admin_manual_superadmin',
+        operatorInitiated: true
+      });
+    }
   } catch (err) {
     logErrorToDb(err, {
       context: 'superadmin.reassign.reassignCase',
@@ -5514,7 +5538,7 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, async (req, re
       userId: req.user && req.user.id,
       category: 'assignment'
     });
-    return res.redirect(`/superadmin/orders/${orderId}?reassign=failed`);
+    return res.redirect(`/superadmin/orders/${orderId}?error=reassign_failed`);
   }
 
   // reassignCase writes reassigned_to_doctor_id / reassigned_at /

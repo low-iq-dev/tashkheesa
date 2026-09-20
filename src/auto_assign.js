@@ -337,12 +337,19 @@ async function autoAssignDoctor(orderId) {
     // and its old `AND doctor_id IS NULL` guard would never match again. Two
     // guards replace it:
     //   * doctor_id = best.id — never clear a claim another writer owns.
-    //   * status still 'paid' — every throw assignDoctor raises itself (case
-    //     missing / unpaid / wrong status) fires BEFORE its transitionCase, so
-    //     a row that already reached ASSIGNED is genuinely assigned and a later
-    //     incidental throw must not strip its doctor. ASSIGNED-with-a-doctor is
-    //     recoverable (the acceptance/timeout sweeps see it);
-    //     ASSIGNED-with-doctor_id-NULL is not — no sweep selects that shape.
+    //   * status still 'paid' — the throws assignDoctor raises BEFORE its
+    //     transitionCase (case missing / unpaid / wrong status /
+    //     CASE_ALREADY_TAKEN) leave the row at PAID, so the release matches.
+    //     A row that already reached ASSIGNED is genuinely assigned and a
+    //     later incidental throw must not strip its doctor.
+    //
+    // A6 (fix round 2026-09-20): assignDoctor gained one post-transition
+    // throw, ASSIGNMENT_ROW_FAILED — its doctor_assignments INSERT failed.
+    // That path ROLLS ITSELF BACK inside case_lifecycle (doctor cleared,
+    // prior status restored, acceptance_deadline_at reset), so the release
+    // below matching zero rows is the EXPECTED outcome there, not a stuck
+    // claim; the log line says so instead of claiming the doctor_id was
+    // "left in place deliberately", which would be the opposite of the truth.
     var released = null;
     try {
       released = await execute(
@@ -352,8 +359,13 @@ async function autoAssignDoctor(orderId) {
       );
     } catch (_) { /* non-fatal */ }
     if (!released || released.rowCount === 0) {
-      logMajor('[auto-assign] Order ' + orderId + ' claim NOT released after assignDoctor failure ' +
-               '(row moved past PAID or was reclaimed) — doctor_id left in place deliberately');
+      if (e && e.code === 'ASSIGNMENT_ROW_FAILED' && e.rolledBack) {
+        logMajor('[auto-assign] Order ' + orderId + ' claim already released by case_lifecycle’s ' +
+                 'ASSIGNMENT_ROW_FAILED rollback — nothing to undo here');
+      } else {
+        logMajor('[auto-assign] Order ' + orderId + ' claim NOT released after assignDoctor failure ' +
+                 '(row moved past PAID or was reclaimed) — doctor_id left in place deliberately');
+      }
     }
     logMajor('[auto-assign] assignDoctor rejected order ' + orderId + ': ' + (e && e.message));
     // Same reasoning as the no-doctor branch above: this drops a paid case back

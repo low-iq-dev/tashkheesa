@@ -24,7 +24,12 @@ const ALLOWED = new Set([
   'src/notify/broadcast.js',            // derives from urgency_tier, writes tier back
   'src/services/superadmin_dashboard.js', // selects COALESCE(o.urgency_tier,...) AS tier
   'src/workers/acceptance_watcher.js',  // reads urgency_tier first; tier only as fallback
-  'src/acceptance_window.js'            // reads urgency_tier first; tier only as fallback
+  'src/acceptance_window.js',           // reads urgency_tier first; tier only as fallback
+  // A4/A5 (2026-09-20): both read `order.urgency_tier || order.tier` — the
+  // sanctioned urgency_tier-first precedence, tier only as fallback, same as
+  // acceptance_window.js.
+  'src/services/doctor_case_access.js',
+  'src/routes/doctor.js'
 ]);
 
 test('no new code reads orders.tier to decide urgency', () => {

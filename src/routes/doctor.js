@@ -116,13 +116,26 @@ function specialtyMatchSql(specialtyId, column, bind) {
 // enforces (AUDIT-PREDICATE-PARITY, 2026-08-29). The old inline list missed
 // 'paid', 'submitted', 'in_progress' and 'reassigned' rows that carry a
 // doctor_id, and never guarded on completed_at.
-async function countActiveCasesForDoctor(doctorId) {
+//
+// excludeOrderId (fix round 2026-09-20, adversarial X3): an ASSIGNED-but-
+// unaccepted case sits inside its own load count, so asking "is the doctor
+// under their cap for THIS case?" while counting THIS case answered one case
+// early — accepting the case that filled the last slot triggered the overflow
+// reassign instead of the accept. The subject case is excluded; for a pool
+// case (doctor_id NULL) the exclusion matches nothing and changes nothing.
+async function countActiveCasesForDoctor(doctorId, excludeOrderId) {
+  const params = [doctorId];
+  let excludeSql = '';
+  if (excludeOrderId) {
+    params.push(excludeOrderId);
+    excludeSql = ' AND o.id <> $2';
+  }
   const row = await queryOne(`
     SELECT COUNT(*) AS c
     FROM orders_active o
     WHERE o.doctor_id = $1
-      AND ${doctorLoadSql('o.')}
-  `, [doctorId]);
+      AND ${doctorLoadSql('o.')}${excludeSql}
+  `, params);
   return row ? Number(row.c) : 0;
 }
 
@@ -2257,6 +2270,13 @@ const POOL_ACCEPT_REFUSAL_COPY = Object.freeze({
   tier_not_supported: {
     en: "This case's turnaround tier isn't one you currently offer, so it can't be accepted. You can change the tiers you serve from My Services.",
     ar: 'مدة الإنجاز المطلوبة في الحالة دي مش من الفئات اللي بتقدمها حالياً، فمش هتقدر تقبلها. تقدر تعدّل الفئات اللي بتخدمها من صفحة خدماتي.'
+  },
+  // A5 (fix round 2026-09-20) — the CASE carries no specialty, so nobody can
+  // take it until an operator routes it. Distinct from ?msg=specialty, whose
+  // remedy ("update your profile") is wrong for this shape.
+  case_unroutable: {
+    en: "This case hasn't been given a specialty yet, so it can't be accepted by any doctor. Our operations team needs to route it first.",
+    ar: 'الحالة دي لسه متحددلهاش تخصص، فمفيش دكتور يقدر يقبلها دلوقتي. فريق التشغيل لازم يوجّهها الأول.'
   }
 });
 function poolAcceptRefusalMessage(msg, isAr) {
@@ -2415,11 +2435,19 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
 
   // Shared refusal screen. `reason` is a code the template maps to copy —
   // never a message assembled here, and never anything read off the row.
+  //
+  // Fix round 2026-09-20 (adversarial X6): every pool-accept refusal
+  // redirects HERE with a ?msg= code, and this screen used to drop it — so a
+  // paused doctor bounced from Accept was told "the patient cancelled it".
+  // The refusal copy (capacityMessage, computed from ?msg= at the top of the
+  // handler) now rides the denial screen as errorMessage, so the doctor reads
+  // the real reason above the generic denial body.
   async function renderAccessDenied(reason, bodyText) {
     try {
       assertRenderableView('portal_doctor_case');
       const streakCount = await computeDoctorStreakCount(doctorId);
       return res.status(403).render('portal_doctor_case', {
+        ...(capacityMessage ? { errorMessage: capacityMessage } : {}),
         portalFrame: true,
         portalRole: 'doctor',
         portalActive: 'queue',
@@ -2524,7 +2552,7 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
         'SELECT specialty_id, is_active, is_paused, pending_approval, rejection_reason, sla_tiers_supported, max_active_cases, max_active_cases_urgent FROM users WHERE id = $1',
         [doctorId]
       );
-      doctorLoadCount = await countActiveCasesForDoctor(doctorId);
+      doctorLoadCount = await countActiveCasesForDoctor(doctorId, orderId);
     } catch (e) {
       logErrorToDb(e, {
         context: 'doctor.case_view_entitlement_check',
@@ -3553,7 +3581,15 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
     }
     const orderSpecialtyId = order.specialty_id == null ? '' : String(order.specialty_id).trim();
     const doctorSpecialtyId = liveDoctorRow.specialty_id != null ? String(liveDoctorRow.specialty_id).trim() : '';
-    if (!orderSpecialtyId || !doctorSpecialtyId || doctorSpecialtyId !== orderSpecialtyId) {
+    if (!orderSpecialtyId) {
+      // Fix round 2026-09-20 (spec review A5/S1): a CASE with no specialty is
+      // unroutable — its own distinct code, because the ?msg=specialty copy
+      // ("update your profile") is false and mis-remedied here: nothing the
+      // doctor does to their profile makes this case acceptable; an operator
+      // must set its specialty.
+      return res.redirect(`/portal/doctor/case/${orderId}?msg=case_unroutable`);
+    }
+    if (!doctorSpecialtyId || doctorSpecialtyId !== orderSpecialtyId) {
       return res.redirect(`/portal/doctor/case/${orderId}?msg=specialty`);
     }
   }
@@ -3584,11 +3620,20 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
 
   // Guardrail 3d (A5, fix plan 2026-09-15): tier support, POOL only.
   //
-  // The broadcast pool, auto-assign and every admin gate already refuse to
-  // route a case to a doctor whose sla_tiers_supported does not carry its
-  // tier; the self-service accept was the one door with no such check. Same
-  // helper, same NULL-reads-as-standard-only default as auto_assign.js. The
-  // read-failure case was already refused by 3c above.
+  // auto_assign (eligibleDoctorsFor) and the admin assign gates
+  // (admin_bulk_assign, api/admin candidates) already refuse to route a case
+  // to a doctor whose sla_tiers_supported does not carry its tier; the
+  // self-service accept had no such check. Same helper, same
+  // NULL-reads-as-standard-only default as auto_assign.js. The read-failure
+  // case was already refused by 3c above.
+  //
+  // KNOWN GAP, recorded not fixed (fix round 2026-09-20, adversarial X5):
+  // notify/broadcast.js and the pool arm of the queue query do NOT filter on
+  // sla_tiers_supported, so a doctor who narrows their tiers can still be
+  // notified of and shown a case this gate (and the view rule) will refuse.
+  // Latent while migration 089 keeps every doctor on all three tiers; the
+  // broadcast/queue predicates are routing SQL, which this branch's ground
+  // rules park for a routing-side change (see cad13b5's identical ruling).
   if (!assignedDoctorId) {
     if (!doctorSupportsTier(liveDoctorRow && liveDoctorRow.sla_tiers_supported, acceptOrderTier)) {
       return res.redirect(`/portal/doctor/case/${orderId}?msg=tier_not_supported`);
@@ -3605,7 +3650,7 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
   // handler then bounced. capFor of 0/NULL means "no cap configured" and
   // skips the check (services/assign_case.js semantics); an unreadable users
   // row falls back to the old global constant rather than to "no cap".
-  const activeCount = await countActiveCasesForDoctor(doctorId);
+  const activeCount = await countActiveCasesForDoctor(doctorId, orderId);
   const acceptCap = (!liveDoctorReadFailed && liveDoctorRow)
     ? capFor(liveDoctorRow, acceptOrderTier)
     : MAX_ACTIVE_CASES;

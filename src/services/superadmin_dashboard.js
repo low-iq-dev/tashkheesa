@@ -212,7 +212,10 @@ async function getAttentionItems() {
            FROM orders_active
           WHERE doctor_id IS NULL
             AND completed_at IS NULL
-            AND LOWER(COALESCE(urgency_tier, 'standard')) IN ('urgent', 'fast_track')`,
+            -- A7 fix round 2026-09-20: fast_track ≡ VIP (migration 031), so a
+            -- legacy row belongs in the VIP figures, not the urgent ones —
+            -- the display maps below already say VIP for it.
+            AND LOWER(COALESCE(urgency_tier, 'standard')) = 'urgent'`,
         [], { cnt: 0 }
       ),
       safeGet(
@@ -337,8 +340,8 @@ async function getOperationsTabData({ range = '7d' } = {}) {
             COUNT(*) FILTER (WHERE completed_at IS NULL) AS in_flight,
             COUNT(*) FILTER (WHERE completed_at IS NULL AND deadline_at IS NOT NULL AND deadline_at::timestamptz < NOW()) AS breached_now,
             COUNT(*) FILTER (WHERE doctor_id IS NULL AND completed_at IS NULL) AS unassigned,
-            COUNT(*) FILTER (WHERE LOWER(COALESCE(urgency_tier,'standard')) IN ('urgent','fast_track') AND completed_at IS NULL) AS urgent_active,
-            COUNT(*) FILTER (WHERE LOWER(COALESCE(urgency_tier,'standard')) = 'vip' AND completed_at IS NULL) AS vip_active,
+            COUNT(*) FILTER (WHERE LOWER(COALESCE(urgency_tier,'standard')) = 'urgent' AND completed_at IS NULL) AS urgent_active,
+            COUNT(*) FILTER (WHERE LOWER(COALESCE(urgency_tier,'standard')) IN ('vip','fast_track') AND completed_at IS NULL) AS vip_active,
             COUNT(*) FILTER (WHERE created_at::date = CURRENT_DATE) AS today_total
          FROM orders_active`,
         [], { in_flight: 0, breached_now: 0, unassigned: 0, urgent_active: 0, vip_active: 0, today_total: 0 }

@@ -5,8 +5,8 @@ Every cell below is a hermetically driven test against the REAL route handlers
 source text. Evidence columns name the guard file and the check that proves the
 cell; both guards run green on the final tree:
 
-- `tests/core/doctor-pre-accept-exposure.test.js` — 55/55
-- `tests/core/doctor-account-gates-accept-and-create.test.js` — 31/31
+- `tests/core/doctor-pre-accept-exposure.test.js` — 56/56
+- `tests/core/doctor-account-gates-accept-and-create.test.js` — 32/32
 
 ## Surface 1 — VIEW: GET /portal/doctor/case/:caseId (the pre-accept brief)
 
@@ -20,6 +20,8 @@ cell; both guards run green on the final tree:
 | paid, pool, VIP tier | supports standard only | **403** | (3) tier/cap check |
 | paid, pool, in-specialty | at their max_active_cases | **403** | (3) tier/cap check |
 | paid, pool, in-specialty | one under their cap | **OFFER** | (3) tier/cap check |
+| VIP, ASSIGNED to this doctor | supports standard only | **OFFER** (a human routed it; fix round X3/S1) | (3) assigned-offer exemption |
+| ASSIGNED to this doctor (fills their last slot) | at their cap | **OFFER** (the case is excluded from its own load count) | (3) assigned-offer exemption |
 | assigned to ANOTHER doctor | any | **403** assigned_to_other | (3) assigned to another |
 | assigned to THIS doctor, not accepted | eligible | **OFFER** (question yes, patient no) | (3) assigned-not-accepted |
 | accepted by THIS doctor (IN_REVIEW) | even paused | **FULL** — everything, unchanged | (3) accepted; (3) paused-keeps-case |
@@ -37,8 +39,8 @@ except where the question policy changed.
 |---|---|---|---|
 | unpaid | any | bounce to case page, no work | pre-existing paid gate (guard drives it implicitly: every scenario order is paid; the gate itself is unchanged code) |
 | pool, in-specialty, standard, paid | active, under cap | **accept**: order → live read → capacity → assignDoctor → withTransaction | (4b) ACTIVE goes all the way |
-| pool, NO specialty | active | **?msg=specialty** | (4b) NO specialty → every doctor refused |
-| pool, NO specialty | paused | **?msg=specialty** (case-side refusal wins; still refused) | same check |
+| pool, NO specialty | active | **?msg=case_unroutable** + bilingual copy (fix round A5/S1) | (4b) NO specialty → every doctor refused |
+| pool, NO specialty | paused | **?msg=case_unroutable** (case-side refusal; still refused) | same check |
 | pool, in-specialty | doctor specialty BLANK | **?msg=specialty** | (4b) blank doctor specialty |
 | pool, in-specialty | paused | **?msg=paused** + bilingual copy | (4b) paused |
 | pool | pending_approval | **?msg=pending_approval** | (4b) pending |
@@ -62,10 +64,13 @@ except where the question policy changed.
   case-folded — view via doctor_case_access.isPaidForReview, accept via the
   handler's own gate; both pre-existing, unchanged, and pinned by the exposure
   guard's UNPAID rows.
-- Asymmetry, deliberate and recorded: the VIEW applies the full eligibility
-  rule to assigned-not-accepted cases; the ACCEPT still exempts them from the
-  pool gates (cad13b5's ruling: an admin's cross-specialty assignment is a
-  human decision). A doctor who fails eligibility on an assigned case cannot
-  see the brief but could still POST accept blind. Raised in the batch report
-  for Ziad to rule on; not changed here because the ruling on record says the
-  assigned path is exempt.
+- Fix round 2026-09-20: viewing and accepting now draw the SAME line. Pool
+  offers pass specialty + tier + capacity on both surfaces; ASSIGNED offers
+  are exempt from all three on both surfaces (cad13b5's human-routing ruling),
+  and the load count excludes the case being decided, so a case can never be
+  routed to a doctor who cannot open or accept it. The one REMAINING
+  asymmetry is pre-existing and recorded for Ziad: the VIEW applies the
+  ACCOUNT rule (paused/pending/inactive/rejected) to assigned-not-accepted
+  cases while the ACCEPT's Guardrail 3c is pool-only — a paused doctor cannot
+  read an assigned offer but could still POST accept it blind. Every refusal
+  bounce now renders its named copy on the denial screen (fix round X6).

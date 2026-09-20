@@ -1,0 +1,25 @@
+# Batch A adversarial review — 2026-09-20
+
+(Independent read-only adversarial-review agent; findings condensed verbatim in substance. Dispositions in FIX-ROUND.md.)
+
+## Findings
+- X1 (P0) superadmin.js:5508 + order_detail view: reassignCase refuses non-ASSIGNED/IN_REVIEW/SLA_BREACH/REASSIGNED statuses, but the reassign card renders for unassigned PAID orders — the documented human fallback for auto_assign's manual_pending parking. Operator picks a doctor → throw → ?reassign=failed which NOTHING renders (view reads only ?error=). Silent no-op on a paid unrouted case.
+- X2 (P1) reason 'superadmin_manual' does not match doctor_pause's admin\_manual% exclusion and operatorInitiated was not passed → three operator reassigns in 30d auto-pause a good doctor.
+- X3 (P1) capacity conjunct counts the offered case itself (doctorLoadSql includes 'assigned' rows), so a hand-pick/auto-assign filling the LAST slot renders Access Denied to the assignee; accept Guardrail 4 mirror: at load==cap an assigned case triggers the overflow reassign instead of accepting. auto_assign applies NO cap at all when assigning, making the boundary routine.
+- X4 (P1) broadcast caps VIP on max_active_cases_urgent (default 8); capFor caps VIP on max_active_cases (default 5) → a doctor at load 6 is invited to a VIP case the view then denies and the accept overflows. The invited-vs-bounced defect the commit claimed closed, still live for VIP; urgent broadcast is explicitly uncapped, same shape.
+- X5 (P1) broadcast has NO sla_tiers_supported filter and neither does the pool arm of the queue query — the Guardrail 3d comment claiming otherwise is false. Latent post-089; live the day a doctor narrows tiers via My Services.
+- X6 (P1) every pool-accept refusal redirects to the case page, whose view rule denies on the same conditions FIRST — so ?msg=paused/pending/inactive/specialty/tier_not_supported/capacity all render the generic denial, which says "the patient cancelled it or the payment window closed" about a live paid case. The new bilingual copy is dead code; blockReason discarded at the call site.
+- X7 (P2) previewCaseEarnings runs loadEarningsInputs' order_addons scan and throws the result away, on the busiest authenticated page.
+- X8 (P2) findNextAvailableDoctor (overflow target picker) still has no tier/onboarding/doctor_services predicate and counts the old 5-status list vs global 4; the new per-doctor gate makes the overflow trip more often, and can hand a VIP case to a standard-only doctor.
+- X9 (P2) after the A6 rollback, auto_assign's release matches 0 rows and logs "doctor_id left in place deliberately" (now false); its comment claiming every assignDoctor throw fires before transitionCase is stale; assignment_status left 'assigned' on a doctor-less row (watcher still recovers it).
+- X10 (P2) the new a6 test standalone: the driven superadmin handler reaches unstubbed ensureConversation → real pg attempt → unhandled rejection kills node AFTER the 9 passes; tests/run.js has no unhandledRejection handler.
+- X11 (P2) the legacy raw-PDF signature block grew ~24pt in a layout with no pagination and a fixed footer → possible overlap on long fallback reports.
+- X12 (P2) PDFKit block: doc.font('Helvetica') restore sits INSIDE the try (unlike sectionHeader) — a mid-render throw leaves the doc in the Arabic font.
+- X13 (P2) the exposure guard's leak check filters by secret NAME ('question'), not by allowed location — the "exactly one copy" property is lost.
+- X14 (P2) receipt maps 4<h<=24 → "VIP — within 18 hours": a legacy 19-24h row is promised a window SHORTER than its SLA.
+
+## Checked and held (verified sound; not re-covered in the fix round)
+- No '' vs NULL doctor_id bypass; no status-spelling bypass; the paid gate holds on every path; the blank-specialty hole closed on both surfaces; the clinical question stays out of every bulk list; no other doctor-reachable surface leaks pre-accept data; feeBreakdown carries doctor money only, computed after the entitlement gate.
+- A6: no double-notify possible (email/conversation sit after the INSERT); restored spellings sweepable (PAID/REASSIGNED, case-folded, NULLIF-matched); markPartialPayOnReassignment idempotent → no double write-down on retry; manual-queue release works BETTER than before (rollback restores the exact release shape); ASSIGNMENT_ROW_FAILED never mistaken for CASE_ALREADY_TAKEN; the sweep wraps candidates individually so a throw cannot abort a tick; admin force-assign surfaces the throw as an honest 409.
+- Tests: the a6 guard genuinely fails on 9fb01fbd8^ (empty-catch matches, ASSIGNMENT_ROW_FAILED absent, no reassignCase call); exposure check (7) is a real regression guard; the account-gates guard is a net strengthening; the specialty lint is not weakened.
+- Templates all compile (ejs.compile, real filenames); __isAr in scope; the receipt scriptlet self-contained. PDFKit signature geometry holds within the raised 106 reserve. superadmin_dashboard remap correct and display-only. Arabic register consistent; 'حالة VIP' matches house style.

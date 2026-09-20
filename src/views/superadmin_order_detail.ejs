@@ -125,6 +125,14 @@
     var _paymentNotice = (typeof paymentNotice !== 'undefined' && paymentNotice) ? String(paymentNotice) : '';
     var _errMsg = _flashError === 'unlock_failed'
       ? 'Could not unlock uploads — the patient still cannot add files and the SLA stays paused. Retry the manual unlock.'
+      // A6 fix round 2026-09-20 (adversarial X1): the reassign now goes
+      // through the canonical lifecycle writers, which REFUSE states the old
+      // bare UPDATE silently tolerated (completed, cancelled, refunded). The
+      // operator must see that refusal, or the click reads as ignored.
+      : _flashError === 'reassign_failed'
+      ? 'The doctor was NOT changed. The case is in a state the assignment lifecycle refuses to (re)assign — completed, cancelled or refunded cases cannot be moved. Details are in the error log.'
+      : _flashError === 'reassign_ineligible'
+      ? 'The doctor was NOT changed. The doctor you picked is not currently eligible for this case (inactive, paused, awaiting approval, not onboarded, or not registered for this service).'
       : (_paymentNotice === 'paid_but_unrouted'
           ? 'Payment recorded, but the case did NOT enter the assignment pipeline. Route it by hand from the manual queue.'
           : '');

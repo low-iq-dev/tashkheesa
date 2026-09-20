@@ -773,17 +773,24 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
   // AUDIT-2026-08-22 (L3): reserve the header + subline + rule + name as one
   // unit so the block is never split across a continuation page break.
   sectionHeader('Consultant', ar.signature, 106);
-  doc.fillColor(MUTED).font('Helvetica').fontSize(9).text('Signed electronically', x0, doc.y);
+  // Fix round 2026-09-20 (adversarial X12, spec S2): sectionHeader's own
+  // pattern — capture y once, draw both halves at it, restore the font AFTER
+  // the try, set doc.y explicitly — so the rule below lands at the same
+  // offset whether or not the Arabic face resolved, and a mid-render throw
+  // cannot leave the rest of the document in the Arabic font.
+  const sigY = doc.y;
+  doc.fillColor(MUTED).font('Helvetica').fontSize(9).text('Signed electronically', x0, sigY);
   if (arabicFontPath) {
     try {
       const sigArW = 220;
       doc.font(arabicFontPath).fontSize(9);
-      doc.text(arabicLabel(ar.signedElectronically), x1 - sigArW, doc.y - 11, { width: sigArW, align: 'right' });
-      doc.font('Helvetica');
+      doc.text(arabicLabel(ar.signedElectronically), x1 - sigArW, sigY, { width: sigArW, align: 'right' });
     } catch (_) {
       // ignore — the English line above already says it
     }
+    doc.font('Helvetica');
   }
+  doc.y = sigY + 14;
   doc.moveTo(x0, doc.y + 8).lineTo(x0 + 240, doc.y + 8).strokeColor('#111827').stroke();
   doc.moveDown(1.2);
   doc.fillColor('#111827');
@@ -1033,14 +1040,17 @@ async function generateStyledReportPdfLegacy({ caseId, doctorName, specialty, cr
 
   // Signature block — A8 (fix plan 2026-09-15): "Consultant", not "Doctor
   // Signature" — no signature image exists on this document. This raw-PDF
-  // fallback cannot shape Arabic, so the Arabic halves stay placeholder
-  // blocks, exactly like every other Arabic label on this path.
+  // fallback cannot shape Arabic, so the heading's Arabic half stays a
+  // placeholder block, exactly like every other Arabic label on this path;
+  // the subline is English-only rather than adding a second grey box that
+  // reads as redaction (fix round 2026-09-20, adversarial X11 also trimmed
+  // the block's growth — this path has no pagination and a fixed footer, so
+  // every vertical point added narrows the margin on a long report).
   cs += text('F2', 12, left, y, 'Consultant /', BLUE);
   cs += arBlock(left + 140, y - 10, 90, 10);
-  y -= 14;
+  y -= 12;
   cs += text('F1', 9, left, y, 'Signed electronically', null);
-  cs += arBlock(left + 140, y - 8, 80, 8);
-  y -= 10;
+  y -= 8;
 
   cs += hline(left, left + 240, y, '0 0 0');
   y -= 14;

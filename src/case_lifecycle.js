@@ -3155,7 +3155,7 @@ VALUES ($1, $2, $3, $4, $5, $6)`,
       rolledBack = await execute(
         `UPDATE ${CASE_TABLE}
             SET doctor_id = NULL,
-                status = COALESCE($4, 'paid'),
+                status = COALESCE($4, 'PAID'),
                 acceptance_deadline_at = $1,
                 updated_at = $1
           WHERE id = $2

@@ -60,9 +60,21 @@ module.exports = (async function run() {
       ['src/notify/broadcast.js', /require\(['"]\.\.\/acceptance_window['"]\)/],
       ['src/workers/acceptance_watcher.js', /require\(['"]\.\.\/acceptance_window['"]\)/],
       ['src/routes/api/_assign_helpers.js', /require\(['"]\.\.\/\.\.\/acceptance_window['"]\)/],
+      // Fix round 2026-09-20 (spec review A6/S1): the seed script wrote
+      // accept_by_at from a hardcoded 120 minutes — a fifth inline duration,
+      // shipped by the very commit banning them. It now goes through the
+      // single source like every live writer.
+      ['scripts/seed_demo_doctor.js', /require\(['"]\.\.\/src\/acceptance_window['"]\)/],
     ];
     for (const [rel, re] of writers) {
       if (!re.test(stripComments(read(rel)))) return rel + ' no longer imports acceptance_window';
+    }
+    const seed = stripComments(read('scripts/seed_demo_doctor.js'));
+    if (!/acceptanceDeadlineIso\(acceptanceMinutesForOrder\(/.test(seed)) {
+      return 'the seed script no longer derives accept_by_at from acceptance_window';
+    }
+    if (/\b120\s*\*\s*60\s*\*\s*1000\b/.test(seed)) {
+      return 'the seed script still carries an inline acceptance duration';
     }
     return null;
   });
@@ -94,15 +106,30 @@ module.exports = (async function run() {
     return null;
   });
 
-  check('(2) the superadmin reassign routes through caseLifecycle.reassignCase — no bare doctor_id UPDATE', () => {
+  check('(2) the superadmin reassign routes through the canonical lifecycle writers — no bare doctor_id UPDATE', () => {
     const src = stripComments(read('src/routes/superadmin.js'));
     const i = src.indexOf("router.post('/superadmin/orders/:id/reassign'");
     if (i < 0) return 'the superadmin reassign route is gone';
     const body = src.slice(i, src.indexOf('\nrouter.', i + 10));
     if (!/caseLifecycle\.reassignCase\(/.test(body)) return 'the reassign no longer calls caseLifecycle.reassignCase';
+    // Fix round (adversarial X1): an unassigned order is a FIRST assignment
+    // and goes through assignDoctor — reassignCase refuses a PAID status.
+    if (!/caseLifecycle\.assignDoctor\(/.test(body)) return 'the unassigned-order branch no longer calls assignDoctor';
     if (/UPDATE orders\s+SET doctor_id/.test(norm(body))) return 'a bare `UPDATE orders SET doctor_id` survives in the reassign route';
     if (!/pending_approval/.test(body)) return 'the target-doctor eligibility read lost the pending_approval predicate';
-    if (!/reassign=failed/.test(body)) return 'a reassignCase failure is no longer surfaced to the operator';
+    // Fix round (adversarial X1): ?error= is the spelling the order page's
+    // flashError banner actually renders; ?reassign= rendered nowhere.
+    if (!/error=reassign_failed/.test(body)) return 'a lifecycle failure is no longer surfaced through the flashError banner';
+    if (!/error=reassign_ineligible/.test(body)) return 'an ineligible pick is no longer surfaced through the flashError banner';
+    // Fix round (adversarial X2): the pause counter must not count operator
+    // reassigns — both belts: the admin_manual% reason prefix doctor_pause
+    // excludes, and the operatorInitiated flag reassignCase honours.
+    if (!/admin_manual_superadmin/.test(body)) return "the reassign reason no longer matches doctor_pause's admin_manual% exclusion";
+    if (!/operatorInitiated:\s*true/.test(body)) return 'operatorInitiated: true is no longer passed — an operator reassign would feed the auto-pause counter';
+    const view = read('src/views/superadmin_order_detail.ejs');
+    if (!/reassign_failed/.test(view) || !/reassign_ineligible/.test(view)) {
+      return 'superadmin_order_detail.ejs no longer renders the reassign failure codes — the operator would see nothing';
+    }
     return null;
   });
 
@@ -118,7 +145,7 @@ module.exports = (async function run() {
     // The rollback restores the sweepable shape, guarded so a concurrent
     // acceptance is never clobbered.
     const flat = norm(body);
-    if (!/SET doctor_id = NULL,\s*status = COALESCE\(\$4, 'paid'\),\s*acceptance_deadline_at = \$1/.test(flat)) {
+    if (!/SET doctor_id = NULL,\s*status = COALESCE\(\$4, 'PAID'\),\s*acceptance_deadline_at = \$1/.test(flat)) {
       return 'the rollback no longer restores doctor NULL + prior status + a due acceptance_deadline_at';
     }
     if (!/AND doctor_id = \$3 AND LOWER\(COALESCE\(status, ''\)\) = 'assigned' AND accepted_at IS NULL/.test(flat)) {
@@ -138,15 +165,16 @@ module.exports = (async function run() {
   await (async function reassignHarness() {
     const R = (p) => require.resolve(path.join(SRC, p));
     const PG = R('pg.js'); const LIFE = R('case_lifecycle.js'); const SA = R('routes/superadmin.js');
-    let realPg, realLife;
-    try { realPg = require(PG); realLife = require(LIFE); require(SA); }
+    const MSG = R('routes/messaging.js'); const NOTIFY = R('notify.js'); const AUDIT = R('audit.js');
+    let realPg, realLife, realMsg, realNotify, realAudit;
+    try { realPg = require(PG); realLife = require(LIFE); realMsg = require(MSG); realNotify = require(NOTIFY); realAudit = require(AUDIT); require(SA); }
     catch (e) { t.fail('(2b) routes/superadmin.js loads hermetically', e); return; }
-    const swapped = [PG, LIFE, SA];
+    const swapped = [PG, LIFE, MSG, NOTIFY, AUDIT, SA];
     const saved = {};
     for (const p of swapped) saved[p] = require.cache[p];
     const restore = () => { for (const p of swapped) { if (saved[p]) require.cache[p] = saved[p]; else delete require.cache[p]; } };
 
-    const rec = { reassigns: [], executes: [] };
+    const rec = { reassigns: [], assigns: [], executes: [] };
     let scn = null;
     fakeModule(PG, Object.assign({}, realPg, {
       queryOne: async (sql, params) => {
@@ -165,7 +193,26 @@ module.exports = (async function run() {
         if (scn.reassignThrows) throw new Error('simulated reassign failure');
         return { ok: true };
       },
+      assignDoctor: async (orderId, doctorId) => {
+        rec.assigns.push({ orderId, doctorId });
+        if (scn.assignThrows) throw new Error('simulated assign failure');
+        return { ok: true };
+      },
     }));
+    // Fix round (adversarial X10): the driven handler reaches
+    // ensureConversation and the notification queue after a successful
+    // (re)assign; unstubbed they attempt a REAL pg connection from this
+    // hermetic test and the unhandled rejection killed the node process
+    // after the passes had printed.
+    fakeModule(MSG, Object.assign({}, realMsg, {
+      ensureConversation: async () => null,
+    }));
+    fakeModule(NOTIFY, Object.assign({}, realNotify, {
+      queueNotification: async () => null,
+      queueMultiChannelNotification: async () => null,
+      notifyAdmins: async () => null,
+    }));
+    fakeModule(AUDIT, Object.assign({}, realAudit, { logOrderEvent: () => {} }));
 
     let handler = null;
     try {
@@ -182,38 +229,51 @@ module.exports = (async function run() {
     }
 
     async function drive(s) {
-      scn = s; rec.reassigns = []; rec.executes = [];
+      scn = s; rec.reassigns = []; rec.assigns = []; rec.executes = [];
       const req = { params: { id: s.order ? s.order.id : 'ord-a6' }, body: { doctor_id: s.pickId || 'doc-new' }, user: { id: 'sa-1', role: 'superadmin' }, originalUrl: '/superadmin/orders/x/reassign', method: 'POST', requestId: 'req-a6', query: {} };
       let redirected = null;
       const res = { locals: {}, redirect(u) { redirected = u; return res; }, status() { return res; }, send() { return res; }, render() { return res; }, json() { return res; } };
       let threw = null;
       try { await handler(req, res, (e) => { if (e) threw = e; }); } catch (e) { threw = e; }
-      return { redirected, threw, reassigns: rec.reassigns.slice(), executes: rec.executes.slice() };
+      return { redirected, threw, reassigns: rec.reassigns.slice(), assigns: rec.assigns.slice(), executes: rec.executes.slice() };
     }
     const baseOrder = (over) => Object.assign({ id: 'ord-a6', status: 'in_review', doctor_id: 'doc-old', doctor_name: 'Dr Old', service_id: 'svc-1', patient_id: 'pat-1' }, over || {});
 
     try {
-      await checkAsync('(2b) a valid reassign calls caseLifecycle.reassignCase with the order, the new doctor and the superadmin reason — no direct doctor_id UPDATE', async () => {
+      await checkAsync('(2b) a valid reassign calls caseLifecycle.reassignCase with the pause-safe reason and operatorInitiated — no direct doctor_id UPDATE', async () => {
         const r = await drive({ order: baseOrder(), newDoctor: { id: 'doc-new', name: 'Dr New' } });
         if (r.threw) return 'handler threw: ' + (r.threw.message || r.threw);
         if (r.reassigns.length !== 1) return 'reassignCase called ' + r.reassigns.length + ' times';
+        if (r.assigns.length) return 'assignDoctor ran for a case that already has a doctor';
         const c = r.reassigns[0];
         if (c.orderId !== 'ord-a6' || c.doctorId !== 'doc-new') return 'reassignCase called with ' + JSON.stringify(c);
-        if (!c.opts || c.opts.reason !== 'superadmin_manual') return 'reassign reason is ' + JSON.stringify(c.opts);
+        // Fix round (adversarial X2): admin_manual% is what doctor_pause
+        // excludes, and operatorInitiated suppresses the pause check outright.
+        if (!c.opts || c.opts.reason !== 'admin_manual_superadmin') return 'reassign reason is ' + JSON.stringify(c.opts);
+        if (!c.opts.operatorInitiated) return 'operatorInitiated not passed — the auto-pause counter would count this operator action';
         if (r.executes.some((s) => /UPDATE orders SET doctor_id/.test(s))) return 'the handler still writes doctor_id directly: ' + r.executes.join(' | ');
         return null;
       });
-      await checkAsync('(2b) an ineligible pick (query answers no row) redirects without touching reassignCase or orders', async () => {
-        const r = await drive({ order: baseOrder(), newDoctor: null });
+      await checkAsync('(2b) an UNASSIGNED (paid, pool) order is a FIRST assignment: assignDoctor, not reassignCase', async () => {
+        const r = await drive({ order: baseOrder({ doctor_id: null, doctor_name: null, status: 'paid' }), newDoctor: { id: 'doc-new', name: 'Dr New' } });
         if (r.threw) return 'handler threw: ' + (r.threw.message || r.threw);
-        if (r.reassigns.length) return 'reassignCase ran for an ineligible doctor';
-        if (r.executes.length) return 'orders written for an ineligible doctor: ' + r.executes.join(' | ');
+        if (r.assigns.length !== 1) return 'assignDoctor called ' + r.assigns.length + ' times (reassignCase would throw on a PAID status)';
+        if (r.reassigns.length) return 'reassignCase ran for an unassigned order';
+        if (r.assigns[0].orderId !== 'ord-a6' || r.assigns[0].doctorId !== 'doc-new') return 'assignDoctor called with ' + JSON.stringify(r.assigns[0]);
         return null;
       });
-      await checkAsync('(2b) a reassignCase failure surfaces as ?reassign=failed and does NOT bump the counter', async () => {
+      await checkAsync('(2b) an ineligible pick (query answers no row) redirects with ?error=reassign_ineligible without touching the lifecycle or orders', async () => {
+        const r = await drive({ order: baseOrder(), newDoctor: null });
+        if (r.threw) return 'handler threw: ' + (r.threw.message || r.threw);
+        if (r.reassigns.length || r.assigns.length) return 'the lifecycle ran for an ineligible doctor';
+        if (r.executes.length) return 'orders written for an ineligible doctor: ' + r.executes.join(' | ');
+        if (!/error=reassign_ineligible/.test(String(r.redirected))) return 'redirected to ' + r.redirected;
+        return null;
+      });
+      await checkAsync('(2b) a lifecycle failure surfaces as ?error=reassign_failed (the code the order page renders) and does NOT bump the counter', async () => {
         const r = await drive({ order: baseOrder(), newDoctor: { id: 'doc-new', name: 'Dr New' }, reassignThrows: true });
         if (r.threw) return 'handler threw: ' + (r.threw.message || r.threw);
-        if (!/reassign=failed/.test(String(r.redirected))) return 'redirected to ' + r.redirected;
+        if (!/error=reassign_failed/.test(String(r.redirected))) return 'redirected to ' + r.redirected;
         if (r.executes.some((s) => /reassigned_count/.test(s))) return 'the display counter was bumped although the reassignment failed';
         return null;
       });

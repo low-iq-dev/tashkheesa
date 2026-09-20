@@ -17,6 +17,10 @@
 require('dotenv').config();
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
+// A6 (fix round 2026-09-20): the acceptance window comes from the single
+// source, like every live writer — a hardcoded minutes value here was itself
+// the inline-duration violation A6 exists to ban.
+const { acceptanceMinutesForOrder, acceptanceDeadlineIso } = require('../src/acceptance_window');
 
 const DOCTOR_EMAIL = 'dr.ahmed@tashkheesas.com';
 const DOCTOR_PASSWORD = 'DemoDoctor123!';
@@ -337,8 +341,9 @@ async function upsertOrder(client, specialtyId, o) {
   // Mirror into doctor_assignments for handlers that read from it.
   // A6 (fix plan 2026-09-15): accept_by_at included — a NULL accept_by_at row
   // is the exact legacy shape case_sla_worker reports hourly as stranded, and
-  // this seed was still minting new ones. Demo rows get the standard 2h
-  // window from the assignment time, like every live writer.
+  // this seed was still minting new ones. The window comes from
+  // src/acceptance_window (tier-aware, from the row's own urgency_tier /
+  // sla_hours), anchored at the assignment time, like every live writer.
   await client.query(
     `INSERT INTO doctor_assignments (id, case_id, doctor_id, assigned_at, accept_by_at, accepted_at, completed_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -349,7 +354,7 @@ async function upsertOrder(client, specialtyId, o) {
        completed_at = EXCLUDED.completed_at`,
     ['da-' + ID_PREFIX + '-' + o.id.replace('order-' + ID_PREFIX + '-', ''),
      o.id, DOCTOR_ID, o.createdAt,
-     new Date(new Date(o.createdAt).getTime() + 120 * 60 * 1000).toISOString(),
+     acceptanceDeadlineIso(acceptanceMinutesForOrder(o), new Date(o.createdAt).getTime()),
      o.acceptedAt || null, o.completedAt || null]
   );
 }

@@ -663,8 +663,13 @@ function renderNotificationMessage(template, payload, lang) {
         : 'Your payment did not go through. Nothing was charged — you can try again.';
 
     case 'addon_purchased_urgency':
-      if (isAr) return `تمت إضافة خدمة الأولوية إلى ${arCase || 'حالتك'}.`;
-      return `Priority turnaround has been added to ${caseLabel ? caseLabel.toLowerCase() : 'your case'}.`;
+      // A7 fix round 2026-09-20: this event fires when the patient upgrades to
+      // URGENT (routes/payments.js gates it on urgency_tier === 'urgent'), and
+      // "Priority" is the retired spelling of VIP — the wrong tier under a
+      // dead name. The title and WhatsApp bodies for the same event already
+      // say "urgent"; now this does too.
+      if (isAr) return `تمت ترقية ${arCase || 'حالتك'} إلى المراجعة العاجلة.`;
+      return `Urgent turnaround has been added to ${caseLabel ? caseLabel.toLowerCase() : 'your case'}.`;
 
     case 'addon_purchased_video':
       if (isAr) return 'تم تأكيد استشارتك بالفيديو. سنرسل لك تفاصيل الموعد.';

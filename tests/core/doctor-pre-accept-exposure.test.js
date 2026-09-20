@@ -481,13 +481,27 @@ module.exports = (async function run() {
       return null;
     }
 
+    // Fix round 2026-09-20 (adversarial X13): the question is allowed at
+    // exactly TWO payload paths — order.clinical_question and
+    // clinicalContext.question. Blank those two and scan for EVERY secret,
+    // question included, so a third copy of the question anywhere else in the
+    // payload (a nested queue row, a routing fact) still trips the guard.
+    // Filtering by secret NAME lost that "exactly the allowed copies" property.
+    function leakedOutsideAllowedQuestionPaths(payload) {
+      const p = Object.assign({}, payload);
+      if (p.order && typeof p.order === 'object') p.order = Object.assign({}, p.order, { clinical_question: '' });
+      if (p.clinicalContext && typeof p.clinicalContext === 'object') p.clinicalContext = Object.assign({}, p.clinicalContext, { question: '' });
+      return leakedSecrets(p, SECRET);
+    }
+
     await checkAsync('(3) case page — entitled doctor (paid, unassigned, specialty match, account clear): sees the offer WITH the clinical question, and history / medications / patient name / filename / AI checks are ABSENT FROM THE PAYLOAD', async () => {
       const r = await drive(casePage, { order: order(), doctor: doctorRow() });
       const why = isOffer(r); if (why) return why;
       // Batch A (fix plan 2026-09-15): the question is policy-visible on the
-      // entitlement-checked brief. Everything else the patient owns stays out.
-      const leaked = leakedSecrets(r.res.payload, SECRET).filter((k) => k !== 'question');
-      if (leaked.length) return 'the pre-accept payload still carries: ' + leaked.join(', ');
+      // entitlement-checked brief. Everything else the patient owns stays out,
+      // and the question itself may exist ONLY at its two sanctioned paths.
+      const leaked = leakedOutsideAllowedQuestionPaths(r.res.payload);
+      if (leaked.length) return 'the pre-accept payload still carries (outside the sanctioned question paths): ' + leaked.join(', ');
       const ctx = r.res.payload.clinicalContext;
       if (!ctx || ctx.question !== SECRET.question) return 'the entitled doctor was not shown the clinical question — the brief is what they decide on';
       if ('medicalHistory' in ctx || 'medications' in ctx) {
@@ -568,11 +582,26 @@ module.exports = (async function run() {
     await checkAsync('(3) case page — assigned to this doctor but NOT yet accepted: sees the offer (with the question), not the patient', async () => {
       const r = await drive(casePage, { order: order({ doctor_id: 'doc-1', status: 'ASSIGNED' }), doctor: doctorRow() });
       const why = isOffer(r); if (why) return why;
-      const leaked = leakedSecrets(r.res.payload, SECRET).filter((k) => k !== 'question');
+      const leaked = leakedOutsideAllowedQuestionPaths(r.res.payload);
       if (leaked.length) return 'an assigned-but-unaccepted doctor was shown: ' + leaked.join(', ');
       const ctx = r.res.payload.clinicalContext;
       if (!ctx || ctx.question !== SECRET.question) return 'the assigned-but-unaccepted doctor lost the question their offer is decided on';
       if ('medicalHistory' in ctx || 'medications' in ctx) return 'history/medications keys reached an unaccepted doctor';
+      return null;
+    });
+
+    await checkAsync('(3) case page — tier and cap do NOT take back an ASSIGNED offer (fix round X3/S1): a standard-only doctor still sees a VIP case routed TO them, and a doctor whose cap this very case fills still sees it', async () => {
+      // A hand-pick or the router put the case on this doctor deliberately;
+      // the pool-only scope of conjuncts 7/8 is what keeps the offer OPENABLE
+      // — an assigned case sits inside its own load count, so an
+      // unconditional cap test denied the assignee every case that filled
+      // their last slot.
+      let r = await drive(casePage, { order: order({ doctor_id: 'doc-1', status: 'ASSIGNED', urgency_tier: 'vip' }), doctor: doctorRow({ sla_tiers_supported: ['standard'] }) });
+      let why = isOffer(r);
+      if (why) return 'standard-only doctor, VIP case ASSIGNED to them: ' + why;
+      r = await drive(casePage, { order: order({ doctor_id: 'doc-1', status: 'ASSIGNED' }), doctor: doctorRow({ max_active_cases: 2 }), loadCount: 2 });
+      why = isOffer(r);
+      if (why) return 'doctor whose cap the assigned case fills: ' + why;
       return null;
     });
 

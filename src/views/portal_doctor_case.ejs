@@ -248,6 +248,15 @@
 <% } %>
 
 <% if (_accessDenied) { %>
+  <%# Fix round 2026-09-20 (adversarial X6): when the accept POST bounced the
+      doctor here with a ?msg= refusal, the named reason (paused / awaiting
+      approval / tier / capacity / unroutable) must outrank the generic denial
+      body below — which speaks of cancelled cases and would be false. %>
+  <% if (_errMsg) { %>
+    <div class="v2-card v2-mb-4" role="alert">
+      <div class="v2-card__body" style="color:var(--v2-warn, #B45309);font-size:13.5px;line-height:1.55;"><%= _errMsg %></div>
+    </div>
+  <% } %>
   <div class="v2-card">
     <div class="v2-card__body--flush">
       <div class="v2-empty">
