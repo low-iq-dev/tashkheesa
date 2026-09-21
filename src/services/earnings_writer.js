@@ -1010,6 +1010,8 @@ async function markMonthEndPaid({ month, doctorId, actor } = {}) {
        FROM (
          SELECT de.id
            FROM doctor_earnings de
+           -- include-deleted-ok: earned money on a soft-deleted order is still
+           -- owed; the completed_at guard below is what gates the stamp.
            LEFT JOIN orders o ON o.id = de.appointment_id AND de.id LIKE '${MAIN_EARNINGS_PREFIX}%'
           WHERE de.status = 'pending'
             AND de.id NOT LIKE '${REASSIGN_EARNINGS_PREFIX}%'

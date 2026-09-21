@@ -68,14 +68,14 @@ const NOW_CAIRO = `(NOW() AT TIME ZONE '${BUSINESS_TZ}')`;
 const MONTH_START_CAIRO = `date_trunc('month', ${NOW_CAIRO})`;
 
 // The completion instant of a doctor_earnings row, as Cairo wall time.
-// Requires the join `LEFT JOIN orders o ON o.id = de.appointment_id AND
-// de.id LIKE 'earn-main-%'` (COMPLETION_JOIN below): main rows resolve to
-// their order's completed_at, everything else (video rows, in-flight pending
-// main rows) falls back to the row's own created_at. Plain `orders`, not
-// orders_active — settled money must stay countable even if the order were
-// ever soft-deleted (same reasoning as the Command /breach-cost join).
+// Requires COMPLETION_JOIN below: main rows resolve to their order's
+// completed_at, everything else (video rows, in-flight pending main rows)
+// falls back to the row's own created_at.
 const COMPLETION_CAIRO_DE =
   `(COALESCE(o.completed_at, de.created_at::timestamptz) AT TIME ZONE '${BUSINESS_TZ}')`;
+// include-deleted-ok: plain `orders`, not orders_active — earned money must
+// stay countable even if the order were ever soft-deleted (same reasoning as
+// the Command /breach-cost join).
 const COMPLETION_JOIN =
   `LEFT JOIN orders o ON o.id = de.appointment_id AND ${KIND_MAIN}`;
 

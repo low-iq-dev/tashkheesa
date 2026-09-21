@@ -871,7 +871,10 @@ module.exports = (async function run() {
     const R = (p) => require.resolve(path.join(SRC, p));
     const PG = R('pg.js'); const SQLU = R('sql-utils.js'); const LOGGER = R('logger.js');
     const AN = R('routes/analytics.js');
-    const swapped = [PG, SQLU, LOGGER, AN];
+    // BATCH B: analytics reads its money through services/earnings_reader,
+    // which binds src/pg.js at load — evict it too so it rebinds to the fake.
+    const READER = R('services/earnings_reader.js');
+    const swapped = [PG, SQLU, LOGGER, AN, READER];
     let realPg, realSqlU, realLogger;
     try { realPg = require(PG); realSqlU = require(SQLU); realLogger = require(LOGGER); }
     catch (e) { t.fail('(8) the analytics module deps load', e); return; }
@@ -884,6 +887,11 @@ module.exports = (async function run() {
     const answerAll = async (sql) => {
       const s = norm(sql);
       if (/as patient_name/i.test(s)) return scn.rows;
+      // The per-case fee read (earnings_reader.getCaseFeesForOrders): answer
+      // the fee the old inline JOIN used to project onto the row.
+      if (/as order_id/i.test(s) && /from doctor_earnings/i.test(s)) {
+        return (scn.rows || []).map((r) => ({ order_id: r.id, earned_amount: 120 }));
+      }
       return [];
     };
     fakeModule(PG, Object.assign({}, realPg, { queryOne: answerOne, queryAll: answerAll, execute: async () => ({ rowCount: 0 }) }));
@@ -894,6 +902,7 @@ module.exports = (async function run() {
       let handler = null;
       try {
         delete require.cache[AN];
+        delete require.cache[READER];
         const router = require(AN);
         const layer = router.stack.find((l) => l.route && l.route.path === '/portal/doctor/analytics' && l.route.methods.get);
         if (!layer) throw new Error('GET /portal/doctor/analytics not on router.stack');

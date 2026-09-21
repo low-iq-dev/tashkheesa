@@ -3,14 +3,21 @@
 // A10 (AUDIT 2026-09-09) — the doctor dashboard "Earnings this month" tile must
 // agree with the earnings page. It used to SUM orders.doctor_fee for completed
 // cases: the full fee, ignoring the uplift share, add-ons and clawbacks, so it
-// showed money the doctor will not be paid (up to 5x reality). It now reads
-// earned_amount from the SAME doctor_earnings (+ addon_earnings) source the
-// /portal/doctor/earnings page uses, with the same Approved / Not-yet-approved
-// split — and never the words "paid out" / "transferred" (doctor_earnings.status
-// flips to 'paid' at report submission, not when money moves).
+// showed money the doctor will not be paid (up to 5x reality).
+//
+// BATCH B (B1, 2026-09-21): the tile now reads through
+// services/earnings_reader.getDoctorMonthSummary — the ONE aggregation module
+// every surface uses — so the assertions here are (a) the tile calls the
+// reader, and (b) the reader itself carries the ledger discipline (both
+// ledgers, earned_amount, the paid/pending split, reassigned excluded from
+// money). 'Not yet approved' no longer includes 'reassigned': a reassigned
+// case earns zero by policy, and summing it showed the doctor money the
+// platform would never pay. The view wording rules are unchanged — note that
+// under Batch B 'paid' DOES now mean the month-end payout ran, but the tile
+// keeps the Approved wording (payout timing lives on the earnings page).
 //
 // Source-grep. Verified NEGATIVELY: restoring the SUM(doctor_fee) tile query
-// fails the "reads doctor_earnings" assertion.
+// fails the "reads through the shared earnings reader" assertion.
 
 'use strict';
 
@@ -39,23 +46,37 @@ const doc = code('src/routes/doctor.js');
 const mStart = doc.indexOf('var monthMetrics =');
 const mBody = mStart >= 0 ? doc.slice(mStart, mStart + 2200) : '';
 
-check('the tile earnings come from doctor_earnings + addon_earnings', () => {
+check('the tile earnings come from the shared earnings reader', () => {
   if (!mBody) return 'month-metrics block not found';
-  if (!/FROM doctor_earnings/.test(mBody)) return 'tile does not read doctor_earnings';
-  if (!/FROM addon_earnings/.test(mBody)) return 'tile does not read addon_earnings';
-  if (!/earned_amount/.test(mBody)) return 'tile does not sum earned_amount';
+  if (!/earningsReader\.getDoctorMonthSummary/.test(mBody)) {
+    return 'tile does not call earningsReader.getDoctorMonthSummary — it must not keep its own SQL';
+  }
+  if (!/earningsApproved/.test(mBody) || !/earningsNotYetApproved/.test(mBody)) return 'the split is not surfaced to the view';
 });
 
 check('the tile no longer sums orders.doctor_fee as the earnings figure', () => {
   if (/SUM\(doctor_fee\)[\s\S]{0,80}AS earnings_this_month/.test(mBody)) {
     return 'tile still sums orders.doctor_fee (the full-fee bug)';
   }
+  if (/FROM doctor_earnings|FROM addon_earnings/.test(mBody)) {
+    return 'tile grew its own ledger SQL back — every aggregation belongs in services/earnings_reader';
+  }
 });
 
-check('the tile splits Approved vs Not-yet-approved from the ledger status', () => {
-  if (!/status = 'paid'/.test(mBody)) return 'no Approved (paid) split';
-  if (!/status IN \('pending', 'reassigned'\)/.test(mBody)) return 'no Not-yet-approved (pending) split';
-  if (!/earningsApproved/.test(mBody) || !/earningsNotYetApproved/.test(mBody)) return 'the split is not surfaced to the view';
+// The reader is what carries the discipline the tile used to be asserted on.
+const reader = code('src/services/earnings_reader.js');
+check('the reader month summary reads both ledgers with the paid/pending split', () => {
+  const rStart = reader.indexOf('async function getDoctorMonthSummary');
+  const rBody = rStart >= 0 ? reader.slice(rStart, rStart + 2600) : '';
+  if (!rBody) return 'getDoctorMonthSummary not found in earnings_reader';
+  if (!/FROM doctor_earnings/.test(rBody)) return 'month summary does not read doctor_earnings';
+  if (!/FROM addon_earnings/.test(rBody)) return 'month summary does not read addon_earnings';
+  if (!/earned_amount/.test(rBody)) return 'month summary does not sum earned_amount';
+  if (!/status = 'paid'/.test(rBody)) return 'no Approved (paid) split';
+  if (!/status = 'pending'/.test(rBody)) return 'no Not-yet-approved (pending) split';
+  if (/status IN \('pending', 'reassigned'\)/.test(rBody)) {
+    return "the month summary counts 'reassigned' as money again — a reassigned case earns zero";
+  }
 });
 
 // The view: the tile's copy matches the earnings page and never claims payout.

@@ -30,6 +30,18 @@ const jwt = require('jsonwebtoken');
 const apiResponse = require('../../src/middleware/apiResponse');
 const makeAdminRouter = require('../../src/routes/api/admin');
 
+// BATCH B: /payouts and /breach-cost's clawback figure read through
+// services/earnings_reader (the one aggregation module), not through the
+// injected must* helpers. The routes resolve its functions by property lookup
+// at call time, so stubbing the module's exports is the same seam the helper
+// injection provides for everything else. Originals restored per section.
+const earningsReader = require('../../src/services/earnings_reader');
+const READER_FNS = ['getOwedByDoctor', 'getGlobalOwedTotals', 'getClawbackSummaryByPolicy'];
+const readerOriginals = {};
+READER_FNS.forEach((k) => { readerOriginals[k] = earningsReader[k]; });
+function stubReader(impl) { READER_FNS.forEach((k) => { earningsReader[k] = impl(k); }); }
+function restoreReader() { READER_FNS.forEach((k) => { earningsReader[k] = readerOriginals[k]; }); }
+
 const t = global._testRunner || {
   pass: function (n) { console.log('  \x1b[32m✅\x1b[0m ' + n); },
   fail: function (n, e) { console.error('  \x1b[31m❌\x1b[0m ' + n + ': ' + ((e && e.message) || e)); process.exitCode = 1; },
@@ -111,6 +123,7 @@ module.exports = (async function () {
       mustGet: async () => { throw statementTimeout(); },
       mustAll: async () => { throw statementTimeout(); },
     });
+    stubReader(() => async () => { throw statementTimeout(); });
     try {
       for (const [route, code] of CASES) {
         const name = 'GET ' + route + ' → 500 ' + code + ' when its query times out';
@@ -136,7 +149,7 @@ module.exports = (async function () {
         }
         pass(name);
       }
-    } finally { app.server.close(); }
+    } finally { app.server.close(); restoreReader(); }
   }
 
   // ── 2. The soft helpers are NOT the ones these endpoints use ─────────────
@@ -150,6 +163,18 @@ module.exports = (async function () {
       mustGet: async () => ({}),
       mustAll: async () => [],
     });
+    // Happy-path reader stubs, shaped like the real returns.
+    stubReader((k) => async () => {
+      if (k === 'getOwedByDoctor') return [];
+      if (k === 'getGlobalOwedTotals') {
+        return {
+          owedCasesEgp: 0, owedAddonsEgp: 0, owedTotalEgp: 0, unpaidCases: 0,
+          doctorsOwed: 0, oldestUnpaidAt: null, paidThisMonthEgp: 0,
+          paidThisMonthCases: 0, monthStartCairo: '2026-09-01T00:00:00'
+        };
+      }
+      return [];
+    });
     try {
       for (const [route] of CASES) {
         // /cases/:id legitimately reads files / AI / timeline through the soft
@@ -161,7 +186,7 @@ module.exports = (async function () {
         else fail(name, 'expected 200 with strict reads stubbed out, got ' + r.status +
           ' — the endpoint still routes a query through safeGet/safeAll.');
       }
-    } finally { app.server.close(); }
+    } finally { app.server.close(); restoreReader(); }
   }
 
   // ── 3. A soft-read failure still degrades gracefully where that is right ──

@@ -6,12 +6,14 @@
 //   * portal_doctor_earnings.ejs labelled a tile "Paid out" / "تم التحويل"
 //     (literally "transferred"), showed a "Paid" pill per month, and footnoted
 //     that pending amounts "move to Paid on the next monthly payout".
-//     doctor_earnings.status flips to 'paid' inside
-//     earnings_writer.markCaseEarningsPaid, which runs when the DOCTOR SUBMITS
-//     THE REPORT. No transfer happens, and the platform keeps no settlement
-//     ledger — src/routes/api/admin.js says so in as many words. The founder's
-//     decision was to relabel, not to build a ledger; the arithmetic is
-//     audited and untouched.
+//     doctor_earnings.status flipped to 'paid' when the DOCTOR SUBMITTED THE
+//     REPORT (the old markCaseEarningsPaid), so no transfer had happened and
+//     the labels were relabelled to Approved / Not yet approved.
+//     BATCH B (2026-09-21) note: 'paid' is now stamped by the month-end
+//     payout run (earnings_writer.markMonthEndPaid), so a 'paid' row DOES
+//     mean money moved. The Approved wording is kept — it understates, which
+//     is the safe direction — and these bans stand so no copy claims a
+//     transfer that the operator has not run.
 //
 //   * /portal/doctor/analytics summed orders.price — the PATIENT's price — and
 //     doctor_analytics.ejs rendered it as "My revenue" / "إيراداتي", a monthly
@@ -96,11 +98,21 @@ try {
                     'and stripPricingFields() exists specifically to keep it away from ' +
                     'doctors. Read doctor_earnings instead.');
   }
-  if (!/FROM doctor_earnings/.test(handler)) {
-    throw new Error("the doctor's own figures must come from doctor_earnings, the same " +
-                    'ledger the Earnings page reads, so the two screens cannot disagree');
+  // BATCH B (B1): the handler no longer carries its own ledger SQL — it reads
+  // through services/earnings_reader, the same module the Earnings page,
+  // dashboard tile and Command finance read, so the screens cannot disagree.
+  if (!/earningsReader\.getDoctorTotalEarned/.test(handler)
+      || !/earningsReader\.getDoctorMonthlySeries/.test(handler)
+      || !/earningsReader\.getCaseFeesForOrders/.test(handler)) {
+    throw new Error("the doctor's own figures must come from the shared earnings reader " +
+                    '(services/earnings_reader), the same module the Earnings page reads, ' +
+                    'so the two screens cannot disagree');
   }
-  t.pass('/portal/doctor/analytics sums doctor_earnings, never orders.price');
+  if (/FROM doctor_earnings/.test(handler)) {
+    throw new Error('the analytics handler grew its own doctor_earnings SQL back — every ' +
+                    'aggregation belongs in services/earnings_reader');
+  }
+  t.pass('/portal/doctor/analytics reads the shared earnings reader, never orders.price');
 } catch (e) { t.fail('doctor analytics reads the doctor ledger', e); }
 
 // ── 3. …and the view does not label anything as the doctor's revenue ────────
