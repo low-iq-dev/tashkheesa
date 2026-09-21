@@ -15,9 +15,9 @@ OWNER: this session
 - B5: policy doc — §1.A lifecycle added, §4/§4.A sla_breach contradiction closed uplift-only — DONE (commit c555daefa)
 - VERIFY: all five brief verifications PASSED on a prod-faithful scratch Postgres (docs/reviews/batch-b-2026-09-21/VERIFICATION_OUTPUT.txt; commit df7143ecd): one-number-five-places, Cairo boundary (23:30/00:30 pair splits on statement+series+payout), counter equivalence incl. admin_manual, sequential+concurrent idempotency, trigger-forced atomicity rollback + clean retry; migration 109 proven idempotent w/ correct backfill
 - VERIFY: final no-DB suite 1928 passed / 6 failed — failing set IDENTICAL to baseline; node:test ✖ count 214 = baseline
-- REVIEW: spec review — IN PROGRESS
-- REVIEW: independent adversarial review — IN PROGRESS
-- REVIEW: fix round — PENDING
-- REPORT: final report to Ziad — PENDING
+- REVIEW: spec review — DONE (SPEC_REVIEW.md): no blockers; F1 MAJOR + F2 MINOR fixed; F3-F8 NOTEs dispositioned
+- REVIEW: independent adversarial review — DONE (ADVERSARIAL_REVIEW.md): no blockers; 2 MAJOR + 5 MINOR all FIXED; 16 NOTEs dispositioned
+- REVIEW: fix round — DONE (FIX_ROUND.md, commit 426e78caa); verification §6 proves each fix; suite failing set identical to baseline
+- REPORT: final report — DONE (docs/reviews/batch-b-2026-09-21/REPORT.md)
 
 NOT pushed, NOT merged. Ziad runs the B3 COMMIT and approves the push.
