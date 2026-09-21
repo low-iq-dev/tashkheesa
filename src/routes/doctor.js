@@ -5193,18 +5193,29 @@ async function countAssignedPendingCases(doctorId, q = '') {
 }
 
 // A2-2 (X5): the doctor's raw sla_tiers_supported, read LIVE for the pool
-// queries below. null on a read error or a missing row — which the tier
-// predicate then treats exactly as auto_assign treats a NULL column:
-// standard-only. Failing closed to Standard on a transient read error is the
-// same direction the accept handler fails (account_check_failed): the pool
-// under-shows rather than inviting a doctor to a case the gates will refuse.
+// queries below.
+//
+// Two different absences, two different answers (fix round 2026-09-21,
+// adversarial X1):
+//   * the row was READ and the COLUMN is NULL → return that NULL, which the
+//     tier predicate reads exactly as auto_assign does: standard-only. That is
+//     a semantic about the doctor's row, and it belongs to them.
+//   * the row could NOT be read (query error, or no row for the id) → return
+//     [], which allowedOrderTierValues maps to an EMPTY allowed set: the pool
+//     under-shows to nothing for this request. Falling back to standard-only
+//     here would re-open the invite-then-refuse defect for a doctor whose
+//     switches deliberately EXCLUDE Standard (vip/urgent-only): the pool would
+//     list standard cases Guardrail 3d then bounces. An unreadable row is not
+//     a row that supports Standard; the same fail-closed direction as the
+//     accept handler's account_check_failed. Transient by nature — the next
+//     request reads the row again.
 async function readDoctorSlaTiersRaw(doctorId) {
-  if (!doctorId) return null;
+  if (!doctorId) return [];
   try {
     const row = await queryOne('SELECT sla_tiers_supported FROM users WHERE id = $1', [doctorId]);
-    return row ? row.sla_tiers_supported : null;
+    return row ? row.sla_tiers_supported : [];
   } catch (_) {
-    return null;
+    return [];
   }
 }
 

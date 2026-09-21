@@ -123,9 +123,12 @@ check('A2-5 (A6/S3): reassigning a completed/cancelled/refunded case stays refus
   assert.ok(cl.includes('Cannot reassign case in status'),
     'reassignCase no longer names the refused status');
 
-  // the operator-facing surface: the throw lands as ?error=reassign_failed …
+  // the operator-facing surface: the throw lands as ?error=reassign_failed.
+  // Pinned as the redirect's template literal (fix round S6) — the bare
+  // ?error= string also appears in an explanatory comment, which must not be
+  // able to satisfy this pin on its own.
   const sa = read('src/routes/superadmin.js');
-  assert.ok(sa.includes('?error=reassign_failed'),
+  assert.ok(sa.includes('res.redirect(`/superadmin/orders/${orderId}?error=reassign_failed`)'),
     'the superadmin reassign catch no longer surfaces the refusal');
   // … and the banner names the refused states rather than reading as a dead click
   const view = read('src/views/superadmin_order_detail.ejs');

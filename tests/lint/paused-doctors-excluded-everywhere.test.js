@@ -34,20 +34,30 @@ function check(name, fn) {
   catch (err) { t.fail(name, err); }
 }
 
+// A2 fix round (2026-09-21, S5/X7): slice one top-level function out of a file
+// by brace counting, so a site-scoped check cannot be satisfied by an import
+// line or another function elsewhere in a 7000-line file.
+function sliceFunction(src, name) {
+  const start = src.indexOf('function ' + name + '(');
+  if (start === -1) return '';
+  let i = src.indexOf('{', start);
+  let depth = 0;
+  for (; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}') { depth--; if (depth === 0) return src.slice(start, i + 1); }
+  }
+  return '';
+}
+
 // Accept any of the three shapes a site legitimately uses to exclude a paused
 // doctor: the SQL clause (aliased or bare), delegation to the shared clause, or
 // a JS-side skip.
-function excludesPaused(src, { allowClause = true, allowShared = true, allowJs = false, allowAutoAssign = false } = {}) {
+function excludesPaused(src, { allowClause = true, allowShared = true, allowJs = false } = {}) {
   // Any prefix inside COALESCE before is_paused: `u.`, bare, or a `${a}.`
   // template-literal alias (the shared clause builds the SQL as a string).
   if (allowClause && /COALESCE\([^)]*is_paused,\s*false\)\s*=\s*false/.test(src)) return true;
   if (allowShared && /eligibleDoctorClause\s*\(/.test(src)) return true;
   if (allowJs && /is_paused/.test(src) && /continue|return|skip/.test(src)) return true;
-  // A2-3 (2026-09-21): a site may delegate candidate selection whole to
-  // auto_assign.eligibleDoctorsFor, whose query carries the is_paused
-  // predicate — pinned at the 'auto-assign' site below, so the invariant
-  // still fails there if the predicate is ever dropped.
-  if (allowAutoAssign && /eligibleDoctorsFor\s*\(/.test(src)) return true;
   return false;
 }
 
@@ -58,8 +68,8 @@ const SITES = [
   ['shared eligibility clause', 'src/services/doctor_eligibility.js', { allowShared: false }],
   ['SLA-breach alternate picker', 'src/case_sla_worker.js', {}],
   // A2-3: findNextAvailableDoctor now delegates to auto_assign's candidate
-  // query rather than carrying its own is_paused clause.
-  ['capacity-overflow next doctor', 'src/routes/doctor.js', { allowClause: false, allowShared: false, allowAutoAssign: true }],
+  // query rather than carrying its own is_paused clause. Checked function-
+  // scoped below (not here) so the bare import line cannot satisfy it.
   ['bulk assign', 'src/services/admin_bulk_assign.js', { allowClause: false, allowShared: false, allowJs: true }],
 ];
 
@@ -68,6 +78,25 @@ for (const [label, rel, opts] of SITES) {
     if (!excludesPaused(code(rel), opts)) return rel + ' has no is_paused exclusion';
   });
 }
+
+// A2-3 fix round (2026-09-21, S5/X7) — the two halves of the picker's
+// delegation, each FUNCTION-scoped:
+//   1. findNextAvailableDoctor actually CALLS eligibleDoctorsFor (an import
+//      line or a mention elsewhere in doctor.js does not count);
+//   2. eligibleDoctorsFor's own query carries the is_paused predicate
+//      (auto_assign.js has a second is_paused occurrence in the manual-queue
+//      COUNT, so a file-level grep would stay green if the candidate query
+//      dropped it).
+check('capacity-overflow next doctor excludes paused doctors (via eligibleDoctorsFor, function-scoped)', () => {
+  const fn = sliceFunction(code('src/routes/doctor.js'), 'findNextAvailableDoctor');
+  if (!fn) return 'findNextAvailableDoctor not found in src/routes/doctor.js';
+  if (!/eligibleDoctorsFor\s*\(/.test(fn)) return 'findNextAvailableDoctor no longer delegates to eligibleDoctorsFor';
+});
+check('eligibleDoctorsFor itself still carries the is_paused predicate (function-scoped)', () => {
+  const fn = sliceFunction(code('src/auto_assign.js'), 'eligibleDoctorsFor');
+  if (!fn) return 'eligibleDoctorsFor not found in src/auto_assign.js';
+  if (!/COALESCE\([^)]*is_paused,\s*false\)\s*=\s*false/.test(fn)) return 'eligibleDoctorsFor dropped is_paused';
+});
 
 // The shared clause itself must keep emitting the predicate — it is the single
 // source of truth for the sites that delegate to it.

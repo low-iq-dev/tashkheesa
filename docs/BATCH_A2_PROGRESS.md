@@ -13,5 +13,6 @@ payment-money-paths-wiring ×3, theme9-video-flag-enforcement.
 - A2-4 (A4/S5): IMPLEMENTED — slot_notes added to WITHHELD_UNTIL_ACCEPT; new redactWithheldUntilAccept applied to the case page's pendingVideoAppt, the video appointment page (unaccepted doctor), and the doctor appointments board. Side-path sweep findings in the batch report.
 - A2-5 (A6/S3): VERIFIED — reassignCase's status allowlist refuses completed/cancelled/refunded; superadmin catch surfaces ?error=reassign_failed; banner names the terminal-state refusal. Pinned in tests/lint/batch-a2-routing-pins.test.js.
 
-Tests added: tests/core/a2-eligibility-parity.test.js (6), tests/lint/batch-a2-routing-pins.test.js (6). Full-suite delta pending.
-Reviews: pending (spec + adversarial + fix round).
+Tests added: tests/core/a2-eligibility-parity.test.js (6), tests/lint/batch-a2-routing-pins.test.js (6); paused-doctors lint split into function-scoped halves (+1). Suite after: **1927 / 6 / 52** — same 6 baseline failures, 0 new.
+Reviews: DONE — docs/reviews/batch-a2-2026-09-21/ (SPEC-REVIEW: all items MEET SPEC; ADVERSARIAL: SHIP, no blockers; FIX-ROUND: X1/S5/X7/S6/S3/S7 fixed, rest dispositioned; REPORT.md = the batch report, incl. the uncapped-urgent and zeroed-cap questions for Ziad and the latent X2 side path, ticketed).
+STATUS: complete, awaiting Ziad. Nothing pushed, nothing merged.

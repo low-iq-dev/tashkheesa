@@ -71,6 +71,17 @@ const ORDER_TIER_PAIRS = [
 // JS mirror of orderTierSql(): first non-'' of urgency_tier, tier, 'standard'
 // (SQL NULLIF(x,'') = JS's `||` on the empty string), then TRIM+LOWER, and a
 // whitespace-only pick reads 'standard'.
+//
+// Known, accepted divergence (fix round 2026-09-21, spec S3): Postgres TRIM
+// strips SPACES only, while the JS gates' .trim() strips all whitespace — so
+// a tab-padded tier like '\tvip' would hide from the pool (SQL keeps the tab,
+// no match) while the accept gate would still take it. Under-show, the safe
+// direction; no writer produces tab-padded tiers (the historical corruption
+// determineTier documents was a trailing SPACE, which both sides normalise
+// identically — the ' ' case in the matrix below covers it). This mirror is
+// therefore deliberately .trim()-based and the matrix deliberately carries no
+// tab inputs; if a tab-producing writer ever appears, fix orderTierSql to
+// BTRIM whitespace, not this comment.
 function sqlOrderTier(urgencyTier, tier) {
   const pick = (urgencyTier !== null && urgencyTier !== undefined && urgencyTier !== '')
     ? urgencyTier
