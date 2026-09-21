@@ -277,7 +277,10 @@ router.post('/intake', async (req, res) => {
     // — a failed email must NEVER cause the API to report failure for a case
     // that was successfully created.
     try {
-      await emailService.notifyCaseReceived({ email: email, name: full_name }, reference_id);
+      // slaCfg.sla_hours must ride along: without the third argument the
+      // email hardcodes "within 48 hours" — wrong for an 18h oncology lead,
+      // and its 4/18/48 band is what names the tier (VIP/URGENT) correctly.
+      await emailService.notifyCaseReceived({ email: email, name: full_name }, reference_id, slaCfg.sla_hours);
     } catch (err) {
       console.error('[EMAIL] notifyCaseReceived failed:', err && err.message);
     }
@@ -285,7 +288,9 @@ router.post('/intake', async (req, res) => {
     return res.status(200).json({
       success: true,
       reference_id,
-      message: 'Case received. You will be contacted within 24 hours.',
+      // No committed hour on a lead form (Ziad, 2026-09-21) — the real
+      // window is the email's job, fed from slaCfg above.
+      message: 'Case received. Our team will contact you shortly.',
     });
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch (_) {}

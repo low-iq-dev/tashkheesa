@@ -79,3 +79,48 @@ strings; the non-oncology branch keeps writing 'standard_72h'.
 Suite: 1908 → 1911 passed, the same 6 pre-existing failures byte-identical,
 52 skipped (no-DB run; counts confirmed in the batch report). No prod DML —
 the fix changes what NEW intakes write.
+
+---
+
+# Connected copy fixes — the intake's two remaining hour claims (2026-09-21)
+
+Same ruling family, same session, second commit.
+
+1. **The response message committed to an hour on a lead form.**
+   `message: 'Case received. You will be contacted within 24 hours.'` →
+   `'Case received. Our team will contact you shortly.'` — Ziad: no committed
+   hour on a lead form, no figure at all. Repo-wide grep: the old string had
+   no other site; nothing else renders this copy.
+
+2. **The email fell back to a hardcoded window.** The intake called
+   `emailService.notifyCaseReceived(patient, reference_id)` without the third
+   argument, so the email said "within 48 hours" for every lead — wrong for
+   an oncology lead now on an 18h SLA and inconsistent with the on-screen
+   message. Now passes `slaCfg.sla_hours`; the function's existing timeframe
+   line states the real window and its urgencyNote band (<=4 URGENT, <=18
+   VIP, else none — the A7 fix round's tightened band) names the tier.
+
+**The Arabic side, checked as asked:** `notifyCaseReceived` is one of the
+EN-only inline lifecycle helpers — emailService.js contains zero Arabic
+characters, and this email has **no Arabic variant to share the fallback**.
+That is consistent with the intake path itself (it hardcodes
+`language: 'en'` on the order and cases rows). The bilingual `.hbs` sibling
+(`case-submitted.hbs`, en + ar, sent by notification_worker for portal-
+created orders) prints a dynamic `{{slaHours}} hours` / `{{slaHours}} ساعة`
+— parameterised, no hardcoded figure, nothing to fix there. Recorded gap for
+Ziad (not built now, it is new scope): an Arabic-speaking website lead gets
+an English email.
+
+**Guards (red first):** checks (3)–(5) in
+tests/core/cases-intake-oncology-vip.test.js. (3) the response message
+carries no figure (ASCII or Arabic-Indic digits) — failed red on "within 24
+hours"; (4) the real handler passes slaHours 18/48 per test type and the
+email reference matches the response reference — failed red on
+slaHours=undefined; (5) the REAL notifyCaseReceived rendered through the
+injected transporter (guard-test pattern: fresh require, mocked MX, fake
+pool): 18h → "within 18 hours" + "marked VIP", 48h → its window with no
+priority band, and the no-arg call pinned at the 48h fallback — the hazard
+(4) exists to avoid. (5) passed before the fix by design: the function is
+unchanged; the caller was the bug.
+
+Suite after: 1914 passed / the same 6 / 52 skipped.
