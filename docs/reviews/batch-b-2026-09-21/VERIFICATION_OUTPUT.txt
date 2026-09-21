@@ -1,0 +1,70 @@
+[development] [pg] pool ready: max=8 connect=15000ms idle=30000ms statement_timeout=30000ms (requested)
+[development] [pg] startup options: NOT sent (default since AUDIT-STARTUP-OPTIONS-2 — Supavisor uses the `options` startup parameter for its own tenant routing). timezone and statement_timeout must come from `ALTER ROLE ... SET ...` on the app role; the per-connection SETs below are a fallback, NOT a guarantee on a transaction-mode pooler. See verifyPoolSettings output.
+[development] [pg] env: mode=unknown DATABASE_URL_DIRECT=not set
+══ Batch B verification — 2026-09-21T18:06:31.305Z ══
+
+SEED (the brief's mix, all completing in the CURRENT Cairo month unless stated):
+  a) standard completed: fee 600, uplift 0            → earns 600
+  b) VIP completed: fee 600, uplift 900 (30% share)   → earns 870
+  c) VIP breached, still delivered: uplift reversed   → earns 600 (base stands)
+  d) reassigned away: fee 500                         → earns 0 (+1 pause-counter event)
+  e) video add-on: 1000 EGP @ 85%                     → earns 850 (addon ledger)
+  f) boundary pair: 100 EGP @ 23:30 Cairo Aug 31, 200 EGP @ 00:30 Cairo Sep 1
+     (same UTC day — 20:30Z and 21:30Z on Aug 31)
+
+── 1. One number, four places ──
+   hand-computed: current-Cairo-month not-yet-approved = 600+870+600+850+200 = 3120
+   hand-computed: owed overall (any month)             = 3120+100            = 3220
+   dashboard tile   (getDoctorMonthSummary):  notYetApproved = 3120, approved = 0
+   earnings page    (getDoctorLifetimeTotals): pending = 3220, paid = 0, reassigned = 0
+   Command finance  (getOwedByDoctor):        owed = 3220 (cases 2370 + addons 850)
+   web admin tile   (getGlobalOwedTotals):    owedTotal = 3220
+   doctor analytics (getDoctorTotalEarned):   total = 3220
+   ✓ five surfaces, one number — and the reassigned case is 0 on every one of them
+
+── 2. The Cairo month boundary ──
+   statement: 2026-08 main total = 100 | 2026-09 main total = 2270
+   analytics series: 2026-08 = 100 EGP / 1 case; 2026-09 = 2270 EGP
+   markMonthEndPaid(2026-08): stamped 1 row(s), 100 EGP
+   ✓ 23:30 Cairo vs 00:30 Cairo fall in different months on the statement, the series and the payout run
+
+── 4. Idempotency: the same report submitted twice ──
+   report_exports rows: 1 | order_completed events: 1 | earnings rows: 1 (status pending) | patient notifications: 1 | PDF renders: 1
+   ✓ one report, one status change, one earnings row, one patient notification
+   concurrent race: winners = 1 | report_exports = 1 | notifications = 1
+   ✓ a true concurrent double-submit still yields exactly one of everything
+
+── 5. Atomicity: the status change itself fails ──
+   status: in_review | report_exports: 0 | completion events: 0 | assignment closed: no | earnings: pending/400 (was pending/400) | notifications sent: 0
+   ✓ the transaction rolled back whole: nothing landed except the draft text, and the case is retryable
+   ✓ the retry after the failure completes cleanly
+
+══ ALL BATCH B VERIFICATIONS PASSED ══
+
+── tests/services/earnings_writer.test.js (same scratch DB) ──
+  [32m✅[0m writePendingForCase: VIP example B → pending row with baseShare=600, upliftShare=270
+  [32m✅[0m writePendingForCase: idempotent (second call no-op, single row remains)
+  [32m✅[0m settleCaseEarningsOnCompletion: amount settled, row stays pending, no paid_at
+  [32m✅[0m settleCaseEarningsOnCompletion: legacy order → INSERT directly with status=pending
+  [32m✅[0m recomputeOnBreach: §5 example D — VIP breach drops earned_amount 870 → 600
+  [32m✅[0m recomputeOnBreach: no-op + skip signal when no earnings row exists
+  [32m✅[0m writePendingForCase: Urgent example C → pending row with baseShare=600, upliftShare=540
+  [32m✅[0m recomputeOnBreach: Urgent breach drops earned_amount 1140 → 600
+  [32m✅[0m markMonthEndPaid: stamps completed Cairo-month rows only, idempotent, validated
+  [32m✅[0m settleCaseEarningsOnCompletion: a paid-out row is settled cash — never demoted or recomputed
+  [32m✅[0m recomputeOnRefund sla_breach: base fee stands — decisions table 2026-09-15
+
+── tests/finance/reassignment-earnings.test.js (same scratch DB) ──
+  [32m✅[0m happy path: flip-to-zero + sla event, and no token row
+  [32m✅[0m idempotency: second call returns existing state, no duplicate event
+  [32m✅[0m race guard: settled money not clawed back, no event written
+  [32m✅[0m no main row: skipped cleanly, no spurious writes
+  [32m✅[0m atomicity: helper uses withTransaction + FOR UPDATE + in-txn event (source-verified)
+  [32m✅[0m auto-pause: 1 breach < threshold(3) → no pause
+  [32m✅[0m auto-pause: operator-initiated (admin_manual) reassignment never counts
+  [32m✅[0m equivalence: token-row query and doctor_sla_events count the same N (incl. admin_manual exclusion)
+  [32m✅[0m auto-pause: 3 events → users.is_paused=true + audit log written
+  [32m✅[0m auto-pause: already-paused doctor short-circuits
+  [32m✅[0m SLA worker: findAlternateDoctor excludes is_paused=true
+  [32m✅[0m reassignCase: earnings + audit + notify + pause all wired
+  [32m✅[0m templates: EN + AR say a reassigned case carries no fee, with no partial-pay promise
