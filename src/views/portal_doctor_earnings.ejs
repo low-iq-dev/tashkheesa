@@ -64,9 +64,12 @@
         </div>
         <% if (_hasReassigned) { %>
           <%# P1-DOC-2 follow-up: math-integrity disclosure — only when reassigned > 0
-              so the page stays calm for the 99% case where this is irrelevant. %>
+              so the page stays calm for the 99% case where this is irrelevant.
+              BATCH B (2026-09-21): a reassigned case earns ZERO, so this can
+              only render on a legacy adjustment — the copy no longer calls it
+              "partial pay". %>
           <div data-tile="lifetime-reassigned-note" style="margin-block-start:6px;font-size:11px;color:var(--muted, #6b7280);line-height:1.4;">
-            <%= tt('Includes reassigned partial pay', 'Includes reassigned partial pay', 'تشمل أرباحاً معاد تعيينها (دفع جزئي)') %>
+            <%= tt('Includes a legacy reassigned-case adjustment', 'Includes a legacy reassigned-case adjustment', 'تشمل تسوية قديمة لحالة مُعاد تعيينها') %>
           </div>
         <% } %>
       </div>
@@ -75,43 +78,45 @@
       <div class="v2-card__body" style="padding:16px;">
         <div class="v2-stat-tile__label" style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted, #6b7280);font-weight:700;">
           <%# AUDIT-2026-09-06 (D3): this tile said "Paid out" / "تم التحويل"
-              — literally "transferred". It is not. doctor_earnings.status
-              flips to 'paid' inside earnings_writer.markCaseEarningsPaid,
-              which runs when the DOCTOR SUBMITS THE REPORT; no bank transfer
-              is involved and the platform keeps no settlement ledger at all
-              (see the `basis.paid` note in src/routes/api/admin.js). Telling a
-              clinician money has reached them when it has not is the one
-              thing a compensation screen must never do. The arithmetic below
-              is untouched — only the words were wrong. %>
+              — literally "transferred" — while 'paid' was stamped at report
+              submission with no transfer involved. BATCH B (2026-09-21):
+              'paid' is now stamped by the MONTH-END payout run
+              (earnings_writer.markMonthEndPaid), so a paid row does mean the
+              money was settled. The tile keeps the Approved wording — it
+              understates, which is the safe direction for a compensation
+              screen — and the basis line below says when that happens. %>
           <%= tt('Approved', 'Approved', 'معتمدة') %>
         </div>
         <div class="v2-stat-tile__value" style="font-size:28px;font-weight:600;color:var(--ink, #1f2937);margin-block-start:6px;">
           <%= _fmtMoney(_lifetime.paid) %> <span style="font-size:14px;font-weight:500;color:var(--muted,#6b7280);"><%= tt('EGP', 'EGP', 'ج.م') %></span>
         </div>
         <div data-tile="approved-basis" style="margin-block-start:6px;font-size:11px;color:var(--muted, #6b7280);line-height:1.4;">
-          <%= tt('Locked in when your report was delivered', 'Locked in when your report was delivered', 'تُعتمد عند تسليم تقريرك') %>
+          <%= tt('Settled in a completed month-end payout', 'Settled in a completed month-end payout', 'سُوِّيت ضمن دفعة نهاية شهر مكتملة') %>
         </div>
       </div>
     </div>
     <div class="v2-card">
       <div class="v2-card__body" style="padding:16px;">
         <div class="v2-stat-tile__label" style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted, #6b7280);font-weight:700;">
-          <%# Same correction: these are earnings on cases you have accepted
-              but not yet delivered a report for. Nothing is waiting at a bank. %>
+          <%# BATCH B (2026-09-21): pending now spans BOTH cases in progress
+              and delivered cases awaiting the month-end payout — 'paid' is
+              stamped when the payout runs, not at report submission. %>
           <%= tt('Not yet approved', 'Not yet approved', 'غير معتمدة بعد') %>
         </div>
         <div class="v2-stat-tile__value" style="font-size:28px;font-weight:600;color:var(--ink, #1f2937);margin-block-start:6px;">
           <%= _fmtMoney(_lifetime.pending) %> <span style="font-size:14px;font-weight:500;color:var(--muted,#6b7280);"><%= tt('EGP', 'EGP', 'ج.م') %></span>
         </div>
         <div data-tile="pending-basis" style="margin-block-start:6px;font-size:11px;color:var(--muted, #6b7280);line-height:1.4;">
-          <%= tt('Cases you have accepted but not yet delivered', 'Cases you have accepted but not yet delivered', 'حالات قبلتها ولم تُسلّم تقريرها بعد') %>
+          <%= tt('Earned or in progress — settled at the month-end payout', 'Earned or in progress — settled at the month-end payout', 'مستحقة أو قيد العمل — تُسوَّى في دفعة نهاية الشهر') %>
         </div>
         <% if (_hasReassigned) { %>
           <%# P1-DOC-2 follow-up: surface reassigned amount inline rather than
               as a 4th tile (decision: 4-column grid cramps on tablet/mobile).
-              Hidden when reassigned == 0 so 99% of doctors see no change. %>
+              Hidden when reassigned == 0 so 99% of doctors see no change.
+              BATCH B: reassigned money is always 0 by policy, so this is a
+              legacy-adjustment disclosure, not a partial-pay promise. %>
           <div data-tile="pending-reassigned-note" style="margin-block-start:6px;font-size:11px;color:var(--brass, #a07d3e);line-height:1.4;">
-            + <%= _fmtMoney(_reassignedTotal) %> <%= tt('EGP', 'EGP', 'ج.م') %> <%= tt('reassigned (SLA-breach partial pay)', 'reassigned (SLA-breach partial pay)', 'معاد تعيينها (دفع جزئي عند تجاوز المهلة)') %>
+            + <%= _fmtMoney(_reassignedTotal) %> <%= tt('EGP', 'EGP', 'ج.م') %> <%= tt('legacy reassigned-case adjustment', 'legacy reassigned-case adjustment', 'تسوية قديمة لحالة مُعاد تعيينها') %>
           </div>
         <% } %>
       </div>
@@ -150,19 +155,24 @@
                   var pendingTotal = Number(m.main_pending || 0) + Number(m.addon_pending || 0);
                   var paidTotal = Number(m.main_paid || 0) + Number(m.addon_paid || 0);
                   var reassignedTotal = Number(m.main_reassigned || 0) + Number(m.addon_reassigned || 0);
+                  var reassignedCount = Number(m.main_reassigned_count || 0);
                   // Precedence: pending state wins (Partial / Not approved),
                   // then a reassigned-only month gets its own amber pill,
                   // otherwise Approved. A month with approved + reassigned
                   // still reads as Approved because the dominant signal is
                   // "the fees for this month's cases are confirmed".
                   // The granular per-row breakdown is filed as P3-DOC-8.
-                  var reassignedTip = tt('Case was reassigned due to SLA breach — partial pay (10% of base share).', 'Case was reassigned due to SLA breach — partial pay (10% of base share).', 'تمت إعادة تعيين الحالة بسبب تجاوز المهلة — دفع جزئي (10% من الحصة الأساسية).');
+                  // BATCH B (2026-09-21): a reassigned case earns ZERO — the
+                  // 10% partial pay is retired — so the pill now keys on the
+                  // reassigned COUNT (money is always 0) and the tooltip
+                  // states the policy instead of promising a partial payment.
+                  var reassignedTip = tt('Case was reassigned before delivery — a reassigned case carries no fee.', 'Case was reassigned before delivery — a reassigned case carries no fee.', 'تمت إعادة تعيين الحالة قبل التسليم — الحالة المُعاد تعيينها لا تستحق أي أتعاب.');
                 %>
                 <% if (pendingTotal > 0 && paidTotal > 0) { %>
                   <span style="font-size:11px;color:var(--brass, #a07d3e);"><%= tt('Partial', 'Partial', 'جزئي') %></span>
                 <% } else if (pendingTotal > 0) { %>
                   <span style="font-size:11px;color:var(--muted, #6b7280);"><%= tt('Not approved', 'Not approved', 'غير معتمدة') %></span>
-                <% } else if (reassignedTotal > 0 && paidTotal === 0) { %>
+                <% } else if ((reassignedTotal > 0 || reassignedCount > 0) && paidTotal === 0) { %>
                   <span data-status="reassigned" title="<%= reassignedTip %>" style="font-size:11px;color:var(--brass, #a07d3e);cursor:help;">
                     <%= tt('Reassigned', 'Reassigned', 'أُعيد التعيين') %> <span aria-hidden="true" style="opacity:0.7;">(?)</span>
                   </span>
@@ -178,13 +188,13 @@
   </div>
 
   <div class="v2-note" style="margin-block-start:14px;font-size:12px;color:var(--muted, #6b7280);line-height:1.5;">
-    <%# AUDIT-2026-09-06 (D3): the old footnote said pending amounts "move to
-        Paid on the next monthly payout". Nothing on this page is driven by a
-        payout: an amount becomes 'paid' the moment the doctor submits the
-        report, and the transfer itself happens outside the portal with no
-        record here. Say that, rather than describing a settlement run that
-        does not exist. %>
-    <%= tt('Earnings are calculated from your locked per-case fee plus any urgency uplift and add-on commissions. An amount is approved the moment your report is delivered — approval confirms what you have earned, it is not a transfer. Transfers are arranged separately by the operations team and are not tracked on this page.', 'Earnings are calculated from your locked per-case fee plus any urgency uplift and add-on commissions. An amount is approved the moment your report is delivered — approval confirms what you have earned, it is not a transfer. Transfers are arranged separately by the operations team and are not tracked on this page.', 'تُحتسب الأرباح من رسومك المسجلة لكل حالة بالإضافة إلى أي رسوم استعجال وعمولات إضافات. يُعتمد المبلغ فور تسليم تقريرك — والاعتماد تأكيد لما استحققته وليس تحويلاً مالياً. تُرتَّب التحويلات بشكل منفصل عبر فريق العمليات ولا تُسجَّل في هذه الصفحة.') %>
+    <%# AUDIT-2026-09-06 (D3) said "no settlement run exists" and banned payout
+        wording. BATCH B (2026-09-21) BUILT the settlement run: 'paid' is now
+        stamped by earnings_writer.markMonthEndPaid when finance settles the
+        month (last working day, Africa/Cairo, by cash / InstaPay / Shifa
+        finance). The footnote states that truth — the one thing it must never
+        do is claim money moved when it has not, and it no longer has to. %>
+    <%= tt('Earnings are calculated from your locked per-case fee plus any urgency uplift and add-on commissions. An amount appears under Not yet approved the moment you accept a case, is confirmed when your report is delivered, and moves to Approved when it is settled in the month-end payout — made on the last working day of each month (Cairo time) by cash, InstaPay or Shifa finance.', 'Earnings are calculated from your locked per-case fee plus any urgency uplift and add-on commissions. An amount appears under Not yet approved the moment you accept a case, is confirmed when your report is delivered, and moves to Approved when it is settled in the month-end payout — made on the last working day of each month (Cairo time) by cash, InstaPay or Shifa finance.', 'تُحتسب الأرباح من رسومك المسجلة لكل حالة بالإضافة إلى أي رسوم استعجال وعمولات إضافات. يظهر المبلغ ضمن «غير معتمدة بعد» فور قبولك الحالة، ويُثبَّت عند تسليم تقريرك، وينتقل إلى «معتمدة» عند تسويته في دفعة نهاية الشهر — التي تُنفَّذ في آخر يوم عمل من كل شهر (بتوقيت القاهرة) نقداً أو عبر إنستاباي أو مالية شفاء.') %>
   </div>
 
 <% } %>

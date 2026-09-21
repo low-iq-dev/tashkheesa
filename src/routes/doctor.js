@@ -1432,6 +1432,7 @@ router.get('/portal/doctor/earnings', requireDoctor, async (req, res) => {
   const emptyMonth = () => ({
     month: null, case_count: 0,
     main_total: 0, main_paid: 0, main_pending: 0, main_reassigned: 0,
+    main_reassigned_count: 0,
     addon_total: 0, addon_paid: 0, addon_pending: 0, addon_reassigned: 0
   });
   const byMonth = {};
@@ -1443,6 +1444,9 @@ router.get('/portal/doctor/earnings', requireDoctor, async (req, res) => {
     byMonth[k].main_paid = Number(r.paid_total || 0);
     byMonth[k].main_pending = Number(r.pending_total || 0);
     byMonth[k].main_reassigned = Number(r.reassigned_total || 0);
+    // BATCH B: reassigned money is 0 by policy — the monthly pill keys on
+    // the COUNT so a reassigned-only month still explains itself.
+    byMonth[k].main_reassigned_count = Number(r.reassigned_count || 0);
   }
   for (const r of monthlyAddons) {
     const k = String(r.month);

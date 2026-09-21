@@ -4,17 +4,27 @@
 // of computeDoctorEarnings into the doctor_earnings table at the
 // three P0-FIN-1 sites.
 //
-// Scenarios:
+// Scenarios (BATCH B 2026-09-21: completion SETTLES at 'pending'; only the
+// month-end payout run — markMonthEndPaid — writes status='paid'/paid_at):
 //   1. writePendingForCase inserts a pending row with the right
 //      base+uplift split using policy worked-example B (VIP, no addons).
 //   2. writePendingForCase is idempotent (second call returns
 //      already_exists, no duplicate row).
-//   3. markCaseEarningsPaid flips pending → paid with paid_at set.
-//   4. markCaseEarningsPaid on a legacy order (no pending row) inserts
-//      directly with status='paid'.
+//   3. settleCaseEarningsOnCompletion settles the amount and the row STAYS
+//      'pending' with paid_at null.
+//   4. settleCaseEarningsOnCompletion on a legacy order (no pending row)
+//      inserts directly with status='pending'.
 //   5. recomputeOnBreach drops earned_amount to base-only when uplift
 //      is zeroed — policy worked-example D (VIP breached): 870 → 600.
 //   6. recomputeOnBreach is a no-op + skip signal when no row exists.
+//   7-8. Urgent-tier variants of 1 and 5.
+//   9. markMonthEndPaid stamps the completed Cairo month's pending rows
+//      'paid' (paid_at set), skips in-flight rows (no completed_at), and is
+//      idempotent.
+//  10. settleCaseEarningsOnCompletion never demotes or recomputes a row the
+//      payout already stamped 'paid'.
+//  11. recomputeOnRefund reason='sla_breach' clamps to base-only (the uplift
+//      reversal) — it does NOT zero the base (decisions table 2026-09-15).
 //
 // Skipped automatically when DATABASE_URL is not set.
 
@@ -126,34 +136,36 @@ module.exports = (async function run() {
       t.pass('writePendingForCase: idempotent (second call no-op, single row remains)');
     } catch (e) { t.fail('writePendingForCase idempotency', e); }
 
-    // ── 3. markCaseEarningsPaid flips pending → paid
+    // ── 3. settleCaseEarningsOnCompletion — the row STAYS pending
     try {
       const orderId = await insertPaidOrder({ doctorId, doctorFee: 600, upliftAmount: 900 });
       await earningsWriter.writePendingForCase(orderId);
 
-      const r = await earningsWriter.markCaseEarningsPaid(orderId, doctorId);
+      const r = await earningsWriter.settleCaseEarningsOnCompletion(orderId, doctorId);
       assert.ok(r && r.updated, 'should report updated=true; got: ' + JSON.stringify(r));
+      assert.strictEqual(r.settledStatus, 'pending', 'settles at pending, not paid');
 
       const row = await getMainEarningsRow(orderId, doctorId);
-      assert.strictEqual(row.status, 'paid', 'status flipped to paid');
-      assert.ok(row.paid_at, 'paid_at is set');
-      assert.strictEqual(Number(row.earned_amount), 870, 'earned_amount stays at 870');
-      t.pass('markCaseEarningsPaid: pending → paid with paid_at set');
-    } catch (e) { t.fail('markCaseEarningsPaid happy path', e); }
+      assert.strictEqual(row.status, 'pending', 'status stays pending — paid means the payout ran');
+      assert.strictEqual(row.paid_at, null, 'paid_at NOT set at completion');
+      assert.strictEqual(Number(row.earned_amount), 870, 'earned_amount settled at 870');
+      t.pass('settleCaseEarningsOnCompletion: amount settled, row stays pending, no paid_at');
+    } catch (e) { t.fail('settleCaseEarningsOnCompletion happy path', e); }
 
-    // ── 4. markCaseEarningsPaid on a legacy order (no pre-existing row)
+    // ── 4. settleCaseEarningsOnCompletion on a legacy order (no pre-existing row)
     try {
       const orderId = await insertPaidOrder({ doctorId, doctorFee: 600, upliftAmount: 0 });
       // No writePendingForCase call — simulate legacy completion.
 
-      const r = await earningsWriter.markCaseEarningsPaid(orderId, doctorId);
+      const r = await earningsWriter.settleCaseEarningsOnCompletion(orderId, doctorId);
       assert.ok(r && r.inserted_legacy, 'should report inserted_legacy=true; got: ' + JSON.stringify(r));
 
       const row = await getMainEarningsRow(orderId, doctorId);
-      assert.strictEqual(row.status, 'paid', 'legacy row inserted with status=paid');
+      assert.strictEqual(row.status, 'pending', 'legacy row inserted with status=pending');
+      assert.strictEqual(row.paid_at, null, 'no paid_at on the legacy insert either');
       assert.strictEqual(Number(row.earned_amount), 600, 'standard tier earned_amount = 600');
-      t.pass('markCaseEarningsPaid: legacy order → INSERT directly with status=paid');
-    } catch (e) { t.fail('markCaseEarningsPaid legacy path', e); }
+      t.pass('settleCaseEarningsOnCompletion: legacy order → INSERT directly with status=pending');
+    } catch (e) { t.fail('settleCaseEarningsOnCompletion legacy path', e); }
 
     // ── 5. recomputeOnBreach — Example D (VIP breached: total 870 → 600)
     try {
@@ -223,6 +235,84 @@ module.exports = (async function run() {
       assert.strictEqual(r.newEarnedAmount, 600, 'Urgent breach: 1140 → 600 (base only)');
       t.pass('recomputeOnBreach: Urgent breach drops earned_amount 1140 → 600');
     } catch (e) { t.fail('recomputeOnBreach Urgent breach path', e); }
+
+    // ── 9. markMonthEndPaid — the only writer of 'paid', completed rows only
+    try {
+      const monthRow = await queryOne(
+        `SELECT to_char(date_trunc('month', NOW() AT TIME ZONE 'Africa/Cairo'), 'YYYY-MM') AS m`
+      );
+      const cairoMonth = monthRow.m;
+
+      // A completed case this Cairo month…
+      const doneOrder = await insertPaidOrder({ doctorId, doctorFee: 600, upliftAmount: 0 });
+      await earningsWriter.writePendingForCase(doneOrder);
+      await earningsWriter.settleCaseEarningsOnCompletion(doneOrder, doctorId);
+      await execute(`UPDATE orders SET status = 'completed', completed_at = NOW() WHERE id = $1`, [doneOrder]);
+      // …and an in-flight case (accepted, not delivered).
+      const openOrder = await insertPaidOrder({ doctorId, doctorFee: 400, upliftAmount: 0 });
+      await earningsWriter.writePendingForCase(openOrder);
+
+      const r = await earningsWriter.markMonthEndPaid({ month: cairoMonth, doctorId, actor: 'test' });
+      assert.ok(r && r.marked, 'marked=true: ' + JSON.stringify(r));
+      assert.ok(r.caseRows >= 1, 'at least the completed row stamped');
+
+      const doneRow = await getMainEarningsRow(doneOrder, doctorId);
+      assert.strictEqual(doneRow.status, 'paid', 'completed-case row stamped paid');
+      assert.ok(doneRow.paid_at, 'paid_at set by the payout run');
+      const openRow = await getMainEarningsRow(openOrder, doctorId);
+      assert.strictEqual(openRow.status, 'pending', 'in-flight row NEVER stamped (no completed_at)');
+      assert.strictEqual(openRow.paid_at, null, 'in-flight row has no paid_at');
+
+      // Idempotent: re-running the month stamps nothing new for this doctor's
+      // completed row (the open one still has no completed_at).
+      const r2 = await earningsWriter.markMonthEndPaid({ month: cairoMonth, doctorId, actor: 'test' });
+      assert.strictEqual(r2.caseRows, 0, 're-run stamps 0 rows: ' + JSON.stringify(r2));
+
+      // Guard rails.
+      const bad = await earningsWriter.markMonthEndPaid({ month: '2026-13' });
+      assert.strictEqual(bad.skipped, 'invalid_month', 'invalid month refused');
+      const fut = await earningsWriter.markMonthEndPaid({ month: '2099-01' });
+      assert.strictEqual(fut.skipped, 'month_in_future', 'future month refused');
+      t.pass('markMonthEndPaid: stamps completed Cairo-month rows only, idempotent, validated');
+    } catch (e) { t.fail('markMonthEndPaid', e); }
+
+    // ── 10. Completion never touches a row the payout already stamped
+    try {
+      const orderId = await insertPaidOrder({ doctorId, doctorFee: 500, upliftAmount: 0 });
+      await earningsWriter.writePendingForCase(orderId);
+      await earningsWriter.settleCaseEarningsOnCompletion(orderId, doctorId);
+      await execute(`UPDATE orders SET status = 'completed', completed_at = NOW() WHERE id = $1`, [orderId]);
+      const monthRow = await queryOne(
+        `SELECT to_char(date_trunc('month', NOW() AT TIME ZONE 'Africa/Cairo'), 'YYYY-MM') AS m`
+      );
+      await earningsWriter.markMonthEndPaid({ month: monthRow.m, doctorId, actor: 'test' });
+
+      const r = await earningsWriter.settleCaseEarningsOnCompletion(orderId, doctorId);
+      assert.strictEqual(r.skipped, 'already_paid_out', 'settle after payout skips: ' + JSON.stringify(r));
+      const row = await getMainEarningsRow(orderId, doctorId);
+      assert.strictEqual(row.status, 'paid', 'row stays paid');
+      assert.strictEqual(Number(row.earned_amount), 500, 'settled cash never recomputed');
+      t.pass('settleCaseEarningsOnCompletion: a paid-out row is settled cash — never demoted or recomputed');
+    } catch (e) { t.fail('settle-after-payout guard', e); }
+
+    // ── 11. recomputeOnRefund sla_breach = uplift reversal, base stands
+    try {
+      const orderId = await insertPaidOrder({ doctorId, doctorFee: 600, upliftAmount: 900 });
+      await earningsWriter.writePendingForCase(orderId);
+      // The breach refund zeroes the uplift on the order (sla_breach.js does
+      // this in production), then the refund's mark-paid fires this hook.
+      await execute(`UPDATE orders SET urgency_uplift_amount = 0 WHERE id = $1`, [orderId]);
+
+      const r = await earningsWriter.recomputeOnRefund(orderId, { reason: 'sla_breach' });
+      assert.ok(r && r.recomputed, 'recomputed=true: ' + JSON.stringify(r));
+      assert.strictEqual(r.newEarnedAmount, 600,
+        'sla_breach settlement leaves the BASE fee (600), not zero — the uplift only is reversed');
+      assert.strictEqual(r.policyApplied, earningsWriter.BREACH_UPLIFT_CLAWBACK,
+        'stamped with the uplift-reversal marker, not the retired full-clawback policy');
+      const row = await getMainEarningsRow(orderId, doctorId);
+      assert.strictEqual(Number(row.earned_amount), 600, 'DB row keeps the base fee');
+      t.pass('recomputeOnRefund sla_breach: base fee stands — decisions table 2026-09-15');
+    } catch (e) { t.fail('recomputeOnRefund sla_breach uplift-only', e); }
 
   } finally {
     try { await cleanup(); } catch (_) {}

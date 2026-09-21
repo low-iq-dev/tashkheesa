@@ -75,11 +75,14 @@ try {
   // deleted the labels would pass the greps above and help nobody.
   if (!/tt\('Approved'/.test(code) || !code.includes('معتمدة')) {
     throw new Error('the corrected label must exist in EN and AR: an amount is APPROVED ' +
-                    'when the report is delivered, not transferred');
+                    'when it is settled, and the tile never overclaims');
   }
-  if (!/it is not a transfer/.test(code) || !code.includes('وليس تحويلاً مالياً')) {
-    throw new Error('the footnote must state, in both languages, that approval is not a ' +
-                    'transfer and that transfers are arranged elsewhere');
+  // BATCH B (2026-09-21): the settlement run now EXISTS —
+  // earnings_writer.markMonthEndPaid stamps 'paid' when finance settles the
+  // month. The footnote must describe it truthfully in both languages.
+  if (!/month-end payout/.test(code) || !code.includes('دفعة نهاية الشهر')) {
+    throw new Error('the footnote must state, in both languages, that amounts are settled ' +
+                    'at the month-end payout (the run Batch B built)');
   }
   t.pass('earnings page: no transfer claim survives, and the honest label exists in EN + AR');
 } catch (e) { t.fail('earnings labels are truthful', e); }
