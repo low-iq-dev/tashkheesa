@@ -53,6 +53,21 @@ const { computeDoctorEarnings } = require('../services/earnings_calc');
 const { previewCaseEarnings } = require('../services/earnings_writer');
 // BATCH B (B1): every earnings aggregation this file shows goes through here.
 const earningsReader = require('../services/earnings_reader');
+// BATCH B (B4): report submission is a service; the schema probes and report
+// text/draft helpers live there too (one copy, shared with the draft-save and
+// case-page paths below).
+const {
+  submitDoctorReport,
+  getOrdersColumns,
+  getDiagnosisColumnName,
+  getImpressionColumnName,
+  getRecommendationsColumnName,
+  getReportUrlColumnName,
+  buildCombinedReportText,
+  buildReportDraftFields,
+  readDiagnosisFromOrder,
+  computeAgeFromDob
+} = require('../services/report_submission');
 const { getAddon } = require('../services/addons/registry');
 const { resolvePrescriptionAccess, resolvePrescriptionQuote, prescriptionCommissionPct } = require('../services/addons/prescription_access');
 const { loadDoctorServiceCatalog, diffServiceSelection } = require('../services/doctor_service_catalog');
@@ -6011,144 +6026,9 @@ async function getAdditionalFilesUploadedAtColumnName() {
   ]);
 }
 
-let _ordersColumnCache = null;
-// AUDIT-2026-08-22 (L5): same poisoned-cache defect as getTableColumns above,
-// but with clinical consequences — markOrderCompletedFallback and
-// POST /diagnosis both build their SET lists from this list, so a cached []
-// meant a case was marked COMPLETED and the doctor paid with no report text
-// and no report_url written at all. Never cache a failed (or empty) probe, and
-// pin table_schema='public' like every migration guard does.
-async function getOrdersColumns() {
-  if (_ordersColumnCache) return _ordersColumnCache;
-  try {
-    const cols = await queryAll(
-      "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'orders'"
-    );
-    const names = Array.isArray(cols) ? cols.map((c) => c.name) : [];
-    if (!names.length) return [];
-    _ordersColumnCache = names;
-  } catch (e) {
-    // THEME8-LINT-EXEMPT-HELPER: same as getTableColumns above — the probe
-    // failing means the DB is unreachable, so an error_logs INSERT would fail
-    // too. Not cached, so the next request re-probes.
-    console.error('[schema-probe] orders column probe failed — NOT cached:', e && e.message ? e.message : e);
-    return [];
-  }
-  return _ordersColumnCache;
-}
-
-async function pickFirstExistingOrderColumn(candidates) {
-  const cols = await getOrdersColumns();
-  for (const name of candidates) {
-    if (cols.includes(name)) return name;
-  }
-  return null;
-}
-
-async function getDiagnosisColumnName() {
-  // Keep this list tight to avoid SQL injection risk.
-  return await pickFirstExistingOrderColumn([
-    'diagnosis_text',
-    'doctor_diagnosis',
-    'diagnosis',
-    'medical_opinion',
-    'opinion_text'
-  ]);
-}
-
-// `orders.impression_text` / `orders.recommendation_text` are the real columns
-// (migration 001, re-asserted defensively by 002) and are what every reader
-// uses: helpers/load-report-content.js, routes/reports.js, routes/api/admin.js,
-// patient_order.ejs and patient_case_report.ejs. The previous probe lists here
-// contained only 'impression'/'doctor_impression' and
-// 'recommendations'/'doctor_recommendations' — none of which exist — so both
-// probes returned null and the doctor's Impression and Recommendation were
-// never persisted anywhere. The legacy names are kept as trailing fallbacks.
-async function getImpressionColumnName() {
-  return await pickFirstExistingOrderColumn([
-    'impression_text',
-    'impression',
-    'doctor_impression'
-  ]);
-}
-
-async function getRecommendationsColumnName() {
-  return await pickFirstExistingOrderColumn([
-    'recommendation_text',
-    'recommendations',
-    'doctor_recommendations'
-  ]);
-}
-
-// Findings / Impression / Recommendations are three separate report sections:
-// patient_order.ejs and patient_case_report.ejs render diagnosis_text as
-// "Findings" and the other two as their own headed sections. So when the
-// dedicated columns exist, the diagnosis column must hold findings ONLY —
-// writing the combined blob there duplicates the other two sections in the
-// patient's report. The blob survives purely as a fallback for schema
-// snapshots without those columns, where it is the only place the doctor's
-// impression/recommendations can be kept at all.
-function buildCombinedReportText(findings, impression, recommendations) {
-  return [
-    findings ? 'Findings:\n' + findings : '',
-    impression ? 'Impression:\n' + impression : '',
-    recommendations ? 'Recommendations:\n' + recommendations : ''
-  ].filter(Boolean).join('\n\n');
-}
-
-// Rehydrate the three report-editor boxes from the order row.
-//
-// Drafts saved before the impression/recommendation columns were wired up
-// stored all three sections as one headed blob in diagnosis_text. Split those
-// back out (parseCombinedNotesToFields already knows the format) so reopening
-// a case does not show an editor missing two of its three fields — which is
-// how a submit silently wiped a saved draft. Only applied when BOTH dedicated
-// columns are empty, so a doctor who legitimately types the word "Impression:"
-// into findings is never re-parsed.
-function buildReportDraftFields(order) {
-  const impression = String((order && (order.impression_text || order.impression)) || '').trim();
-  const recommendations = String(
-    (order && (order.recommendation_text || order.recommendations || order.recommendation)) || ''
-  ).trim();
-  const diagnosis = String(readDiagnosisFromOrder(order) || '');
-
-  if (!impression && !recommendations && /(^|\n)(Findings|Impression|Recommendations):\n/i.test(diagnosis)) {
-    return parseCombinedNotesToFields(diagnosis);
-  }
-
-  return { findings: diagnosis.trim(), impression, recommendations };
-}
-
-// users.date_of_birth is a TEXT column, so it can hold anything a signup form
-// ever accepted. Anything unparseable, in the future, or absurd yields null and
-// the header simply omits the age rather than printing "NaN".
-function computeAgeFromDob(dob) {
-  const raw = String(dob || '').trim();
-  if (!raw) return null;
-  const born = new Date(raw);
-  if (isNaN(born.getTime())) return null;
-
-  const now = new Date();
-  let age = now.getUTCFullYear() - born.getUTCFullYear();
-  const monthDelta = now.getUTCMonth() - born.getUTCMonth();
-  if (monthDelta < 0 || (monthDelta === 0 && now.getUTCDate() < born.getUTCDate())) age -= 1;
-
-  if (!Number.isFinite(age) || age < 0 || age > 120) return null;
-  return age;
-}
-
-
-function readDiagnosisFromOrder(order) {
-  if (!order) return '';
-  return (
-    order.diagnosis_text ||
-    order.doctor_diagnosis ||
-    order.diagnosis ||
-    order.medical_opinion ||
-    order.opinion_text ||
-    ''
-  );
-}
+// BATCH B (B4): the orders-column probes and the report text/draft helpers
+// moved into services/report_submission.js with the submission itself — one
+// copy, imported at the top of this file.
 
 async function readLatestDiagnosisFromEvents(orderId) {
   if (!orderId) return '';
@@ -6177,29 +6057,6 @@ async function readLatestDiagnosisFromEvents(orderId) {
   } catch (e) {
     return '';
   }
-}
-
-function parseCombinedNotesToFields(text) {
-  const raw = (text || '').toString();
-  const out = { findings: '', impression: '', recommendations: '' };
-  if (!raw.trim()) return out;
-
-  const s = raw.replace(/\r\n/g, '\n');
-
-  const mFindings = s.match(/(?:^|\n)Findings:\n([\s\S]*?)(?=(?:\n\nImpression:\n|\n\nRecommendations:\n|$))/i);
-  const mImpression = s.match(/(?:^|\n)Impression:\n([\s\S]*?)(?=(?:\n\nRecommendations:\n|$))/i);
-  const mRecs = s.match(/(?:^|\n)Recommendations:\n([\s\S]*?)$/i);
-
-  if (mFindings && mFindings[1]) out.findings = String(mFindings[1]).trim();
-  if (mImpression && mImpression[1]) out.impression = String(mImpression[1]).trim();
-  if (mRecs && mRecs[1]) out.recommendations = String(mRecs[1]).trim();
-
-  // Fallback: if headings are missing, keep everything as findings.
-  if (!out.findings && !out.impression && !out.recommendations) {
-    out.findings = s.trim();
-  }
-
-  return out;
 }
 
 async function readReportUrlFromOrder(order) {
@@ -6403,366 +6260,24 @@ async function getAdditionalFilesRequestState(orderId) {
 
 // ---- end helpers ----
 
-// ---- report completion helpers (defensive) ----
-async function getReportUrlColumnName() {
-  // Keep allow-list tight.
-  return await pickFirstExistingOrderColumn([
-    'report_url',
-    'final_report_url',
-    'final_report_link',
-    'report_pdf_url'
-  ]);
-}
+// ---- report completion helpers ----
+// BATCH B (B4): getReportUrlColumnName, ReportSchemaUnresolvedError,
+// persistReportText and the completion write all live in
+// services/report_submission.js now — the submission is one atomic service
+// call, and this file only renders.
 
-// AUDIT-2026-08-22 (L5) — a case must never be completed on an unresolved
-// schema probe.
-//
-// getOrdersColumns() answers [] when the information_schema query itself
-// failed. Before this guard the writers below happily carried on: every
-// `if (col)` test was false, the SET list came out holding nothing but
-// `status = 'completed'`, and the case was delivered and the doctor paid with
-// no findings, no impression, no recommendation and no report_url in the row.
-// The patient's on-site report was permanently blank and the editor was
-// already hidden. Throwing is the only safe answer — the caller keeps the
-// doctor's text and lets them retry.
-class ReportSchemaUnresolvedError extends Error {
-  constructor(detail) {
-    super('report columns could not be resolved: ' + detail);
-    this.name = 'ReportSchemaUnresolvedError';
-    this.code = 'REPORT_SCHEMA_UNRESOLVED';
-  }
-}
 
-// AUDIT-2026-08-22 (L4) — persist the doctor's written report BEFORE anything
-// that can fail.
-//
-// The submit handler used to call generateMedicalReportPdf() (which renders
-// with pdfkit and uploads to R2) FIRST and only wrote the text columns
-// afterwards. Any storage or rendering failure threw, the handler answered
-// 500, and the doctor's report — which may be twenty minutes of work — had
-// never touched the database. Writing the text first is a plain draft-shaped
-// UPDATE: it does not change status, so if the PDF step then fails the case
-// is still open, the editor is still rendered, the text is still in the boxes
-// and the doctor can simply press Submit again.
-async function persistReportTextOrThrow({ orderId, diagnosisText, impressionText, recommendationsText }) {
-  const diagnosisCol = await getDiagnosisColumnName();
-  const impressionCol = await getImpressionColumnName();
-  const recsCol = await getRecommendationsColumnName();
 
-  if (!diagnosisCol) {
-    throw new ReportSchemaUnresolvedError('no diagnosis column on orders');
-  }
 
-  const nowIso = new Date().toISOString();
-  const orderCols = await getOrdersColumns();
-
-  // Mirrors the draft-save path: findings own the diagnosis column when the
-  // other two sections have columns of their own, otherwise the combined blob
-  // is the only way not to drop them.
-  const diagnosisValue = (impressionCol && recsCol)
-    ? diagnosisText
-    : buildCombinedReportText(
-        String(diagnosisText || '').trim(),
-        String(impressionText || '').trim(),
-        String(recommendationsText || '').trim()
-      );
-
-  const sets = [];
-  const params = [];
-  let idx = 1;
-
-  sets.push(`${diagnosisCol} = $${idx++}`);
-  params.push(diagnosisValue || null);
-
-  if (impressionCol) {
-    sets.push(`${impressionCol} = $${idx++}`);
-    params.push(impressionText || null);
-  }
-  if (recsCol) {
-    sets.push(`${recsCol} = $${idx++}`);
-    params.push(recommendationsText || null);
-  }
-  if (orderCols.includes('updated_at')) {
-    sets.push(`updated_at = $${idx++}`);
-    params.push(nowIso);
-  }
-
-  params.push(orderId);
-  await execute(`UPDATE orders SET ${sets.join(', ')} WHERE id = $${idx}`, params);
-}
-
-async function markOrderCompletedFallback({
-  orderId,
-  doctorId,
-  reportUrl,
-  diagnosisText,
-  impressionText,
-  recommendationsText,
-  annotatedFiles
-}) {
-  const nowIso = new Date().toISOString();
-  const diagnosisCol = await getDiagnosisColumnName();
-  const reportCol = await getReportUrlColumnName();
-
-  // AUDIT-2026-08-22 (L5): refuse to complete a case whose report columns the
-  // probe could not resolve — see ReportSchemaUnresolvedError above. Checked
-  // before a single write, so nothing is half-applied.
-  const orderColsProbe = await getOrdersColumns();
-  if (!orderColsProbe.length || !diagnosisCol || !reportCol) {
-    throw new ReportSchemaUnresolvedError(
-      `orders columns=${orderColsProbe.length}, diagnosis=${diagnosisCol || 'none'}, report_url=${reportCol || 'none'}`
-    );
-  }
-  // Submit used to persist the diagnosis column only. The doctor's Impression
-  // and Recommendation went into the PDF and were then thrown away, so the
-  // patient's on-site report (which reads impression_text /
-  // recommendation_text) showed two empty sections, and any draft-saved values
-  // in those columns were left stale against the submitted findings.
-  const impressionCol = await getImpressionColumnName();
-  const recsCol = await getRecommendationsColumnName();
-
-  let paramIdx = 1;
-  const sets = [];
-  const params = [];
-
-  if (diagnosisCol) {
-    // Mirrors the draft-save path: findings own the diagnosis column when the
-    // other two sections have columns of their own, otherwise the combined
-    // blob is the only way not to drop them.
-    const diagnosisValue = (impressionCol && recsCol)
-      ? diagnosisText
-      : buildCombinedReportText(
-          String(diagnosisText || '').trim(),
-          String(impressionText || '').trim(),
-          String(recommendationsText || '').trim()
-        );
-    sets.push(`${diagnosisCol} = $${paramIdx++}`);
-    params.push(diagnosisValue || null);
-  }
-
-  if (impressionCol) {
-    sets.push(`${impressionCol} = $${paramIdx++}`);
-    params.push(impressionText || null);
-  }
-
-  if (recsCol) {
-    sets.push(`${recsCol} = $${paramIdx++}`);
-    params.push(recommendationsText || null);
-  }
-
-  if (reportCol) {
-    sets.push(`${reportCol} = $${paramIdx++}`);
-    params.push(reportUrl || null);
-  }
-
-  // Only set timestamps if those columns exist in this DB schema.
-  const orderCols = orderColsProbe;
-
-  // Ensure the order remains attributable to the doctor who completed it (helps dashboard visibility).
-  if (orderCols.includes('doctor_id') && doctorId) {
-    sets.push(`doctor_id = COALESCE(doctor_id, $${paramIdx++})`);
-    params.push(doctorId);
-  }
-
-  // Always mark completed (canonical write path).
-  sets.push(`status = $${paramIdx++}`);
-  params.push(dbStatusFor('COMPLETED', DB_STATUS.COMPLETED));
-  if (orderCols.includes('completed_at')) {
-    sets.push(`completed_at = COALESCE(completed_at, $${paramIdx++})`);
-    params.push(nowIso);
-  }
-  if (orderCols.includes('updated_at')) {
-    sets.push(`updated_at = $${paramIdx++}`);
-    params.push(nowIso);
-  }
-
-  params.push(orderId);
-  await execute(`UPDATE orders SET ${sets.join(', ')} WHERE id = $${paramIdx}`, params);
-
-  // AUDIT-P0-1 — record the delivered export.
-  //
-  // The patient case page gates the whole Report tab on the existence of a
-  // report_exports row (routes/patient.js -> hasReport -> reportContent), and
-  // /portal/case/:id/download-report falls back to this table. Before this
-  // fix the ONLY writer was POST /portal/case/:caseId/generate-pdf, which the
-  // doctor submit flow never calls — so every report delivered through the
-  // doctor portal left the patient's Report tab permanently "Locked" even
-  // though they had already been emailed "your report is ready".
-  if (reportUrl) {
-    try {
-      await execute(
-        `INSERT INTO report_exports (id, case_id, file_path, created_by, created_at)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [require('crypto').randomUUID(), orderId, reportUrl, doctorId || null, nowIso]
-      );
-    } catch (e) {
-      // Must never block delivery, but must be loud — a silent failure here
-      // reproduces the exact bug this write exists to fix.
-      logErrorToDb(e, {
-        context: 'doctor.report_exports_insert',
-        category: 'doctor_case',
-        orderId
-      });
-      console.error('[report] report_exports insert failed — patient Report tab will stay locked', e && e.message ? e.message : e);
-    }
-  }
-
-  // Persist an event for audit/debug.
-  try {
-    await execute(
-      `INSERT INTO order_events (id, order_id, label, meta, at)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [
-        require('crypto').randomUUID(),
-        orderId,
-        'order_completed',
-        JSON.stringify({
-          via: 'doctor_portal_report',
-          reportUrl: reportUrl || null,
-          annotatedFiles: Array.isArray(annotatedFiles) ? annotatedFiles : [],
-          hasDiagnosis: !!(diagnosisText && String(diagnosisText).trim())
-        }),
-        nowIso
-      ]
-    );
-  } catch (e) {
-    logErrorToDb(e, {
-      context: 'doctor.report_completion_event',
-      category: 'doctor_case'
-    });
-    console.warn('[report] could not write order_events for completion', e);
-  }
-
-  try {
-    logOrderEvent({
-      orderId,
-      label: 'Case completed (fallback)',
-      meta: JSON.stringify({ reportUrl: reportUrl || null, via: 'doctor_portal_report_fallback' }),
-      actorUserId: doctorId,
-      actorRole: 'doctor'
-    });
-  } catch (e) {
-    // ignore
-  }
-
-  // AUDIT-2026-08-23 (C4) — settle the prescription add-on when the case
-  // completes.
-  //
-  // prescription.onComplete (which writes addon_earnings) and
-  // prescription.onRefund had NO caller anywhere in the codebase: grep either
-  // name outside services/addons and its tests and you get nothing.
-  // video_consult settles itself from routes/video.js; prescription had no
-  // equivalent, so a fulfilled add-on would never have paid the doctor.
-  //
-  // Review round 2 killed the auto-refund this block originally did. The first
-  // draft routed a still-'paid' add-on to onRefund here, on the reasoning that
-  // "paid but not written" means the patient did not get what they bought.
-  // That is wrong, and dangerously so: writing a prescription AFTER the report
-  // is explicitly supported (the eligible-cases query in routes/prescriptions.js
-  // includes 'completed', and neither prescribe handler gates on status), and
-  // submitting the report is the normal FIRST action. So the common case —
-  // doctor submits the report, then writes the prescription — would have
-  // refunded the add-on a second earlier, flipped the case page to the silent
-  // terminal state, and left the paying patient with nothing.
-  //
-  // Nor is that refund even real: refund_pending has no reader anywhere in
-  // src/ — no worker, no admin screen, no refunds row, no notification — so
-  // the flag would have marked the money returned without returning it.
-  //
-  // Completion therefore only settles what is genuinely finished. An add-on
-  // still sitting at 'paid' stays 'paid': the doctor can still deliver it
-  // (routes/prescriptions.js settles it on the spot when the case is already
-  // completed), and if they never do, it is an operator's judgement call, not
-  // an automatic write-off. It is logged so that call can be made.
-  try {
-    const rx = await queryOne(
-      `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'prescription' LIMIT 1`,
-      [orderId]
-    );
-    if (rx) {
-      const rxStatus = String(rx.status || '').toLowerCase();
-      const svc = getAddon('prescription');
-      if (svc && rxStatus === 'fulfilled') {
-        // Not wrapped in safeDualWrite: that no-ops when ADDON_SYSTEM_V2 is
-        // off, which would silently skip paying a doctor for work already
-        // delivered. addon_earnings has a UNIQUE index on order_addon_id, so
-        // this cannot double-pay however many times completion runs.
-        try {
-          await svc.onComplete({ order: { id: orderId }, addon: rx, doctorId: doctorId || rx_doctorFallback(rx) });
-        } catch (payErr) {
-          logErrorToDb(payErr, { context: 'doctor.prescription_addon_oncomplete', category: 'doctor_case', orderId });
-        }
-      } else if (rxStatus === 'paid') {
-        try {
-          logOrderEvent({
-            orderId,
-            label: 'Case completed with an unwritten paid prescription',
-            meta: JSON.stringify({ addon: 'prescription', status: rxStatus }),
-            actorUserId: doctorId,
-            actorRole: 'doctor'
-          });
-        } catch (_) {}
-      }
-      // 'pending' (doctor requested, patient never paid), 'cancelled' and
-      // 'refunded' are terminal for settlement: nothing was collected, so
-      // there is nothing to pay out or give back.
-    }
-  } catch (e) {
-    logErrorToDb(e, { context: 'doctor.prescription_addon_settlement', category: 'doctor_case', orderId });
-  }
-}
-
-// onComplete needs a doctor to credit. The completion path always has one, but
-// if it were ever called without, fall back to whoever the add-on itself
-// recorded rather than inserting an addon_earnings row with a null doctor.
-function rx_doctorFallback(addon) {
-  try {
-    const meta = addon && addon.metadata_json ? addon.metadata_json : null;
-    const parsed = typeof meta === 'string' ? JSON.parse(meta) : meta;
-    return (parsed && (parsed.attached_by || parsed.requested_by_doctor)) || null;
-  } catch (_) {
-    return null;
-  }
-}
-
-// AUDIT-2026-08-22 (L2) — what "empty" means for a report section.
-//
-// A submitted report is irreversible: it renders a PDF, writes the text
-// columns, flips the case to COMPLETED, inserts report_exports, marks the
-// doctor's earnings PAID and emails the patient "your report is ready". The
-// editor is then hidden and the handler early-returns on completed, so an
-// accidental submit could not be corrected by anyone. A section counts as
-// empty when nothing but whitespace, dashes and the em-dash placeholder the
-// PDF itself prints for "nothing here" remains — otherwise a doctor who typed
-// "—" to move on would still deliver a blank report.
-function isReportSectionEmpty(text) {
-  const t = String(text == null ? '' : text).trim();
-  if (!t) return true;
-  return !t.replace(/[\s\-—–_.·•*]+/g, '');
-}
-
-// AUDIT-2026-08-22 (L7): users.gender is free text. Map the values the product
-// writes and pass anything else through rather than hiding it; the em-dash is
-// reserved for genuinely unknown.
-function reportGenderLabel(raw) {
-  const g = String(raw == null ? '' : raw).trim();
-  if (!g) return '';
-  const k = g.toLowerCase();
-  if (k === 'male' || k === 'm') return 'Male';
-  if (k === 'female' || k === 'f') return 'Female';
-  if (k === 'other') return 'Other';
-  if (k === 'prefer_not_to_say' || k === 'unspecified') return 'Not specified';
-  return g;
-}
-
+// BATCH B (B4) — the route is thin: validate, call the submission service,
+// map its result to the same redirects the old 390-line handler produced.
+// Everything irreversible (the status flip, the report_exports row, the
+// assignment close, the earnings settle) is one atomic transaction inside
+// services/report_submission.submitDoctorReport, gated by a conditional
+// completion UPDATE so a double submit produces one report, one status
+// change, one earnings settle and one patient notification. The doctor app's
+// Phase-1 submit endpoint will call the same service.
 async function handlePortalDoctorGenerateReport(req, res) {
-  // AUDIT-2026-08-22 (L4): declared OUT here on purpose. `orderId` used to be
-  // a `const` inside the try block, and the sibling catch at the bottom of
-  // this function references it in its logErrorToDb payload — a
-  // ReferenceError that fired BEFORE logErrorToDb ran, so /ops/errors recorded
-  // "orderId is not defined" instead of the real cause of every failed report
-  // submission. Same for doctorId, which the catch does not read today but
-  // would be just as unsafe to reach for.
   const doctorId = req.user && req.user.id;
   const orderId = req.params.caseId;
 
@@ -6771,367 +6286,44 @@ async function handlePortalDoctorGenerateReport(req, res) {
       return res.status(400).send('Invalid request');
     }
 
-    // Load order defensively
-    const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
-    if (!order) {
-      return res.status(404).send('Case not found');
-    }
+    const result = await submitDoctorReport({
+      orderId,
+      doctorId,
+      diagnosisText: (req.body && (req.body.diagnosis || req.body.diagnosis_text)) || '',
+      impressionText: (req.body && (req.body.impression || req.body.impression_text)) || '',
+      recommendationsText: (req.body && (req.body.recommendations || req.body.recommendation_text)) || '',
+      via: 'doctor_portal_report'
+    });
 
-    // A report may only be submitted by the doctor the case is assigned to.
-    // Reject unassigned (null doctor_id) cases too, so the completion path can
-    // never claim an unowned case via COALESCE(doctor_id, ...).
-    if (String(order.doctor_id || '') !== String(doctorId)) {
-      return res.status(403).send('Forbidden');
-    }
-
-    // If already completed / locked, redirect back
-    const status = String(order.status || '').toLowerCase();
-    if (status === 'completed') {
+    if (result.ok) {
+      // completed and alreadyCompleted land on the same page — the case view
+      // shows the delivered report either way.
       return res.redirect(`/portal/doctor/case/${orderId}`);
     }
 
-    // Pull all text fields from form submission, falling back to whatever the
-    // doctor last saved as a draft. Without the findings fallback an empty
-    // `diagnosis` field (a draft-restore that failed, a browser that dropped
-    // the textarea) submitted NULL over a saved findings section — the exact
-    // data loss the impression/recommendation fallbacks below already guarded
-    // against. buildReportDraftFields also unpacks the legacy combined
-    // Findings/Impression/Recommendations blob written by older draft saves.
-    const storedDraft = buildReportDraftFields(order);
-    const diagnosisText =
-      (req.body && (req.body.diagnosis || req.body.diagnosis_text)) || storedDraft.findings || '';
-    const impressionText =
-      (req.body && (req.body.impression || req.body.impression_text)) || storedDraft.impression || '';
-    const recommendationsText =
-      (req.body && (req.body.recommendations || req.body.recommendation_text)) || storedDraft.recommendations || '';
-
-    // AUDIT-2026-08-22 (L4) — persist the written report BEFORE anything else.
-    //
-    // generateMedicalReportPdf renders with pdfkit and uploads to R2. It used
-    // to run first, with the text columns written only afterwards, so an R2
-    // outage or a pdfkit throw lost the doctor's entire report: the catch
-    // below answered 500 and nothing had been saved. This write does not
-    // touch `status`, so a later failure leaves the case open, the editor
-    // rendered, the text back in the boxes and Submit retryable.
-    //
-    // AUDIT-2026-08-22 — and it now runs BEFORE the emptiness check below, not
-    // after. The check answered 302 on a report with a blank Impression, and
-    // portal_doctor_case.ejs repopulates the three textareas from the DB ONLY
-    // (_exDiag/_exImpr/_exRec, view line ~113) — so a doctor who typed twenty
-    // minutes of findings and left Impression blank was bounced back to an
-    // empty editor with everything gone. The client-side pre-check was the only
-    // thing standing in front of that, and it is bypassed with JS disabled or
-    // after any earlier script error on the page. persistReportTextOrThrow is
-    // draft-shaped by construction — it writes only the three text columns and
-    // updated_at, never `status` — so saving first cannot complete a case, and
-    // each value already falls back to the stored draft (above) so a field the
-    // browser dropped cannot blank a saved section.
-    try {
-      await persistReportTextOrThrow({
-        orderId,
-        diagnosisText,
-        impressionText,
-        recommendationsText
-      });
-    } catch (e) {
-      logErrorToDb(e, {
-        context: 'doctor.report_persist_text',
-        requestId: req.requestId,
-        userId: doctorId,
-        url: req.originalUrl,
-        method: req.method,
-        category: 'doctor_case',
-        orderId
-      });
-      console.error('[doctor][report] could not persist report text — refusing to continue', e && e.message);
-      return res.redirect(`/portal/doctor/case/${orderId}?error=report_save_failed`);
+    switch (result.code) {
+      case 'invalid_request':
+        return res.status(400).send('Invalid request');
+      case 'not_found':
+        return res.status(404).send('Case not found');
+      case 'forbidden':
+        return res.status(403).send('Forbidden');
+      case 'report_save_failed':
+        return res.redirect(`/portal/doctor/case/${orderId}?error=report_save_failed`);
+      case 'report_empty':
+        // The text is already saved as a draft, so the case page renders it
+        // straight back into the boxes.
+        return res.redirect(`/portal/doctor/case/${orderId}?error=report_empty`);
+      case 'report_pdf_failed':
+        return res.redirect(`/portal/doctor/case/${orderId}?error=report_pdf_failed`);
+      case 'report_complete_failed':
+        // The text (and the PDF) ARE saved at this point; only the atomic
+        // completion failed — and it rolled back whole, so the case is still
+        // open and Submit is retryable.
+        return res.redirect(`/portal/doctor/case/${orderId}?error=report_complete_failed`);
+      default:
+        return res.status(500).send('Report generation failed');
     }
-
-    // AUDIT-2026-08-22 (L2) — refuse an empty report, authoritatively.
-    //
-    // There was no emptiness check at all here, and the three textareas in
-    // portal_doctor_case.ejs are labelled "required" but carry no `required`
-    // attribute (deliberately — the same form's "Save draft" button must keep
-    // accepting a partial report). So one stray click on "Submit report"
-    // produced a PDF whose three clinical sections all read "—", wrote NULL
-    // over diagnosis_text/impression_text/recommendation_text, flipped the
-    // case to COMPLETED, inserted a report_exports row, marked the doctor's
-    // earnings PAID and emailed the patient that their report was ready —
-    // irreversibly, because the editor is hidden and this handler
-    // early-returns on completed.
-    //
-    // Findings and Impression are the clinically load-bearing sections: the
-    // findings are the observation and the impression is the opinion the
-    // patient is paying for. Recommendations can legitimately be empty (an
-    // unremarkable study needs no plan), so it is not required here even
-    // though the editor labels it "required".
-    //
-    // The redirect is safe now: the text above is already saved as a draft, so
-    // the case page renders it straight back into the boxes.
-    if (isReportSectionEmpty(diagnosisText) || isReportSectionEmpty(impressionText)) {
-      return res.redirect(`/portal/doctor/case/${orderId}?error=report_empty`);
-    }
-
-    // Fetch related entities for a rich PDF
-    let patient = {};
-    let doctor = {};
-    let specialty = {};
-    let annotations = [];
-    try {
-      // AUDIT-2026-08-22 (L7): date_of_birth and gender added to the SELECT —
-      // every delivered PDF printed a hardcoded "Age: —  Gender: —" while the
-      // case page beside it rendered both from these very columns.
-      patient = (await queryOne('SELECT name, email, phone, date_of_birth, gender FROM users WHERE id = $1', [order.patient_id])) || {};
-      doctor  = (await queryOne('SELECT name, specialty_id FROM users WHERE id = $1', [doctorId])) || {};
-      if (doctor.specialty_id) {
-        specialty = (await queryOne('SELECT name FROM specialties WHERE id = $1', [doctor.specialty_id])) || {};
-      }
-      annotations = await queryAll(
-        `SELECT ca.annotated_image_data, ca.annotations_count, u.name AS doctor_name
-         FROM case_annotations ca
-         LEFT JOIN users u ON u.id = ca.doctor_id
-         WHERE ca.case_id = $1 AND ca.annotated_image_data IS NOT NULL AND ca.annotated_image_data != ''
-         ORDER BY ca.updated_at ASC`,
-        [orderId]
-      );
-    } catch (_) { /* non-critical — proceed without */ }
-
-    // AUDIT-2026-08-22 (L7): real demographics. computeAgeFromDob already
-    // rejects nonsense (unparseable, negative, >120) and returns null, so the
-    // em-dash still stands for genuinely unknown.
-    const reportPatientAge = computeAgeFromDob(patient.date_of_birth);
-    const reportPatientGender = reportGenderLabel(patient.gender);
-
-    let reportUrl;
-    try {
-      reportUrl = await generateMedicalReportPdf({
-        caseId:          orderId,
-        doctorName:      doctor.name  || '',
-        specialty:       specialty.name || '',
-        createdAt:       order.created_at,
-        // AUDIT-2026-08-22 (L2): `|| order.notes` REMOVED. orders.notes is
-        // patient-written intake text. On any order carrying it, a findings
-        // box the doctor left blank fell through to the patient's own words,
-        // which were then printed into the PDF's "Findings / Observations"
-        // section under the doctor's signature and delivered as a clinical
-        // opinion. The diagnosis_text fallback is kept: that column is the
-        // doctor's own saved draft.
-        findings:        diagnosisText || order.diagnosis_text || '',
-        impression:      impressionText,
-        recommendations: recommendationsText,
-        patient: {
-          name:   patient.name || '—',
-          age:    (reportPatientAge != null) ? String(reportPatientAge) : '—',
-          gender: reportPatientGender || '—',
-        },
-        annotations,
-      });
-    } catch (e) {
-      // AUDIT-2026-08-22 (L4): the text is already saved above, so this is
-      // recoverable — send the doctor back to a still-open case with their
-      // report intact rather than a bare 500 on a case that looks lost.
-      logErrorToDb(e, {
-        context: 'doctor.report_pdf_generate',
-        requestId: req.requestId,
-        userId: doctorId,
-        url: req.originalUrl,
-        method: req.method,
-        category: 'doctor_case',
-        orderId
-      });
-      console.error('[doctor][report] PDF generation failed (text was saved)', e && e.message);
-      return res.redirect(`/portal/doctor/case/${orderId}?error=report_pdf_failed`);
-    }
-
-    // AUDIT-P1-4 — walk the case into IN_REVIEW before completing it.
-    //
-    // markOrderCompletedFallback is a raw UPDATE straight to COMPLETED with no
-    // assertTransition, no case_events row and no assignment close. But
-    // STATUS_TRANSITIONS only allows COMPLETED from IN_REVIEW, so a doctor who
-    // never clicked Accept could jump ASSIGNED -> COMPLETED with accepted_at
-    // NULL: turnaround metrics divided by a null acceptance, /ops saw no
-    // completion event, and the still-open doctor_assignments row was later
-    // picked up by the accept-timeout sweep, which tried to reassign a
-    // COMPLETED case and threw.
-    //
-    // transitionCase(IN_REVIEW) sets accepted_at and deadline_at if they are
-    // missing, which is exactly the state a report submission implies. It is
-    // a no-op when the case is already IN_REVIEW. Best-effort: a doctor must
-    // never lose a written report because of a bookkeeping transition.
-    try {
-      const canon = caseLifecycle.CANON_STATUS || caseLifecycle.CASE_STATUS;
-      // doctor.js's local normalizeStatus lowercases; case_lifecycle canonical
-      // values are uppercase — compare on the lowercase form.
-      if (normalizeStatus(order.status) !== 'in_review') {
-        await caseLifecycle.transitionCase(orderId, canon.IN_REVIEW);
-      }
-    } catch (e) {
-      logErrorToDb(e, {
-        context: 'doctor.report_in_review_transition',
-        category: 'doctor_case',
-        orderId
-      });
-      console.error('[report] IN_REVIEW transition before completion failed:', e && e.message);
-    }
-
-    // AUDIT-2026-08-22 (L5): markOrderCompletedFallback now throws rather than
-    // completing a case on an unresolved schema probe. Bounce the doctor back
-    // to a still-open case (their text is already persisted) instead of a bare
-    // 500 — completing without the report columns is the outcome we are
-    // preventing, and a retry once the DB recovers is the fix.
-    try {
-      await markOrderCompletedFallback({
-        orderId,
-        doctorId,
-        reportUrl,
-        diagnosisText,
-        impressionText,
-        recommendationsText,
-        annotatedFiles: []
-      });
-    } catch (e) {
-      logErrorToDb(e, {
-        context: 'doctor.report_mark_completed',
-        requestId: req.requestId,
-        userId: doctorId,
-        url: req.originalUrl,
-        method: req.method,
-        category: 'doctor_case',
-        orderId
-      });
-      console.error('[doctor][report] completion write failed — case left open', e && e.message);
-      // AUDIT-2026-08-22: report_complete_failed, not report_save_failed — the
-      // text (and the PDF) ARE saved at this point; only the completion write
-      // failed, and telling the doctor their report was lost would have them
-      // retype a report that is sitting in the boxes in front of them.
-      return res.redirect(`/portal/doctor/case/${orderId}?error=report_complete_failed`);
-    }
-
-    // AUDIT-P1-4 — close the open assignment and emit the canonical case event.
-    // Without the close, sweepDoctorTimeouts kept selecting this completed case
-    // forever; without the event, /ops and the case timeline showed no
-    // completion at all.
-    try {
-      await execute(
-        `UPDATE doctor_assignments SET completed_at = $1
-          WHERE case_id = $2 AND completed_at IS NULL`,
-        [new Date().toISOString(), orderId]
-      );
-    } catch (e) {
-      // AUDIT-M1 — not cosmetic. doctor_assignments.completed_at is what takes a
-      // finished case OUT of fetchDoctorTimeouts; if this close fails the sweep
-      // re-selects the completed case on every tick, indefinitely.
-      logErrorToDb(e, {
-        context: 'doctor_report.close_assignment',
-        category: 'sla',
-        orderId: orderId,
-        userId: doctorId
-      });
-    }
-    try {
-      await caseLifecycle.logCaseEvent(orderId, 'CASE_COMPLETED', {
-        doctorId,
-        via: 'doctor_portal_report'
-      });
-    } catch (e) {
-      // AUDIT-M1 — the patient's case timeline silently loses its final step.
-      logErrorToDb(e, {
-        context: 'doctor_report.log_case_completed',
-        category: 'lifecycle',
-        orderId: orderId,
-        userId: doctorId
-      });
-    }
-
-    // P0-FIN-1 site 2, BATCH B semantics: settle the earnings AMOUNT at
-    // completion — the row stays 'pending' and is stamped 'paid' only by the
-    // month-end payout run (earnings_writer.markMonthEndPaid). Failure must
-    // NOT block report generation.
-    try {
-      const r = await require('../services/earnings_writer').settleCaseEarningsOnCompletion(orderId, doctorId);
-      if (r && (r.updated || r.inserted_legacy)) {
-        logOrderEvent({
-          orderId,
-          label: r.updated ? 'doctor_earnings_settled' : 'doctor_earnings_settled_legacy',
-          meta: { earnings_id: r.earningsId, earned_amount: r.earnedAmount, status: r.settledStatus },
-          actorUserId: doctorId,
-          actorRole: 'system'
-        });
-      }
-    } catch (e) {
-      logErrorToDb(e, {
-        context: 'doctor.report_earnings_settle',
-        requestId: req.requestId,
-        userId: req.user?.id,
-        url: req.originalUrl,
-        method: req.method,
-        category: 'doctor_case',
-        orderId
-      });
-      console.error('[earnings] settleCaseEarningsOnCompletion failed', e && e.message ? e.message : e);
-    }
-
-    // Auto-save case report to medical records
-    try {
-      if (order.patient_id) {
-        var serviceName = '';
-        try {
-          var svc = order.service_id ? await queryOne('SELECT name FROM services WHERE id = $1', [order.service_id]) : null;
-          serviceName = svc ? svc.name : '';
-        } catch (_) {}
-        var recId = require('crypto').randomUUID();
-        await execute(
-          `INSERT INTO medical_records (id, patient_id, record_type, title, description, file_url, order_id, doctor_id, is_shared_with_doctors, created_at)
-           VALUES ($1, $2, 'case_report', $3, $4, $5, $6, $7, true, $8)
-           ON CONFLICT DO NOTHING`,
-          [
-            recId,
-            order.patient_id,
-            'Case Report - ' + (serviceName || 'Medical Review'),
-            'Auto-saved from completed case #' + String(orderId).slice(0, 8),
-            reportUrl || null,
-            orderId,
-            doctorId,
-            new Date().toISOString()
-          ]
-        );
-      }
-    } catch (_) {}
-
-    // Notify patient that report is ready (email + whatsapp + internal)
-    if (order.patient_id) {
-      try {
-        const doctor = await queryOne('SELECT name FROM users WHERE id = $1', [doctorId]);
-        const specialty = order.specialty_id
-          ? await queryOne('SELECT name FROM specialties WHERE id = $1', [order.specialty_id])
-          : null;
-        queueMultiChannelNotification({
-          orderId,
-          toUserId: order.patient_id,
-          channels: ['email', 'whatsapp', 'internal'],
-          template: 'report_ready_patient',
-          response: {
-            caseReference: String(orderId).slice(0, 12).toUpperCase(),
-            doctorName: doctor ? doctor.name : '',
-            specialty: specialty ? specialty.name : '',
-            reportUrl: `${process.env.APP_URL || 'https://tashkheesa.com'}/portal/case/${orderId}/report`,
-          },
-        });
-      } catch (notifErr) {
-        logErrorToDb(notifErr, {
-          context: 'doctor.report_patient_notify',
-          requestId: req.requestId,
-          userId: req.user?.id,
-          url: req.originalUrl,
-          method: req.method,
-          category: 'doctor_case',
-          orderId
-        });
-        console.error('[doctor][report] notification failed', notifErr.message);
-      }
-    }
-
-    return res.redirect(`/portal/doctor/case/${orderId}`);
   } catch (e) {
     logErrorToDb(e, {
       context: 'doctor.report_generate',

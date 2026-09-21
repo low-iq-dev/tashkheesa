@@ -217,12 +217,24 @@ try {
 
 // ── 4. The doctor report-submit path still records the export ─────────────
 try {
-  const docSrc = fs.readFileSync(path.join(SRC, 'routes', 'doctor.js'), 'utf8');
-  if (!/INSERT INTO report_exports/.test(docSrc)) {
+  // BATCH B (B4): report submission moved into services/report_submission.js
+  // — the export row is now written INSIDE the atomic completion transaction
+  // there, and routes/doctor.js is a thin caller. The guard follows the code:
+  // the submission service must write report_exports, and the route must
+  // actually delegate to the service.
+  const svcSrc = fs.readFileSync(path.join(SRC, 'services', 'report_submission.js'), 'utf8');
+  if (!/INSERT INTO report_exports/.test(svcSrc)) {
     throw new Error(
-      'routes/doctor.js no longer writes report_exports. routes/patient.js gates the ' +
+      'services/report_submission.js no longer writes report_exports. routes/patient.js gates the ' +
       'entire patient Report tab on that row, so every delivered report would show ' +
       'as "Locked" to the patient who was just told it is ready.'
+    );
+  }
+  const docSrc = fs.readFileSync(path.join(SRC, 'routes', 'doctor.js'), 'utf8');
+  if (!/submitDoctorReport\(/.test(docSrc)) {
+    throw new Error(
+      'routes/doctor.js no longer calls submitDoctorReport — the report path must go ' +
+      'through the one submission service (Batch B B4).'
     );
   }
   const patSrc = fs.readFileSync(path.join(SRC, 'routes', 'patient.js'), 'utf8');
