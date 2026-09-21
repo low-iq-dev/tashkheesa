@@ -1,7 +1,7 @@
 [development] [pg] pool ready: max=8 connect=15000ms idle=30000ms statement_timeout=30000ms (requested)
 [development] [pg] startup options: NOT sent (default since AUDIT-STARTUP-OPTIONS-2 — Supavisor uses the `options` startup parameter for its own tenant routing). timezone and statement_timeout must come from `ALTER ROLE ... SET ...` on the app role; the per-connection SETs below are a fallback, NOT a guarantee on a transaction-mode pooler. See verifyPoolSettings output.
 [development] [pg] env: mode=unknown DATABASE_URL_DIRECT=not set
-══ Batch B verification — 2026-09-21T18:14:33.768Z ══
+══ Batch B verification — 2026-09-21T18:24:38.123Z ══
 
 SEED (the brief's mix, all completing in the CURRENT Cairo month unless stated):
   a) standard completed: fee 600, uplift 0            → earns 600
@@ -44,6 +44,14 @@ SEED (the brief's mix, all completing in the CURRENT Cairo month unless stated):
    ✓ the transaction rolled back whole: nothing landed except the draft text, and the case is retryable
    ✓ the retry after the failure completes cleanly
 
+── 6. Fix-round checks (adversarial M-1, M-2, m-4, m-5) ──
+   owed = 4653 | settleable = 4320 | in-flight = 333
+   ✓ M-1: the transfer figure (settleable) excludes undelivered work, and mark-paid agrees
+   reassignment of a delivered case: {"skipped":"already_completed","orderId":"vb-o-delivered","existingId":"earn-main-3156cb47-3abb-4bc5-a645-5c52eba1a602"}
+   ✓ M-2: the doctor who delivered keeps the fee
+   ✓ m-4: cancelled → case_not_open; legacy 'done' → alreadyCompleted, no re-notify
+   ✓ m-5: the winner's report text survives a stale re-submit
+
 ══ ALL BATCH B VERIFICATIONS PASSED ══
 
 ── tests/services/earnings_writer.test.js (same scratch DB) ──
@@ -64,7 +72,6 @@ SEED (the brief's mix, all completing in the CURRENT Cairo month unless stated):
   [32m✅[0m idempotency: second call returns existing state, no duplicate event
   [32m✅[0m race guard: settled money not clawed back, no event written
   [32m✅[0m no main row: skipped cleanly, no spurious writes
-  [32m✅[0m atomicity: helper uses withTransaction + FOR UPDATE + in-txn event (source-verified)
   [32m✅[0m auto-pause: 1 breach < threshold(3) → no pause
   [32m✅[0m auto-pause: operator-initiated (admin_manual) reassignment never counts
   [32m✅[0m equivalence: token-row query and doctor_sla_events count the same N (incl. admin_manual exclusion)

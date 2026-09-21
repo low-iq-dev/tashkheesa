@@ -331,49 +331,70 @@ async function getMostRecentPaidEarning(doctorId) {
  * (earnings_writer keeps add-ons out of doctor_earnings by design; only the
  * sum is what the doctor is shown). "paid this month" is by the PAYOUT stamp
  * (paid_at), current Cairo month — that is when the money moved.
+ *
+ * Fix round 2026-09-21 (adversarial M-1): `owedSettleableEgp` is the part of
+ * owed that markMonthEndPaid can actually stamp — pending rows whose work is
+ * DELIVERED (main rows require the order's completed_at; video rows and
+ * add-on rows are written at the delivery moment, so all of theirs counts).
+ * `owedInFlightEgp` is the accepted-but-undelivered remainder. The operator
+ * transfers off this screen; without the split they could pay out the
+ * in-flight figure for work not yet delivered — money a later reassignment
+ * says was never earned.
  */
 async function getOwedByDoctor({ limit = 200 } = {}) {
   const PAID_THIS_MONTH =
     `de.status = 'paid' AND ${PAID_AT_CAIRO_DE} >= ${MONTH_START_CAIRO}`;
+  const PENDING = `${MONEY_ROWS} AND de.status = 'pending'`;
+  const SETTLEABLE =
+    `${PENDING} AND (de.id NOT LIKE 'earn-main-%' OR o.completed_at IS NOT NULL)`;
   const rows = await queryAll(
     `SELECT u.id AS doctor_id,
             COALESCE(u.name, '—') AS doctor_name,
-            COALESCE(SUM(de.earned_amount) FILTER (WHERE ${MONEY_ROWS} AND de.status = 'pending'), 0)
+            COALESCE(SUM(de.earned_amount) FILTER (WHERE ${PENDING}), 0)
               + COALESCE(ae.owed_addons, 0) AS owed,
-            COALESCE(SUM(de.earned_amount) FILTER (WHERE ${MONEY_ROWS} AND de.status = 'pending'), 0) AS owed_cases,
+            COALESCE(SUM(de.earned_amount) FILTER (WHERE ${PENDING}), 0) AS owed_cases,
+            COALESCE(SUM(de.earned_amount) FILTER (WHERE ${SETTLEABLE}), 0)
+              + COALESCE(ae.owed_addons, 0) AS owed_settleable,
             COALESCE(ae.owed_addons, 0) AS owed_addons,
-            COUNT(*) FILTER (WHERE ${MONEY_ROWS} AND de.status = 'pending')::int AS unpaid_cases,
-            MIN(de.created_at) FILTER (WHERE ${MONEY_ROWS} AND de.status = 'pending') AS oldest_unpaid_at,
+            COUNT(*) FILTER (WHERE ${PENDING})::int AS unpaid_cases,
+            MIN(de.created_at) FILTER (WHERE ${PENDING}) AS oldest_unpaid_at,
             MAX(COALESCE(de.paid_at, de.created_at)) FILTER (WHERE de.status = 'paid') AS last_paid_at,
             COALESCE(SUM(de.earned_amount) FILTER (WHERE ${MONEY_ROWS} AND ${PAID_THIS_MONTH}), 0) AS paid_this_month,
             COUNT(*) FILTER (WHERE de.created_at >= NOW() - INTERVAL '14 days') AS cycle_cases
        FROM users u
        JOIN doctor_earnings de ON de.doctor_id = u.id
+       ${COMPLETION_JOIN}
        LEFT JOIN (
          SELECT doctor_id, SUM(earned_amount_egp) AS owed_addons
            FROM addon_earnings WHERE status = 'pending' GROUP BY doctor_id
        ) ae ON ae.doctor_id = u.id
       WHERE u.role = 'doctor'
       GROUP BY u.id, u.name, ae.owed_addons
-     HAVING COALESCE(SUM(de.earned_amount) FILTER (WHERE ${MONEY_ROWS} AND de.status = 'pending'), 0)
+     HAVING COALESCE(SUM(de.earned_amount) FILTER (WHERE ${PENDING}), 0)
               + COALESCE(ae.owed_addons, 0) > 0
          OR COALESCE(SUM(de.earned_amount) FILTER (WHERE ${MONEY_ROWS} AND ${PAID_THIS_MONTH}), 0) > 0
       ORDER BY owed DESC, paid_this_month DESC, doctor_name ASC
       LIMIT $1`,
     [limit]
   );
-  return (rows || []).map((r) => ({
-    doctorId: r.doctor_id,
-    doctorName: r.doctor_name,
-    owedEgp: money(r.owed),
-    owedCasesEgp: money(r.owed_cases),
-    owedAddonsEgp: money(r.owed_addons),
-    unpaidCases: intOr0(r.unpaid_cases),
-    oldestUnpaidAt: r.oldest_unpaid_at || null,
-    lastPaidAt: r.last_paid_at || null,
-    paidThisMonthEgp: money(r.paid_this_month),
-    cycleCases: intOr0(r.cycle_cases)
-  }));
+  return (rows || []).map((r) => {
+    const owed = money(r.owed);
+    const settleable = money(r.owed_settleable);
+    return {
+      doctorId: r.doctor_id,
+      doctorName: r.doctor_name,
+      owedEgp: owed,
+      owedCasesEgp: money(r.owed_cases),
+      owedAddonsEgp: money(r.owed_addons),
+      owedSettleableEgp: settleable,
+      owedInFlightEgp: money(owed - settleable),
+      unpaidCases: intOr0(r.unpaid_cases),
+      oldestUnpaidAt: r.oldest_unpaid_at || null,
+      lastPaidAt: r.last_paid_at || null,
+      paidThisMonthEgp: money(r.paid_this_month),
+      cycleCases: intOr0(r.cycle_cases)
+    };
+  });
 }
 
 /**
@@ -384,23 +405,35 @@ async function getOwedByDoctor({ limit = 200 } = {}) {
 async function getGlobalOwedTotals() {
   const PAID_THIS_MONTH =
     `de.status = 'paid' AND ${PAID_AT_CAIRO_DE} >= ${MONTH_START_CAIRO}`;
+  const PENDING = `${MONEY_ROWS} AND de.status = 'pending'`;
+  const SETTLEABLE =
+    `${PENDING} AND (de.id NOT LIKE 'earn-main-%' OR o.completed_at IS NOT NULL)`;
   const row = await queryOne(
-    `SELECT COALESCE(SUM(de.earned_amount) FILTER (WHERE ${MONEY_ROWS} AND de.status = 'pending'), 0) AS owed_cases_total,
+    `SELECT COALESCE(SUM(de.earned_amount) FILTER (WHERE ${PENDING}), 0) AS owed_cases_total,
+            COALESCE(SUM(de.earned_amount) FILTER (WHERE ${SETTLEABLE}), 0) AS owed_settleable_cases_total,
             COALESCE((SELECT SUM(earned_amount_egp) FROM addon_earnings WHERE status = 'pending'), 0) AS owed_addons_total,
-            COUNT(*) FILTER (WHERE ${MONEY_ROWS} AND de.status = 'pending')::int AS unpaid_cases_total,
-            COUNT(DISTINCT de.doctor_id) FILTER (WHERE ${MONEY_ROWS} AND de.status = 'pending')::int AS doctors_owed,
-            MIN(de.created_at) FILTER (WHERE ${MONEY_ROWS} AND de.status = 'pending') AS oldest_unpaid_at,
+            COUNT(*) FILTER (WHERE ${PENDING})::int AS unpaid_cases_total,
+            COUNT(DISTINCT de.doctor_id) FILTER (WHERE ${PENDING})::int AS doctors_owed,
+            MIN(de.created_at) FILTER (WHERE ${PENDING}) AS oldest_unpaid_at,
             COALESCE(SUM(de.earned_amount) FILTER (WHERE ${MONEY_ROWS} AND ${PAID_THIS_MONTH}), 0) AS paid_this_month,
             COUNT(*) FILTER (WHERE ${MONEY_ROWS} AND ${PAID_THIS_MONTH})::int AS paid_this_month_cases,
             to_char(${MONTH_START_CAIRO}, 'YYYY-MM-DD"T"HH24:MI:SS') AS month_start_cairo
-       FROM doctor_earnings de`
+       FROM doctor_earnings de
+       ${COMPLETION_JOIN}`
   );
   const casesEgp = money(row && row.owed_cases_total);
   const addonsEgp = money(row && row.owed_addons_total);
+  const settleableEgp = money(money(row && row.owed_settleable_cases_total) + addonsEgp);
+  const totalEgp = money(casesEgp + addonsEgp);
   return {
     owedCasesEgp: casesEgp,
     owedAddonsEgp: addonsEgp,
-    owedTotalEgp: money(casesEgp + addonsEgp),
+    owedTotalEgp: totalEgp,
+    // Fix round (adversarial M-1): what a month-end payout run can actually
+    // settle today vs the accepted-but-undelivered remainder. See
+    // getOwedByDoctor.
+    owedSettleableEgp: settleableEgp,
+    owedInFlightEgp: money(totalEgp - settleableEgp),
     unpaidCases: intOr0(row && row.unpaid_cases_total),
     doctorsOwed: intOr0(row && row.doctors_owed),
     oldestUnpaidAt: (row && row.oldest_unpaid_at) || null,
@@ -442,7 +475,16 @@ async function getOwedForDoctorIds(doctorIds) {
  * earned_amount in place), so it is derived from the policy string that fired:
  *   'sla_breach_full_clawback' (legacy rows, pre-Batch-B policy) → the
  *     pre-clawback value was the base share = orders.doctor_fee.
- *   '...90pct_clawback' → earned = 0.10 × full, so clawback = 9 × earned.
+ *   the 90% policy → earned = 0.10 × full at a full refund, so clawback =
+ *     9 × earned. Fix round 2026-09-21 (adversarial m-1): the writer has
+ *     stamped '…scaled_90pct_clawback' since the 2026-08-17 scaling change,
+ *     while this arm (carried over from the old inline query) matched only
+ *     the retired unscaled string — so every modern 90% clawback reported
+ *     0 EGP on the ops money surface. Both strings now match. For a PARTIAL
+ *     refund under the scaled policy the ratio is not stored, so 9 × earned
+ *     is exact at ratio 1 and an UPPER BOUND below it — the surface already
+ *     flags the whole figure as derived, and a stated bound beats a silent
+ *     zero.
  *   'sla_breach_uplift_zeroed' (the breach write-down, and post-Batch-B the
  *     sla_breach refund settlement) and anything unknown → counted, 0 EGP —
  *     the reversed uplift is not derivable from the row once sla_breach.js
@@ -458,7 +500,8 @@ async function getClawbackSummaryByPolicy({ fromCairoSql }) {
               CASE
                 WHEN de.clawback_reason = 'sla_breach_full_clawback'
                   THEN COALESCE(o.doctor_fee, 0)
-                WHEN de.clawback_reason = 'patient_or_operator_post_acceptance_90pct_clawback'
+                WHEN de.clawback_reason IN ('patient_or_operator_post_acceptance_90pct_clawback',
+                                            'patient_or_operator_post_acceptance_scaled_90pct_clawback')
                   THEN COALESCE(de.earned_amount, 0) * 9
                 ELSE 0
               END), 0) AS egp

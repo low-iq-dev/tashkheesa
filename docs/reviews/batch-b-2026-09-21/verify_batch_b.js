@@ -357,6 +357,61 @@ async function seedOrder({ id, fee, uplift, status = 'in_review', completedAtUtc
   assert.ok(retry.ok && retry.completed, 'retry after the failure completes cleanly');
   log('   ✓ the retry after the failure completes cleanly');
   log('');
+
+  // ── 6. FIX-ROUND CHECKS (adversarial review M-1/M-2/m-4/m-5) ─────────────
+  log('── 6. Fix-round checks (adversarial M-1, M-2, m-4, m-5) ──');
+
+  // M-1: owed vs settleable — seed an accepted-but-undelivered case and show
+  // the payout surface splits it out of the transferable figure.
+  await seedOrder({ id: 'vb-o-inflight', fee: 333, uplift: 0 });
+  await writer.writePendingForCase('vb-o-inflight');
+  const owed2 = (await reader.getOwedByDoctor({ limit: 10 })).find((r) => r.doctorId === D);
+  log('   owed = ' + owed2.owedEgp + ' | settleable = ' + owed2.owedSettleableEgp + ' | in-flight = ' + owed2.owedInFlightEgp);
+  assert.strictEqual(owed2.owedInFlightEgp, 333, 'the undelivered 333 is flagged in-flight');
+  assert.strictEqual(money(owed2.owedSettleableEgp + owed2.owedInFlightEgp), owed2.owedEgp, 'settleable + in-flight = owed');
+  const g2 = await reader.getGlobalOwedTotals();
+  assert.strictEqual(money(g2.owedSettleableEgp + g2.owedInFlightEgp), g2.owedTotalEgp, 'global split adds up too');
+  // And the stamp really cannot touch it:
+  const curMonth = (await queryOne(`SELECT to_char(date_trunc('month', NOW() AT TIME ZONE 'Africa/Cairo'), 'YYYY-MM') AS m`)).m;
+  await writer.markMonthEndPaid({ month: curMonth, doctorId: D, actor: 'verify' });
+  const inflightRow = await queryOne(`SELECT status FROM doctor_earnings WHERE appointment_id = 'vb-o-inflight'`);
+  assert.strictEqual(inflightRow.status, 'pending', 'mark-paid never stamps the in-flight row');
+  log('   ✓ M-1: the transfer figure (settleable) excludes undelivered work, and mark-paid agrees');
+
+  // M-2: a reassignment against a DELIVERED case is refused at the earnings
+  // layer, whatever the caller's earlier status read saw.
+  await seedOrder({ id: 'vb-o-delivered', fee: 250, uplift: 0 });
+  await writer.writePendingForCase('vb-o-delivered');
+  const sub6 = await submitDoctorReport(Object.assign({ orderId: 'vb-o-delivered', doctorId: D }, fields));
+  assert.ok(sub6.ok && sub6.completed, 'delivered');
+  const reBlocked = await writer.markReassignedOnReassignment(D, 'vb-o-delivered', 'sla_breach');
+  log('   reassignment of a delivered case: ' + JSON.stringify(reBlocked));
+  assert.strictEqual(reBlocked.skipped, 'already_completed', 'M-2: delivered case cannot be zeroed by a racing reassignment');
+  const delivRow = await queryOne(`SELECT status, earned_amount FROM doctor_earnings WHERE appointment_id = 'vb-o-delivered'`);
+  assert.strictEqual(delivRow.status, 'pending', 'row untouched');
+  assert.strictEqual(Number(delivRow.earned_amount), 250, 'fee intact');
+  log('   ✓ M-2: the doctor who delivered keeps the fee');
+
+  // m-4: terminal statuses are not submittable, and a legacy 'done' case is
+  // treated as already completed (no re-notification).
+  await seedOrder({ id: 'vb-o-cancelled', fee: 100, uplift: 0, status: 'cancelled' });
+  const subC = await submitDoctorReport(Object.assign({ orderId: 'vb-o-cancelled', doctorId: D }, fields));
+  assert.strictEqual(subC.code, 'case_not_open', 'cancelled case refused: ' + JSON.stringify(subC));
+  await seedOrder({ id: 'vb-o-done', fee: 100, uplift: 0, status: 'done' });
+  const beforeDone = notifyCalls.length;
+  const subD = await submitDoctorReport(Object.assign({ orderId: 'vb-o-done', doctorId: D }, fields));
+  assert.ok(subD.ok && subD.alreadyCompleted, "legacy 'done' reads as completed: " + JSON.stringify(subD));
+  assert.strictEqual(notifyCalls.length, beforeDone, "no re-notification on a 'done' case");
+  log("   ✓ m-4: cancelled → case_not_open; legacy 'done' → alreadyCompleted, no re-notify");
+
+  // m-5: a late/stale submit cannot deface the winner's report text.
+  const winnerText = await queryOne(`SELECT diagnosis_text FROM orders WHERE id = 'vb-o-delivered'`);
+  const stale = await submitDoctorReport({ orderId: 'vb-o-delivered', doctorId: D, diagnosisText: 'STALE OLD DRAFT', impressionText: 'stale', recommendationsText: '' });
+  assert.ok(stale.ok && stale.alreadyCompleted, 'stale submit gets the idempotent result');
+  const afterText = await queryOne(`SELECT diagnosis_text FROM orders WHERE id = 'vb-o-delivered'`);
+  assert.strictEqual(afterText.diagnosis_text, winnerText.diagnosis_text, "m-5: the completed case's report text is untouched by the stale submit");
+  log('   ✓ m-5: the winner\'s report text survives a stale re-submit');
+  log('');
   log('══ ALL BATCH B VERIFICATIONS PASSED ══');
 
   await pool.end();

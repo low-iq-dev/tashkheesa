@@ -252,12 +252,31 @@ function normalizeStatus(status) {
     .replace(/-/g, '_');
 }
 
+// Fix round 2026-09-21 (adversarial m-4): the completion flip's WHERE clause
+// is THE idempotency key, so it must speak the whole status vocabulary, not
+// just the literal 'completed'. These lists mirror
+// case_lifecycle.DB_STATUS_VARIANTS: production has historically stored
+// 'done'/'finished' for COMPLETED, and a terminal cancelled/refunded/expired
+// case must not be completable from a stale doctor tab (the pre-Batch-B
+// handler allowed exactly that).
+const COMPLETED_DB_STATUSES = ['completed', 'done', 'finished'];
+const CLOSED_DB_STATUSES = ['cancelled', 'canceled', 'cancel', 'refunded', 'expired_unpaid', 'expired'];
+const NOT_SUBMITTABLE_DB_STATUSES = COMPLETED_DB_STATUSES.concat(CLOSED_DB_STATUSES);
+const NOT_SUBMITTABLE_SQL_LIST = NOT_SUBMITTABLE_DB_STATUSES.map((s) => `'${s}'`).join(', ');
+
 // ── The draft-shaped text write ────────────────────────────────────────────
 
 // AUDIT-2026-08-22 (L4) — persist the doctor's written report BEFORE anything
 // that can fail. A plain draft-shaped UPDATE: never touches `status`, so if a
 // later step fails the case is still open, the editor still renders the text,
 // and Submit is retryable.
+//
+// Fix round 2026-09-21 (adversarial m-5): guarded against terminal statuses.
+// Without the guard, the LOSER of a double-submit race — or a stale tab
+// holding older text — still overwrote the report columns on the
+// now-COMPLETED order, so the patient's on-site report showed the stale text
+// while the PDF held the winner's. Returns the affected row count; 0 means
+// the case is no longer open and the caller must not proceed.
 async function persistReportText({ orderId, diagnosisText, impressionText, recommendationsText }) {
   const diagnosisCol = await getDiagnosisColumnName();
   const impressionCol = await getImpressionColumnName();
@@ -302,7 +321,13 @@ async function persistReportText({ orderId, diagnosisText, impressionText, recom
   }
 
   params.push(orderId);
-  await execute(`UPDATE orders SET ${sets.join(', ')} WHERE id = $${idx}`, params);
+  const res = await execute(
+    `UPDATE orders SET ${sets.join(', ')}
+      WHERE id = $${idx}
+        AND LOWER(COALESCE(status, '')) NOT IN (${NOT_SUBMITTABLE_SQL_LIST})`,
+    params
+  );
+  return (res && res.rowCount) || 0;
 }
 
 // ── The atomic completion write (inside submitDoctorReport's transaction) ──
@@ -376,14 +401,26 @@ async function completeOrderInTxn(client, {
     params.push(nowIso);
   }
 
-  params.push(orderId);
   // THE IDEMPOTENCY GATE. Two racing submissions both pass the handler's
   // early completed-check; only one can win this row-level conditional flip.
   // The loser gets rowCount 0 and writes nothing else.
+  //
+  // Fix round 2026-09-21 (adversarial m-4 + M-2): the exclusion speaks the
+  // whole COMPLETED/terminal vocabulary (a 'done' case must not be
+  // re-completed and re-notify the patient; a cancelled/refunded case must
+  // not be completable at all), and the flip re-checks doctor_id — the
+  // handler's load-time authorisation, made atomic. A reassignment that
+  // moved the case to another doctor between the load and this UPDATE makes
+  // the flip lose instead of completing a case this doctor no longer holds.
+  params.push(orderId);
+  const orderIdIdx = paramIdx++;
+  params.push(doctorId);
+  const doctorIdIdx = paramIdx++;
   const res = await client.query(
     `UPDATE orders SET ${sets.join(', ')}
-      WHERE id = $${paramIdx}
-        AND LOWER(COALESCE(status, '')) <> 'completed'
+      WHERE id = $${orderIdIdx}
+        AND doctor_id = $${doctorIdIdx}
+        AND LOWER(COALESCE(status, '')) NOT IN (${NOT_SUBMITTABLE_SQL_LIST})
       RETURNING id`,
     params
   );
@@ -433,8 +470,15 @@ async function submitDoctorReport({
     return { ok: false, code: 'forbidden' };
   }
 
-  if (normalizeStatus(order.status) === 'completed') {
+  const statusNow = normalizeStatus(order.status);
+  if (COMPLETED_DB_STATUSES.includes(statusNow)) {
     return { ok: true, alreadyCompleted: true };
+  }
+  // Fix round (adversarial m-4): a cancelled / refunded / expired case is not
+  // submittable — the pre-Batch-B handler would happily complete it from a
+  // stale doctor tab, settling a full pending fee on a cancelled case.
+  if (CLOSED_DB_STATUSES.includes(statusNow)) {
+    return { ok: false, code: 'case_not_open' };
   }
 
   // 2. Resolve the three fields with the stored-draft fallback — a browser
@@ -446,12 +490,22 @@ async function submitDoctorReport({
 
   // Persist the text draft-shaped BEFORE anything that can fail.
   try {
-    await persistReportText({
+    const saved = await persistReportText({
       orderId,
       diagnosisText: findings,
       impressionText: impression,
       recommendationsText: recommendations
     });
+    if (!saved) {
+      // The case closed between the load above and this write (a concurrent
+      // submit completed it, or an operator cancelled it). Nothing was
+      // overwritten — classify from the current status and stop.
+      const now = await queryOne('SELECT status FROM orders_active WHERE id = $1', [orderId]);
+      const s = normalizeStatus(now && now.status);
+      return COMPLETED_DB_STATUSES.includes(s)
+        ? { ok: true, alreadyCompleted: true }
+        : { ok: false, code: 'case_not_open' };
+    }
   } catch (e) {
     logErrorToDb(e, { context: 'report_submission.persist_text', category: 'doctor_case', orderId, userId: doctorId });
     console.error('[report-submission] could not persist report text — refusing to continue', e && e.message);
@@ -558,7 +612,20 @@ async function submitDoctorReport({
         recommendationsText: recommendations,
         completedStatusValue
       });
-      if (!won) return { alreadyCompleted: true };
+      if (!won) {
+        // The flip lost. Classify inside the transaction: a COMPLETED case is
+        // the idempotent duplicate; a doctor mismatch means a reassignment
+        // raced in; anything else (cancelled/refunded/'done'-variant) is a
+        // case that is no longer open to this submission.
+        // include-deleted-ok: classifying the row the flip just targeted —
+        // a soft-deleted order must still classify, not read as missing.
+        const nowRes = await client.query('SELECT status, doctor_id FROM orders WHERE id = $1', [orderId]);
+        const nowRow = (nowRes && nowRes.rows && nowRes.rows[0]) || null;
+        const s = normalizeStatus(nowRow && nowRow.status);
+        if (COMPLETED_DB_STATUSES.includes(s)) return { alreadyCompleted: true };
+        if (nowRow && String(nowRow.doctor_id || '') !== String(doctorId)) return { lostCase: true };
+        return { caseNotOpen: true };
+      }
 
       // AUDIT-P0-1 — the patient's Report tab gates on this row existing.
       // In the transaction: a completed case without its report record is
@@ -611,6 +678,13 @@ async function submitDoctorReport({
     // A concurrent submission won the flip. Its winner owns the side
     // effects; this caller reports the same idempotent success.
     return { ok: true, alreadyCompleted: true };
+  }
+  if (txnResult && txnResult.lostCase) {
+    // A reassignment moved the case to another doctor mid-submission.
+    return { ok: false, code: 'forbidden' };
+  }
+  if (txnResult && txnResult.caseNotOpen) {
+    return { ok: false, code: 'case_not_open' };
   }
 
   // 7. Post-commit, best-effort — the completion is committed and stands

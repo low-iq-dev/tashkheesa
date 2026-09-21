@@ -862,13 +862,33 @@ async function markReassignedOnReassignment(originalDoctorId, orderId, reason) {
     var row = existingResult.rows[0];
 
     // Step 2: race guard — already settled by a month-end payout. Don't claw
-    // back money that moved. (Pre-payout completion leaves the row 'pending'
-    // now, so this guard bites later than it used to — which is the point:
-    // a doctor who delivered before the reassignment raced in keeps the fee
-    // only once finance has actually paid it; before that the reassignment
-    // legitimately zeroes it.)
+    // back money that moved.
     if (row.status === 'paid') {
       return { skipped: 'already_paid', orderId: orderId, existingId: row.id };
+    }
+
+    // Step 2b (fix round 2026-09-21, adversarial M-2): the doctor DELIVERED.
+    // Before Batch B the submit path stamped the row 'paid' immediately, so
+    // the guard above also protected a delivered case against a reassignment
+    // racing the submit. With 'paid' moved to month-end the row stays
+    // 'pending' after delivery, so the delivered-ness must be read from the
+    // ORDER — checked here, after the FOR UPDATE above, so a submit
+    // transaction that already committed (order completed + row settled, the
+    // settle serialises on this same row lock) is always visible. A doctor
+    // who delivered the report earns the fee; the reassignment of a
+    // completed case is refused at the earnings layer whatever the caller's
+    // status gate saw a moment earlier. ('done'/'finished' are the legacy
+    // COMPLETED spellings — case_lifecycle.DB_STATUS_VARIANTS.)
+    // include-deleted-ok: delivered-ness must be visible even if the order
+    // were ever soft-deleted — the guard protects money, not visibility.
+    var ordRes = await client.query(
+      `SELECT status, completed_at FROM orders WHERE id = $1`,
+      [orderId]
+    );
+    var ord = ordRes.rows[0] || null;
+    var ordStatus = String((ord && ord.status) || '').toLowerCase();
+    if (ord && (ord.completed_at || ['completed', 'done', 'finished'].includes(ordStatus))) {
+      return { skipped: 'already_completed', orderId: orderId, existingId: row.id };
     }
 
     // Step 3: idempotency — called twice for the same (doctor, order) while
@@ -932,7 +952,8 @@ async function markReassignedOnReassignment(originalDoctorId, orderId, reason) {
 // sweep) each carried their own raw INSERT INTO doctor_earnings; those rows
 // are why the ledger held shapes no aggregation expected. Same row shape,
 // same one-earning-per-appointment guard (explicit NOT EXISTS pre-check so
-// behaviour is right even before migration 082's unique index; untargeted
+// behaviour is right even where migration 083's partial unique index
+// (uniq_doctor_earnings_appointment_video) has not landed; untargeted
 // ON CONFLICT DO NOTHING as the race-proof backstop — a targeted conflict
 // clause cannot infer a partial index and would raise at runtime).
 //
@@ -1004,6 +1025,12 @@ async function markMonthEndPaid({ month, doctorId, actor } = {}) {
   let deDoctor = '';
   if (doctorId) { deParams.push(doctorId); deDoctor = ` AND de.doctor_id = $2`; }
   const deRes = await queryAll(
+    // Fix round 2026-09-21 (adversarial m-3): the outer WHERE re-checks
+    // status='pending'. Under READ COMMITTED a concurrent
+    // markReassignedOnReassignment can flip a subquery-selected row to
+    // 'reassigned' and commit first; without the re-check EvalPlanQual would
+    // stamp 'paid' over the fresh 'reassigned' and destroy the reassignment
+    // marker (which the come-back reopen paths key on).
     `UPDATE doctor_earnings u
         SET status = 'paid',
             paid_at = NOW()
@@ -1021,6 +1048,7 @@ async function markMonthEndPaid({ month, doctorId, actor } = {}) {
                 'YYYY-MM') = $1${deDoctor}
        ) sel
       WHERE u.id = sel.id
+        AND u.status = 'pending'
       RETURNING u.id, u.doctor_id, u.earned_amount`,
     deParams
   );
@@ -1039,6 +1067,7 @@ async function markMonthEndPaid({ month, doctorId, actor } = {}) {
             AND to_char(date_trunc('month', (ae.created_at AT TIME ZONE 'Africa/Cairo')), 'YYYY-MM') = $1${aeDoctor}
        ) sel
       WHERE u.id = sel.id
+        AND u.status = 'pending'
       RETURNING u.id, u.doctor_id, u.earned_amount_egp`,
     aeParams
   );

@@ -4161,6 +4161,12 @@ module.exports = function (db, helpers, deploy, deps) {
         // differs from the case count times a fee.
         owedCasesEgp: r.owedCasesEgp,
         owedAddonsEgp: r.owedAddonsEgp,
+        // Fix round (adversarial M-1): what mark-paid can actually settle
+        // today vs the accepted-but-undelivered remainder. TRANSFER OFF
+        // owedSettleableEgp — the in-flight part is work not yet delivered,
+        // and a later reassignment makes it money that was never earned.
+        owedSettleableEgp: r.owedSettleableEgp,
+        owedInFlightEgp: r.owedInFlightEgp,
         unpaidCases: r.unpaidCases,
         oldestUnpaidAt: toIso(r.oldestUnpaidAt),
         lastPaidAt: toIso(r.lastPaidAt),
@@ -4172,6 +4178,8 @@ module.exports = function (db, helpers, deploy, deps) {
           owedEgp: totals.owedTotalEgp,
           owedCasesEgp: totals.owedCasesEgp,
           owedAddonsEgp: totals.owedAddonsEgp,
+          owedSettleableEgp: totals.owedSettleableEgp,
+          owedInFlightEgp: totals.owedInFlightEgp,
           unpaidCases: totals.unpaidCases,
           doctorsOwed: totals.doctorsOwed,
           // The single most useful number on the screen: how long the oldest
@@ -4186,7 +4194,7 @@ module.exports = function (db, helpers, deploy, deps) {
         },
         doctors,
         basis: {
-          owed: "status='pending' across BOTH ledgers — doctor_earnings SUM(earned_amount) plus addon_earnings SUM(earned_amount_egp), via services/earnings_reader (the one definition every surface reads). Legacy 'earn-reassign-%' token rows excluded: a reassigned case earns zero.",
+          owed: "status='pending' across BOTH ledgers — doctor_earnings SUM(earned_amount) plus addon_earnings SUM(earned_amount_egp), via services/earnings_reader (the one definition every surface reads). Legacy 'earn-reassign-%' token rows excluded: a reassigned case earns zero. owedSettleableEgp is the DELIVERED part of owed — exactly what POST /payouts/mark-paid can stamp — and owedInFlightEgp is accepted-but-undelivered work. Transfer off owedSettleableEgp.",
           paid: "doctor_earnings status='paid' — stamped by the MONTH-END payout run (earnings_writer.markMonthEndPaid via POST /payouts/mark-paid) when the InstaPay/cash transfers are actually made, not at case completion.",
           scope: 'all earnings rows for the doctor: main-case, video-consult and no-show alike, plus add-on commissions (video consult, prescription) from addon_earnings',
           bucketing: 'Cairo business month (Africa/Cairo), completion-dated',

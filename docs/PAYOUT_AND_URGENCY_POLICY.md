@@ -127,7 +127,7 @@ settled it on the uplift-only side):
 |---|---|---|---|
 | `sla_breach` | doctor delivered (late) | clamp to the **base-only** figure — the urgency uplift is reversed, **the base fee stands** | `sla_breach_uplift_zeroed` |
 | `sla_breach` | case reassigned away (doctor did not deliver) | already `0` via the reassignment write-down; the clamp keeps it there | n/a — reassignment path |
-| `patient_request` OR `operator_refund` | doctor accepted (post-`ASSIGNED`) | doctor keeps `0.10 * (baseShare + upliftShare)` (90% clawback), scaled by the refunded fraction | `patient_or_operator_post_acceptance_90pct_clawback` |
+| `patient_request` OR `operator_refund` | doctor accepted (post-`ASSIGNED`) | doctor keeps `0.10 * (baseShare + upliftShare)` (90% clawback), scaled by the refunded fraction | `patient_or_operator_post_acceptance_scaled_90pct_clawback` (rows before 2026-08-17 carry the unscaled `…_90pct_clawback`) |
 | any reason | doctor never accepted (pre-`ASSIGNED`) | no-op (no earnings row exists; `writePendingForCase` only fires at acceptance) | n/a — row does not exist |
 
 (`sla_breach_full_clawback` survives only as a legacy audit value on rows

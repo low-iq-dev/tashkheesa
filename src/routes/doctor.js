@@ -6314,6 +6314,10 @@ async function handlePortalDoctorGenerateReport(req, res) {
         // The text is already saved as a draft, so the case page renders it
         // straight back into the boxes.
         return res.redirect(`/portal/doctor/case/${orderId}?error=report_empty`);
+      case 'case_not_open':
+        // Cancelled / refunded / otherwise closed while the tab was open —
+        // the case page shows the real state.
+        return res.redirect(`/portal/doctor/case/${orderId}?error=case_not_open`);
       case 'report_pdf_failed':
         return res.redirect(`/portal/doctor/case/${orderId}?error=report_pdf_failed`);
       case 'report_complete_failed':
