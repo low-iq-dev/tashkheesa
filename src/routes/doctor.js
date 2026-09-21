@@ -51,6 +51,8 @@ const { computeDoctorEarnings } = require('../services/earnings_calc');
 // A4 (fix plan 2026-09-15): the case page's fee figure, computed by the same
 // code that writes the doctor_earnings ledger row.
 const { previewCaseEarnings } = require('../services/earnings_writer');
+// BATCH B (B1): every earnings aggregation this file shows goes through here.
+const earningsReader = require('../services/earnings_reader');
 const { getAddon } = require('../services/addons/registry');
 const { resolvePrescriptionAccess, resolvePrescriptionQuote, prescriptionCommissionPct } = require('../services/addons/prescription_access');
 const { loadDoctorServiceCatalog, diffServiceSelection } = require('../services/doctor_service_catalog');
@@ -361,31 +363,20 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
     // A10 (AUDIT 2026-09-09) — HONEST earnings. This tile used to SUM
     // orders.doctor_fee for completed cases: the full fee, ignoring the uplift
     // share, add-ons and clawbacks, so it showed money the doctor will not be
-    // paid — 5x the reality on some rows. Read earned_amount (the net figure,
-    // already computed by earnings_writer) from the SAME doctor_earnings +
-    // addon_earnings source the /portal/doctor/earnings page uses, with the SAME
-    // 'Approved' (paid) / 'Not yet approved' (pending + reassigned) split, month
-    // by created_at to match that page. Do not reimplement the arithmetic here.
-    var eRow = await queryOne(
-      `SELECT
-         COALESCE((SELECT SUM(earned_amount) FILTER (WHERE status = 'paid') FROM doctor_earnings
-            WHERE doctor_id = $1 AND created_at >= date_trunc('month', NOW())
-              AND created_at < date_trunc('month', NOW()) + INTERVAL '1 month'), 0)
-       + COALESCE((SELECT SUM(earned_amount_egp) FILTER (WHERE status = 'paid') FROM addon_earnings
-            WHERE doctor_id = $1 AND created_at >= date_trunc('month', NOW())
-              AND created_at < date_trunc('month', NOW()) + INTERVAL '1 month'), 0) AS approved,
-         COALESCE((SELECT SUM(earned_amount) FILTER (WHERE status IN ('pending', 'reassigned')) FROM doctor_earnings
-            WHERE doctor_id = $1 AND created_at >= date_trunc('month', NOW())
-              AND created_at < date_trunc('month', NOW()) + INTERVAL '1 month'), 0)
-       + COALESCE((SELECT SUM(earned_amount_egp) FILTER (WHERE status IN ('pending', 'reassigned')) FROM addon_earnings
-            WHERE doctor_id = $1 AND created_at >= date_trunc('month', NOW())
-              AND created_at < date_trunc('month', NOW()) + INTERVAL '1 month'), 0) AS not_yet_approved`,
-      [doctorId]
-    );
-    if (eRow) {
-      monthMetrics.earningsApproved = Number(eRow.approved) || 0;
-      monthMetrics.earningsNotYetApproved = Number(eRow.not_yet_approved) || 0;
-      monthMetrics.earningsThisMonth = monthMetrics.earningsApproved + monthMetrics.earningsNotYetApproved;
+    // paid — 5x the reality on some rows.
+    //
+    // BATCH B (B1): through the shared earnings reader — the SAME function
+    // every other surface uses, so this tile, the earnings page, Command
+    // finance and analytics can no longer disagree. That also fixes the two
+    // defects the hand-rolled query here carried: the month was the SERVER
+    // timezone (the reader buckets Africa/Cairo by completion date), and
+    // 'reassigned' rows were summed into "Not yet approved" — showing a doctor
+    // money the policy says a reassigned case never earns.
+    var eSummary = await earningsReader.getDoctorMonthSummary(doctorId);
+    if (eSummary) {
+      monthMetrics.earningsApproved = eSummary.approved;
+      monthMetrics.earningsNotYetApproved = eSummary.notYetApproved;
+      monthMetrics.earningsThisMonth = eSummary.total;
     }
   } catch (e) {
     logErrorToDb(e, {
@@ -805,37 +796,12 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
     console.warn('[dashboard] Unread messages query failed:', e.message);
   }
 
-  // doctor_earnings.appointment_id is named for video appointments but
-  // earnings_writer.js:122 (post-P0-FIN-1) reuses the column to store
-  // orders.id directly for main-case earnings. The COALESCE picks the
-  // appointments.order_id path first (video flow) and falls back to a
-  // direct orders match (main-case flow). NULL → de-link the widget.
+  // BATCH B (B1): the payout tile reads the shared earnings reader. (The
+  // appointment_id overload — order id for main rows, appointments UUID for
+  // video rows — is resolved inside getMostRecentPaidEarning.)
   let recentEarning = null;
   try {
-    const re = await queryOne(
-      `SELECT
-         de.id,
-         de.earned_amount,
-         de.paid_at,
-         COALESCE(ap.order_id, o.id) AS resolved_order_id
-       FROM doctor_earnings de
-       LEFT JOIN appointments ap ON ap.id = de.appointment_id
-       LEFT JOIN orders_active o        ON o.id  = de.appointment_id
-       WHERE de.doctor_id = $1
-         AND de.status = 'paid'
-         AND de.paid_at IS NOT NULL
-       ORDER BY de.paid_at DESC
-       LIMIT 1`,
-      [doctorId]
-    );
-    if (re) {
-      recentEarning = {
-        id: re.id,
-        earnedAmount: Number(re.earned_amount) || 0,
-        paidAt: re.paid_at,
-        orderId: re.resolved_order_id || null
-      };
-    }
+    recentEarning = await earningsReader.getMostRecentPaidEarning(doctorId);
   } catch (e) {
     logErrorToDb(e, {
       context: 'doctor.dashboard_recent_earning',
@@ -1424,87 +1390,32 @@ router.get('/portal/doctor/earnings', requireDoctor, async (req, res) => {
   let monthlyAddons = [];
   let lifetime = { total: 0, paid: 0, pending: 0, reassigned: 0 };
 
+  // BATCH B (B1): the statement reads the shared earnings reader — Cairo
+  // business months by COMPLETION date (the old query bucketed by created_at,
+  // which for a main row is the ACCEPTANCE date, in the server timezone), and
+  // reassigned money pinned to zero by policy instead of summed.
   try {
-    monthlyMain = await queryAll(
-      `SELECT date_trunc('month', created_at)::date AS month,
-              COUNT(*) AS case_count,
-              COALESCE(SUM(earned_amount), 0) AS total,
-              COALESCE(SUM(earned_amount) FILTER (WHERE status='paid'), 0) AS paid_total,
-              COALESCE(SUM(earned_amount) FILTER (WHERE status='pending'), 0) AS pending_total,
-              COALESCE(SUM(earned_amount) FILTER (WHERE status='reassigned'), 0) AS reassigned_total
-         FROM doctor_earnings
-        WHERE doctor_id = $1
-        GROUP BY 1
-        ORDER BY 1 DESC
-        LIMIT 24`,
-      [doctorId]
-    );
+    const statement = await earningsReader.getDoctorMonthlyStatement(doctorId, { limitMonths: 24 });
+    monthlyMain = statement.main;
+    monthlyAddons = statement.addons;
   } catch (e) {
     logErrorToDb(e, {
-      context: 'doctor.earnings_monthly_main',
+      context: 'doctor.earnings_monthly',
       requestId: req.requestId,
       userId: req.user?.id,
       url: req.originalUrl,
       method: req.method,
       category: 'doctor_case'
     });
-    console.warn('[earnings page] monthlyMain query failed', e && e.message);
+    console.warn('[earnings page] monthly statement query failed', e && e.message);
   }
 
+  // Lifetime totals — main + addon, one reader call. The page's identity
+  // Lifetime === Paid + Pending + Reassigned still holds (reassigned is 0 by
+  // policy; the reader computes it rather than hardcoding so a legacy nonzero
+  // row would surface as a visible discrepancy, not silent money).
   try {
-    // addon_earnings has no 'reassigned' status today (P1-FIN-2 was scoped
-    // to main-case doctor_earnings). Filter included for symmetry — returns
-    // 0 if no rows match, future-proofs against addon-side reassignment.
-    monthlyAddons = await queryAll(
-      `SELECT date_trunc('month', created_at)::date AS month,
-              COALESCE(SUM(earned_amount_egp), 0) AS total,
-              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='paid'), 0) AS paid_total,
-              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='pending'), 0) AS pending_total,
-              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='reassigned'), 0) AS reassigned_total
-         FROM addon_earnings
-        WHERE doctor_id = $1
-        GROUP BY 1
-        ORDER BY 1 DESC
-        LIMIT 24`,
-      [doctorId]
-    );
-  } catch (e) {
-    logErrorToDb(e, {
-      context: 'doctor.earnings_monthly_addons',
-      requestId: req.requestId,
-      userId: req.user?.id,
-      url: req.originalUrl,
-      method: req.method,
-      category: 'doctor_case'
-    });
-    console.warn('[earnings page] monthlyAddons query failed', e && e.message);
-  }
-
-  // Lifetime totals — main + addon. P1-DOC-2 follow-up: surface 'reassigned'
-  // status (P1-FIN-2 SLA-breach 10%-baseShare partial pay) so Lifetime ===
-  // Paid + Pending + Reassigned. Pre-fix, reassigned rows inflated Lifetime
-  // silently while paid/pending tiles ignored them.
-  try {
-    const mTotals = await queryOne(
-      `SELECT COALESCE(SUM(earned_amount), 0) AS total,
-              COALESCE(SUM(earned_amount) FILTER (WHERE status='paid'), 0) AS paid,
-              COALESCE(SUM(earned_amount) FILTER (WHERE status='pending'), 0) AS pending,
-              COALESCE(SUM(earned_amount) FILTER (WHERE status='reassigned'), 0) AS reassigned
-         FROM doctor_earnings WHERE doctor_id = $1`,
-      [doctorId]
-    );
-    const aTotals = await queryOne(
-      `SELECT COALESCE(SUM(earned_amount_egp), 0) AS total,
-              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='paid'), 0) AS paid,
-              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='pending'), 0) AS pending,
-              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='reassigned'), 0) AS reassigned
-         FROM addon_earnings WHERE doctor_id = $1`,
-      [doctorId]
-    );
-    lifetime.total = Number(mTotals && mTotals.total || 0) + Number(aTotals && aTotals.total || 0);
-    lifetime.paid = Number(mTotals && mTotals.paid || 0) + Number(aTotals && aTotals.paid || 0);
-    lifetime.pending = Number(mTotals && mTotals.pending || 0) + Number(aTotals && aTotals.pending || 0);
-    lifetime.reassigned = Number(mTotals && mTotals.reassigned || 0) + Number(aTotals && aTotals.reassigned || 0);
+    lifetime = await earningsReader.getDoctorLifetimeTotals(doctorId);
   } catch (e) {
     logErrorToDb(e, {
       context: 'doctor.earnings_lifetime',

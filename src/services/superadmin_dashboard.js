@@ -12,6 +12,9 @@
 // near-live but doesn't re-run every aggregation per page load.
 
 const { safeAll, safeGet, tableExists } = require('../sql-utils');
+// BATCH B (B1): every doctor-money figure this dashboard shows reads through
+// the shared earnings reader.
+const earningsReader = require('./earnings_reader');
 
 // ─── In-process TTL cache ─────────────────────────────────────────────
 const _cache = new Map(); // key -> { value, exp }
@@ -557,52 +560,15 @@ async function getFinanceTabData({ range = '7d' } = {}) {
          LIMIT 6`,
         [], []
       ),
-      // Payouts ledger (top 6 by owed)
-      // The guard names doctor_earnings only, but the query below now also reads
-      // addon_earnings. safeAll's own fallback ([]) covers a missing second
-      // table, so this degrades to an empty payouts list rather than throwing —
-      // acceptable, and noted so the guard is not mistaken for complete.
-      tableExists('doctor_earnings').then(exists => exists
-        ? safeAll(
-            // 2026-08-24 — owed is now case earnings PLUS add-on earnings,
-            // broken out so an operator can see which is which.
-            //
-            // Add-on revenue is settled in a separate ledger: doctor_earnings
-            // holds the case fee and urgency uplift, addon_earnings holds the
-            // commission on video consults and prescriptions
-            // (services/earnings_writer.js excludes add-ons from the first by
-            // design). The doctor's own /portal/doctor/earnings page has always
-            // summed BOTH, while this figure summed only the first — so the
-            // number a doctor was shown and the number the platform believed it
-            // owed were different, and the gap grew with every add-on sold.
-            //
-            // The subquery form is deliberate: joining a second ledger onto the
-            // same GROUP BY would multiply the doctor_earnings rows by the
-            // addon_earnings rows and inflate both figures.
-            `SELECT
-                u.id AS doctor_id,
-                COALESCE(u.name, '—') AS doctor_name,
-                COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) AS owed_cases,
-                COALESCE((
-                  SELECT SUM(ae.earned_amount_egp) FROM addon_earnings ae
-                   WHERE ae.doctor_id = u.id AND ae.status = 'pending'
-                ), 0) AS owed_addons,
-                COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0)
-                  + COALESCE((
-                      SELECT SUM(ae.earned_amount_egp) FROM addon_earnings ae
-                       WHERE ae.doctor_id = u.id AND ae.status = 'pending'
-                    ), 0) AS owed,
-                COUNT(*) FILTER (WHERE de.created_at >= NOW() - INTERVAL '14 days') AS cycle_cases,
-                MAX(de.created_at) FILTER (WHERE de.status = 'paid') AS last_paid
-             FROM users u
-             LEFT JOIN doctor_earnings de ON de.doctor_id = u.id
-             WHERE u.role = 'doctor'
-             GROUP BY u.id, u.name
-             ORDER BY owed DESC NULLS LAST
-             LIMIT 6`,
-            [], []
-          )
-        : []),
+      // Payouts ledger (top 6 by owed) — BATCH B (B1): through the shared
+      // earnings reader, the same getOwedByDoctor the Command /payouts screen
+      // reads, so the two ledgers can never disagree. The reader spans BOTH
+      // payout ledgers (case fees + add-on commissions), excludes the legacy
+      // reassignment-token rows, and lists only doctors actually owed or paid
+      // this month — a change from the old LEFT JOIN, which padded the card
+      // with zero-owed doctors. try/catch keeps the old safeAll degradation:
+      // a failure renders an empty payouts card, not a dead dashboard.
+      earningsReader.getOwedByDoctor({ limit: 6 }).catch(() => []),
       // Paymob today summary — check for table that tracks paymob txns
       tableExists('appointment_payments').then(exists => exists
         ? safeGet(
@@ -678,15 +644,15 @@ async function getFinanceTabData({ range = '7d' } = {}) {
         rev: Number(z.rev) || 0
       })),
       payouts: payouts.map(p => ({
-        doctor: p.doctor_name,
-        cases: Number(p.cycle_cases) || 0,
-        owed: Number(p.owed) || 0,
+        doctor: p.doctorName,
+        cases: p.cycleCases,
+        owed: p.owedEgp,
         // Split so the total can be read as a breakdown rather than one opaque
         // figure — case fees settle in doctor_earnings, add-on commissions in
         // addon_earnings, and only the sum matches what the doctor is shown.
-        owedCases: Number(p.owed_cases) || 0,
-        owedAddons: Number(p.owed_addons) || 0,
-        lastPaid: p.last_paid ? new Date(p.last_paid).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }) : '—',
+        owedCases: p.owedCasesEgp,
+        owedAddons: p.owedAddonsEgp,
+        lastPaid: p.lastPaidAt ? new Date(p.lastPaidAt).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }) : '—',
         next: 'next cycle'
       })),
       paymob: {
@@ -736,23 +702,10 @@ async function getDoctorsTabData({ range = '7d' } = {}) {
                 AND o.completed_at::timestamptz <= o.deadline_at::timestamptz
             )::float / NULLIF(COUNT(*) FILTER (WHERE o.completed_at IS NOT NULL), 0) AS sla_hit,
             COALESCE(SUM(o.price) FILTER (WHERE ${COLLECTED_O}), 0) AS rev,
-            COALESCE(
-              (SELECT SUM(earned_amount) FROM doctor_earnings de WHERE de.doctor_id = u.id AND de.status = 'pending'),
-              0
-            ) AS owed_cases,
-            COALESCE(
-              (SELECT SUM(ae.earned_amount_egp) FROM addon_earnings ae WHERE ae.doctor_id = u.id AND ae.status = 'pending'),
-              0
-            ) AS owed_addons,
-            -- Both ledgers, matching the total the doctor is shown on their own
-            -- earnings page. See the payouts query above.
-            COALESCE(
-              (SELECT SUM(earned_amount) FROM doctor_earnings de WHERE de.doctor_id = u.id AND de.status = 'pending'),
-              0
-            ) + COALESCE(
-              (SELECT SUM(ae.earned_amount_egp) FROM addon_earnings ae WHERE ae.doctor_id = u.id AND ae.status = 'pending'),
-              0
-            ) AS owed,
+            -- BATCH B (B1): the owed figures no longer live in this query —
+            -- they come from the shared earnings reader and are merged in JS
+            -- below, so the leaderboard shows the same owed as every other
+            -- surface.
             (SELECT AVG(rating)::numeric(3,1) FROM reviews r WHERE r.doctor_id = u.id) AS rating
          FROM users u
          LEFT JOIN specialties sp ON sp.id = u.specialty_id
@@ -792,6 +745,21 @@ async function getDoctorsTabData({ range = '7d' } = {}) {
         [], []
       )
     ]);
+
+    // BATCH B (B1): merge the owed figures from the shared earnings reader
+    // (both ledgers, token rows excluded — the same numbers Command /payouts
+    // and the doctor's own page show). Degrades to zeros on failure, like the
+    // safeAll fallbacks around it — a dashboard card, not a payment screen.
+    let owedById = {};
+    try {
+      owedById = await earningsReader.getOwedForDoctorIds(leaderboard.map(r => r.id));
+    } catch (_) { owedById = {}; }
+    leaderboard.forEach(r => {
+      const o = owedById[String(r.id)] || { owedCasesEgp: 0, owedAddonsEgp: 0, owedEgp: 0 };
+      r.owed_cases = o.owedCasesEgp;
+      r.owed_addons = o.owedAddonsEgp;
+      r.owed = o.owedEgp;
+    });
 
     // Derive aggregate SLA hit + TTR from leaderboard rows for the KPI header
     const ttrAvg = leaderboard.length

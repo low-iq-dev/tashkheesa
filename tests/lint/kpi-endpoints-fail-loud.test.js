@@ -119,12 +119,38 @@ STRICT_ENDPOINTS.forEach((route) => {
 // all would pass the rule above vacuously.
 STRICT_ENDPOINTS.forEach((route) => {
   if (route === '/ai-usage') return; // reads through services/ai_usage (queryAll, already throwing)
+  if (route === '/payouts') return; // BATCH B: reads through services/earnings_reader (queryOne/queryAll, already throwing — pinned below)
   check(`${route} reads through mustGet/mustAll`, function () {
     const body = handlers.get(route) || '';
     if (!/\bmust(?:Get|All)\s*\(/.test(body)) {
       throw new Error(`${route} makes no mustGet/mustAll call — it should read its data strictly.`);
     }
   });
+});
+
+// BATCH B: /payouts and /breach-cost's clawback figure read through
+// services/earnings_reader — the one aggregation module for doctor money.
+// Same contract as /ai-usage: the reader must use the throwing pg helpers and
+// must not catch, so a failed read reaches the route's catch and answers 500
+// instead of fabricating "EGP 0 owed".
+check('/payouts actually reads through the shared earnings reader', function () {
+  const body = handlers.get('/payouts') || '';
+  if (!/earnings_reader/.test(body)) {
+    throw new Error('/payouts no longer reads through services/earnings_reader — it should be its only data source.');
+  }
+});
+check('services/earnings_reader does not swallow SQL errors', function () {
+  const src = stripComments(fs.readFileSync(path.join(ROOT, 'src', 'services', 'earnings_reader.js'), 'utf8'));
+  if (/\bcatch\s*\(/.test(src) || /\bsafe(?:Get|All)\s*\(/.test(src)) {
+    throw new Error(
+      'services/earnings_reader.js now catches its own SQL errors (or reads through a safe* '
+      + 'helper). Every money surface reads through it; a swallowed failure there fabricates '
+      + 'an EGP 0 on all of them at once.'
+    );
+  }
+  if (!/require\('\.\.\/pg'\)/.test(src)) {
+    throw new Error('services/earnings_reader.js no longer reads through src/pg.js.');
+  }
 });
 
 // GET /cases/:id is a mixed case and is asserted separately: its money row, the

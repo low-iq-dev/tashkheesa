@@ -11,6 +11,8 @@ const { logAdminAudit } = require('../services/admin_audit');
 // A4 (FIX PLAN 2026-09-15) — assignment is not acceptance. See recentCases in
 // GET /portal/doctor/analytics.
 const { doctorHasAcceptedCase, redactPatientIdentity } = require('../services/doctor_case_access');
+// BATCH B (B1): every earnings figure this file shows goes through here.
+const earningsReader = require('../services/earnings_reader');
 
 const router = express.Router();
 
@@ -294,16 +296,16 @@ router.get(
       // and doctor_analytics.ejs rendered it as "My revenue" / "إيراداتي".
       // Every one of the 183 production services sets doctor_fee at 20% of
       // base, so a doctor was shown five times what they will ever be paid.
-      // It also flatly contradicted stripPricingFields() in routes/doctor.js,
-      // which exists precisely to keep orders.price away from doctors.
       //
-      // doctor_earnings is the doctor's own ledger and the same source the
-      // earnings page reads, so the two screens can no longer disagree.
-      // `appointment_id` is the order id (see services/earnings_writer.js).
-      var totalEarnings = (await safeGet(
-        "SELECT COALESCE(SUM(earned_amount), 0) as t FROM doctor_earnings WHERE doctor_id = $1 AND created_at >= $2",
-        [doctorId, startDate], { t: 0 }
-      ) || {}).t || 0;
+      // BATCH B (B1): through the shared earnings reader. The hand-rolled sum
+      // here had NO status filter and NO kind filter, so it counted
+      // 'reassigned' rows and the legacy 10% reassignment tokens as earnings —
+      // the very row Command finance excluded, which is how three surfaces
+      // gave three answers about one row. The reader is the one definition.
+      var totalEarnings = 0;
+      try {
+        totalEarnings = await earningsReader.getDoctorTotalEarned(doctorId, { fromDate: startDate });
+      } catch (_) { totalEarnings = 0; }
 
       var onTimeCases = (await safeGet(
         "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $2",
@@ -312,11 +314,14 @@ router.get(
 
       var slaCompliance = completedCases > 0 ? Math.round((onTimeCases / completedCases) * 100 * 10) / 10 : 100;
 
-      // Monthly earnings — same correction as totalEarnings above.
-      var monthlyEarnings = await safeAll(
-        "SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COALESCE(SUM(earned_amount), 0) as earnings, COUNT(*) as cases FROM doctor_earnings WHERE doctor_id = $1 AND created_at >= $2 GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month ASC",
-        [doctorId, startDate]
-      );
+      // Monthly earnings — BATCH B (B1): the reader buckets Cairo business
+      // months by COMPLETION date (the old TO_CHAR(created_at,…) was a UTC
+      // calendar month by creation date — a third month definition on top of
+      // the tile's server-timezone one and the payout page's Cairo one).
+      var monthlyEarnings = [];
+      try {
+        monthlyEarnings = await earningsReader.getDoctorMonthlySeries(doctorId, { fromDate: startDate });
+      } catch (_) { monthlyEarnings = []; }
 
       // Cases by specialty
       var casesBySpecialty = await safeAll(
@@ -337,9 +342,24 @@ router.get(
         // orders.doctor_id at ASSIGNMENT, so this table named the patient of
         // every case that had merely been OFFERED to this doctor — no
         // reassignment or any other precondition needed.
-        "SELECT o.id, o.status, o.doctor_id, o.created_at, o.completed_at, COALESCE(sv.name, 'Service') as service_name, COALESCE(u.name, 'Patient') as patient_name, COALESCE(de.earned_amount, 0) as doctor_fee_egp FROM orders_active o LEFT JOIN services sv ON sv.id = o.service_id LEFT JOIN users u ON u.id = o.patient_id LEFT JOIN doctor_earnings de ON de.appointment_id = o.id AND de.doctor_id = o.doctor_id WHERE o.doctor_id = $1 ORDER BY o.created_at DESC LIMIT 20",
+        // BATCH B (B1): the doctor_earnings LEFT JOIN is gone — that join
+        // matched ANY row for (order, doctor), so it could surface a legacy
+        // 10% reassignment token as "the fee". The per-case fee now comes from
+        // the shared reader (main-row only), merged below.
+        "SELECT o.id, o.status, o.doctor_id, o.created_at, o.completed_at, COALESCE(sv.name, 'Service') as service_name, COALESCE(u.name, 'Patient') as patient_name FROM orders_active o LEFT JOIN services sv ON sv.id = o.service_id LEFT JOIN users u ON u.id = o.patient_id WHERE o.doctor_id = $1 ORDER BY o.created_at DESC LIMIT 20",
         [doctorId]
       );
+      try {
+        var feeByOrder = await earningsReader.getCaseFeesForOrders(
+          doctorId,
+          (recentCasesRows || []).map(function (c) { return c.id; })
+        );
+        (recentCasesRows || []).forEach(function (c) {
+          c.doctor_fee_egp = feeByOrder[String(c.id)] || 0;
+        });
+      } catch (_) {
+        (recentCasesRows || []).forEach(function (c) { c.doctor_fee_egp = 0; });
+      }
 
       // The row stays — the case is the doctor's own work and belongs in their
       // analytics — but until they have accepted it, it is an offer, and an

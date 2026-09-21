@@ -8,6 +8,8 @@ const { computeSla } = require('../sla_status');
 const { recalcSlaBreaches } = require('../case_lifecycle'); // P3: sla.js deleted, use case_lifecycle
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
 const { safeAll, safeGet, tableExists } = require('../sql-utils');
+// BATCH B (B1): the payout-liability tile reads the shared earnings reader.
+const earningsReader = require('../services/earnings_reader');
 const caseLifecycle = require('../case_lifecycle');
 const { requireRole } = require('../middleware');
 const { isLaunchMarket } = require('../launch-market');
@@ -1157,25 +1159,24 @@ router.get('/admin', requireAdmin, async (req, res) => {
     : { total: 0 };
   // 2026-08-24 — both payout ledgers. doctor_earnings holds the case fee and
   // urgency uplift; addon_earnings holds video/prescription commissions, which
-  // services/earnings_writer.js deliberately keeps out of the first. Summing
-  // only doctor_earnings understated what the platform owes by every add-on
-  // ever sold, while the doctors' own earnings page counted both.
+  // services/earnings_writer.js deliberately keeps out of the first.
   //
-  // Queried SEPARATELY on purpose. One safeGet wrapping both subqueries falls
-  // back to {total: 0} if EITHER fails, so an error reading the newer add-on
-  // ledger would render the platform's whole liability as zero — strictly worse
-  // than the understatement this change set out to fix. Two reads, two
-  // fallbacks: a failure on the add-on side degrades to the case figure, which
-  // is exactly what this tile showed before.
-  const pendingCasePayouts = canSeeFinancials
-    ? await safeGet("SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'pending'", [], { total: 0 })
-    : { total: 0 };
-  const pendingAddonPayouts = canSeeFinancials
-    ? await safeGet("SELECT COALESCE(SUM(earned_amount_egp), 0) as total FROM addon_earnings WHERE status = 'pending'", [], { total: 0 })
-    : { total: 0 };
-  const pendingPayouts = {
-    total: (Number(pendingCasePayouts.total) || 0) + (Number(pendingAddonPayouts.total) || 0)
-  };
+  // BATCH B (B1): through the shared earnings reader — the same
+  // getGlobalOwedTotals Command /payouts and the finance tab read, so this
+  // tile can never disagree with them again. The reader also excludes the
+  // legacy reassignment-token rows this raw sum would have counted. Failure
+  // degrades to zeros like the old safeGet fallback (the tile is optional
+  // dashboard data; the money screens that must FAIL LOUD are the Command
+  // endpoints, which surface the reader's error as a 500).
+  let pendingPayouts = { total: 0 };
+  if (canSeeFinancials) {
+    try {
+      const owed = await earningsReader.getGlobalOwedTotals();
+      pendingPayouts = { total: owed.owedTotalEgp };
+    } catch (e) {
+      console.warn('[admin] pending payouts tile failed:', e && e.message);
+    }
+  }
   const refundsThisMonth = canSeeFinancials
     ? await safeGet("SELECT COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE refund_status = 'refunded' AND created_at > date_trunc('month', NOW())", [], { total: 0 })
     : { total: 0 };

@@ -27,6 +27,7 @@ const { parseSelectedAddons } = require('../services/order_pricing');
 // releasing (rather than writing a `refunds` row) is the right repair.
 const { releaseVideoAddonEntitlement, ADDON_PAYMENT_METHOD } = require('../services/video_addon_entitlement');
 const { writeVideoAppointmentEarning } = require('../services/earnings_writer');
+const earningsReader = require('../services/earnings_reader');
 
 const router = express.Router();
 
@@ -2309,18 +2310,19 @@ router.get('/portal/doctor/appointments', requireRole('doctor'), async (req, res
     ['completed', 'cancelled', 'no_show_patient', 'no_show_doctor'].includes(a.status)
   );
 
-  // Compute stats
-  const totalEarnings = await queryOne(`
-    SELECT COALESCE(SUM(earned_amount), 0) as total
-    FROM doctor_earnings
-    WHERE doctor_id = $1 AND status IN ('pending', 'paid')
-  `, [doctorId]);
-
-  const monthEarnings = await queryOne(`
-    SELECT COALESCE(SUM(earned_amount), 0) as total
-    FROM doctor_earnings
-    WHERE doctor_id = $1 AND created_at >= $2
-  `, [doctorId, now.startOf('month').toISOString()]);
+  // Compute stats — BATCH B (B1): through the shared earnings reader. The
+  // hand-rolled sums here were a fifth definition of the doctor's money
+  // (whole-ledger totals with a UTC month and, on the month figure, no status
+  // discipline at all). Same numbers as the doctor dashboard tile now.
+  let totalEarnings = { total: 0 };
+  let monthEarnings = { total: 0 };
+  try {
+    totalEarnings = { total: await earningsReader.getDoctorTotalEarned(doctorId) };
+    const mSummary = await earningsReader.getDoctorMonthSummary(doctorId);
+    monthEarnings = { total: mSummary.total };
+  } catch (e) {
+    console.warn('[video] earnings stats failed:', e && e.message);
+  }
 
   const completedCount = await queryOne(`
     SELECT COUNT(*) as count FROM appointments

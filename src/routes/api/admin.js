@@ -83,8 +83,9 @@ const COLLECTED_AT_CAIRO_O =
 // header above warns about, in the opposite direction.
 const REFUNDED_AT_CAIRO_R =
   `(r.refunded_at AT TIME ZONE 'UTC' AT TIME ZONE '${BUSINESS_TZ}')`;
-const CLAWBACK_AT_CAIRO_DE =
-  `(de.clawback_applied_at AT TIME ZONE 'UTC' AT TIME ZONE '${BUSINESS_TZ}')`;
+// (The doctor_earnings Cairo conversions — clawback_applied_at, paid_at —
+// moved into services/earnings_reader.js with the aggregations that used
+// them. BATCH B: the ledger's bucketing lives in exactly one file now.)
 
 // ?period= → the Cairo-wall-clock lower bound of the window, as a CONSTANT SQL
 // fragment. Whitelisted keys only; the values never contain user text, which is
@@ -365,14 +366,13 @@ const OPS_PUSH_KIND_LABELS = {
 // ─── AUDIT-PAYOUTS / AUDIT-ERRORS — Cairo bucketing for the naive tables ───
 //
 // Migration 081 converted `orders` and `doctor_assignments` ONLY. Everything
-// these three surfaces read is either still `timestamp WITHOUT time zone`
-// holding UTC digits (doctor_earnings.created_at/paid_at from migration 004,
-// error_logs.created_at and case_events.created_at from 001, order_events.at
-// from 001) or already timestamptz (ops_push_log.sent_at, migration 082).
+// still `timestamp WITHOUT time zone` holds UTC digits (error_logs.created_at
+// and case_events.created_at from 001, order_events.at from 001) or is already
+// timestamptz (ops_push_log.sent_at, migration 082).
 //
 // The naive columns therefore need their zone stated before any Cairo
 // conversion. The house form for that is the two-step `AT TIME ZONE 'UTC'
-// AT TIME ZONE <tz>` (see CLAWBACK_AT_CAIRO_DE above) — but guard 13 in
+// AT TIME ZONE <tz>` — but guard 13 in
 // tests/lint/audit-2026-08-regressions.test.js blanket-matches that first step
 // applied to ANY column named created_at, anywhere in this file, because on
 // orders.created_at (timestamptz since 081) it double-shifts. The guard is
@@ -383,14 +383,10 @@ const OPS_PUSH_KIND_LABELS = {
 // exact form — GET /manual-queue already uses on
 // specialty_classifications.created_at.
 //
-// PAID_AT_CAIRO_DE coalesces paid_at → created_at deliberately: earnings_writer
-// always stamps paid_at when it flips a row to 'paid', but the video/no-show
-// writers (routes/video.js, video_scheduler.js) insert rows with no paid_at at
-// all. Without the fallback a paid row from those paths would silently drop
-// out of "paid this month" instead of being counted on the day it was written.
+// (BATCH B: the doctor_earnings conversions — PAID_AT_CAIRO_DE and friends —
+// moved into services/earnings_reader.js with the payout aggregations, so the
+// ledger's bucketing lives in exactly one file.)
 const MONTH_START_CAIRO = `date_trunc('month', ${NOW_CAIRO})`;
-const PAID_AT_CAIRO_DE =
-  `(COALESCE(de.paid_at, de.created_at)::timestamptz AT TIME ZONE '${BUSINESS_TZ}')`;
 
 // The four suffixes that mean "code ran and did nothing useful". VERBATIM the
 // set routes/ops.js's /silent-failures view and the ops dashboard card use
@@ -3104,48 +3100,19 @@ module.exports = function (db, helpers, deploy, deps) {
               WHERE LOWER(COALESCE(o.payment_status,'')) IN ('paid','captured')
                 AND ${COLLECTED_AT_CAIRO_O} >= ${from}`
           ),
-          // (6) Doctor-earnings clawback in the window.
-          //
-          //     doctor_earnings has NO order_id: main-case rows overload
-          //     appointment_id with the order id and are identified by the
-          //     'earn-main-' id prefix (services/earnings_writer.js header), so
-          //     that is the join and the filter. clawback_reason /
-          //     clawback_applied_at are migration 054.
-          //
-          //     The clawed-back AMOUNT is not stored — recomputeOnRefund
-          //     OVERWRITES earned_amount in place — so it is derived from the
-          //     policy that fired, which IS stored:
-          //       'sla_breach_full_clawback'  → earned_amount driven to 0, and
-          //         the pre-clawback value was the base share, which
-          //         earnings_calc defines as the absolute orders.doctor_fee
-          //         (uplift was already zeroed at breach detection). Clawback =
-          //         orders.doctor_fee.
-          //       '...90pct_clawback'          → earned_amount := 0.10 × full,
-          //         so full = 10 × earned and the clawback = 9 × earned. Exact.
-          //     Any other/unknown policy contributes 0 EGP but is still counted,
-          //     so a new policy string shows up as an unpriced row instead of
-          //     silently vanishing from the total.
-          mustAll(
-            `SELECT COALESCE(de.clawback_reason, 'unknown') AS policy,
-                    COUNT(*)::int AS n,
-                    COALESCE(SUM(
-                      CASE
-                        WHEN de.clawback_reason = 'sla_breach_full_clawback'
-                          THEN COALESCE(o.doctor_fee, 0)
-                        WHEN de.clawback_reason = 'patient_or_operator_post_acceptance_90pct_clawback'
-                          THEN COALESCE(de.earned_amount, 0) * 9
-                        ELSE 0
-                      END), 0) AS egp
-               FROM doctor_earnings de
-               -- include-deleted-ok: an earnings clawback is settled money and
-               -- must stay countable even if the order were ever soft-deleted.
-               JOIN orders o ON o.id = de.appointment_id
-              WHERE de.clawback_applied_at IS NOT NULL
-                AND de.id LIKE 'earn-main-%'
-                AND ${CLAWBACK_AT_CAIRO_DE} >= ${from}
-              GROUP BY 1
-              ORDER BY egp DESC`
-          ),
+          // (6) Doctor-earnings clawback in the window — BATCH B (B1): through
+          //     the shared earnings reader, which owns the ledger's id-prefix
+          //     discipline, the orders join and the policy→amount derivation
+          //     ('sla_breach_full_clawback' → orders.doctor_fee on legacy
+          //     rows; the 90% policy → 9 × earned; the uplift-only
+          //     'sla_breach_uplift_zeroed' — the post-Batch-B sla_breach
+          //     settlement — and anything unknown contribute 0 EGP but are
+          //     still counted, so a new policy string shows up as an unpriced
+          //     row instead of silently vanishing). The reader uses the
+          //     throwing pg helpers, so a failure still reaches this route's
+          //     catch and answers 500 — same fail-loud contract as mustAll
+          //     (pinned in tests/lint/kpi-endpoints-fail-loud).
+          require('../../services/earnings_reader').getClawbackSummaryByPolicy({ fromCairoSql: from }),
         ]);
 
       // ── by-reason: the three known reasons always present (zeros when the
@@ -4151,168 +4118,131 @@ module.exports = function (db, helpers, deploy, deps) {
   // and nothing reported what is STILL OWED. A liability you can only see from
   // a desktop is a liability that gets paid late.
   //
-  // DEFINITION OF "OWED" — deliberately IDENTICAL to the web console.
-  // services/superadmin_dashboard.js computes it in two places (the finance
-  // payouts ledger ~line 543 and the doctor-performance table ~line 689) as:
+  // DEFINITION OF "OWED" — BATCH B (B1): the shared earnings reader
+  // (services/earnings_reader.js) is now the ONE definition every surface
+  // reads — this screen, the web console finance tab, the /admin tile and the
+  // doctor's own earnings page all call the same functions, so they can never
+  // disagree again. What the reader settles, once:
   //
-  //     SUM(doctor_earnings.earned_amount) WHERE status = 'pending'
+  //   1. KINDS. Main-case rows ('earn-main-%', appointment_id = order id) and
+  //      the video-consult / no-show rows (appointments UUID) BOTH count —
+  //      the founder owes both. The legacy 'earn-reassign-%' token rows never
+  //      count: a reassigned case earns the outgoing doctor zero.
+  //   2. status='reassigned' earns 0 and is excluded from every money figure.
+  //   3. status='paid' NOW MEANS THE MONTH-END PAYOUT RAN — stamped by
+  //      earnings_writer.markMonthEndPaid (POST /payouts/mark-paid below)
+  //      when finance actually settles the month, not at case completion.
+  //   4. Cairo months, completion-dated; naive-UTC columns converted once,
+  //      in the reader; every figure through one money() rounding.
   //
-  // and that is reproduced verbatim here so the two surfaces can never
-  // disagree. Three consequences of reusing it, all deliberate:
-  //
-  //   1. NO 'earn-main-' PREFIX FILTER. doctor_earnings.appointment_id is
-  //      overloaded — main-case rows carry the ORDER id under an 'earn-main-'
-  //      id prefix (services/earnings_writer.js header), while the video-consult
-  //      and no-show paths (routes/video.js, video_scheduler.js) carry an
-  //      appointments UUID under 'earn-' / 'earn-noshow-'. The web totals BOTH,
-  //      because the founder owes both. So does this. (GET /breach-cost filters
-  //      to 'earn-main-%' for the opposite reason: it JOINs orders, and only
-  //      main rows have an order id to join on.)
-  //   2. status='reassigned' IS EXCLUDED. earnings_writer.recomputeOnReassign
-  //      flips the original doctor's row to 'reassigned' and writes a separate
-  //      partial-pay row — also 'reassigned' — so counting them would double the
-  //      liability on every reassigned case.
-  //   3. status='paid' ON THIS TABLE MEANS "CASE COMPLETED, EARNING CRYSTALLISED"
-  //      — it is set by markCaseEarningsPaid at case completion, not by an
-  //      InstaPay transfer. The platform has no bank-transfer ledger, so "paid
-  //      this month" is the best signal that exists and is labelled as such in
-  //      `basis` rather than presented as settled cash.
-  //
-  // TIMESTAMPS. doctor_earnings.created_at / paid_at are naive-UTC (migration
-  // 004; 081 converted orders + doctor_assignments only). "This month" is the
-  // CAIRO month — see PAID_AT_CAIRO_DE at the top of this file for the
-  // conversion and why it is spelled with ::timestamptz. The two dates that
-  // just get echoed out (oldest unpaid, last paid) need no conversion at all:
-  // node-pg materialises a naive timestamp in the PROCESS zone, which is pinned
-  // to UTC (guard 6 of the audit regression lint), so toIso() is already right.
-  //
-  // MONEY. earned_amount is DOUBLE PRECISION, so every figure goes through
-  // money() — Number() then round to piastres — and every SUM is wrapped in
-  // COALESCE(...,0) so a doctor with no rows in a bucket reports 0, not null.
+  // FAIL-LOUD: the reader uses the throwing pg helpers (queryOne/queryAll,
+  // no catch), so a failed read reaches this route's catch and answers 500 —
+  // the same contract mustGet/mustAll carry. Pinned in
+  // tests/lint/kpi-endpoints-fail-loud (the /ai-usage pattern).
   //
   // READ-ONLY. requireJWT + requireRole('superadmin') inherited from the router.
   router.get('/payouts', async (req, res) => {
-    // The per-doctor "paid this month" predicate, written once and reused in
-    // SELECT, HAVING (which cannot see a SELECT alias) and the totals query, so
-    // the list and the header total can never be computed differently.
-    const PAID_THIS_MONTH = `de.status = 'paid' AND ${PAID_AT_CAIRO_DE} >= ${MONTH_START_CAIRO}`;
-
     try {
-      const [rows, totalsRow] = await Promise.all([
-        // INNER JOIN, not the web's LEFT JOIN: a doctor with no earnings row at
-        // all owes nothing and has nothing to show, and on a phone every such
-        // row is a line the operator has to scroll past. Same reason for the
-        // HAVING — a doctor fully settled and inactive this month is not a
-        // payout, and dropping them is what keeps this screen readable.
-        mustAll(
-          // 2026-08-24 — owed spans BOTH payout ledgers.
-          //
-          // This screen is the one an operator actually pays InstaPay from, and
-          // it was the only surface left summing doctor_earnings alone after
-          // the web console, the doctors tab, the /admin tile and the doctor's
-          // own earnings page were all moved to the total. Its own doc block
-          // promises the definition is "identical to the web console" — that
-          // promise is what makes leaving it behind a defect rather than an
-          // omission: an operator would have transferred a number the platform
-          // itself no longer believed, short by every add-on commission owed.
-          //
-          // addon_earnings is LEFT JOINed as a pre-aggregated subquery rather
-          // than a second JOIN onto the same GROUP BY, which would multiply the
-          // doctor_earnings rows by the addon_earnings rows and inflate both.
-          //
-          // An INNER JOIN on doctor_earnings is kept deliberately: a doctor
-          // with add-on commission but no case earnings is not a real state
-          // (add-ons only settle at case completion, which writes the case
-          // earning first), and switching to a FULL JOIN to chase it would
-          // change what the HAVING trims off the phone screen.
-          `SELECT u.id AS doctor_id,
-                  COALESCE(u.name, '—') AS doctor_name,
-                  COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0)
-                    + COALESCE(ae.owed_addons, 0) AS owed,
-                  COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) AS owed_cases,
-                  COALESCE(ae.owed_addons, 0) AS owed_addons,
-                  COUNT(*) FILTER (WHERE de.status = 'pending')::int AS unpaid_cases,
-                  MIN(de.created_at) FILTER (WHERE de.status = 'pending') AS oldest_unpaid_at,
-                  MAX(COALESCE(de.paid_at, de.created_at)) FILTER (WHERE de.status = 'paid') AS last_paid_at,
-                  COALESCE(SUM(de.earned_amount) FILTER (WHERE ${PAID_THIS_MONTH}), 0) AS paid_this_month
-             FROM users u
-             JOIN doctor_earnings de ON de.doctor_id = u.id
-             LEFT JOIN (
-               SELECT doctor_id, SUM(earned_amount_egp) AS owed_addons
-                 FROM addon_earnings WHERE status = 'pending' GROUP BY doctor_id
-             ) ae ON ae.doctor_id = u.id
-            WHERE u.role = 'doctor'
-            GROUP BY u.id, u.name, ae.owed_addons
-           HAVING COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0)
-                    + COALESCE(ae.owed_addons, 0) > 0
-               OR COALESCE(SUM(de.earned_amount) FILTER (WHERE ${PAID_THIS_MONTH}), 0) > 0
-            ORDER BY owed DESC, paid_this_month DESC, doctor_name ASC
-            LIMIT 200`
-        ),
-        // Totals over the WHOLE table, never over the trimmed list above — so
-        // the headline liability stays true even if the list is capped or a
-        // doctor row was filtered out by the HAVING.
-        mustGet(
-          `SELECT COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0)
-                    + COALESCE((SELECT SUM(earned_amount_egp) FROM addon_earnings WHERE status = 'pending'), 0)
-                    AS owed_total,
-                  COALESCE(SUM(de.earned_amount) FILTER (WHERE de.status = 'pending'), 0) AS owed_cases_total,
-                  COALESCE((SELECT SUM(earned_amount_egp) FROM addon_earnings WHERE status = 'pending'), 0) AS owed_addons_total,
-                  COUNT(*) FILTER (WHERE de.status = 'pending')::int AS unpaid_cases_total,
-                  COUNT(DISTINCT de.doctor_id) FILTER (WHERE de.status = 'pending')::int AS doctors_owed,
-                  MIN(de.created_at) FILTER (WHERE de.status = 'pending') AS oldest_unpaid_at,
-                  COALESCE(SUM(de.earned_amount) FILTER (WHERE ${PAID_THIS_MONTH}), 0) AS paid_this_month,
-                  COUNT(*) FILTER (WHERE ${PAID_THIS_MONTH})::int AS paid_this_month_cases,
-                  to_char(${MONTH_START_CAIRO}, 'YYYY-MM-DD"T"HH24:MI:SS') AS month_start_cairo
-             FROM doctor_earnings de`,
-          [],
-          null
-        ),
+      const reader = require('../../services/earnings_reader');
+      const [rows, totals] = await Promise.all([
+        // Listing kept to doctors with something owed or paid this month
+        // (the reader's HAVING), capped at 200 — a phone screen.
+        reader.getOwedByDoctor({ limit: 200 }),
+        // Totals over the WHOLE table, never over the trimmed list — the
+        // headline liability stays true even if the list is capped.
+        reader.getGlobalOwedTotals(),
       ]);
 
       const doctors = (rows || []).map((r) => ({
-        id: r.doctor_id,
-        name: r.doctor_name,
-        owedEgp: money(r.owed),
+        id: r.doctorId,
+        name: r.doctorName,
+        owedEgp: r.owedEgp,
         // The split, so an operator paying from the phone can see why a total
         // differs from the case count times a fee.
-        owedCasesEgp: money(r.owed_cases),
-        owedAddonsEgp: money(r.owed_addons),
-        unpaidCases: Number(r.unpaid_cases) || 0,
-        oldestUnpaidAt: toIso(r.oldest_unpaid_at),
-        lastPaidAt: toIso(r.last_paid_at),
-        paidThisMonthEgp: money(r.paid_this_month),
+        owedCasesEgp: r.owedCasesEgp,
+        owedAddonsEgp: r.owedAddonsEgp,
+        unpaidCases: r.unpaidCases,
+        oldestUnpaidAt: toIso(r.oldestUnpaidAt),
+        lastPaidAt: toIso(r.lastPaidAt),
+        paidThisMonthEgp: r.paidThisMonthEgp,
       }));
 
       return res.ok({
         totals: {
-          owedEgp: money(totalsRow && totalsRow.owed_total),
-          owedCasesEgp: money(totalsRow && totalsRow.owed_cases_total),
-          owedAddonsEgp: money(totalsRow && totalsRow.owed_addons_total),
-          unpaidCases: (totalsRow && Number(totalsRow.unpaid_cases_total)) || 0,
-          doctorsOwed: (totalsRow && Number(totalsRow.doctors_owed)) || 0,
+          owedEgp: totals.owedTotalEgp,
+          owedCasesEgp: totals.owedCasesEgp,
+          owedAddonsEgp: totals.owedAddonsEgp,
+          unpaidCases: totals.unpaidCases,
+          doctorsOwed: totals.doctorsOwed,
           // The single most useful number on the screen: how long the oldest
           // unpaid case has been sitting there.
-          oldestUnpaidAt: toIso(totalsRow && totalsRow.oldest_unpaid_at),
-          paidThisMonthEgp: money(totalsRow && totalsRow.paid_this_month),
-          paidThisMonthCases: (totalsRow && Number(totalsRow.paid_this_month_cases)) || 0,
+          oldestUnpaidAt: toIso(totals.oldestUnpaidAt),
+          paidThisMonthEgp: totals.paidThisMonthEgp,
+          paidThisMonthCases: totals.paidThisMonthCases,
         },
         month: {
-          startCairo: (totalsRow && totalsRow.month_start_cairo) || null,
+          startCairo: totals.monthStartCairo || null,
           timezone: BUSINESS_TZ,
         },
         doctors,
         basis: {
-          owed: "doctor_earnings status='pending' SUM(earned_amount) PLUS addon_earnings status='pending' SUM(earned_amount_egp) — identical to the web console finance tab. Case fees and add-on commissions settle in two separate ledgers (earnings_writer keeps add-ons out of doctor_earnings by design); only the sum is what the doctor is shown on their own earnings page.",
-          paid: "doctor_earnings status='paid' — set at CASE COMPLETION by earnings_writer.markCaseEarningsPaid, not by a bank transfer. There is no InstaPay settlement ledger.",
+          owed: "status='pending' across BOTH ledgers — doctor_earnings SUM(earned_amount) plus addon_earnings SUM(earned_amount_egp), via services/earnings_reader (the one definition every surface reads). Legacy 'earn-reassign-%' token rows excluded: a reassigned case earns zero.",
+          paid: "doctor_earnings status='paid' — stamped by the MONTH-END payout run (earnings_writer.markMonthEndPaid via POST /payouts/mark-paid) when the InstaPay/cash transfers are actually made, not at case completion.",
           scope: 'all earnings rows for the doctor: main-case, video-consult and no-show alike, plus add-on commissions (video consult, prescription) from addon_earnings',
-          bucketing: 'Cairo business month (Africa/Cairo)',
+          bucketing: 'Cairo business month (Africa/Cairo), completion-dated',
           listing: 'doctors with EGP owed or paid this month; capped at 200. Totals are over the whole table.',
         },
       });
     } catch (err) {
       console.error('[admin/payouts] failed:', err && err.message);
       return res.fail('Failed to load payouts', 500, 'PAYOUTS_ERROR');
+    }
+  });
+
+  // ─── POST /payouts/mark-paid (the month-end payout stamp) ─────────────────
+  //
+  // BATCH B (B2). "Paid" means finance settled the month — last working day,
+  // Africa/Cairo, EGP, by cash / InstaPay / Shifa finance. There is no
+  // settlement ledger, so the stamp is this explicit action: the operator
+  // (Ziad / finance) makes the transfers off GET /payouts, then calls this
+  // with the month being settled. Idempotent — re-running a month stamps
+  // nothing new. Body:
+  //   { month: 'YYYY-MM', doctorId?: '<id>' }   month = the Cairo business
+  // month being paid; doctorId narrows to one doctor when payouts are settled
+  // per doctor. In-flight pending rows (accepted, not yet delivered) are
+  // never stamped — the writer requires the order's completed_at.
+  //
+  // requireJWT + requireRole('superadmin') inherited from the router.
+  router.post('/payouts/mark-paid', async (req, res) => {
+    try {
+      const month = String((req.body && req.body.month) || '').trim();
+      const doctorId = (req.body && req.body.doctorId) ? String(req.body.doctorId).trim() : null;
+      const { markMonthEndPaid } = require('../../services/earnings_writer');
+      const r = await markMonthEndPaid({
+        month,
+        doctorId: doctorId || undefined,
+        actor: req.user && req.user.id
+      });
+      if (r && r.skipped === 'invalid_month') {
+        return res.fail("month must be 'YYYY-MM'", 400, 'BAD_REQUEST');
+      }
+      if (r && r.skipped === 'month_in_future') {
+        return res.fail('Cannot mark a future month paid', 400, 'MONTH_IN_FUTURE');
+      }
+      return res.ok({
+        month: r.month,
+        doctorId: r.doctorId,
+        stamped: {
+          caseRows: r.caseRows,
+          caseEgp: r.caseEgp,
+          addonRows: r.addonRows,
+          addonEgp: r.addonEgp,
+          totalEgp: r.totalEgp,
+        },
+      });
+    } catch (err) {
+      console.error('[admin/payouts/mark-paid] failed:', err && err.message);
+      return res.fail('Failed to mark payouts paid', 500, 'PAYOUTS_MARK_PAID_ERROR');
     }
   });
 
@@ -4368,8 +4298,8 @@ module.exports = function (db, helpers, deploy, deps) {
   // TIMESTAMPS. error_logs.created_at and case_events.created_at are naive-UTC
   // (migration 001, outside 081's two-table scope), so every window comparison
   // casts to ::timestamptz to make it an INSTANT comparison rather than one that
-  // depends on the session zone. See the note at PAID_AT_CAIRO_DE for why the
-  // cast rather than the two-step form.
+  // depends on the session zone. See the AUDIT-PAYOUTS/AUDIT-ERRORS Cairo note
+  // above for why the cast rather than the two-step form.
   //
   // READ-ONLY. requireJWT + requireRole('superadmin') inherited from the router.
   router.get('/errors', async (req, res) => {
