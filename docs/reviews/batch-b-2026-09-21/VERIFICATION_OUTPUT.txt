@@ -1,7 +1,7 @@
 [development] [pg] pool ready: max=8 connect=15000ms idle=30000ms statement_timeout=30000ms (requested)
 [development] [pg] startup options: NOT sent (default since AUDIT-STARTUP-OPTIONS-2 — Supavisor uses the `options` startup parameter for its own tenant routing). timezone and statement_timeout must come from `ALTER ROLE ... SET ...` on the app role; the per-connection SETs below are a fallback, NOT a guarantee on a transaction-mode pooler. See verifyPoolSettings output.
 [development] [pg] env: mode=unknown DATABASE_URL_DIRECT=not set
-══ Batch B verification — 2026-09-21T18:06:31.305Z ══
+══ Batch B verification — 2026-09-21T18:14:33.768Z ══
 
 SEED (the brief's mix, all completing in the CURRENT Cairo month unless stated):
   a) standard completed: fee 600, uplift 0            → earns 600
@@ -27,6 +27,11 @@ SEED (the brief's mix, all completing in the CURRENT Cairo month unless stated):
    analytics series: 2026-08 = 100 EGP / 1 case; 2026-09 = 2270 EGP
    markMonthEndPaid(2026-08): stamped 1 row(s), 100 EGP
    ✓ 23:30 Cairo vs 00:30 Cairo fall in different months on the statement, the series and the payout run
+
+── 3. Pause-counter equivalence: retired token-row query vs doctor_sla_events ──
+   events for the doctor: 2 (1 sla_breach reassignment + 1 admin_manual)
+   retired token-row query counts: 1 | doctor_sla_events counts: 1
+   ✓ same N from both signals, admin_manual excluded from both
 
 ── 4. Idempotency: the same report submitted twice ──
    report_exports rows: 1 | order_completed events: 1 | earnings rows: 1 (status pending) | patient notifications: 1 | PDF renders: 1

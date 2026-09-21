@@ -224,8 +224,47 @@ async function seedOrder({ id, fee, uplift, status = 'in_review', completedAtUtc
   log('   ✓ 23:30 Cairo vs 00:30 Cairo fall in different months on the statement, the series and the payout run');
   log('');
 
-  // ── 3. (Pause-counter equivalence runs in tests/finance/reassignment-
-  //        earnings.test.js against this same DB — see the runner output.) ──
+  // ── 3. PAUSE-COUNTER EQUIVALENCE — old query vs new signal, printed ─────
+  // (The full guard matrix — idempotency, admin_manual exclusion, thresholds
+  // — runs in tests/finance/reassignment-earnings.test.js against this same
+  // DB; its output is appended below. Here the two counters are printed side
+  // by side for the seeded doctor, including an admin_manual event that must
+  // count in NEITHER.)
+  log('── 3. Pause-counter equivalence: retired token-row query vs doctor_sla_events ──');
+  await execute(
+    `INSERT INTO doctor_sla_events (id, doctor_id, order_id, reason) VALUES ('vb-evt-manual', $1, 'vb-o-manual', 'admin_manual: doctor on leave')`,
+    [D]
+  );
+  // Mirror every event as a legacy token row (what the old writer would have
+  // left behind), then run both counters verbatim.
+  const evts = await queryAll(`SELECT order_id, reason, created_at FROM doctor_sla_events WHERE doctor_id = $1`, [D]);
+  for (const e of evts) {
+    await execute(
+      `INSERT INTO doctor_earnings (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, reassignment_reason, created_at)
+       VALUES ($1, $2, $3, 0, 0, 0, 'reassigned', $4, $5 AT TIME ZONE 'UTC')`,
+      ['earn-reassign-' + crypto.randomUUID(), D, e.order_id, e.reason, e.created_at]
+    );
+  }
+  const legacyCnt = await queryOne(
+    `SELECT COUNT(*)::int AS n FROM doctor_earnings
+      WHERE doctor_id = $1 AND status = 'reassigned' AND id LIKE 'earn-reassign-%'
+        AND COALESCE(reassignment_reason, '') NOT LIKE 'admin\\_manual%'
+        AND created_at >= NOW() - (30 * INTERVAL '1 day')`, [D]);
+  const newCnt = await queryOne(
+    `SELECT COUNT(*)::int AS n FROM doctor_sla_events
+      WHERE doctor_id = $1 AND COALESCE(reason, '') NOT LIKE 'admin\\_manual%'
+        AND created_at >= NOW() - (30 * INTERVAL '1 day')`, [D]);
+  log('   events for the doctor: ' + evts.length + ' (1 sla_breach reassignment + 1 admin_manual)');
+  log('   retired token-row query counts: ' + legacyCnt.n + ' | doctor_sla_events counts: ' + newCnt.n);
+  assert.strictEqual(legacyCnt.n, 1, 'old query: the admin_manual mirror does not count');
+  assert.strictEqual(newCnt.n, 1, 'new signal: the admin_manual event does not count');
+  assert.strictEqual(legacyCnt.n, newCnt.n, 'old query === new signal');
+  // Remove the mirrors so the money reconciliation above stays untouched for
+  // any re-read (they carry 0 EGP and are excluded from sums regardless).
+  await execute(`DELETE FROM doctor_earnings WHERE doctor_id = $1 AND id LIKE 'earn-reassign-%'`, [D]);
+  await execute(`DELETE FROM doctor_sla_events WHERE id = 'vb-evt-manual'`);
+  log('   ✓ same N from both signals, admin_manual excluded from both');
+  log('');
 
   // ── 4. IDEMPOTENCY — submit the same report twice ────────────────────────
   log('── 4. Idempotency: the same report submitted twice ──');
