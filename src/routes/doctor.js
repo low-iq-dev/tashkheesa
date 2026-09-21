@@ -7128,23 +7128,24 @@ async function handlePortalDoctorGenerateReport(req, res) {
       });
     }
 
-    // P0-FIN-1 site 2: flip pending doctor_earnings row to 'paid', or
-    // INSERT directly if this is a legacy order (completed without ever
-    // having a pending row). Failure must NOT block report generation.
+    // P0-FIN-1 site 2, BATCH B semantics: settle the earnings AMOUNT at
+    // completion — the row stays 'pending' and is stamped 'paid' only by the
+    // month-end payout run (earnings_writer.markMonthEndPaid). Failure must
+    // NOT block report generation.
     try {
-      const r = await require('../services/earnings_writer').markCaseEarningsPaid(orderId, doctorId);
+      const r = await require('../services/earnings_writer').settleCaseEarningsOnCompletion(orderId, doctorId);
       if (r && (r.updated || r.inserted_legacy)) {
         logOrderEvent({
           orderId,
-          label: r.updated ? 'doctor_earnings_paid' : 'doctor_earnings_paid_legacy',
-          meta: { earnings_id: r.earningsId, earned_amount: r.earnedAmount },
+          label: r.updated ? 'doctor_earnings_settled' : 'doctor_earnings_settled_legacy',
+          meta: { earnings_id: r.earningsId, earned_amount: r.earnedAmount, status: r.settledStatus },
           actorUserId: doctorId,
           actorRole: 'system'
         });
       }
     } catch (e) {
       logErrorToDb(e, {
-        context: 'doctor.report_earnings_paid',
+        context: 'doctor.report_earnings_settle',
         requestId: req.requestId,
         userId: req.user?.id,
         url: req.originalUrl,
@@ -7152,7 +7153,7 @@ async function handlePortalDoctorGenerateReport(req, res) {
         category: 'doctor_case',
         orderId
       });
-      console.error('[earnings] markCaseEarningsPaid failed', e && e.message ? e.message : e);
+      console.error('[earnings] settleCaseEarningsOnCompletion failed', e && e.message ? e.message : e);
     }
 
     // Auto-save case report to medical records

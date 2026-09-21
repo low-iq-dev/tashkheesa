@@ -1735,10 +1735,11 @@ module.exports = function (db, helpers, deploy, deps) {
   //   * reassign is no longer atomic with the audit rows (the lifecycle write
   //     commits first; the audit rows are best-effort after it);
   //   * reassign now HAS earnings side-effects. reassignCase runs
-  //     markPartialPayOnReassignment, so the outgoing doctor is moved to 10%
-  //     partial pay exactly as an automatic reassignment already does. This
-  //     endpoint used to be the one reassignment path in the system that left
-  //     the original doctor on full pay for work someone else finished.
+  //     markReassignedOnReassignment, so the outgoing doctor's earnings row is
+  //     zeroed (Batch B: a reassigned case earns them nothing) exactly as an
+  //     automatic reassignment already does. This endpoint used to be the one
+  //     reassignment path in the system that left the original doctor on full
+  //     pay for work someone else finished.
   router.post('/cases/:id/assign', async (req, res) => {
     const id = req.params.id;
     const doctorId = req.body && req.body.doctorId;

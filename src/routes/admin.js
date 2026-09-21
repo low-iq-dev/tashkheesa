@@ -2142,10 +2142,10 @@ router.post('/admin/orders/:id/reassign', requireAdmin, async (req, res) => {
   //   * finalizePreviousAssignment never ran, so the outgoing doctor's
   //     doctor_assignments row stayed OPEN — the case still counted against
   //     their capacity and still showed in their queue.
-  //   * markPartialPayOnReassignment never ran, so the outgoing doctor kept
-  //     100% of their pending earnings for a case they did not deliver, on top
-  //     of the incoming doctor's full fee. Direct double-pay on every admin
-  //     reassign.
+  //   * the earnings write-down (Batch B: markReassignedOnReassignment) never
+  //     ran, so the outgoing doctor kept 100% of their pending earnings for a
+  //     case they did not deliver, on top of the incoming doctor's full fee.
+  //     Direct double-pay on every admin reassign.
   //   * No new doctor_assignments row and no accept_by_at, and accepted_at was
   //     never reset — so the incoming doctor inherited the previous doctor's
   //     acceptance timestamp and expired deadline. fetchDoctorTimeouts requires

@@ -2,10 +2,19 @@
 //
 // P1-FIN-2: auto-pause doctors who breach SLA repeatedly.
 //
-// Source of truth = doctor_earnings rows with status='reassigned'
-// (written by markPartialPayOnReassignment). Counts those rows per
-// doctor in the lookback window; if >= threshold, flips
-// users.is_paused = true.
+// Source of truth = doctor_sla_events (migration 109), one row per
+// reassignment-away event, written by
+// earnings_writer.markReassignedOnReassignment in the same transaction that
+// zeroes the doctor's earnings row. Counts those events per doctor in the
+// lookback window; if >= threshold, flips users.is_paused = true.
+//
+// BATCH B (fix plan 2026-09-15): this counter used to live on the
+// 'earn-reassign-%' 10% token rows in doctor_earnings. The token's payout
+// amount was wrong (a reassigned case earns the outgoing doctor zero) and
+// Batch B removed the writer — but the count was load-bearing, so it moved
+// to its own table instead of dying with the money row. Migration 109
+// backfills events from the token rows that existed at cutover, so the
+// 3-in-30 count is identical across the change.
 //
 // Env config:
 //   SLA_AUTO_PAUSE_BREACHES      — default 3   (set to 0 to disable)
@@ -60,13 +69,13 @@ async function checkAndAutoPauseDoctor(doctorId) {
     return { paused: false, alreadyPaused: true };
   }
 
-  // Count reassigned-out rows for this doctor in the lookback window.
-  // The new index idx_doctor_earnings_doctor_status_created powers this.
+  // Count reassignment-away events for this doctor in the lookback window.
+  // idx_doctor_sla_events_doctor_created (migration 109) powers this.
   //
   // AUDIT-2026-08-22 — NON-FAULT REASSIGNMENTS DO NOT COUNT.
   //
-  // This counted EVERY 'earn-reassign-%' row with no notion of why it was
-  // written, and at 3 it flips is_paused with
+  // The old token-row count included EVERY reassignment with no notion of
+  // why, and at 3 it flips is_paused with
   // pause_reason='auto:sla_breach_threshold:3_in_30d'. That was defensible
   // while the only writer was case_sla_worker (breach / acceptance timeout).
   // Routing the Command app's reassign through case_lifecycle.reassignCase
@@ -75,18 +84,15 @@ async function checkAndAutoPauseDoctor(doctorId) {
   // those in a month silently removed a good doctor from findAlternateDoctor
   // and every broadcast, labelled an SLA offender.
   //
-  // markPartialPayOnReassignment already stores the caller's reason on the row
-  // (doctor_earnings.reassignment_reason); it simply was never consulted.
+  // markReassignedOnReassignment stores the caller's reason on the event.
   // reassignCase also suppresses this check outright for operator-initiated
   // reassignment — this filter is the backstop for any caller that forgets the
-  // flag, and it retro-corrects rows already written by the Command app.
+  // flag, and it retro-corrects backfilled events from the Command app era.
   var cnt = await queryOne(
     `SELECT COUNT(*)::int AS n
-       FROM doctor_earnings
+       FROM doctor_sla_events
       WHERE doctor_id = $1
-        AND status = 'reassigned'
-        AND id LIKE 'earn-reassign-%'
-        AND COALESCE(reassignment_reason, '') NOT LIKE 'admin\\_manual%'
+        AND COALESCE(reason, '') NOT LIKE 'admin\\_manual%'
         AND created_at >= NOW() - ($2 * INTERVAL '1 day')`,
     [doctorId, windowDays]
   );

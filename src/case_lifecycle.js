@@ -3256,10 +3256,10 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto', operatorInit
   // us, so two operators racing on the same case (or one racing the SLA worker)
   // could both pass that check and the loser would arrive here with
   // newDoctorId === the doctor already on the row. The consequence is not a
-  // no-op: markPartialPayOnReassignment below would zero that doctor's earnings
-  // row and write them a 10% token, then assignDoctor would hand them back the
-  // very case they are still working on — paid 10% for it, and counted toward
-  // the 3-in-30 auto-pause. Rejecting is the safe side of the race: the caller
+  // no-op: markReassignedOnReassignment below would zero that doctor's earnings
+  // row, then assignDoctor would hand them back the very case they are still
+  // working on — paid nothing for it, and counted toward the 3-in-30
+  // auto-pause. Rejecting is the safe side of the race: the caller
   // surfaces it as "already assigned to this doctor", which is the truth.
   if (newDoctorId && existing.doctor_id && String(newDoctorId) === String(existing.doctor_id)) {
     throw new Error('Case is already assigned to this doctor');
@@ -3282,19 +3282,21 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto', operatorInit
     to: newDoctorId
   });
 
-  // P1-FIN-2: financial step (atomic). Mark the original doctor's pending
-  // earnings row as 'reassigned' and write a 10% partial-pay row. Wrapped
-  // in withTransaction inside the helper. Step 1+2 (earnings + orders
-  // audit fields below) are NOT in the same outer transaction — keeping
-  // the existing reassignCase non-atomic surface unchanged, but each step
-  // is individually idempotent (see helpers).
-  let partialPayResult = null;
+  // Financial step (atomic). BATCH B (fix plan 2026-09-15): a reassigned
+  // case earns the outgoing doctor ZERO — the helper flips their earnings
+  // row to 'reassigned' at 0 and records the doctor_sla_events row that
+  // drives the auto-pause counter, in one transaction. (The 10% partial-pay
+  // token row P1-FIN-2 used to write here is gone.) Step 1+2 (earnings +
+  // orders audit fields below) are NOT in the same outer transaction —
+  // keeping the existing reassignCase non-atomic surface unchanged, but each
+  // step is individually idempotent (see helpers).
+  let reassignEarningsResult = null;
   if (originalDoctorId) {
     try {
-      const { markPartialPayOnReassignment } = require('./services/earnings_writer');
-      partialPayResult = await markPartialPayOnReassignment(originalDoctorId, caseId, reason);
+      const { markReassignedOnReassignment } = require('./services/earnings_writer');
+      reassignEarningsResult = await markReassignedOnReassignment(originalDoctorId, caseId, reason);
     } catch (err) {
-      console.error('[earnings] markPartialPayOnReassignment failed:', err && err.message);
+      console.error('[earnings] markReassignedOnReassignment failed:', err && err.message);
     }
   }
 
@@ -3417,10 +3419,10 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto', operatorInit
       retry_after: retryAtIso
     });
 
-    // P1-FIN-2: still notify original doctor + check auto-pause when
-    // partial pay was written, even if no replacement doctor was found.
-    if (originalDoctorId && partialPayResult && (partialPayResult.written || partialPayResult.idempotent)) {
-      _queueOriginalDoctorNotification(caseId, originalDoctorId, reason, partialPayResult);
+    // Still notify the original doctor + check auto-pause when their
+    // earnings row was flipped, even if no replacement doctor was found.
+    if (originalDoctorId && reassignEarningsResult && (reassignEarningsResult.written || reassignEarningsResult.idempotent)) {
+      _queueOriginalDoctorNotification(caseId, originalDoctorId, reason);
       if (!operatorInitiated) _checkPauseAsync(originalDoctorId);
     }
 
@@ -3461,39 +3463,36 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto', operatorInit
   // caller that forgets this flag still cannot trip the pause on a non-fault
   // reassignment.
   //
-  // The 10% partial pay is deliberately NOT suppressed: the pending earnings
-  // row is per (order, doctor) and skipping the write-down would leave a doctor
-  // who did not deliver the case holding a full-fee pending row that
-  // markCaseEarningsPaid can later pay out. Correcting the compensation policy
-  // for non-fault reassignment is an earnings_writer change — see the hand-off.
-  if (originalDoctorId && partialPayResult && (partialPayResult.written || partialPayResult.idempotent)) {
-    _queueOriginalDoctorNotification(caseId, originalDoctorId, reason, partialPayResult);
+  // The earnings write-down is deliberately NOT suppressed: the pending
+  // earnings row is per (order, doctor) and skipping it would leave a doctor
+  // who did not deliver the case holding a full-fee pending row that the
+  // completion settle could later confirm. (Batch B: a reassigned case earns
+  // the outgoing doctor zero — decisions table 2026-09-15.)
+  if (originalDoctorId && reassignEarningsResult && (reassignEarningsResult.written || reassignEarningsResult.idempotent)) {
+    _queueOriginalDoctorNotification(caseId, originalDoctorId, reason);
     if (!operatorInitiated) _checkPauseAsync(originalDoctorId);
   }
 
   return await getCase(caseId);
 }
 
-// P1-FIN-2: queue the partial-pay explainer to the booted doctor.
+// Queue the reassignment explainer to the booted doctor.
 // Best-effort: failure here doesn't block the reassignment.
-function _queueOriginalDoctorNotification(caseId, doctorId, reason, partialPayResult) {
+// BATCH B: the partialPct/partialAmount figures are gone with the 10% token —
+// the 'case-reassigned-original' template now states plainly that a
+// reassigned case carries no fee.
+function _queueOriginalDoctorNotification(caseId, doctorId, reason) {
   try {
     const { queueMultiChannelNotification } = require('./notify');
     // AUDIT-2026-08-22 — `data:` -> `response:`, and the email channel added.
     //
-    // queueMultiChannelNotification takes { orderId, toUserId, channels,
-    // template, response, dedupe_key }. There is no `data` parameter, so every
-    // one of these figures was silently dropped and the notification went out
-    // with response = null — the 'case-reassigned-original' email template
-    // renders "You'll receive % partial pay (EGP )" off exactly these fields.
-    //
     // The email channel is explicit because routes/api/admin.js used to queue a
     // SECOND copy of this same template to the same doctor for the same event
     // on ['internal','email'] with a different dedupe key, so the booted doctor
-    // got two messages — one mentioning the 10% and one not. That duplicate is
-    // removed and this is now the single owner of the notification, so it has
-    // to carry the channel the admin path was providing. No whatsapp: the
-    // template is unmapped there (notification_worker whatsappTemplateMap).
+    // got two messages. That duplicate is removed and this is now the single
+    // owner of the notification, so it has to carry the channel the admin path
+    // was providing. No whatsapp: the template is unmapped there
+    // (notification_worker whatsappTemplateMap).
     queueMultiChannelNotification({
       orderId: caseId,
       toUserId: doctorId,
@@ -3501,8 +3500,6 @@ function _queueOriginalDoctorNotification(caseId, doctorId, reason, partialPayRe
       template: 'order_reassigned_from_doctor',
       response: {
         case_id: caseId,
-        partialPct: partialPayResult.partialPct,
-        partialAmount: partialPayResult.partialAmount,
         reason: reason,
         isAcceptanceBreach: reason === 'doctor_timeout' || reason === 'sla_breach_acceptance'
       },

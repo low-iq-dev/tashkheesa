@@ -135,17 +135,21 @@ async function detectNoShows() {
             [now, appt.video_call_id]);
         }
 
-        // Doctor keeps payment (patient no-show policy)
-        // Create doctor earnings
-        const earnedAmount = Math.round(appt.price * (appt.doctor_commission_pct / 100) * 100) / 100;
-        await execute(`
-          INSERT INTO doctor_earnings (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, created_at)
-          VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
-          ON CONFLICT DO NOTHING
-        `, [
-          `earn-noshow-${appt.id}`, appt.doctor_id, appt.id,
-          appt.price, appt.doctor_commission_pct, earnedAmount, now
-        ]);
+        // Doctor keeps payment (patient no-show policy).
+        // BATCH B: through earnings_writer, not a raw INSERT — the writer owns
+        // the row shape and the one-earning-per-appointment guard (the raw
+        // form here could double-pay an appointment that already had an
+        // 'earn-<uuid>' row from the call-end path, because the deterministic
+        // no-show id never collided with it).
+        const { writeVideoAppointmentEarning } = require('./services/earnings_writer');
+        await writeVideoAppointmentEarning({
+          id: `earn-noshow-${appt.id}`,
+          appointmentId: appt.id,
+          doctorId: appt.doctor_id,
+          grossAmount: appt.price,
+          commissionPct: appt.doctor_commission_pct,
+          createdAt: now
+        });
 
         // Notify patient
         await queueNotification({

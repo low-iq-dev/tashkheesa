@@ -26,6 +26,7 @@ const { parseSelectedAddons } = require('../services/order_pricing');
 // payment row that never held any money. See the module header for why
 // releasing (rather than writing a `refunds` row) is the right repair.
 const { releaseVideoAddonEntitlement, ADDON_PAYMENT_METHOD } = require('../services/video_addon_entitlement');
+const { writeVideoAppointmentEarning } = require('../services/earnings_writer');
 
 const router = express.Router();
 
@@ -1489,33 +1490,26 @@ router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), a
       }
 
       // Create doctor earnings — gated by guards 1 + 3, deduped by guard 4.
+      // BATCH B: through earnings_writer.writeVideoAppointmentEarning (same
+      // NOT-EXISTS pre-check + untargeted ON CONFLICT semantics as the raw
+      // INSERT it replaces — the writer owns the row shape now). `client`
+      // keeps it inside this transaction.
       let earnedAmount = 0;
       let earningsId = null;
       if (earningsEligible) {
-        const grossAmount = Number(appointment.price) || 0;
-        const commissionPct = Number(appointment.doctor_commission_pct) || 0;
-        earnedAmount = Math.round(grossAmount * (commissionPct / 100) * 100) / 100;
-        const candidateId = `earn-${randomUUID()}`;
-        // Explicit pre-check so the behaviour is correct even before migration
-        // 082 lands; ON CONFLICT DO NOTHING is the race-proof backstop once it
-        // does. Untargeted (no conflict_target) so it matches migration 082
-        // whether the unique index is total or partial — a targeted
-        // `ON CONFLICT (appointment_id)` fails to infer a PARTIAL index and
-        // would raise at runtime.
-        const ins = await client.query(`
-          INSERT INTO doctor_earnings (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, created_at)
-          SELECT $1, $2, $3, $4, $5, $6, 'pending', $7
-           WHERE NOT EXISTS (
-                 SELECT 1 FROM doctor_earnings WHERE appointment_id = $3
-           )
-          ON CONFLICT DO NOTHING
-        `, [candidateId, appointment.doctor_id, appointment.id, grossAmount, commissionPct, earnedAmount, now]);
-        if (ins && ins.rowCount > 0) {
-          earningsId = candidateId;
-        } else {
-          // Already had an earnings row — report it, don't mint a second.
-          earnedAmount = 0;
+        const w = await writeVideoAppointmentEarning({
+          appointmentId: appointment.id,
+          doctorId: appointment.doctor_id,
+          grossAmount: appointment.price,
+          commissionPct: appointment.doctor_commission_pct,
+          createdAt: now,
+          client
+        });
+        if (w && w.written) {
+          earningsId = w.earningsId;
+          earnedAmount = w.earnedAmount;
         }
+        // Already had an earnings row — report 0, don't mint a second.
       }
 
       return { didComplete, earningsEligible, durationSeconds, earnedAmount, earningsId };
@@ -1844,17 +1838,15 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
         appointment_id: appointment.id, payment_id: appointment.payment_id || null
       });
     } else {
-      const grossAmount = Number(appointment.price) || 0;
-      const commissionPct = Number(appointment.doctor_commission_pct) || 0;
-      const earnedAmount = Math.round(grossAmount * (commissionPct / 100) * 100) / 100;
-      await execute(`
-        INSERT INTO doctor_earnings (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, created_at)
-        SELECT $1, $2, $3, $4, $5, $6, 'pending', $7
-         WHERE NOT EXISTS (
-               SELECT 1 FROM doctor_earnings WHERE appointment_id = $3
-         )
-        ON CONFLICT DO NOTHING
-      `, [`earn-${randomUUID()}`, appointment.doctor_id, appointment.id, grossAmount, commissionPct, earnedAmount, now]);
+      // BATCH B: through earnings_writer — same guard semantics as the raw
+      // INSERT it replaces.
+      await writeVideoAppointmentEarning({
+        appointmentId: appointment.id,
+        doctorId: appointment.doctor_id,
+        grossAmount: appointment.price,
+        commissionPct: appointment.doctor_commission_pct,
+        createdAt: now
+      });
     }
 
     // ---- V2 fulfilment (patient-no-show variant) ----

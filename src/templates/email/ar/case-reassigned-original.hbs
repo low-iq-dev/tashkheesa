@@ -11,13 +11,14 @@
   تم إعادة تعيين الحالة <strong>{{caseReference}}</strong> لأن نافذة الـ SLA انتهت قبل {{#if isAcceptanceBreach}}قبولك للحالة{{else}}تقديم تقريرك{{/if}}. سيتولى طبيب مختلف متابعة هذه الحالة.
 </p>
 
-<!-- صندوق الدفع الجزئي -->
+<!-- ملاحظة الدفع (Batch B 2026-09-21: أُلغي الدفع الجزئي 10% — الحالة المُعاد
+     تعيينها لا تستحق أي أتعاب للطبيب الأصلي وفق سياسة المدفوعات.) -->
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#fffaf0;border-radius:8px;border:1px solid #feebc8;">
   <tr>
     <td style="padding:20px 24px;">
-      <p style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#9a3412;letter-spacing:0.5px;">دفع جزئي</p>
+      <p style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#9a3412;letter-spacing:0.5px;">الدفع</p>
       <p style="margin:0;font-size:15px;line-height:1.8;color:#4A4640;">
-        ستتلقى <strong>{{partialPct}}% دفع جزئي ({{partialAmount}} جنيه)</strong> مقابل الوقت الذي قضيته في مراجعة هذه الحالة.
+        نظراً لإعادة تعيين الحالة قبل تسليم تقريرك، <strong>لا تُستحق أي أتعاب عنها</strong> وفق سياسة المدفوعات في تشخيصة.
       </p>
     </td>
   </tr>

@@ -1,27 +1,66 @@
 /**
  * Earnings ledger writer — wires `computeDoctorEarnings` into the
- * `doctor_earnings` table at the three sites P0-FIN-1 prescribes:
+ * `doctor_earnings` table:
  *
- *   1. writePendingForCase   — at doctor acceptance
- *   2. markCaseEarningsPaid  — at case completion (UPSERT)
- *   3. recomputeOnBreach     — at SLA breach (uplift refund)
+ *   1. writePendingForCase            — at doctor acceptance
+ *   2. settleCaseEarningsOnCompletion — at case completion (settles the
+ *      amount; the row STAYS 'pending' — see the Batch B note below)
+ *   3. recomputeOnBreach              — at SLA breach (uplift refund)
+ *   4. recomputeOnRefund              — at refund mark-paid
+ *   5. markReassignedOnReassignment   — at reassignment away (earns 0)
+ *   6. writeVideoAppointmentEarning   — standalone video appointments
+ *      (routes/video.js call end / no-show, video_scheduler.js no-show)
+ *   7. markMonthEndPaid               — the month-end payout stamp
+ *
+ * BATCH B (fix plan 2026-09-15). Two policy corrections landed here:
+ *   * 'paid' means "the month-end payout ran", stamped by markMonthEndPaid
+ *     when finance actually settles the month (last working day, Cairo, by
+ *     cash / InstaPay / Shifa finance). Completion settles the AMOUNT and
+ *     leaves the row 'pending'. Before this, markCaseEarningsPaid stamped
+ *     'paid' at report submission, so "paid" meant "case completed" on every
+ *     finance surface while no money had moved.
+ *   * A reassigned case earns the outgoing doctor ZERO. The 10% token row
+ *     ('earn-reassign-%') is no longer written; its second job — the SLA
+ *     auto-pause counter — lives in doctor_sla_events (migration 109),
+ *     written by markReassignedOnReassignment in the same transaction.
  *
  * All snapshots come from the `orders` row, never from `services` —
  * the orders row IS the historical earnings snapshot, immune to
  * future catalog edits.
  *
- * `appointment_id` on `doctor_earnings` is overloaded: the existing
- * video-addon paths use the appointments.id UUID; here we use the
- * order/case id. PK collisions are avoided via the 'earn-main-' id
- * prefix. Idempotency is enforced in code (no unique index — see
+ * `appointment_id` on `doctor_earnings` is overloaded: the video paths use
+ * the appointments.id UUID; main-case rows use the order/case id. PK
+ * collisions are avoided via the 'earn-main-' id prefix. Idempotency is
+ * enforced in code (no unique index — see
  * docs/audits/PRE_LAUNCH_AUDIT_2026-04-30.md P1-FIN-2 for the
  * known reassignment-orphan limitation).
+ *
+ * Aggregation lives in services/earnings_reader.js — every surface that
+ * SHOWS a doctor's money reads through there, never with its own SQL.
  */
 
 'use strict';
 
 const { randomUUID } = require('crypto');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
+
+// Route a query through an explicit transaction client when the caller is
+// composing us into a larger atomic write (the report-submission service),
+// and through the pool otherwise. Same rows-out shape either way.
+function dbFor(client) {
+  if (!client) return { one: queryOne, all: queryAll, run: execute };
+  return {
+    one: async (sql, params) => {
+      const r = await client.query(sql, params);
+      return (r && r.rows && r.rows[0]) || null;
+    },
+    all: async (sql, params) => {
+      const r = await client.query(sql, params);
+      return (r && r.rows) || [];
+    },
+    run: (sql, params) => client.query(sql, params)
+  };
+}
 const { computeDoctorEarnings } = require('./earnings_calc');
 // AUDIT (2026-08-17, regression F5): refund_eligibility.maxRefundableEgp is
 // deliberately NOT imported here any more. It is the refund CEILING
@@ -30,15 +69,12 @@ const { computeDoctorEarnings } = require('./earnings_calc');
 // denominator is caseFeeCollectedEgp() below.
 
 const MAIN_EARNINGS_PREFIX = 'earn-main-';
-// P1-FIN-2: distinct prefix for partial-pay rows on reassignment.
-// Doesn't overlap with 'earn-main-' so findExistingMainRow / writePendingForCase
-// keep working unchanged for the new doctor's row.
+// LEGACY prefix. P1-FIN-2 wrote a 10% partial-pay token row under this prefix
+// on every reassignment; Batch B removed the writer (a reassigned case earns
+// the outgoing doctor ZERO — decisions table 2026-09-15). The constant
+// survives so the re-open paths below can keep zeroing any legacy token they
+// meet, and so the reader can exclude the prefix from every money sum.
 const REASSIGN_EARNINGS_PREFIX = 'earn-reassign-';
-// P1-FIN-2: doctor share of baseShare given to the original doctor when
-// their case is auto-reassigned out due to SLA breach. Token amount for
-// time spent reviewing. Platform absorbs this — new doctor still gets
-// 100% baseShare.
-const REASSIGN_PARTIAL_PCT = 10;
 
 // AUDIT-2026-08-22 (M3, P0): the marker recomputeOnBreach stamps into
 // clawback_reason. `doctor_earnings` has no column for "an adjustment has been
@@ -71,8 +107,9 @@ function caseFeeCollectedEgp(order) {
 
 // The one snapshot query behind both the ledger writers and the case-page
 // fee preview — split out so the preview can skip the order_addons scan.
-async function loadEarningsOrderRow(orderId) {
-  return queryOne(
+// `client` (optional) routes the read through an enclosing transaction.
+async function loadEarningsOrderRow(orderId, client) {
+  return dbFor(client).one(
     `SELECT o.id, o.doctor_id, o.doctor_fee, o.urgency_uplift_amount,
             sv.urgency_uplift_doctor_pct
        FROM orders_active o
@@ -82,11 +119,11 @@ async function loadEarningsOrderRow(orderId) {
   );
 }
 
-async function loadEarningsInputs(orderId) {
-  const order = await loadEarningsOrderRow(orderId);
+async function loadEarningsInputs(orderId, client) {
+  const order = await loadEarningsOrderRow(orderId, client);
   if (!order) return null;
 
-  const addons = await queryAll(
+  const addons = await dbFor(client).all(
     `SELECT id, addon_service_id, price_at_purchase_egp, doctor_commission_pct_at_purchase
        FROM order_addons
       WHERE order_id = $1
@@ -135,11 +172,11 @@ async function previewCaseEarnings(orderId) {
   };
 }
 
-async function findExistingMainRow(orderId, doctorId) {
+async function findExistingMainRow(orderId, doctorId, client) {
   // Side issue #43 — include clawback_* columns so recomputeOnRefund can
   // enforce idempotency without a second query. Existing callers
   // (recomputeOnBreach, writePendingForCase) ignore the extra columns.
-  return queryOne(
+  return dbFor(client).one(
     `SELECT id, status, earned_amount, gross_amount,
             clawback_reason, clawback_applied_at
        FROM doctor_earnings
@@ -257,14 +294,28 @@ async function writePendingForCase(orderId) {
 }
 
 // Site 2 — at completion.
-// UPDATE the existing pending row to status='paid'. If no row exists
-// (legacy order created before P0-FIN-1 wiring), INSERT directly with
-// status='paid'.  Always recomputes from the current orders snapshot
-// in case uplift was zeroed by a mid-flight breach.
-async function markCaseEarningsPaid(orderId, doctorId) {
+//
+// BATCH B (fix plan 2026-09-15) — completion SETTLES the amount; it does NOT
+// stamp 'paid'. The decisions table: "`paid` is stamped at the month-end
+// payout, not at submit. Submitting creates a `pending` row." The old
+// markCaseEarningsPaid flipped the row to 'paid' with paid_at=NOW() at report
+// submission, which is why every finance surface's "paid" figure meant "case
+// completed" while no money had moved (the divergence routes/api/admin.js
+// :4306 documented). The month-end payout run (markMonthEndPaid below) is now
+// the only writer of status='paid'/paid_at.
+//
+// Everything else is unchanged from markCaseEarningsPaid: recompute from the
+// current orders snapshot (in case uplift was zeroed by a mid-flight breach),
+// preserve an applied clawback verbatim, handle the A→B→A came-back row, and
+// INSERT directly for a legacy order that never had a pending row.
+//
+// `client` (optional): the report-submission service passes its transaction
+// client so the settle lands or rolls back with the completion itself.
+async function settleCaseEarningsOnCompletion(orderId, doctorId, { client } = {}) {
   if (!orderId || !doctorId) return { skipped: 'missing_args' };
+  const db = dbFor(client);
 
-  const inputs = await loadEarningsInputs(orderId);
+  const inputs = await loadEarningsInputs(orderId, client);
   if (!inputs || !inputs.order) return { skipped: 'order_not_found' };
 
   const { order } = inputs;
@@ -277,7 +328,7 @@ async function markCaseEarningsPaid(orderId, doctorId) {
     ? Math.round((earnedAmount / grossAmount) * 10000) / 100
     : 100;
 
-  const existing = await findExistingMainRow(orderId, doctorId);
+  const existing = await findExistingMainRow(orderId, doctorId, client);
 
   if (existing) {
     // ── AUDIT-2026-08-22 (M3, P0): completing a case SILENTLY REVERSED an
@@ -319,20 +370,33 @@ async function markCaseEarningsPaid(orderId, doctorId) {
     // new holder has no main row, so completion takes the legacy-insert path
     // below and the old doctor's zeroed row is left alone.
     //
+    // BATCH B — a row the month-end payout has ALREADY stamped 'paid' is
+    // settled cash. Completion firing again (a retried submit, a legacy
+    // double path) must neither demote it to 'pending' nor rewrite its
+    // amount: the money moved. The old code re-flipped and RECOMPUTED such a
+    // row, which was harmless only while 'paid' meant 'completed'.
+    if (String(existing.status) === 'paid') {
+      return {
+        skipped: 'already_paid_out',
+        earningsId: existing.id,
+        earnedAmount: Number(existing.earned_amount)
+      };
+    }
+
     // clawback_applied_at remains the sole preserve condition: an applied
     // adjustment IS a settled fact and completion must never reverse it.
     const adjusted = !!existing.clawback_applied_at;
     if (adjusted) {
-      await execute(
+      await db.run(
         `UPDATE doctor_earnings
-            SET status = 'paid',
-                paid_at = COALESCE(paid_at, NOW())
+            SET status = 'pending'
           WHERE id = $1`,
         [existing.id]
       );
       const preserved = Number(existing.earned_amount);
       return {
         updated: true,
+        settledStatus: 'pending',
         earningsId: existing.id,
         earnedAmount: Number.isFinite(preserved) ? preserved : null,
         clawbackPreserved: true,
@@ -342,10 +406,9 @@ async function markCaseEarningsPaid(orderId, doctorId) {
       };
     }
 
-    await execute(
+    await db.run(
       `UPDATE doctor_earnings
-          SET status = 'paid',
-              paid_at = COALESCE(paid_at, NOW()),
+          SET status = 'pending',
               gross_amount = $1,
               commission_pct = $2,
               earned_amount = $3
@@ -361,7 +424,7 @@ async function markCaseEarningsPaid(orderId, doctorId) {
     // is being paid 100% for a case they delivered, so the not-delivered token
     // must not stack on top of it. The row itself stays for doctor_pause.js.
     if (String(existing.status) === 'reassigned') {
-      await execute(
+      await db.run(
         `UPDATE doctor_earnings
             SET earned_amount = 0,
                 commission_pct = 0
@@ -374,19 +437,20 @@ async function markCaseEarningsPaid(orderId, doctorId) {
       );
     }
 
-    return { updated: true, earningsId: existing.id, earnedAmount, reopenedFromReassigned: String(existing.status) === 'reassigned' };
+    return { updated: true, settledStatus: 'pending', earningsId: existing.id, earnedAmount, reopenedFromReassigned: String(existing.status) === 'reassigned' };
   }
 
-  // Legacy path: order completed without ever having a pending row.
+  // Legacy path: order completed without ever having a pending row. The row
+  // is born 'pending' — it joins the month-end payout like every other.
   const earningsId = MAIN_EARNINGS_PREFIX + randomUUID();
-  await execute(
+  await db.run(
     `INSERT INTO doctor_earnings
-       (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, created_at, paid_at)
-     VALUES ($1, $2, $3, $4, $5, $6, 'paid', NOW(), NOW())
+       (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW())
      ON CONFLICT (id) DO NOTHING`,
     [earningsId, doctorId, orderId, grossAmount, commissionPct, earnedAmount]
   );
-  return { inserted_legacy: true, earningsId, earnedAmount };
+  return { inserted_legacy: true, settledStatus: 'pending', earningsId, earnedAmount };
 }
 
 // Site 3 — at SLA breach.
@@ -490,17 +554,18 @@ async function recomputeOnBreach(orderId) {
 
 // Site 4 — at refund mark-paid (Side issue #43).
 //
-// Policy (decided 2026-05-12 by Ziad):
+// Policy (2026-05-12, REVISED by the Batch B decisions table 2026-09-15):
 //
 //   reason='sla_breach'
-//     → earned_amount = 0 (full clawback)
-//     → recomputeOnBreach (Site 3, called at breach detection) zeroes
-//       only the uplift mid-flight. This Site 4 path fires at the
-//       SLA-breach refund's mark-paid time and zeroes the base too.
-//       Hooks are intentionally decoupled — the breach event is a
-//       state transition (uplift refunded immediately), the mark-paid
-//       is the final settlement (base claw-back when the patient
-//       actually receives the refund money).
+//     → clamp to the BASE-ONLY figure (uplift reversed; base stands if the
+//       doctor delivered). The pre-Batch-B behaviour zeroed the base too
+//       ('sla_breach_full_clawback') per policy-doc §4.A — which contradicted
+//       §4/Example D of the same document; the decisions table settled it on
+//       the uplift-only side. recomputeOnBreach (Site 3, at breach detection)
+//       writes the same figure mid-flight; this hook is the mark-paid
+//       backstop for a breach whose detection was missed. A doctor the case
+//       was reassigned AWAY from is already at 0 ('reassigned') and the
+//       write-down clamp keeps them there.
 //
 //   reason='patient_request' OR 'operator_refund' + earnings row exists
 //     → earned_amount = full × (1 − 0.9 × refundRatio), where
@@ -620,10 +685,29 @@ async function recomputeOnRefund(orderId, opts) {
   let totalCollectedEgp = null;
   let refundAmountEgp = null;
   if (reason === 'sla_breach') {
-    // Separate policy path — the SLA-breach settlement is all-or-nothing and
-    // does NOT scale with the refunded amount. Left untouched deliberately.
-    newEarned = 0;
-    policyApplied = 'sla_breach_full_clawback';
+    // BATCH B (fix plan 2026-09-15, decisions table) — an SLA breach reverses
+    // the URGENCY UPLIFT ONLY; the base fee stands if the doctor still
+    // delivered the report. The previous behaviour here (earned_amount = 0,
+    // 'sla_breach_full_clawback') implemented policy-doc §4.A, which
+    // contradicted §4/Example D of the same document; the decisions table
+    // settled it on the uplift-only side, so this branch now clamps to the
+    // base-only figure — the same figure recomputeOnBreach writes at breach
+    // detection. It still exists (rather than deleting the hook) because
+    // breach DETECTION can be missed (worker down, legacy case): the refund's
+    // mark-paid is the backstop that guarantees the uplift is off the row by
+    // settlement time. The clamp below keeps the lower number, so a row the
+    // breach (or a reassignment) already wrote further down is never raised.
+    //
+    // A case reassigned AWAY on breach — the doctor did NOT deliver — never
+    // reaches this write: markReassignedOnReassignment has already flipped
+    // that doctor's row to 'reassigned' at 0, and the clamp preserves the 0.
+    const baseOnly = computeDoctorEarnings({
+      baseDoctorFee: Number(order.doctor_fee) || 0,
+      upliftAmount: 0,
+      upliftDoctorPct: 30
+    });
+    newEarned = Math.round((baseOnly.baseShare + baseOnly.upliftShare) * 100) / 100;
+    policyApplied = BREACH_UPLIFT_CLAWBACK;
   } else if (reason === 'patient_request' || reason === 'operator_refund') {
     // Compute the full earning from canonical inputs (doctor_fee +
     // urgency_uplift_amount on the order) so the policy is stable even if
@@ -698,12 +782,19 @@ async function recomputeOnRefund(orderId, opts) {
     ? Math.round((newEarned / grossAmount) * 10000) / 100
     : 0;
 
+  // BATCH B: the sla_breach settlement stamps the SAME marker recomputeOnBreach
+  // does, and like there the FIRST stamp is preserved (see the R8 note above —
+  // rewriting a stamp re-opens guards). The 90% path keeps NOW(): its guard
+  // means it fires at most once, and its stamp time IS the settlement time.
+  const stampSql = policyApplied === BREACH_UPLIFT_CLAWBACK
+    ? 'COALESCE(clawback_applied_at, NOW())'
+    : 'NOW()';
   await execute(
     `UPDATE doctor_earnings
         SET earned_amount = $1,
             commission_pct = $2,
             clawback_reason = $3,
-            clawback_applied_at = NOW()
+            clawback_applied_at = ${stampSql}
       WHERE id = $4`,
     [newEarned, commissionPct, policyApplied, existing.id]
   );
@@ -722,21 +813,36 @@ async function recomputeOnRefund(orderId, opts) {
   };
 }
 
-// P1-FIN-2 — at SLA-breach reassignment.
-// Atomic two-step inside a single transaction:
+// At reassignment away — BATCH B (fix plan 2026-09-15).
+//
+// Replaces markPartialPayOnReassignment. The decisions table: "A case
+// reassigned away from a doctor earns them ZERO. The 10% token row in
+// doctor_earnings is legacy code that predates the policy — remove it."
+//
+// The token row was doing two jobs, and only one of them dies:
+//   * A payout amount (10% of baseShare) — GONE. No 'earn-reassign-%' row is
+//     written any more; the outgoing doctor's main row goes to 0.
+//   * The SLA auto-pause counter — services/doctor_pause.js counted the token
+//     rows to flip users.is_paused at 3 breaches in 30 days. That signal is
+//     load-bearing and now lives in doctor_sla_events (migration 109),
+//     written HERE, in the same transaction as the main-row flip, under the
+//     same guards the token had — so old query and new signal count the same
+//     events. The reason is stored verbatim because doctor_pause.js's
+//     'admin_manual%' exclusion (operator-initiated reassignment is nobody's
+//     fault) filters on it.
+//
+// Atomic inside a single transaction:
 //   1. Flip the original doctor's pending main row to status='reassigned',
-//      stamp reassignment_reason, link via reassigned_to_earning_id.
-//   2. Insert a new 'reassigned' row at REASSIGN_PARTIAL_PCT of baseShare
-//      so the original doctor sees a token partial pay for review time.
-// Idempotent — see guards below. The transaction also covers the orders
-// audit-fields UPDATE when called from reassignCase (see case_lifecycle.js).
+//      earned_amount 0, stamp reassignment_reason.
+//   2. Insert the doctor_sla_events row.
+// Idempotent — see guards below.
 //
 // Returns one of:
-//   { written: true, oldRowId, partialRowId, partialAmount, partialPct, baseShare }
-//   { skipped: 'no_main_row' }       — original doctor never had a row
-//   { skipped: 'already_paid' }      — race: report submitted before reassign; no claw-back
-//   { idempotent: true, partialRowId, partialAmount } — called twice, returns existing
-async function markPartialPayOnReassignment(originalDoctorId, orderId, reason) {
+//   { written: true, oldRowId, slaEventId }
+//   { skipped: 'no_main_row' }  — original doctor never had a row
+//   { skipped: 'already_paid' } — race: report submitted before reassign; no claw-back
+//   { idempotent: true, oldRowId } — called twice, no second write
+async function markReassignedOnReassignment(originalDoctorId, orderId, reason) {
   if (!orderId || !originalDoctorId) return { skipped: 'missing_args' };
 
   return withTransaction(async function (client) {
@@ -755,65 +861,44 @@ async function markPartialPayOnReassignment(originalDoctorId, orderId, reason) {
     }
     var row = existingResult.rows[0];
 
-    // Step 2: race guard — already paid. Don't claw back.
+    // Step 2: race guard — already settled by a month-end payout. Don't claw
+    // back money that moved. (Pre-payout completion leaves the row 'pending'
+    // now, so this guard bites later than it used to — which is the point:
+    // a doctor who delivered before the reassignment raced in keeps the fee
+    // only once finance has actually paid it; before that the reassignment
+    // legitimately zeroes it.)
     if (row.status === 'paid') {
       return { skipped: 'already_paid', orderId: orderId, existingId: row.id };
     }
 
-    // Step 3: idempotency — called twice for same (doctor, order).
+    // Step 3: idempotency — called twice for the same (doctor, order) while
+    // the row is still flipped. Mirrors the old token-existence guard: the
+    // event row now plays the token's dedupe role. A case that came BACK to
+    // this doctor (writePendingForCase re-opened the row to 'pending') and is
+    // being reassigned away a second time does not land here — the status is
+    // 'pending' again — and correctly records a SECOND event, exactly as the
+    // old code minted a second token.
     if (row.status === 'reassigned') {
-      var partial = await client.query(
-        `SELECT id, earned_amount FROM doctor_earnings
-          WHERE id LIKE '${REASSIGN_EARNINGS_PREFIX}%'
-            AND appointment_id = $1 AND doctor_id = $2
+      var evt = await client.query(
+        `SELECT id FROM doctor_sla_events
+          WHERE order_id = $1 AND doctor_id = $2
           LIMIT 1`,
         [orderId, originalDoctorId]
       );
-      if (partial.rows.length > 0) {
-        return {
-          idempotent: true,
-          oldRowId: row.id,
-          partialRowId: partial.rows[0].id,
-          partialAmount: Number(partial.rows[0].earned_amount) || 0,
-          partialPct: REASSIGN_PARTIAL_PCT
-        };
+      if (evt.rows.length > 0) {
+        return { idempotent: true, oldRowId: row.id, slaEventId: evt.rows[0].id };
       }
-      // status='reassigned' but no partial row — half-done state from a
-      // prior crashed run. Fall through and finish writing the partial row.
+      // status='reassigned' but no event — half-done state from a prior
+      // crashed run (or a pre-migration flip). Fall through and record it.
     }
 
-    // Step 4: compute partial pay = REASSIGN_PARTIAL_PCT% of original
-    // baseShare. The earned_amount on the pending row IS already the
-    // baseShare + uplift (uplift may have been zeroed by recomputeOnBreach
-    // earlier in the SLA worker — that's fine, we want the post-breach value).
-    var baseShare = Number(row.earned_amount) || 0;
-    var partialAmount = Math.round(baseShare * (REASSIGN_PARTIAL_PCT / 100) * 100) / 100;
-
-    // Step 5: flip the original row to 'reassigned'.
+    // Step 4: flip the original row to 'reassigned' at ZERO.
     //
-    // ── AUDIT-2026-08-22 (M4): the original doctor was credited 110% ────────
-    //
-    // This UPDATE changed only `status`, leaving the original row's
-    // earned_amount at the FULL fee, and Step 6 then inserted a SECOND
-    // 'reassigned' row worth another 10%. Both rows carry status='reassigned'
-    // and the doctor statement (routes/doctor.js:1136 / :1194) sums
-    // earned_amount over every row for the doctor and reports
-    // SUM(...) FILTER (WHERE status='reassigned') as one figure — so one
-    // reassigned case showed 110% of the fee, for a case the doctor did not
-    // deliver. The header comment at the top of this function (and the
-    // REASSIGN_PARTIAL_PCT constant) says the intent is a 10% token only.
-    //
-    // The 10% lives in the Step 6 row — services/doctor_pause.js counts those
-    // rows by the 'earn-reassign-%' id prefix, so it must keep being written —
-    // therefore the ORIGINAL row goes to zero. gross_amount is left untouched
-    // as the reconciliation record of what the case was worth.
-    //
-    // Idempotency: re-running lands in the Step 3 guard above (status is now
-    // 'reassigned' and the partial row exists) and returns without writing, so
-    // the zeroing cannot compound. The Step 3 half-done fall-through reads
-    // earned_amount BEFORE this UPDATE on a fresh run; on a legacy half-done
-    // row it reads whatever that run left, which is the full fee (the old code
-    // never wrote this column) — i.e. it still recovers the right 10%.
+    // (AUDIT-2026-08-22 M4 history: this flip once left the full fee on the
+    // row while a second 10% token row was added — 110% shown for a case the
+    // doctor did not deliver. M4 zeroed the row; Batch B removed the token.)
+    // gross_amount is left untouched as the reconciliation record of what the
+    // case was worth.
     await client.query(
       `UPDATE doctor_earnings
           SET status = 'reassigned',
@@ -824,46 +909,190 @@ async function markPartialPayOnReassignment(originalDoctorId, orderId, reason) {
       [reason || 'sla_breach', row.id]
     );
 
-    // Step 6: insert the partial-pay row.
-    var partialId = REASSIGN_EARNINGS_PREFIX + randomUUID();
+    // Step 5: record the pause-counter event, same transaction.
+    var slaEventId = 'slaevt-' + randomUUID();
     await client.query(
-      `INSERT INTO doctor_earnings
-         (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, reassignment_reason, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'reassigned', $7, NOW())`,
-      [partialId, originalDoctorId, orderId, baseShare, REASSIGN_PARTIAL_PCT, partialAmount, reason || 'sla_breach']
-    );
-
-    // Step 7: link old row to new partial row for reconciliation.
-    await client.query(
-      `UPDATE doctor_earnings SET reassigned_to_earning_id = $1 WHERE id = $2`,
-      [partialId, row.id]
+      `INSERT INTO doctor_sla_events (id, doctor_id, order_id, reason, created_at)
+       VALUES ($1, $2, $3, $4, NOW())`,
+      [slaEventId, originalDoctorId, orderId, reason || 'sla_breach']
     );
 
     return {
       written: true,
       oldRowId: row.id,
-      partialRowId: partialId,
-      partialAmount: partialAmount,
-      partialPct: REASSIGN_PARTIAL_PCT,
-      baseShare: baseShare,
-      // AUDIT-2026-08-22 (M4): the original row's earned_amount is now 0, so
-      // partialAmount IS the doctor's total for this case. Exposed so the
-      // reassignment audit rows can say so.
+      slaEventId: slaEventId,
       originalRowZeroed: true
     };
   });
 }
 
+// BATCH B — standalone video-appointment earnings, through the writer.
+//
+// routes/video.js (call end + no-show mark) and video_scheduler.js (no-show
+// sweep) each carried their own raw INSERT INTO doctor_earnings; those rows
+// are why the ledger held shapes no aggregation expected. Same row shape,
+// same one-earning-per-appointment guard (explicit NOT EXISTS pre-check so
+// behaviour is right even before migration 082's unique index; untargeted
+// ON CONFLICT DO NOTHING as the race-proof backstop — a targeted conflict
+// clause cannot infer a partial index and would raise at runtime).
+//
+// `id` defaults to 'earn-<uuid>'; the no-show sweep passes its deterministic
+// 'earn-noshow-<appointment id>' so re-sweeps stay idempotent by PK too.
+// `client` (optional) joins the caller's transaction.
+async function writeVideoAppointmentEarning({
+  appointmentId,
+  doctorId,
+  grossAmount,
+  commissionPct,
+  id,
+  createdAt,
+  client
+} = {}) {
+  if (!appointmentId || !doctorId) return { skipped: 'missing_args' };
+  const gross = Number(grossAmount) || 0;
+  const pct = Number(commissionPct) || 0;
+  const earnedAmount = Math.round(gross * (pct / 100) * 100) / 100;
+  const earningsId = id || ('earn-' + randomUUID());
+  const ins = await dbFor(client).run(
+    `INSERT INTO doctor_earnings
+       (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, created_at)
+     SELECT $1, $2, $3, $4, $5, $6, 'pending', COALESCE($7::timestamp, NOW())
+      WHERE NOT EXISTS (
+            SELECT 1 FROM doctor_earnings WHERE appointment_id = $3
+      )
+     ON CONFLICT DO NOTHING`,
+    [earningsId, doctorId, appointmentId, gross, pct, earnedAmount, createdAt || null]
+  );
+  const written = !!(ins && ins.rowCount > 0);
+  return written
+    ? { written: true, earningsId, earnedAmount }
+    : { skipped: 'already_exists', appointmentId };
+}
+
+// BATCH B — the month-end payout stamp: the ONLY writer of status='paid'.
+//
+// "Paid" means finance actually settled the month — last working day,
+// Africa/Cairo, EGP, by cash / InstaPay / Shifa finance. There is no InstaPay
+// settlement ledger, so the stamp is an explicit operator action: the Command
+// API's POST /payouts/mark-paid (superadmin) calls this after the transfers
+// are made. `month` is the Cairo business month being paid ('YYYY-MM');
+// `doctorId` narrows to one doctor when a payout is settled per doctor.
+//
+// What gets stamped: 'pending' money rows whose COMPLETION falls in that
+// Cairo month — for a main row the order's completed_at (so an in-flight
+// pending row, accepted but not yet delivered, can NEVER be marked paid: its
+// order has no completed_at and the guard below requires one), for a video
+// row its created_at (written at the completion moment), and every
+// addon_earnings pending row of that month. Legacy 'earn-reassign-%' tokens
+// are excluded outright. Rows already 'paid' are untouched — the stamp is
+// idempotent and re-running a month is safe.
+async function markMonthEndPaid({ month, doctorId, actor } = {}) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month || ''))) {
+    return { skipped: 'invalid_month', month: month || null };
+  }
+  // Refuse future months: money cannot be settled before it exists. The
+  // CURRENT Cairo month is allowed — the payout runs on its last working day.
+  const guard = await queryOne(
+    `SELECT ($1 || '-01')::date <= date_trunc('month', NOW() AT TIME ZONE 'Africa/Cairo')::date AS ok`,
+    [month]
+  );
+  if (!guard || guard.ok !== true) {
+    return { skipped: 'month_in_future', month };
+  }
+
+  const deParams = [month];
+  let deDoctor = '';
+  if (doctorId) { deParams.push(doctorId); deDoctor = ` AND de.doctor_id = $2`; }
+  const deRes = await queryAll(
+    `UPDATE doctor_earnings u
+        SET status = 'paid',
+            paid_at = NOW()
+       FROM (
+         SELECT de.id
+           FROM doctor_earnings de
+           LEFT JOIN orders o ON o.id = de.appointment_id AND de.id LIKE '${MAIN_EARNINGS_PREFIX}%'
+          WHERE de.status = 'pending'
+            AND de.id NOT LIKE '${REASSIGN_EARNINGS_PREFIX}%'
+            AND (de.id NOT LIKE '${MAIN_EARNINGS_PREFIX}%' OR o.completed_at IS NOT NULL)
+            AND to_char(date_trunc('month',
+                  (COALESCE(o.completed_at, de.created_at::timestamptz) AT TIME ZONE 'Africa/Cairo')),
+                'YYYY-MM') = $1${deDoctor}
+       ) sel
+      WHERE u.id = sel.id
+      RETURNING u.id, u.doctor_id, u.earned_amount`,
+    deParams
+  );
+
+  const aeParams = [month];
+  let aeDoctor = '';
+  if (doctorId) { aeParams.push(doctorId); aeDoctor = ` AND ae.doctor_id = $2`; }
+  const aeRes = await queryAll(
+    `UPDATE addon_earnings u
+        SET status = 'paid',
+            paid_at = NOW()
+       FROM (
+         SELECT ae.id
+           FROM addon_earnings ae
+          WHERE ae.status = 'pending'
+            AND to_char(date_trunc('month', (ae.created_at AT TIME ZONE 'Africa/Cairo')), 'YYYY-MM') = $1${aeDoctor}
+       ) sel
+      WHERE u.id = sel.id
+      RETURNING u.id, u.doctor_id, u.earned_amount_egp`,
+    aeParams
+  );
+
+  const caseRows = deRes || [];
+  const addonRows = aeRes || [];
+  const round2 = (n) => Math.round(n * 100) / 100;
+  const caseEgp = round2(caseRows.reduce((s, r) => s + (Number(r.earned_amount) || 0), 0));
+  const addonEgp = round2(addonRows.reduce((s, r) => s + (Number(r.earned_amount_egp) || 0), 0));
+
+  // Audit trail (best-effort): who settled which month for how much. Same
+  // error_logs admin_audit channel doctor_pause uses for system writes.
+  try {
+    await execute(
+      `INSERT INTO error_logs (id, level, category, message, user_id, context)
+       VALUES ($1, 'audit', 'admin_audit', $2, $3, $4)`,
+      [
+        randomUUID(),
+        'payout_month_marked_paid: ' + month + (doctorId ? (' doctor ' + doctorId) : ' (all doctors)'),
+        actor || null,
+        JSON.stringify({
+          action: 'payout_month_marked_paid',
+          month,
+          doctorId: doctorId || null,
+          caseRows: caseRows.length,
+          caseEgp,
+          addonRows: addonRows.length,
+          addonEgp
+        })
+      ]
+    );
+  } catch (_) { /* best-effort — the stamp itself already committed */ }
+
+  return {
+    marked: true,
+    month,
+    doctorId: doctorId || null,
+    caseRows: caseRows.length,
+    caseEgp,
+    addonRows: addonRows.length,
+    addonEgp,
+    totalEgp: round2(caseEgp + addonEgp)
+  };
+}
+
 module.exports = {
   writePendingForCase,
-  markCaseEarningsPaid,
+  settleCaseEarningsOnCompletion,
   previewCaseEarnings,
   recomputeOnBreach,
   recomputeOnRefund,
-  markPartialPayOnReassignment,
+  markReassignedOnReassignment,
+  writeVideoAppointmentEarning,
+  markMonthEndPaid,
   MAIN_EARNINGS_PREFIX,
   REASSIGN_EARNINGS_PREFIX,
-  REASSIGN_PARTIAL_PCT,
   // AUDIT-2026-08-22 (M3): exported so tests and reconciliation queries can
   // tell a stage-1 breach write-down apart from a finished clawback.
   BREACH_UPLIFT_CLAWBACK

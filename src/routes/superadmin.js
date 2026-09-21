@@ -5497,7 +5497,8 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, async (req, re
   // Command route already document as fixed, surviving verbatim on the
   // superadmin web route. Everything reassignment means was skipped —
   // finalizePreviousAssignment (outgoing doctor kept the case against their
-  // capacity), markPartialPayOnReassignment (outgoing doctor kept 100% of
+  // capacity), the earnings write-down — Batch B's
+  // markReassignedOnReassignment (outgoing doctor kept 100% of
   // pending earnings on top of the incoming doctor's full fee — double-pay),
   // no doctor_assignments row and no accept_by_at (the new doctor's
   // acceptance window did not exist, so no sweep could ever time the case

@@ -69,8 +69,8 @@ const SCAN_INTERVAL_MS = 5 * 60 * 1000;
 //
 // Why not "just restore the 24h default":
 //   A NULL accept_by_at row that times out routes to handleDoctorTimeout ->
-//   reassignCase -> markPartialPayOnReassignment, which claws the assigned
-//   doctor back to 10% pay. The backlog of NULL-accept_by_at rows is, by
+//   reassignCase -> markReassignedOnReassignment, which claws the assigned
+//   doctor back to zero (Batch B). The backlog of NULL-accept_by_at rows is, by
 //   definition, OLD — so any wall-clock cutoff, 2h or 24h, matches all of them
 //   on the FIRST sweep after deploy. Restoring 24h changes which rows burst,
 //   not whether a burst happens. Only declining to act on them cannot fire a
@@ -515,8 +515,9 @@ async function handleBreach(candidate) {
   // the case is already terminal. Each returns the case untouched. This
   // function ignored the return value and reassigned UNCONDITIONALLY, so a
   // case the guard had just protected was still stripped from its doctor —
-  // and reassignCase → markPartialPayOnReassignment clawed that doctor back to
-  // 10% partial pay for an SLA they had not missed.
+  // and reassignCase → markReassignedOnReassignment (Batch B: was
+  // markPartialPayOnReassignment) clawed that doctor back for an SLA they had
+  // not missed.
   //
   // Under the Cairo/UTC skew (see src/pg.js) the sweep selected every case ~3h
   // early, so the not-yet-due guard fired constantly and this was the common
