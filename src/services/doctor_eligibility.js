@@ -159,10 +159,52 @@ function capFor(doctor, orderTier) {
   return Number.isFinite(cap) && cap > 0 ? cap : 0;
 }
 
+// ── Order-side tier filtering, for the pool LISTING queries (A2-2) ──────────
+//
+// doctorSupportsTier answers "may THIS doctor take a case of THIS tier" one
+// case at a time. The pool queries ask the inverse — "which ORDER tiers may
+// this doctor be shown" — and they ask it in SQL, over rows this process has
+// not loaded. These two helpers keep that inversion a DERIVATION of
+// doctorSupportsTier rather than a second, parallel rule:
+//
+//   * allowedOrderTierValues runs doctorSupportsTier over every order-tier
+//     spelling the orders table can carry (the TIER_SPELLINGS vocabulary,
+//     plus whatever nonstandard strings the doctor's own row holds) and
+//     returns the values that pass. NULL / unparseable sla_tiers_supported
+//     therefore reads as standard-only — auto_assign.js's exact default.
+//   * orderTierSql is the SQL spelling of the sanctioned order-tier fallback
+//     (urgency_tier first, then tier, default 'standard' — the same
+//     expression doctorCaseAccess and the accept handler's acceptOrderTier
+//     use in JS), with doctorSupportsTier's trim/lowercase/blank-means-
+//     standard normalisation applied.
+//
+// A pool query then filters with:  orderTierSql('o.') = ANY($n::text[])
+// where $n is allowedOrderTierValues(doctor's raw sla_tiers_supported).
+const ORDER_TIER_VOCABULARY = Object.freeze(Object.keys(TIER_SPELLINGS));
+
+function allowedOrderTierValues(slaTiers) {
+  let arr = slaTiers;
+  if (typeof arr === 'string') {
+    try { arr = JSON.parse(arr); } catch (_) { arr = null; }
+  }
+  const own = Array.isArray(arr)
+    ? arr.map((s) => String(s).trim().toLowerCase()).filter(Boolean)
+    : [];
+  const universe = Array.from(new Set(ORDER_TIER_VOCABULARY.concat(own)));
+  return universe.filter((t) => doctorSupportsTier(slaTiers, t));
+}
+
+function orderTierSql(prefix) {
+  const p = prefix == null ? '' : String(prefix);
+  return `COALESCE(NULLIF(LOWER(TRIM(COALESCE(NULLIF(${p}urgency_tier, ''), NULLIF(${p}tier, ''), 'standard'))), ''), 'standard')`;
+}
+
 module.exports = {
   eligibleDoctorClause,
   DOCTOR_ACCOUNT_BLOCK,
   doctorNewCaseBlockReason,
   doctorSupportsTier,
-  capFor
+  capFor,
+  allowedOrderTierValues,
+  orderTierSql
 };

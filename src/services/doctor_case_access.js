@@ -162,6 +162,12 @@ const WITHHELD_UNTIL_ACCEPT = Object.freeze([
   'medical_history', 'history',
   'current_medications', 'medications',
   'notes',
+  // appointments.slot_notes — the patient's free text on a video slot. Not an
+  // orders column, but it rides pre-accept payloads by side paths (the case
+  // page's pendingVideoAppt, the video appointment page, the doctor's
+  // appointments board), which is why it is named here and stripped by
+  // redactWithheldUntilAccept below (A2-4, finding A4/S5).
+  'slot_notes',
   // The patient's identity. patient_email and patient_phone are join aliases
   // rather than orders columns — prescriptions and the video appointments
   // board both select them — and they are named here so that a row carrying
@@ -415,6 +421,23 @@ function redactPreAcceptOrderRow(order) {
 }
 
 /**
+ * Strip the WITHHELD_UNTIL_ACCEPT keys from a row that is NOT an orders row —
+ * an appointments row (slot_notes) riding a pre-accept payload, or any other
+ * side-path shape that carries patient free text under one of the withheld
+ * names. The orders keep-list above does not fit these shapes, but the
+ * withheld list is the single answer to "which keys are the patient's own
+ * words", so this is the same mechanism, not a second one (A2-4).
+ * Keys are DELETED, not blanked, for the same reason as everywhere else in
+ * this module: an absent key cannot be printed by a template edit later.
+ */
+function redactWithheldUntilAccept(row) {
+  if (!row || typeof row !== 'object') return row;
+  const clone = Object.assign({}, row);
+  for (let i = 0; i < WITHHELD_UNTIL_ACCEPT.length; i++) delete clone[WITHHELD_UNTIL_ACCEPT[i]];
+  return clone;
+}
+
+/**
  * Remove the patient's identity from a row that is not an orders row: an
  * appointment joined to the patient user, an analytics row, a form payload.
  * The keys are DELETED rather than blanked — a field that is absent from the
@@ -473,6 +496,7 @@ module.exports = {
   doctorHasAcceptedCase,
   doctorCaseAccess,
   redactPreAcceptOrderRow,
+  redactWithheldUntilAccept,
   redactPatientIdentity,
   redactPreAcceptFiles
 };

@@ -37,12 +37,17 @@ function check(name, fn) {
 // Accept any of the three shapes a site legitimately uses to exclude a paused
 // doctor: the SQL clause (aliased or bare), delegation to the shared clause, or
 // a JS-side skip.
-function excludesPaused(src, { allowClause = true, allowShared = true, allowJs = false } = {}) {
+function excludesPaused(src, { allowClause = true, allowShared = true, allowJs = false, allowAutoAssign = false } = {}) {
   // Any prefix inside COALESCE before is_paused: `u.`, bare, or a `${a}.`
   // template-literal alias (the shared clause builds the SQL as a string).
   if (allowClause && /COALESCE\([^)]*is_paused,\s*false\)\s*=\s*false/.test(src)) return true;
   if (allowShared && /eligibleDoctorClause\s*\(/.test(src)) return true;
   if (allowJs && /is_paused/.test(src) && /continue|return|skip/.test(src)) return true;
+  // A2-3 (2026-09-21): a site may delegate candidate selection whole to
+  // auto_assign.eligibleDoctorsFor, whose query carries the is_paused
+  // predicate — pinned at the 'auto-assign' site below, so the invariant
+  // still fails there if the predicate is ever dropped.
+  if (allowAutoAssign && /eligibleDoctorsFor\s*\(/.test(src)) return true;
   return false;
 }
 
@@ -52,7 +57,9 @@ const SITES = [
   ['auto-assign', 'src/auto_assign.js', { allowShared: false }],
   ['shared eligibility clause', 'src/services/doctor_eligibility.js', { allowShared: false }],
   ['SLA-breach alternate picker', 'src/case_sla_worker.js', {}],
-  ['capacity-overflow next doctor', 'src/routes/doctor.js', { allowShared: false }],
+  // A2-3: findNextAvailableDoctor now delegates to auto_assign's candidate
+  // query rather than carrying its own is_paused clause.
+  ['capacity-overflow next doctor', 'src/routes/doctor.js', { allowClause: false, allowShared: false, allowAutoAssign: true }],
   ['bulk assign', 'src/services/admin_bulk_assign.js', { allowClause: false, allowShared: false, allowJs: true }],
 ];
 

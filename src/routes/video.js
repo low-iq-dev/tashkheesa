@@ -13,7 +13,7 @@ const { generateToken, getRoomName, isVideoEnabled } = require('../video_helpers
 // A4 (FIX PLAN 2026-09-15) — assignment is not acceptance. See
 // doctorHasAcceptedOrder below: appointments.doctor_id is bound to
 // orders.doctor_id at booking time, which is the ASSIGNED doctor.
-const { doctorHasAcceptedCase, redactPatientIdentity } = require('../services/doctor_case_access');
+const { doctorHasAcceptedCase, redactPatientIdentity, redactWithheldUntilAccept } = require('../services/doctor_case_access');
 const { sendCriticalAlert } = require('../critical-alert');
 const { getAddon, safeDualWrite } = require('../services/addons/registry');
 // AUDIT-2026-08-22 (M1): the SAME parser routes/payments.js uses to read the
@@ -922,8 +922,9 @@ router.get('/portal/video/appointment/:id', requireRole('patient', 'doctor'), as
   const patientRow = await queryOne('SELECT id, name, email FROM users WHERE id = $1', [appointment.patient_id]);
   // A4 — a doctor who has not accepted the case sees the appointment, not the
   // patient. The patient's own view of their appointment is untouched.
-  const patient = (String(req.user.role || '').toLowerCase() === 'doctor' &&
-                   !(await doctorHasAcceptedOrder(appointment.order_id, req.user.id)))
+  const viewerIsUnacceptedDoctor = String(req.user.role || '').toLowerCase() === 'doctor' &&
+    !(await doctorHasAcceptedOrder(appointment.order_id, req.user.id));
+  const patient = viewerIsUnacceptedDoctor
     ? redactPatientIdentity(patientRow)
     : patientRow;
   const payment = appointment.payment_id
@@ -949,6 +950,16 @@ router.get('/portal/video/appointment/:id', requireRole('patient', 'doctor'), as
   appointment.rescheduled_from_formatted = formatAptDate(appointment.rescheduled_from);
   appointment.doctor_proposed_time_formatted = formatAptDate(appointment.doctor_proposed_time);
 
+  // A2-4 (A4/S5) — and not the patient's words either: this template renders
+  // appointment.slot_notes verbatim, and appointments.doctor_id is set at
+  // ASSIGNMENT, so an offered-but-unaccepted doctor reached the patient's
+  // free text here. Scheduling facts (status, the times formatted above)
+  // stay; the withheld keys go. After the formatting lines on purpose — the
+  // redaction clones the row.
+  const viewAppointment = viewerIsUnacceptedDoctor
+    ? redactWithheldUntilAccept(appointment)
+    : appointment;
+
   res.render('video_appointment', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     layout: 'portal',
@@ -958,7 +969,7 @@ router.get('/portal/video/appointment/:id', requireRole('patient', 'doctor'), as
     portalRole: isDoctor ? 'doctor' : 'patient',
     portalActive: 'dashboard',
     mode: 'view',
-    appointment,
+    appointment: viewAppointment,
     doctor,
     patient,
     payment,
@@ -2285,10 +2296,13 @@ router.get('/portal/doctor/appointments', requireRole('doctor'), async (req, res
   // The appointment stays on the board — the doctor has to be able to act on
   // it — but until they accept the case it carries no patient. An appointment
   // whose case row has gone is redacted too: no case, no acceptance.
+  // A2-4 (A4/S5): nor the patient's free text — the SELECT is a.*, so
+  // slot_notes rode every unaccepted row; redactWithheldUntilAccept strips it
+  // alongside the identity redaction.
   const allAppointments = (allAppointmentRows || []).map(function (a) {
     return doctorHasAcceptedCase({ doctor_id: a.case_doctor_id, status: a.case_status }, doctorId)
       ? a
-      : redactPatientIdentity(a);
+      : redactWithheldUntilAccept(redactPatientIdentity(a));
   });
 
   // Separate into categories

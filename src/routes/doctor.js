@@ -4,7 +4,12 @@ const path = require('path');
 const { acceptOrder, markOrderCompleted } = require('../db');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { logErrorToDb } = require('../logger');
-const { doctorNewCaseBlockReason, doctorSupportsTier, capFor } = require('../services/doctor_eligibility');
+const { doctorNewCaseBlockReason, doctorSupportsTier, capFor, allowedOrderTierValues, orderTierSql } = require('../services/doctor_eligibility');
+// A2-3 (X8): the reassignment target picker routes through auto_assign's
+// candidate query — the canonical routing-eligibility answer (account flags,
+// tier via sla_tiers_supported, onboarding + doctor_services) — instead of
+// its own four-predicate SELECT.
+const { eligibleDoctorsFor } = require('../auto_assign');
 // A4/A5 (fix plan 2026-09-15) — the ONE definition of a doctor's current load,
 // shared with the Command candidate pickers and the hand-pick gate
 // (services/assign_case.js), so the load a picker shows and the load this
@@ -19,7 +24,8 @@ const {
   doctorCaseAccess,
   doctorHasAcceptedCase,
   redactPreAcceptOrderRow,
-  redactPreAcceptFiles
+  redactPreAcceptFiles,
+  redactWithheldUntilAccept
 } = require('../services/doctor_case_access');
 const { requireRole } = require('../middleware');
 // AUDIT-2026-09-06 (D2): src/auth.js:33 — "Routes that mutate
@@ -81,10 +87,9 @@ const UNACCEPTED_STATUSES = CASE_UNACCEPTED_STATUSES;
 // now enforce the PER-DOCTOR, tier-aware cap (users.max_active_cases /
 // max_active_cases_urgent via doctor_eligibility.capFor — the same figures the
 // broadcast pool and every admin assign gate already use). This constant is
-// only the fallback when the users row cannot be read, and the threshold
-// findNextAvailableDoctor's overflow query still applies (that query is a
-// reassignment-target picker and was deliberately left alone — see the Batch A
-// progress notes).
+// only the fallback when the users row cannot be read. A2-3 (X8): the
+// reassignment-target picker no longer uses it either — findNextAvailableDoctor
+// takes each candidate's own cap from capFor now.
 const MAX_ACTIVE_CASES = 4;
 
 // AUDIT-2026-09-06 (D2) — fail-closed specialty matching.
@@ -139,47 +144,64 @@ async function countActiveCasesForDoctor(doctorId, excludeOrderId) {
   return row ? Number(row.c) : 0;
 }
 
-async function findNextAvailableDoctor(specialtyId, excludeDoctorId) {
-  const spec = specialtyId == null ? '' : String(specialtyId);
+// A2-3 (X8, 2026-09-21) — the overflow/reassignment target picker used to be
+// its own four-predicate SELECT: no tier check, no onboarding check, no
+// doctor_services check, a hand-typed five-status load count, and a hardcoded
+// cap of 4 while every doctor row carries max_active_cases. So the picker
+// could hand a case to a doctor auto_assign, broadcast and the accept gate
+// would all refuse. It is now a composition of the canonical helpers and
+// nothing else:
+//   * eligibility  — auto_assign.eligibleDoctorsFor (account flags, specialty,
+//     tier via sla_tiers_supported with NULL = standard-only, and — when the
+//     order carries a service_id — onboarding_complete + doctor_services);
+//   * capacity     — capFor over the doctor's own row (0/NULL = no cap
+//     configured), against countActiveCasesForDoctor, the same canonical
+//     doctorLoadSql count the accept gate enforces;
+//   * order        — oldest account first, the ordering this picker has always
+//     used (auto_assign's own least-loaded pick is a different, deliberate
+//     policy for the assignment worker; this path keeps its behavior).
+//
+// AUDIT-2026-09-06 (D2), unchanged — the fail-closed value is the CASE's
+// specialty: a case with no specialty matches nobody, the caller finds no next
+// doctor and bounces the accept with ?msg=capacity, and the case stays where
+// it is until someone routes it deliberately. The same happens when the
+// stricter gates leave no eligible target: null out, caller refuses, case
+// keeps its current holder.
+async function findNextAvailableDoctor(order, excludeDoctorId) {
+  const spec = order && order.specialty_id != null ? String(order.specialty_id).trim() : '';
   const exclude = excludeDoctorId == null ? '' : String(excludeDoctorId);
-
-  // NOTE:
-  // Some DB snapshots do not have (or do not consistently use) `doctor_services`.
-  // The canonical field for a doctor's specialty in this portal DB is `users.specialty_id`.
-  // Keep this selection simple and resilient to schema drift.
-  // AUDIT-P0-2c — is_paused / pending_approval added. Without them this path
-  // (a doctor at capacity accepting a case, which reassigns the overflow) could
-  // hand a case to a doctor an admin had paused for quality reasons, or to one
-  // still awaiting approval. is_paused is set automatically by the SLA-breach
-  // threshold in services/doctor_pause.js, so the worst offenders were exactly
-  // the ones eligible here.
-  //
-  // AUDIT-2026-09-06 (D2) — here the fail-closed value is the CASE's
-  // specialty, not the doctor's: a case with no specialty on it used to match
-  // every doctor on the platform, so the capacity-overflow path could hand a
-  // cardiology study to a dermatologist. It now matches nobody, the caller
-  // finds no next doctor and bounces the accept with ?msg=capacity, and the
-  // case stays where it is until someone routes it deliberately.
   if (!spec) return null;
 
-  return await queryOne(`
-    SELECT u.id
-    FROM users u
-    WHERE LOWER(COALESCE(u.role, '')) = 'doctor'
-      AND COALESCE(u.is_active, true) = true
-      AND COALESCE(u.is_paused, false) = false
-      AND COALESCE(u.pending_approval, false) = false
-      AND u.specialty_id = $1
-      AND u.id != $2
-      AND (
-        SELECT COUNT(*)
-        FROM orders_active o
-        WHERE o.doctor_id = u.id
-          AND LOWER(o.status) IN ('assigned','in_review','rejected_files','breached','sla_breach')
-      ) < $3
-    ORDER BY COALESCE(u.created_at, '1970-01-01')::timestamp ASC
-    LIMIT 1
-  `, [spec, exclude, MAX_ACTIVE_CASES]);
+  // urgency_tier first — the sanctioned fallback (acceptance_window.js:
+  // orders.tier defaults 'standard' and is only overwritten at broadcast).
+  const tier = (order.urgency_tier || order.tier || 'standard');
+  const serviceId = order.service_id || null;
+
+  let candidates;
+  try {
+    candidates = await eligibleDoctorsFor({ specialtyId: spec, tier, serviceId });
+  } catch (_) {
+    return null; // fail closed: an unreadable pool is not a pool with a target
+  }
+  const ids = (candidates || [])
+    .map((d) => (d && d.id != null ? String(d.id) : ''))
+    .filter((id) => id && id !== exclude);
+  if (!ids.length) return null;
+
+  const rows = await queryAll(`
+    SELECT id, max_active_cases, max_active_cases_urgent
+    FROM users
+    WHERE id = ANY($1)
+    ORDER BY COALESCE(created_at, '1970-01-01')::timestamp ASC
+  `, [ids]);
+
+  for (const row of rows || []) {
+    const cap = capFor(row, tier);
+    if (cap === 0) return { id: row.id };
+    const load = await countActiveCasesForDoctor(row.id);
+    if (load < cap) return { id: row.id };
+  }
+  return null;
 }
 function stripPricingFields(order) {
   if (!order || typeof order !== 'object') return order;
@@ -267,8 +289,13 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
     return mapPortalCaseItem(redactPreAcceptOrderRow(order), lang, { isPaid });
   });
 
-  const poolNewCases = await buildPortalCasesUnassigned(doctorSpecialtyId, newStatuses, 6, lang);
-  const poolUnassignedTotal = await countPortalCasesUnassigned(doctorSpecialtyId, newStatuses);
+  // A2-2 (X5): the pool arm filters on the doctor's LIVE tier switches, so the
+  // dashboard never shows a case the accept gate (Guardrail 3d) and the view
+  // rule will refuse. Read live, not from the JWT — same freshness argument as
+  // the accept handler's users read.
+  const doctorSlaTiers = await readDoctorSlaTiersRaw(doctorId);
+  const poolNewCases = await buildPortalCasesUnassigned(doctorSpecialtyId, doctorSlaTiers, newStatuses, 6, lang);
+  const poolUnassignedTotal = await countPortalCasesUnassigned(doctorSpecialtyId, doctorSlaTiers, newStatuses);
   const newCasesTotal = assignedPendingTotal + poolUnassignedTotal;
   const newCases = [...assignedPendingMapped, ...poolNewCases].slice(0, 6);
 
@@ -905,14 +932,18 @@ router.get('/portal/doctor/queue', requireDoctor, async (req, res) => {
   const limit = parsePositiveInt(req.query.limit, 20, 100);
   const offset = (page - 1) * limit;
 
-  const newBucketTotal = await countQueueNewCases(doctorId, doctorSpecialtyId, UNACCEPTED_STATUSES, '');
+  // A2-2 (X5): live tier switches gate the queue's pool arm — see the
+  // dashboard handler's identical read.
+  const doctorSlaTiers = await readDoctorSlaTiersRaw(doctorId);
+
+  const newBucketTotal = await countQueueNewCases(doctorId, doctorSpecialtyId, doctorSlaTiers, UNACCEPTED_STATUSES, '');
   const reviewBucketTotal = await countPortalCasesByStatuses(doctorId, ACCEPTED_STATUSES, '');
 
   const cases = bucket === 'new'
-    ? await buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, UNACCEPTED_STATUSES, limit, offset, lang, q)
+    ? await buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, doctorSlaTiers, UNACCEPTED_STATUSES, limit, offset, lang, q)
     : await buildPortalCasesPaged(doctorId, ACCEPTED_STATUSES, limit, offset, lang, q);
   const total = bucket === 'new'
-    ? await countQueueNewCases(doctorId, doctorSpecialtyId, UNACCEPTED_STATUSES, q)
+    ? await countQueueNewCases(doctorId, doctorSpecialtyId, doctorSlaTiers, UNACCEPTED_STATUSES, q)
     : await countPortalCasesByStatuses(doctorId, ACCEPTED_STATUSES, q);
 
   const showingFrom = total > 0 ? offset + 1 : 0;
@@ -2932,6 +2963,16 @@ const canAccept =
       [orderId, doctorId]
     );
   } catch (_) {}
+  // A2-4 (A4/S5): slot_notes is the PATIENT'S free text on the slot, and this
+  // row rode the case payload whole, accepted or not — the one patient-written
+  // string Batch A's redactions missed, because it arrives on an appointments
+  // row, not an orders row. Pre-accept the brief keeps the scheduling FACTS
+  // (the appointment exists, its status, its proposed time) and loses the
+  // patient's words — the same WITHHELD_UNTIL_ACCEPT list, applied by
+  // redactWithheldUntilAccept, keys deleted not blanked.
+  if (!showFullCase && pendingVideoAppt) {
+    pendingVideoAppt = redactWithheldUntilAccept(pendingVideoAppt);
+  }
 
   // AUDIT-2026-08-23 (C3) — "Why you got this case" was fabricated.
   //
@@ -3627,13 +3668,13 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
   // NULL-reads-as-standard-only default as auto_assign.js. The read-failure
   // case was already refused by 3c above.
   //
-  // KNOWN GAP, recorded not fixed (fix round 2026-09-20, adversarial X5):
-  // notify/broadcast.js and the pool arm of the queue query do NOT filter on
-  // sla_tiers_supported, so a doctor who narrows their tiers can still be
-  // notified of and shown a case this gate (and the view rule) will refuse.
-  // Latent while migration 089 keeps every doctor on all three tiers; the
-  // broadcast/queue predicates are routing SQL, which this branch's ground
-  // rules park for a routing-side change (see cad13b5's identical ruling).
+  // A2-2 (X5, 2026-09-21) — the gap recorded here is CLOSED: notify/broadcast
+  // filters the fan-out on sla_tiers_supported with auto_assign's predicate,
+  // and the pool arms of the queue/dashboard queries filter on
+  // allowedOrderTierValues (the order-side derivation of the same helper this
+  // gate calls). A doctor who narrows their tiers is no longer notified of or
+  // shown a case this gate would refuse; this gate stays, as the enforcement
+  // on the action itself.
   if (!assignedDoctorId) {
     if (!doctorSupportsTier(liveDoctorRow && liveDoctorRow.sla_tiers_supported, acceptOrderTier)) {
       return res.redirect(`/portal/doctor/case/${orderId}?msg=tier_not_supported`);
@@ -3656,7 +3697,7 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
     : MAX_ACTIVE_CASES;
 
   if (acceptCap > 0 && activeCount >= acceptCap) {
-    const nextDoctor = await findNextAvailableDoctor(order.specialty_id, doctorId);
+    const nextDoctor = await findNextAvailableDoctor(order, doctorId);
 
     if (nextDoctor && nextDoctor.id) {
       // Theme 7 sub-issue A: canonical reassignment on capacity-overflow.
@@ -5151,7 +5192,33 @@ async function countAssignedPendingCases(doctorId, q = '') {
   return row ? Number(row.c) || 0 : 0;
 }
 
-async function countPortalCasesUnassigned(doctorSpecialtyId, statuses, q = '') {
+// A2-2 (X5): the doctor's raw sla_tiers_supported, read LIVE for the pool
+// queries below. null on a read error or a missing row — which the tier
+// predicate then treats exactly as auto_assign treats a NULL column:
+// standard-only. Failing closed to Standard on a transient read error is the
+// same direction the accept handler fails (account_check_failed): the pool
+// under-shows rather than inviting a doctor to a case the gates will refuse.
+async function readDoctorSlaTiersRaw(doctorId) {
+  if (!doctorId) return null;
+  try {
+    const row = await queryOne('SELECT sla_tiers_supported FROM users WHERE id = $1', [doctorId]);
+    return row ? row.sla_tiers_supported : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// A2-2 (X5): the pool arm's tier predicate. ONE derivation of the rule —
+// allowedOrderTierValues runs doctor_eligibility.doctorSupportsTier (the
+// accept gate's and the view rule's helper) over every order-tier spelling,
+// and orderTierSql is the SQL form of the sanctioned urgency_tier-first
+// fallback. A pool row this predicate hides is exactly a row Guardrail 3d
+// would bounce.
+function poolTierClause(doctorSlaTiers, bind) {
+  return `${orderTierSql('o.')} = ANY(${bind(allowedOrderTierValues(doctorSlaTiers))}::text[])`;
+}
+
+async function countPortalCasesUnassigned(doctorSpecialtyId, doctorSlaTiers, statuses, q = '') {
   if (!Array.isArray(statuses) || !statuses.length) return 0;
   const textQuery = normalizeTextQuery(q);
   const like = toLikeValue(textQuery);
@@ -5162,6 +5229,8 @@ async function countPortalCasesUnassigned(doctorSpecialtyId, statuses, q = '') {
   // empty pool, not the whole platform's. See specialtyMatchSql.
   const specClause = specialtyMatchSql(doctorSpecialtyId, 'o.specialty_id',
     (v) => { params.push(v); return `$${paramIdx++}`; });
+  const tierClause = poolTierClause(doctorSlaTiers,
+    (v) => { params.push(v); return `$${paramIdx++}`; });
   const statusPlaceholders = normalizedStatuses.map((s) => { params.push(s); return `$${paramIdx++}`; }).join(',');
   params.push(textQuery); const pText = `$${paramIdx++}`;
   params.push(like); const pLike = `$${paramIdx++}`;
@@ -5170,6 +5239,7 @@ async function countPortalCasesUnassigned(doctorSpecialtyId, statuses, q = '') {
      FROM orders_active o
      WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
        AND ${specClause}
+       AND ${tierClause}
        AND (
              LOWER(o.status) IN (${statusPlaceholders})
              OR (
@@ -5205,7 +5275,7 @@ async function countPortalCasesByStatuses(doctorId, statuses, q = '') {
   return row ? Number(row.c) || 0 : 0;
 }
 
-async function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6, lang = 'en', q = '') {
+async function buildPortalCasesUnassigned(doctorSpecialtyId, doctorSlaTiers, statuses, limit = 6, lang = 'en', q = '') {
   if (!Array.isArray(statuses) || !statuses.length) return [];
   const textQuery = normalizeTextQuery(q);
   const like = toLikeValue(textQuery);
@@ -5215,6 +5285,8 @@ async function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6
   // AUDIT-2026-09-06 (D2): fail-closed — a doctor with no specialty gets an
   // empty pool, not the whole platform's. See specialtyMatchSql.
   const specClause = specialtyMatchSql(doctorSpecialtyId, 'o.specialty_id',
+    (v) => { params.push(v); return `$${paramIdx++}`; });
+  const tierClause = poolTierClause(doctorSlaTiers,
     (v) => { params.push(v); return `$${paramIdx++}`; });
   const statusPlaceholders = normalizedStatuses.map((s) => { params.push(s); return `$${paramIdx++}`; }).join(',');
   params.push(textQuery); const pText = `$${paramIdx++}`;
@@ -5232,6 +5304,7 @@ async function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6
      LEFT JOIN services sv ON o.service_id = sv.id
      WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
        AND ${specClause}
+       AND ${tierClause}
        AND (
              LOWER(o.status) IN (${statusPlaceholders})
              OR (
@@ -5336,7 +5409,7 @@ async function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
   return await buildPortalCasesPaged(doctorId, statuses, limit, 0, lang, '');
 }
 
-async function countQueueNewCases(doctorId, doctorSpecialtyId, statuses, q = '') {
+async function countQueueNewCases(doctorId, doctorSpecialtyId, doctorSlaTiers, statuses, q = '') {
   if (!Array.isArray(statuses) || !statuses.length) return 0;
   const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
   const textQuery = normalizeTextQuery(q);
@@ -5349,6 +5422,11 @@ async function countQueueNewCases(doctorId, doctorSpecialtyId, statuses, q = '')
   // AUDIT-2026-09-06 (D2): fail-closed — a doctor with no specialty gets an
   // empty pool, not the whole platform's. See specialtyMatchSql.
   const specClause = specialtyMatchSql(doctorSpecialtyId, 'o.specialty_id',
+    (v) => { params.push(v); return `$${paramIdx++}`; });
+  // A2-2 (X5): POOL arm only — a case ASSIGNED to this doctor is a deliberate
+  // routing decision and stays visible whatever their switches say, the same
+  // pool-only scope as Guardrail 3d and the view rule's conjunct 7.
+  const tierClause = poolTierClause(doctorSlaTiers,
     (v) => { params.push(v); return `$${paramIdx++}`; });
   const statusPlaceholders = normalizedStatuses.map((s) => { params.push(s); return `$${paramIdx++}`; }).join(',');
   params.push(textQuery); const pText2 = `$${paramIdx++}`;
@@ -5368,6 +5446,7 @@ async function countQueueNewCases(doctorId, doctorSpecialtyId, statuses, q = '')
        FROM orders_active o
        WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
          AND ${specClause}
+         AND ${tierClause}
          AND (
                LOWER(o.status) IN (${statusPlaceholders})
                OR (
@@ -5383,7 +5462,7 @@ async function countQueueNewCases(doctorId, doctorSpecialtyId, statuses, q = '')
   return row ? Number(row.c) || 0 : 0;
 }
 
-async function buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, statuses, limit = 20, offset = 0, lang = 'en', q = '') {
+async function buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, doctorSlaTiers, statuses, limit = 20, offset = 0, lang = 'en', q = '') {
   if (!Array.isArray(statuses) || !statuses.length) return [];
   const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
   const textQuery = normalizeTextQuery(q);
@@ -5396,6 +5475,9 @@ async function buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, statuses, li
   // AUDIT-2026-09-06 (D2): fail-closed — a doctor with no specialty gets an
   // empty pool, not the whole platform's. See specialtyMatchSql.
   const specClause = specialtyMatchSql(doctorSpecialtyId, 'o.specialty_id',
+    (v) => { params.push(v); return `$${paramIdx++}`; });
+  // A2-2 (X5): POOL arm only — same scope note as countQueueNewCases.
+  const tierClause = poolTierClause(doctorSlaTiers,
     (v) => { params.push(v); return `$${paramIdx++}`; });
   const statusPlaceholders = normalizedStatuses.map((s) => { params.push(s); return `$${paramIdx++}`; }).join(',');
   params.push(textQuery); const pText2 = `$${paramIdx++}`;
@@ -5420,6 +5502,7 @@ async function buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, statuses, li
        FROM orders_active o
        WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
          AND ${specClause}
+         AND ${tierClause}
          AND (
                LOWER(o.status) IN (${statusPlaceholders})
                OR (

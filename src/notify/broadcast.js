@@ -4,6 +4,14 @@
 const { queryOne, queryAll, execute } = require('../pg');
 const { queueNotification, queueMultiChannelNotification } = require('../notify');
 const { TEMPLATES } = require('./templates');
+// A2 (2026-09-21) — eligibility comes from the canonical helpers, never from
+// SQL this file writes on its own: tierSpellings is auto_assign's tier
+// predicate vocabulary (X5), capFor is the one definition of a doctor's cap
+// (X4), and doctorLoadSql is the load expression the accept gate and every
+// admin picker count against that cap.
+const { tierSpellings } = require('../auto_assign');
+const { capFor } = require('../services/doctor_eligibility');
+const { doctorLoadSql } = require('../routes/api/_assign_helpers');
 
 // Tier → notification template. The acceptance WINDOW no longer lives here:
 // it moved to src/acceptance_window.js, which is now the only place that
@@ -160,101 +168,84 @@ async function broadcastOrderToSpecialty(orderId) {
   }
 
   // 6. Query eligible doctors
+  //
+  // A2 (2026-09-21) — ONE query for every tier, and the two answers this file
+  // used to hand-roll now come from the canonical helpers:
+  //
+  //   * Tier (X5): a doctor's sla_tiers_supported switches gate the fan-out
+  //     with auto_assign's exact predicate — ?| over tierSpellings(tier),
+  //     NULL reading as ["standard"]. Before this, a doctor who turned a
+  //     tier OFF in the app still got the WhatsApp/email for it, and the
+  //     accept gate (Guardrail 3d) then refused the case the notification
+  //     had just invited them to.
+  //   * Capacity (X4): capFor, applied in JS below — VIP caps on
+  //     max_active_cases exactly as the accept gate, the view rule and every
+  //     admin assign gate cap it. The local column-picking (VIP on
+  //     max_active_cases_urgent, with its own 5/8 defaults) is DELETED, not
+  //     corrected: one definition. That also adopts capFor's fail direction —
+  //     NULL/0 means "no cap configured", not "default 5/8". The load is
+  //     doctorLoadSql, the same expression the accept gate counts (the old
+  //     NOT IN ('completed','cancelled') exclusion counted refunded and
+  //     abandoned-draft rows against the cap).
+  //
+  // GROUP BY u.id dedupes any duplicate (doctor_id, specialty_id) rows in
+  // doctor_specialties (no unique constraint on that table; PK grouping makes
+  // the other u.* columns legal in the projection).
+  const tierAny = tierSpellings(tier);
+  const candidates = await queryAll(`
+      SELECT u.id, u.name, u.phone, u.notify_whatsapp,
+             u.max_active_cases, u.max_active_cases_urgent,
+             (
+               SELECT COUNT(*) FROM orders_active o
+               WHERE o.doctor_id = u.id
+                 AND ${doctorLoadSql('o.')}
+             ) AS active_load
+      FROM users u
+      -- 2026-08-25: match on doctor_specialties OR users.specialty_id.
+      --
+      -- doctor_specialties is written in exactly two places — self-signup
+      -- (routes/auth.js) and create_test_doctor.js. Superadmin doctor create,
+      -- superadmin doctor edit and the doctor's own services form all write
+      -- doctor_services and never mirror into it. 18 of 31 doctors therefore
+      -- had a specialty_id with no matching row, and an INNER JOIN on that
+      -- table alone meant a paid case in their specialty broadcast to nobody.
+      --
+      -- Migration 091 backfills the missing rows. This clause is the durable
+      -- half: the next writer that forgets the mirror degrades to "we still
+      -- find the doctor" instead of "the case reaches no one".
+      WHERE (
+              u.specialty_id = $1
+              OR EXISTS (SELECT 1 FROM doctor_specialties ds
+                          WHERE ds.doctor_id = u.id AND ds.specialty_id = $1)
+            )
+        AND u.role = 'doctor'
+        AND COALESCE(u.is_active, true) = true
+        AND COALESCE(u.is_available, true) = true
+        -- A5 (AUDIT 2026-09-09) — paused doctors are excluded from the open pool
+        -- (migration 040: is_paused is routing-only, set automatically on SLA
+        -- breach). A3 — onboarding-incomplete doctors cannot take cases yet.
+        AND COALESCE(u.is_paused, false) = false
+        AND COALESCE(u.onboarding_complete, false) = true
+        -- A3 (AUDIT 2026-09-09) — eligibility no longer requires notify_whatsapp
+        -- or a phone: email + the in-app bell reach EVERY eligible doctor
+        -- (WhatsApp is still sent additionally, per-doctor, in the loop below).
+        -- A2-2 (X5): auto_assign's tier predicate, verbatim semantics.
+        AND COALESCE(u.sla_tiers_supported, '["standard"]'::jsonb) ?| $2
+      GROUP BY u.id
+      ORDER BY active_load ASC
+    `, [specialtyId, tierAny]);
+
+  // Capacity — capFor in JS, POOL semantics. Urgent fan-out stays deliberately
+  // UNCAPPED (maximum reach on a 4-hour case, pre-existing and possibly
+  // intended) — reported to Ziad as an open question, NOT decided here.
   let eligibleDoctors;
   if (tier === 'urgent') {
-    // Urgent: notify ALL available doctors regardless of cap
-    // GROUP BY dedupes any duplicate (doctor_id, specialty_id) rows in
-    // doctor_specialties — there is no unique constraint on that table
-    // today (only PK on id; checked pg_constraint on 2026-06-01). Postgres
-    // forbids SELECT DISTINCT with an ORDER BY expression that isn't in
-    // the projection, so DISTINCT + ORDER BY (subquery) was always invalid;
-    // GROUP BY accepts the same expression because u.id is in the grouping
-    // set.
-    eligibleDoctors = await queryAll(`
-      SELECT u.id, u.name, u.phone, u.notify_whatsapp
-      FROM users u
-      -- 2026-08-25: match on doctor_specialties OR users.specialty_id.
-      --
-      -- doctor_specialties is written in exactly two places — self-signup
-      -- (routes/auth.js) and create_test_doctor.js. Superadmin doctor create,
-      -- superadmin doctor edit and the doctor's own services form all write
-      -- doctor_services and never mirror into it. 18 of 31 doctors therefore
-      -- had a specialty_id with no matching row, and an INNER JOIN on that
-      -- table alone meant a paid case in their specialty broadcast to nobody.
-      --
-      -- Migration 091 backfills the missing rows. This clause is the durable
-      -- half: the next writer that forgets the mirror degrades to "we still
-      -- find the doctor" instead of "the case reaches no one".
-      WHERE (
-              u.specialty_id = $1
-              OR EXISTS (SELECT 1 FROM doctor_specialties ds
-                          WHERE ds.doctor_id = u.id AND ds.specialty_id = $1)
-            )
-        AND u.role = 'doctor'
-        AND COALESCE(u.is_active, true) = true
-        AND COALESCE(u.is_available, true) = true
-        -- A5 (AUDIT 2026-09-09) — paused doctors are excluded from the open pool
-        -- (migration 040: is_paused is routing-only, set automatically on SLA
-        -- breach). A3 — onboarding-incomplete doctors cannot take cases yet.
-        AND COALESCE(u.is_paused, false) = false
-        AND COALESCE(u.onboarding_complete, false) = true
-        -- A3 (AUDIT 2026-09-09) — eligibility no longer requires notify_whatsapp
-        -- or a phone: email + the in-app bell reach EVERY eligible doctor
-        -- (WhatsApp is still sent additionally, per-doctor, in the loop below).
-      GROUP BY u.id, u.name, u.phone
-      ORDER BY (
-        SELECT COUNT(*) FROM orders_active o
-        WHERE o.doctor_id = u.id
-          AND LOWER(o.status) NOT IN ('completed', 'cancelled')
-      ) ASC
-    `, [specialtyId]);
+    eligibleDoctors = candidates;
   } else {
-    // Standard / VIP: enforce cap
-    var capColumn = tier === 'vip' ? 'max_active_cases_urgent' : 'max_active_cases';
-    var defaultCap = tier === 'vip' ? 8 : 5;
-    eligibleDoctors = await queryAll(`
-      SELECT u.id, u.name, u.phone, u.notify_whatsapp
-      FROM users u
-      -- 2026-08-25: match on doctor_specialties OR users.specialty_id.
-      --
-      -- doctor_specialties is written in exactly two places — self-signup
-      -- (routes/auth.js) and create_test_doctor.js. Superadmin doctor create,
-      -- superadmin doctor edit and the doctor's own services form all write
-      -- doctor_services and never mirror into it. 18 of 31 doctors therefore
-      -- had a specialty_id with no matching row, and an INNER JOIN on that
-      -- table alone meant a paid case in their specialty broadcast to nobody.
-      --
-      -- Migration 091 backfills the missing rows. This clause is the durable
-      -- half: the next writer that forgets the mirror degrades to "we still
-      -- find the doctor" instead of "the case reaches no one".
-      WHERE (
-              u.specialty_id = $1
-              OR EXISTS (SELECT 1 FROM doctor_specialties ds
-                          WHERE ds.doctor_id = u.id AND ds.specialty_id = $1)
-            )
-        AND u.role = 'doctor'
-        AND COALESCE(u.is_active, true) = true
-        AND COALESCE(u.is_available, true) = true
-        -- A5 (AUDIT 2026-09-09) — paused doctors are excluded from the open pool
-        -- (migration 040: is_paused is routing-only, set automatically on SLA
-        -- breach). A3 — onboarding-incomplete doctors cannot take cases yet.
-        AND COALESCE(u.is_paused, false) = false
-        AND COALESCE(u.onboarding_complete, false) = true
-        -- A3 (AUDIT 2026-09-09) — eligibility no longer requires notify_whatsapp
-        -- or a phone: email + the in-app bell reach EVERY eligible doctor
-        -- (WhatsApp is still sent additionally, per-doctor, in the loop below).
-        AND (
-          SELECT COUNT(*) FROM orders_active o
-          WHERE o.doctor_id = u.id
-            AND LOWER(o.status) NOT IN ('completed', 'cancelled')
-        ) < COALESCE(u.` + capColumn + `, ` + defaultCap + `)
-      GROUP BY u.id, u.name, u.phone
-      ORDER BY (
-        SELECT COUNT(*) FROM orders_active o
-        WHERE o.doctor_id = u.id
-          AND LOWER(o.status) NOT IN ('completed', 'cancelled')
-      ) ASC
-    `, [specialtyId]);
+    eligibleDoctors = candidates.filter((d) => {
+      const cap = capFor(d, tier);
+      return cap === 0 || Number(d.active_load) < cap;
+    });
   }
 
   // 7. Send notifications with deduplication.
