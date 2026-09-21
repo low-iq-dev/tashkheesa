@@ -1,6 +1,7 @@
 # Batch A progress — patient safety and the clock
 
 OWNER: this session (Claude Code, MacBook, worktree /Users/ziadelwahsh/tashkheesa-launchfix, started 2026-09-20)
+OWNER (follow-up 2026-09-21): the verification session — re-verified the batch end-to-end, then landed Ziad's A7/S1 ruling below.
 
 Branch: fix/launch-gates-routing-revocation, fast-forwarded to origin/main (0787acbb4) before starting.
 Baseline tests (env DATABASE_URL= node tests/run.js): Passed 1891 / Failed 6 / Skipped 52 — the six known pre-existing failures.
@@ -14,5 +15,10 @@ After the review fix round: Passed 1908 / Failed 6 / Skipped 52 — the six fail
 - A8 — DONE (2119aa30d + fix round). Both PDF generators; render-verified (2 pages).
 
 Review round COMPLETE: SPEC-REVIEW.md + ADVERSARIAL-REVIEW.md (independent read-only agents) + FIX-ROUND.md (disposition of every finding: 20 fixed, 5 declined with rationale, 10 reported for Ziad) in docs/reviews/batch-a-2026-09-20/.
+
+Follow-up 2026-09-21 — A7/S1 resolved by Ziad's ruling (no 24h tier exists):
+- cases_intake slaConfigForTestType maps oncology to the real VIP tier (sla_type 'vip', sla_hours 18); non-oncology keeps 'standard_72h'/48. TDD guard tests/core/cases-intake-oncology-vip.test.js (3 checks, red-first) drives the real POST /intake handler. Review note: docs/reviews/batch-a-2026-09-20/A7S1-oncology-vip-fix.md. Prod schema verified (cases.sla_type = plain text, no constraint) — no migration, no prod DML.
+- Batch B, recorded not done: renaming stored enum values priority_24h / standard_72h (both name retired durations; standard_72h returns 48h) touches historical rows → needs a migration, rides with the ledger work.
+- Suite after: Passed 1911 / Failed 6 / Skipped 52 — the six failing lines byte-identical to the batch baseline (re-proven same day against origin/main 0787acbb4 too).
 
 NOT pushed. Nothing merges without Ziad.

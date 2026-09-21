@@ -23,13 +23,17 @@ const TEST_TYPE_TO_SPECIALTY = {
   other:         null,
 };
 
-// Oncology gets the tighter 24h SLA; everything else 48h (per #85
-// launch-reality copy + #86 default alignment). The 'standard_72h'
+// The tiers are exactly three — Standard 48h / VIP 18h / Urgent 4h (Ziad,
+// 2026-09-21: there is no 24-hour tier and never was). Oncology means
+// "tighter than standard", and the tier that means that is VIP, written with
+// the canonical tier value the rest of the codebase uses. The 'standard_72h'
 // sla_type enum string is retained for backwards compatibility with
-// historical case rows; renaming the enum is tracked separately.
+// historical case rows (it really means 48h); renaming the stored enum
+// values ('standard_72h', legacy 'priority_24h' rows) touches history, needs
+// a migration, and rides with the Batch B ledger work.
 function slaConfigForTestType(testType) {
   if (testType === 'oncology') {
-    return { sla_type: 'priority_24h', sla_hours: 24 };
+    return { sla_type: 'vip', sla_hours: 18 };
   }
   return { sla_type: 'standard_72h', sla_hours: 48 };
 }
