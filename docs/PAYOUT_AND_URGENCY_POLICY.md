@@ -1,8 +1,8 @@
 # Tashkheesa — Payout & Urgency Policy
 
-**Status:** Canonical source of truth. As of 2026-04-29.
+**Status:** Canonical source of truth. As of 2026-09-21 (Batch B).
 **Owner:** Ziad
-**Last reviewed:** 2026-04-29
+**Last reviewed:** 2026-09-21
 
 This document is the single source of truth for how money flows through Tashkheesa. Whenever the code, the doctor profile UI, or the patient checkout disagrees with this document, **this document wins** — code/UI must be updated to match. If the policy needs to change, update this file first, then propagate.
 
@@ -22,6 +22,32 @@ Each component has its own doctor / Tashkheesa split:
 | Urgency uplift (the multiplier delta only — see section 2) | 30% | 70% |
 
 The doctor's earnings on a given case are the sum of their share across each present component. The platform's revenue is the inverse.
+
+---
+
+## 1.A Payout lifecycle and mechanics
+
+*Codified 2026-09-21 (fix plan 2026-09-15, Batch B). Canonical implementation:
+`src/services/earnings_writer.js` (writers) and `src/services/earnings_reader.js`
+(every surface that shows a doctor's money reads through it).*
+
+- **Submitting a report creates/settles a `pending` earning.** The pending row
+  is opened at doctor acceptance and its amount is settled at completion.
+  `pending` means "earned (or in progress), awaiting the month-end payout".
+- **`paid` is stamped at the month-end payout, not at report submit.** The
+  payout runs on the **last working day of the month**, in **EGP**, by
+  **cash, InstaPay or Shifa finance**. The stamp is an explicit operator
+  action (`earnings_writer.markMonthEndPaid`, via the Command API's
+  `POST /api/v1/admin/payouts/mark-paid`) run by Ziad/finance after the
+  transfers are made. Nothing else writes `paid`.
+- **The business month is Africa/Cairo, bucketed by completion date** —
+  everywhere: the doctor's earnings page, Command and finance all use the
+  same boundary.
+- **A case reassigned away from a doctor earns them zero.** The historical
+  10% "partial pay" token predates this policy and was removed; the SLA
+  auto-pause counter it carried lives in `doctor_sla_events`.
+- **Add-on earnings (video, prescription) follow the same lifecycle** —
+  pending on delivery, paid at month end, never left unmarked.
 
 ---
 
@@ -66,7 +92,11 @@ If a doctor accepts an Urgent or VIP case and delivers after the SLA deadline, t
 - Refund tracked in the `refunds` table with `reason = 'sla_breach'`
 
 **Doctor side:**
-- See §4.A below — the final clawback fires at refund mark-paid via `recomputeOnRefund`, not at breach detection.
+- **The urgency uplift only is reversed; the base fee stands if the doctor
+  still delivers the report** (worked example D). `recomputeOnBreach` writes
+  the base-only figure at breach detection, and §4.A's refund-time hook is
+  the backstop for a missed detection. A case reassigned away on breach earns
+  the outgoing doctor zero via the reassignment path (§1.A).
 
 **Platform side:**
 - Tashkheesa loses the 70% it would have earned on the uplift
@@ -88,17 +118,31 @@ Two hooks, decoupled by design:
 | `recomputeOnBreach` (Site 3) | At SLA-breach detection | Zeroes the urgency uplift; base unchanged. Mid-flight signal. |
 | `recomputeOnRefund` (Site 4) | At refund mark-paid (`POST /superadmin/refunds/:id/mark-paid`) | Final settlement per policy table below. |
 
-**Policy table** (applied by `recomputeOnRefund`):
+**Policy table** (applied by `recomputeOnRefund`; the `sla_breach` row was
+**revised 2026-09-21** — the previous "full clawback" contradicted §4 and
+worked example D of this same document, and the Batch B decisions table
+settled it on the uplift-only side):
 
 | Refund `reason` | Case state | Doctor earnings outcome | Audit `clawback_reason` |
 |---|---|---|---|
-| `sla_breach` | doctor accepted at any time | `earned_amount = 0` (full clawback) | `sla_breach_full_clawback` |
-| `patient_request` OR `operator_refund` | doctor accepted (post-`ASSIGNED`) | doctor keeps `0.10 * (baseShare + upliftShare)` (90% clawback) | `patient_or_operator_post_acceptance_90pct_clawback` |
+| `sla_breach` | doctor delivered (late) | clamp to the **base-only** figure — the urgency uplift is reversed, **the base fee stands** | `sla_breach_uplift_zeroed` |
+| `sla_breach` | case reassigned away (doctor did not deliver) | already `0` via the reassignment write-down; the clamp keeps it there | n/a — reassignment path |
+| `patient_request` OR `operator_refund` | doctor accepted (post-`ASSIGNED`) | doctor keeps `0.10 * (baseShare + upliftShare)` (90% clawback), scaled by the refunded fraction | `patient_or_operator_post_acceptance_90pct_clawback` |
 | any reason | doctor never accepted (pre-`ASSIGNED`) | no-op (no earnings row exists; `writePendingForCase` only fires at acceptance) | n/a — row does not exist |
+
+(`sla_breach_full_clawback` survives only as a legacy audit value on rows
+written before 2026-09-21.)
 
 **Rationale:**
 
-- **`sla_breach` full clawback** is harsher than the pre-#43 behavior (which just zeroed the uplift). The reasoning: the patient is being made whole by the platform on a case where the doctor's work was effectively not delivered on time. Tashkheesa is paying out of pocket; the doctor doesn't earn an SLA-breached fee.
+- **`sla_breach` reverses the urgency uplift only.** The patient is refunded
+  the uplift and keeps the case at standard pricing (§4); a doctor who still
+  delivered the report earned the base fee for real work, and taking it away
+  punished delivery. A doctor who did **not** deliver — the case was
+  reassigned away — earns zero through the reassignment path, not through
+  this hook. `recomputeOnBreach` writes the same base-only figure at breach
+  detection; this refund-time hook is the backstop for a breach whose
+  detection was missed.
 - **10% keep on patient/operator-initiated** acknowledges the doctor's review time even on a refunded case. 10% is small enough not to incentivize accepting cases that will be refunded, large enough to recognize the engagement.
 - **Pre-acceptance no-op** is automatic — `recomputeOnRefund` sees no earnings row and exits cleanly. No special pre-check needed.
 
@@ -106,7 +150,7 @@ Two hooks, decoupled by design:
 
 **Audit columns** (migration `054_doctor_earnings_clawback.sql`):
 
-- `doctor_earnings.clawback_reason` — TEXT, the policy enum value (e.g. `sla_breach_full_clawback`)
+- `doctor_earnings.clawback_reason` — TEXT, the policy enum value (e.g. `sla_breach_uplift_zeroed`)
 - `doctor_earnings.clawback_applied_at` — TIMESTAMP, when the clawback fired
 
 Both nullable; existing rows pre-#43 carry NULL for both.
@@ -267,3 +311,4 @@ If you (Ziad) decide to change any of these numbers, update **this file first**,
 | Date | Change | Reason |
 |---|---|---|
 | 2026-04-29 | Initial document created | Codify policy after discovering code/UI/memory disagreement during earnings page scope discussion |
+| 2026-09-21 | §1.A added (payout lifecycle: `paid` at month-end payout, Cairo months by completion date, reassigned earns zero, add-on lifecycle); §4/§4.A `sla_breach` settlement corrected to uplift-only (base stands if delivered) | Batch B (fix plan 2026-09-15) — the doc contradicted itself: §4.A ordered a full clawback while §4 and example D reversed the uplift only. The decisions table settled it; the code now matches. |
