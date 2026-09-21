@@ -69,3 +69,13 @@ src/routes/appointments-fix.js
 
 # Local backup files from in-place edits
 *.bak
+
+# Walkthrough / reel render scratch (2026-09-21). ~1GB of rec/, out/, tmp/,
+# showcase/ render output. Kept on disk, never committed.
+_walkthrough/
+
+# Git bundles used as ad-hoc branch backups, and stray run logs.
+*.bundle
+*.tgz
+tr*.log
+testrun.log
