@@ -774,6 +774,40 @@ function setupStaticPages(opts) {
     return !!(req.accepts('json') && !req.accepts('html'));
   }
 
+  // 2026-09-22 — spam handling and a real destination.
+  //
+  // WHY THIS CHANGED. Every submission was written to error_logs with
+  // category='contact_form', level='info'. error_logs is an error feed: no
+  // status, no owner, no "answered" — and nobody reads it hunting for
+  // patients. 66 rows piled up there between 23 Aug and 20 Sep, all of them
+  // spam, which is the other half of the problem: the signal-to-noise was so
+  // bad that a real enquiry would not have been noticed even if someone had
+  // looked.
+  //
+  // The cost is already paid once. A patient in Poland enquired on 30 July
+  // through the sibling /coming-soon form and waited eight weeks, because it
+  // landed somewhere with no queue behind it. Launch is 24 Sep with paid
+  // traffic pointed at this site.
+  //
+  // What the spam looked like, and why the checks below are the right shape:
+  //   * 'LarryFonse' posted five IDENTICAL submissions within two seconds on
+  //     17 Sep and again on 20 Sep — no rate limit existed. /contact now sits
+  //     behind authLimiter (see middleware.js).
+  //   * One submission gave sales@tashkheesa.com as its own sender address.
+  //     Nobody legitimately contacts us from our own domain.
+  //   * All of it was posted by scripts, which fill in every field they find.
+  //     A hidden field they cannot see is the cheapest possible filter and
+  //     costs a real visitor nothing.
+  //
+  // Suspected spam is STORED, not discarded — status='spam' with the reason —
+  // so a false positive is recoverable rather than silently lost. That matters
+  // more here than on an ordinary contact form: the sender might be a patient.
+  function contactSpamReason(body, email) {
+    if (String(body.company || '').trim()) return 'honeypot';
+    if (/@tashkheesa\.com$/i.test(String(email || '').trim())) return 'own_domain';
+    return null;
+  }
+
   router.post('/contact', async function(req, res) {
     var body = req.body || {};
     var name = String(body.name || '').trim();
@@ -792,7 +826,38 @@ function setupStaticPages(opts) {
       });
     }
 
-    console.log('[CONTACT] New message from %s <%s> — subject: %s', name, email, subject || 'none');
+    var spamReason = contactSpamReason(body, email);
+
+    console.log('[CONTACT] New message from %s <%s> — subject: %s%s',
+      name, email, subject || 'none', spamReason ? ' [SPAM: ' + spamReason + ']' : '');
+
+    // The real destination: one row, with a status somebody can work from.
+    // Never blocks the visitor — a failure here is logged and the enquiry
+    // still reaches the mail path below.
+    try {
+      await execute(
+        'INSERT INTO contact_submissions ' +
+        '(id, name, email, subject, message, status, spam_reason, source, lang, ip_address, user_agent, request_id) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
+        [
+          uuidv4(), name, email, subject || null, message,
+          spamReason ? 'spam' : 'new', spamReason, 'contact_form',
+          (res.locals && res.locals.isAr) ? 'ar' : 'en',
+          req.ip || null,
+          String(req.get('user-agent') || '').slice(0, 500) || null,
+          req.requestId || null
+        ]
+      );
+    } catch (e) {
+      console.error('[CONTACT] contact_submissions insert failed:', e && e.message);
+    }
+
+    // Spam is recorded and then stops here: no e-mail, and the sender sees the
+    // ordinary success page so a bot learns nothing from the difference.
+    if (spamReason) {
+      if (asJson) return res.json({ ok: true });
+      return res.redirect(303, (res.locals && res.locals.publicLinkPrefix ? res.locals.publicLinkPrefix : '') + '/contact?sent=1');
+    }
 
     // Durable record FIRST, independent of the mail attempt.
     var recordId = null;

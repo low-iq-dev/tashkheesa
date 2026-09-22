@@ -214,6 +214,11 @@ function baseMiddlewares(app) {
   // request), but it does write a DB row and send mail, so it gets the same
   // 30-per-15-minutes ceiling as the other public credential forms.
   app.use('/delete-account', authLimiter);
+  // 2026-09-22 — /contact had NO limit beyond the global 100/min/IP. One
+  // spammer posted five identical submissions inside two seconds on 17 Sep
+  // and repeated it on 20 Sep. 30 per 15 minutes is far above any honest
+  // visitor and well below a script.
+  app.use('/contact', authLimiter);
   app.use('/api/pre-launch-interest', rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 10,

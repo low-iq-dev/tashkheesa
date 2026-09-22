@@ -75,6 +75,16 @@
         data-csrf="<%= typeof csrfToken !== 'undefined' && csrfToken ? csrfToken : '' %>"
       >
         <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+
+        <%# Honeypot. Scripts fill every field they find; a real visitor never
+            sees this one. Hidden inline rather than by a stylesheet class so
+            it stays hidden if the CSS fails to load. A submission that fills
+            it is stored with status='spam' and answered with the ordinary
+            success page, so the bot learns nothing. %>
+        <div style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden" aria-hidden="true">
+          <label for="contact-company">Company</label>
+          <input type="text" id="contact-company" name="company" tabindex="-1" autocomplete="off" />
+        </div>
         <%# A11Y: each label now carries `for` and each control a matching `id`.
             Without the pair, clicking the label does nothing and a screen reader
             announces the field only as "edit text, blank" with no name — the
