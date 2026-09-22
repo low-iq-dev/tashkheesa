@@ -17,6 +17,9 @@
 
       <form method="post" action="/register">
         <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+        <% if (typeof regNext !== 'undefined' && regNext) { %>
+          <input type="hidden" name="next" value="<%= regNext %>">
+        <% } %>
 
         <div class="form-group">
           <label class="form-label"><%= tt('auth.name', 'Full name', 'الاسم الكامل') %></label>
@@ -66,7 +69,7 @@
         <p class="flow-note"><%= isAr ? 'لن نشارك بياناتك مع أي طرف ثالث.' : 'We never share your data with third parties.' %></p>
 
         <div class="auth-actions">
-          <a href="/login"><%= isAr ? 'لديك حساب؟' : 'Already have an account?' %></a>
+          <a href="/login<%= (typeof regNext !== 'undefined' && regNext) ? ('?next=' + encodeURIComponent(regNext)) : '' %>"><%= isAr ? 'لديك حساب؟' : 'Already have an account?' %></a>
         </div>
       </form>
     </div>

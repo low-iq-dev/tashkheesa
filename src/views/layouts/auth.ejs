@@ -17,6 +17,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><%= pageTitle %></title>
+  <%# Sign-in, registration and password pages have no business in search
+      results, and a crawler spending its budget on /login is budget not spent
+      on /ar/services. A view can still override this with a `robots` local. %>
+  <meta name="robots" content="<%= (typeof robots !== 'undefined' && robots) ? robots : 'noindex, follow' %>" />
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/css/portal-variables.css" />
   <link rel="stylesheet" href="/css/portal-components.css" />

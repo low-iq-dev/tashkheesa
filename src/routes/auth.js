@@ -1071,6 +1071,10 @@ router.get('/signup', (req, res) => res.redirect(302, '/register'));
 router.get('/register', (req, res) => {
   if (req.user) return res.redirect('/');
   setLangCookie(res, getReqLang(req));
+  // A patient who clicked a service card lands on /login?next=/patient/new-case?...
+  // and then taps "Create account". Carry that next through registration so the
+  // service they picked survives signing up (res.locals so every render sees it).
+  res.locals.regNext = safeNextPath(req.query && req.query.next);
   const c = authCopy(req);
   var detectedCountry = res.locals.detectedCountry || 'EG';
   res.render('register', { error: null, form: { country_code: detectedCountry }, lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, copy: c });
@@ -1087,6 +1091,8 @@ router.post('/register', async (req, res) => {
     - POST /register with valid country_code -> user row has country_code; /login returns req.user.country_code.
   */
   const { name, email, password, country_code, phone, terms } = req.body || {};
+  // Survives every validation re-render below without touching each render() call.
+  res.locals.regNext = safeNextPath((req.body && req.body.next) || (req.query && req.query.next));
   const normalizedCountry = String(country_code || '').trim().toUpperCase();
   const form = { name, email, phone, country_code: normalizedCountry || '' };
   const c = authCopy(req);
@@ -1238,8 +1244,13 @@ router.post('/register', async (req, res) => {
     // Never block registration for email failure
   }
 
-  // Redirect new patients to onboarding wizard
-  return res.redirect('/portal/patient/onboarding');
+  // Redirect new patients to onboarding wizard. The wizard already honours
+  // ?next= (P0-FORM-1), so handing it the service the patient chose before
+  // registering is what stops the choice being silently dropped at signup.
+  const nextAfterRegister = res.locals.regNext;
+  return res.redirect(nextAfterRegister
+    ? '/portal/patient/onboarding?next=' + encodeURIComponent(nextAfterRegister)
+    : '/portal/patient/onboarding');
 });
 
 // ============================================

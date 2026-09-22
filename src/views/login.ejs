@@ -72,7 +72,7 @@
         </div>
 
         <div class="auth-actions">
-          <a href="/register"><%= tt('auth.login.register', 'Create account', 'اعمل حساب') %></a>
+          <a href="/register<%= (typeof next !== 'undefined' && next) ? ('?next=' + encodeURIComponent(next)) : '' %>"><%= tt('auth.login.register', 'Create account', 'اعمل حساب') %></a>
           <a href="/forgot-password"><%= tt('auth.login.forgot', 'Forgot password?', 'نسيت كلمة المرور؟') %></a>
         </div>
       </form>
