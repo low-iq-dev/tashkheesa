@@ -354,7 +354,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
   var streakCount = 0;
   try {
     var streakRow = await queryOne(
-      "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND LOWER(COALESCE(status, '')) = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
+      "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND NOT is_practice AND LOWER(COALESCE(status, '')) = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
       [doctorId]
     );
     streakCount = (streakRow && streakRow.c) || 0;
@@ -370,6 +370,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
       `SELECT COUNT(*) FILTER (WHERE LOWER(COALESCE(status, '')) = 'completed') AS completed_this_month
        FROM orders_active
        WHERE doctor_id = $1
+         AND NOT is_practice
          AND COALESCE(completed_at, updated_at) >= date_trunc('month', NOW())
          AND COALESCE(completed_at, updated_at) <  date_trunc('month', NOW()) + INTERVAL '1 month'`,
       [doctorId]
@@ -574,6 +575,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
          AVG(EXTRACT(EPOCH FROM (completed_at - COALESCE(accepted_at, created_at))) / 3600.0) AS avg_turnaround_hours
        FROM orders_active
        WHERE doctor_id = $1
+         AND NOT is_practice
          AND LOWER(COALESCE(status, '')) = 'completed'
          AND COALESCE(completed_at, updated_at) >= date_trunc('month', NOW())
          AND COALESCE(completed_at, updated_at) <  date_trunc('month', NOW()) + INTERVAL '1 month'`,
@@ -614,6 +616,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
          AVG(EXTRACT(EPOCH FROM (completed_at - accepted_at)) / 3600.0) AS avg_turnaround_hours
        FROM orders_active
        WHERE doctor_id = $1
+         AND NOT is_practice
          AND LOWER(COALESCE(status,'')) = 'completed'
          AND accepted_at IS NOT NULL
          AND completed_at IS NOT NULL
@@ -1505,7 +1508,7 @@ router.use(async (req, res, next) => {
   try {
     if (req.user && req.user.id) {
       var sRow = await queryOne(
-        "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND LOWER(COALESCE(status, '')) = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
+        "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND NOT is_practice AND LOWER(COALESCE(status, '')) = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
         [req.user.id]
       );
       res.locals.streakCount = (sRow && sRow.c) || 0;
@@ -1654,7 +1657,7 @@ async function _computeReadyBannerFlag(req, res) {
     // doctor who has finished one case does not need to be told the account
     // works — they have seen it work.
     const seen = await queryOne(
-      'SELECT COUNT(*)::int AS c FROM orders WHERE doctor_id = $1 AND deleted_at IS NULL',
+      'SELECT COUNT(*)::int AS c FROM orders WHERE doctor_id = $1 AND deleted_at IS NULL AND NOT is_practice',
       [String(req.user.id)]
     );
     if (seen && Number(seen.c) > 0) return;
@@ -3325,7 +3328,7 @@ router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(r
 
   // Streak count for sidebar
   var streakRow = await queryOne(
-    "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND LOWER(COALESCE(status, '')) = 'completed' AND completed_at >= NOW() - INTERVAL '7 days'",
+    "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND NOT is_practice AND LOWER(COALESCE(status, '')) = 'completed' AND completed_at >= NOW() - INTERVAL '7 days'",
     [doctorId]
   );
 
