@@ -101,6 +101,29 @@ async function withServer(mwOpts, fn) {
     } catch (e) { t.fail('no open redirect from Host header', e); }
 
     try {
+      // 2026-09-22 regression. The mobile apps ship API_BASE_URL on the
+      // .onrender.com origin. A cross-origin 301 makes every mainstream HTTP
+      // client drop the Authorization header, so the bearer token never
+      // arrived and the API answered 401 AUTH_REQUIRED on every GET. The JSON
+      // API is not a crawler surface and must answer on any host.
+      for (const p of ['/api/v1/specialties', '/api/v1/cases', '/api/cases/intake']) {
+        const r = await get(p, 'tashkheesa.onrender.com');
+        if (r.status !== 200) {
+          throw new Error(p + ' on the old host got ' + r.status + ' ' + (r.location || ''));
+        }
+      }
+      t.pass('GET /api/* is never redirected — the app keeps its Authorization header');
+    } catch (e) { t.fail('API paths exempt from the canonical redirect', e); }
+
+    try {
+      // The exemption must not leak into the site itself: a path that merely
+      // starts with the letters "api" is still a page and still redirects.
+      const r = await get('/apiary', 'tashkheesa.onrender.com');
+      if (r.status !== 301) throw new Error('/apiary should still 301, got ' + r.status);
+      t.pass('the /api/ exemption is a path-segment prefix, not a substring');
+    } catch (e) { t.fail('API exemption is not over-broad', e); }
+
+    try {
       // No X-Forwarded-Host: req.hostname is the real 127.0.0.1 the test dials.
       const r = await get('/services', null);
       if (r.status !== 200) throw new Error('localhost got ' + r.status + ' ' + (r.location || ''));

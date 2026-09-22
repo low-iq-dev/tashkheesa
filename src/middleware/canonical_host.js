@@ -19,6 +19,31 @@
 // 200, not a redirect it may treat as failure.
 var EXEMPT_PATHS = new Set(['/healthz', '/__version', '/health', '/status']);
 
+// 2026-09-22 — the JSON APIs must answer on ANY host, never redirect.
+//
+// The mobile apps ship API_BASE_URL pointing at the .onrender.com origin
+// (patient app, constants/api.ts). A 301 to the canonical host is cross-origin,
+// and every mainstream HTTP client — curl, NSURLSession, okhttp, and therefore
+// React Native's fetch — DROPS the Authorization header across an origin
+// change. The app's bearer token vanished mid-flight and the server, seeing no
+// header at all, answered 401 AUTH_REQUIRED "Authentication required". Verified
+// by reproduction: same request direct returns INVALID_TOKEN (header present),
+// followed through the redirect returns AUTH_REQUIRED (header gone).
+//
+// Exempting these is also correct on the merits: the redirect exists to stop
+// two hostnames competing in Search Console, and a JSON API is not a crawler
+// surface. Installed builds in the field cannot be fixed by an app release, so
+// the fix belongs here.
+var EXEMPT_PREFIXES = ['/api/', '/payments/', '/webhooks/'];
+
+function isExemptPath(path) {
+  if (EXEMPT_PATHS.has(path)) return true;
+  for (var i = 0; i < EXEMPT_PREFIXES.length; i++) {
+    if (path.indexOf(EXEMPT_PREFIXES[i]) === 0) return true;
+  }
+  return false;
+}
+
 // Local dev and CI reach the app as localhost/127.0.0.1 whatever the mode.
 function isLocalHost(host) {
   return host === 'localhost' || host === '127.0.0.1' || host === '::1' ||
@@ -44,7 +69,7 @@ function canonicalHostRedirect(opts) {
     // typically re-issues it as a GET, dropping the body.
     var method = String(req.method || 'GET').toUpperCase();
     if (method !== 'GET' && method !== 'HEAD') return next();
-    if (EXEMPT_PATHS.has(req.path)) return next();
+    if (isExemptPath(req.path)) return next();
 
     // req.hostname: Host (or X-Forwarded-Host under trust proxy), no port.
     var host = String(req.hostname || '').toLowerCase().replace(/:\d+$/, '');
@@ -59,4 +84,9 @@ function canonicalHostRedirect(opts) {
   };
 }
 
-module.exports = { canonicalHostRedirect: canonicalHostRedirect, EXEMPT_PATHS: EXEMPT_PATHS };
+module.exports = {
+  canonicalHostRedirect: canonicalHostRedirect,
+  EXEMPT_PATHS: EXEMPT_PATHS,
+  EXEMPT_PREFIXES: EXEMPT_PREFIXES,
+  isExemptPath: isExemptPath,
+};
