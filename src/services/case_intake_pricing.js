@@ -191,6 +191,8 @@ function assertUrgentWindowOpen(urgencyTier) {
 // site quotes — /services, specialty pages, blog bodies, the FAQ, the
 // schema.org priceRange — reads base_price, so for this market base_price IS
 // the advertised price and nothing else may override it at checkout.
+const { pricingProxyFor } = require('./pricing_market');
+
 const HOME_MARKET = 'EG';
 
 async function priceCaseForMarket({ service, country, urgencyTier }) {
@@ -223,11 +225,52 @@ async function priceCaseForMarket({ service, country, urgencyTier }) {
   // holds this.
   const isHomeMarket = displayCountry === HOME_MARKET;
 
-  const regionalPrice = isHomeMarket ? null : await queryOne(
+  let regionalPrice = isHomeMarket ? null : await queryOne(
     "SELECT tashkheesa_price, currency FROM service_regional_prices " +
     "WHERE service_id = $1 AND country_code = $2 AND COALESCE(status, 'active') = 'active'",
     [service.id, displayCountry]
   );
+
+  // 2026-09-22 — the miss used to fall through to services.base_price, the
+  // EGYPTIAN domestic price in EGP. service_regional_prices covers nine
+  // countries; every other country on earth was therefore charged Egyptian
+  // prices. A Neuro Imaging Review is £250 in the GB list and 2,400 EGP at
+  // home — so a patient in Poland would have paid about a SEVENTH of the
+  // intended price, silently, with no error and nothing in the logs.
+  //
+  // Found while answering a real enquiry from Poland, two days before paid
+  // traffic was pointed at the site.
+  //
+  // The country's OWN row still wins — this only runs on a miss — so adding
+  // PL rows later overrides the proxy with no code change. See
+  // services/pricing_market.js for why Europe proxies to GB and everything
+  // else to US.
+  let pricingMarket = displayCountry;
+  if (!isHomeMarket && (!regionalPrice || regionalPrice.tashkheesa_price == null)) {
+    const proxy = pricingProxyFor(displayCountry);
+    if (proxy) {
+      const proxied = await queryOne(
+        "SELECT tashkheesa_price, currency FROM service_regional_prices " +
+        "WHERE service_id = $1 AND country_code = $2 AND COALESCE(status, 'active') = 'active'",
+        [service.id, proxy]
+      );
+      if (proxied && proxied.tashkheesa_price != null) {
+        regionalPrice = proxied;
+        pricingMarket = proxy;
+        console.log(
+          '[PRICING] %s has no price list for %s — charging the %s list (%s %s)',
+          displayCountry, service.id, proxy, proxied.tashkheesa_price, proxied.currency
+        );
+      } else {
+        // The proxy has no row either. Falling through to the Egyptian price
+        // is the old bug, so say so loudly rather than under-charge quietly.
+        console.error(
+          '[PRICING] NO price list for %s or its proxy %s on service %s — falling back to the EGP home price. This UNDER-CHARGES an international patient.',
+          displayCountry, proxy, service.id
+        );
+      }
+    }
+  }
 
   const localBase =
     regionalPrice && regionalPrice.tashkheesa_price != null
@@ -259,6 +302,7 @@ async function priceCaseForMarket({ service, country, urgencyTier }) {
 
   return {
     displayCountry,
+    pricingMarket,
     charge,
     pricing,
     slaHours,
