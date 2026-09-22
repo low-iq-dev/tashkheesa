@@ -25,6 +25,10 @@ const PUBLIC_EXACT = new Set([
   '/', '/services', '/specialties', '/about', '/contact', '/faq', '/blog',
   '/privacy', '/terms', '/refund-policy', '/delivery-policy', '/apply',
   '/help-me-choose', '/app', '/coming-soon',
+  // Play requires the account-deletion page to work for anyone who has
+  // uninstalled the app, which includes Arabic speakers who never saw an
+  // English screen. Both GET and POST live under the prefix.
+  '/delete-account',
   // A legacy redirect-only URL (301 → /#how-it-works). In the scheme so the
   // Arabic form redirects to the Arabic homepage; NOT in the sitemap
   // (static-pages.js SITEMAP_STATIC_PATHS does not list it).

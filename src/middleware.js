@@ -208,6 +208,12 @@ function baseMiddlewares(app) {
   // bcrypt hash (~100ms), so 100/min/IP was both an account-spam vector and a
   // CPU-exhaustion vector against a single-process Node server.
   app.use('/register', authLimiter);
+  // The account-deletion request form is unauthenticated by design — the
+  // person asking has uninstalled the app and may not remember their
+  // password. Nothing is deleted from a submission (it opens a verified
+  // request), but it does write a DB row and send mail, so it gets the same
+  // 30-per-15-minutes ceiling as the other public credential forms.
+  app.use('/delete-account', authLimiter);
   app.use('/api/pre-launch-interest', rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 10,

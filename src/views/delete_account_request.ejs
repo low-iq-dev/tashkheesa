@@ -1,0 +1,125 @@
+<%- include('partials/header', { title: title, layout: "public", showNav: true }) %>
+<%
+  // Play's account-deletion requirement (support.google.com/.../13327111): an
+  // app that creates accounts needs BOTH an in-app deletion path and a web
+  // page where someone who has uninstalled the app can ask for the same thing.
+  // The URL is declared in the Data safety form, so this page has to keep
+  // working on its own — no login, no app, no JavaScript.
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __prefix = locals.publicLinkPrefix || '';
+  const __state = (typeof formState !== 'undefined' && formState) ? String(formState) : 'idle';
+  const __v = (typeof formValues !== 'undefined' && formValues) ? formValues : {};
+%>
+
+<main class="page-shell">
+  <div class="page-inner">
+    <section class="content-card legal-page">
+<% if (__isAr) { %>
+      <h1>حذف حسابك وبياناتك</h1>
+      <p class="subtitle">تشخيصة — تطبيق المرضى (com.tashkheesa.patient)</p>
+<% } else { %>
+      <h1>Delete your account and data</h1>
+      <p class="subtitle">Tashkheesa — patient app (com.tashkheesa.patient)</p>
+<% } %>
+
+<% if (__state === 'sent') { %>
+      <div class="contact-banner contact-banner--success" role="status">
+        <% if (__isAr) { %>
+          <strong>وصلنا طلبك.</strong> لو فيه حساب مطابق للبيانات اللي كتبتها، هنتواصل معك على نفس البريد أو الرقم عشان نتأكد إن الطلب منك، وبعدها ننفّذ الحذف خلال 30 يوم عمل كحد أقصى. مش محتاج تبعت الطلب تاني.
+        <% } else { %>
+          <strong>We have your request.</strong> If an account matches what you entered, we will contact you at that same email address or number to confirm the request came from you, and then complete the deletion within 30 working days. There is no need to send it again.
+        <% } %>
+      </div>
+<% } else { %>
+
+<% if (__isAr) { %>
+      <h2>الطريقة الأسرع: من داخل التطبيق</h2>
+      <p>لو لسه التطبيق على تليفونك، ده أسرع طريق والحذف بيتم فورًا:</p>
+      <ol>
+        <li>افتح تطبيق تشخيصة وسجّل الدخول.</li>
+        <li>روح على تبويب <strong>حسابي</strong>.</li>
+        <li>اضغط <strong>حذف الحساب</strong>.</li>
+        <li>أكّد هويتك بكلمة السر أو بكود التحقق اللي هيوصلك.</li>
+      </ol>
+
+      <h2>لو التطبيق مش موجود عندك</h2>
+      <p>املأ النموذج ده. هنتواصل معك على نفس البريد أو الرقم عشان نتأكد إن الطلب منك قبل ما ننفّذ أي حاجة.</p>
+<% } else { %>
+      <h2>Fastest route: from inside the app</h2>
+      <p>If you still have the app installed, this is immediate:</p>
+      <ol>
+        <li>Open the Tashkheesa app and sign in.</li>
+        <li>Go to the <strong>Profile</strong> tab.</li>
+        <li>Tap <strong>Delete account</strong>.</li>
+        <li>Confirm it is you, with your password or a verification code we send you.</li>
+      </ol>
+
+      <h2>If you no longer have the app</h2>
+      <p>Use the form below. We will contact you at the same email address or number to confirm the request came from you before anything is deleted.</p>
+<% } %>
+
+<% if (__state === 'error') { %>
+      <div class="contact-banner contact-banner--error" role="alert">
+        <%= __isAr
+          ? 'لازم تكتب البريد الإلكتروني أو رقم الموبايل المسجّل على الحساب.'
+          : 'Please give us either the email address or the mobile number registered on the account.' %>
+      </div>
+<% } %>
+
+      <form method="post" action="<%= __prefix %>/delete-account" class="contact-form">
+        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+
+        <div class="form-group">
+          <label class="form-label" for="da-email"><%= __isAr ? 'البريد الإلكتروني المسجّل' : 'Registered email address' %></label>
+          <input type="email" id="da-email" name="email" class="form-control" dir="ltr" placeholder="you@example.com" value="<%= __v.email || '' %>" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="da-phone"><%= __isAr ? 'أو رقم الموبايل المسجّل' : 'Or registered mobile number' %></label>
+          <input type="tel" id="da-phone" name="phone" class="form-control" dir="ltr" placeholder="+20…" value="<%= __v.phone || '' %>" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="da-note"><%= __isAr ? 'أي تفاصيل تحب تضيفها (اختياري)' : 'Anything you want to add (optional)' %></label>
+          <textarea id="da-note" name="note" rows="4" class="form-control"><%= __v.note || '' %></textarea>
+        </div>
+
+        <%# Honeypot. Hidden inline rather than by class so it stays hidden even
+            if the stylesheet fails to load, and never reaches a real person. %>
+        <div style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden" aria-hidden="true">
+          <label for="da-company">Company</label>
+          <input type="text" id="da-company" name="company" tabindex="-1" autocomplete="off" />
+        </div>
+
+        <button type="submit" class="btn btn-primary"><%= __isAr ? 'أرسل طلب الحذف' : 'Send deletion request' %></button>
+      </form>
+<% } %>
+
+<% if (__isAr) { %>
+      <h2>اللي بيتحذف</h2>
+      <p>ملفك الشخصي، بياناتك، الملفات الطبية اللي رفعتها، رسائلك مع الأطباء، التقارير، المواعيد، والإشعارات — من سجلاتنا ومن مساحة التخزين.</p>
+
+      <h2>اللي بيفضل</h2>
+      <p>سجل مالي مجهول لكل عملية دفع أو استرداد، من غير اسمك ومن غير أي بيانات طبية. القوانين المحاسبية المصرية بتلزمنا بده، و<a href="<%= __prefix %>/privacy">سياسة الخصوصية</a> بتوضحه.</p>
+
+      <h2>المدة</h2>
+      <p>الحذف من داخل التطبيق بيتم فورًا. الطلب من الصفحة دي بياخد مدة أقصاها 30 يوم عمل من وقت ما نتأكد إن الطلب منك.</p>
+
+      <p>لأي استفسار عن بياناتك: <a href="mailto:info@tashkheesa.com">info@tashkheesa.com</a></p>
+<% } else { %>
+      <h2>What gets deleted</h2>
+      <p>Your profile, your details, the medical files you uploaded, your messages with doctors, your reports, your appointments and your notifications — from our records and from our storage.</p>
+
+      <h2>What is kept</h2>
+      <p>An anonymous financial record of each payment and refund, with your name removed and no medical information in it. Egyptian accounting rules require this, and our <a href="<%= __prefix %>/privacy">Privacy Policy</a> says so.</p>
+
+      <h2>How long it takes</h2>
+      <p>Deleting from inside the app is immediate. A request made on this page takes up to 30 working days from the point we confirm it came from you.</p>
+
+      <p>Any question about your data: <a href="mailto:info@tashkheesa.com">info@tashkheesa.com</a></p>
+<% } %>
+    </section>
+  </div>
+</main>
+
+<%- include('partials/footer') %>

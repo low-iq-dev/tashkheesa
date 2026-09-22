@@ -27,7 +27,10 @@ var LIVE_SPECIALTY_WHERE =
 var SITEMAP_STATIC_PATHS = [
   '/', '/services', '/specialties', '/about', '/contact', '/faq',
   '/privacy', '/terms', '/refund-policy', '/delivery-policy',
-  '/blog', '/apply', '/help-me-choose'
+  '/blog', '/apply', '/help-me-choose',
+  // Listed so the page is crawlable and findable without the app, which is
+  // the whole point of Play's web-deletion requirement.
+  '/delete-account'
 ];
 var SITEMAP_TTL_MS = 60 * 60 * 1000;
 
@@ -427,6 +430,124 @@ function setupStaticPages(opts) {
   router.get('/terms', async function(req, res) { var isAr = !!(res.locals && res.locals.isAr); var specialtyCount = await siteStats.getVisibleSpecialtyCount(); res.render('terms', { title: isAr ? 'شروط الخدمة' : 'Terms of Service', BUSINESS_INFO: BUSINESS_INFO, specialtyCount: specialtyCount, description: isAr ? 'الشروط والأحكام الخاصة باستخدام خدمات تشخيصة للرأي الطبي الثاني، وحقوقك والتزاماتك كمريض عند طلب المراجعة.' : 'Terms and conditions for using Tashkheesa medical second opinion services.', canonical: '/terms' }); });
   router.get('/refund-policy', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('refund_policy', { title: isAr ? 'سياسة الاسترداد والإلغاء' : 'Refund & Cancellation Policy', BUSINESS_INFO: BUSINESS_INFO, description: refundPolicyDescription(isAr, res.locals && res.locals.videoComingSoon === false), canonical: '/refund-policy' }); });
   router.get('/delivery-policy', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('delivery_policy', { title: isAr ? 'سياسة التسليم والخدمة' : 'Delivery & Service Policy', BUSINESS_INFO: BUSINESS_INFO, description: isAr ? 'كيف تُسلِّم تشخيصة تقارير الأطباء الاستشاريين. تسليم رقمي خلال 48 ساعة.' : 'How Tashkheesa delivers specialist medical reports. Digital delivery within 48 hours.', canonical: '/delivery-policy' }); });
+  // ── /delete-account ─────────────────────────────────────────────────────
+  //
+  // Google Play requires an app that creates accounts to offer BOTH an in-app
+  // deletion path and a web page where someone who has uninstalled the app
+  // can request the same thing (support.google.com/googleplay/android-developer
+  // /answer/13327111). The URL is declared in the Data safety form, and Play
+  // checks that it loads, names the app, and carries a working request route.
+  //
+  // This page does NOT delete anything. Deletion needs proof of identity, and
+  // an unauthenticated form has none — accepting one would hand anybody who
+  // knows a patient's e-mail address a button that erases their medical
+  // history. It opens a request; a human verifies it on the address or number
+  // given and then runs the real erasure, which is the same
+  // services/account_deletion.js transaction the in-app button uses.
+  //
+  // It also never says whether an account exists. The response is identical
+  // either way, so the form cannot be used to test whether someone is a
+  // patient here — which, for a medical service, is itself sensitive.
+  function renderDeleteAccount(req, res, status, extra) {
+    var isAr = !!(res.locals && res.locals.isAr);
+    return res.status(status).render('delete_account_request', Object.assign({
+      title: isAr ? 'حذف حسابك وبياناتك — تشخيصة' : 'Delete your account and data — Tashkheesa',
+      BUSINESS_INFO: BUSINESS_INFO,
+      description: isAr
+        ? 'كيف تحذف حساب تشخيصة وكل بياناتك الطبية، من داخل التطبيق أو بطلب من الصفحة دي لو التطبيق مش موجود عندك.'
+        : 'How to delete your Tashkheesa account and all your medical data, from inside the app or by request on this page if you no longer have the app.',
+      canonical: '/delete-account',
+      formState: 'idle',
+      formValues: {}
+    }, extra || {}));
+  }
+
+  router.get('/delete-account', function(req, res) {
+    var sent = String((req.query && req.query.sent) || '') === '1';
+    return renderDeleteAccount(req, res, 200, { formState: sent ? 'sent' : 'idle' });
+  });
+
+  router.post('/delete-account', async function(req, res) {
+    var body = req.body || {};
+    var email = String(body.email || '').trim();
+    var phone = String(body.phone || '').trim();
+    var note = String(body.note || '').trim();
+
+    // Honeypot. A real browser leaves it empty because it is positioned off
+    // screen with no tab stop. Answer 200 with the success page rather than a
+    // rejection, so a bot learns nothing and stops retrying.
+    if (String(body.company || '').trim()) {
+      return renderDeleteAccount(req, res, 200, { formState: 'sent' });
+    }
+
+    if (!email && !phone) {
+      return renderDeleteAccount(req, res, 400, {
+        formState: 'error',
+        formValues: { email: email, phone: phone, note: note }
+      });
+    }
+
+    console.log('[ACCOUNT-DELETION-REQUEST] web request received (email=%s phone=%s)',
+      email ? 'yes' : 'no', phone ? 'yes' : 'no');
+
+    // Durable record FIRST, independent of the mail attempt — the same order
+    // the contact form uses, and for the same reason: a PDPL erasure request
+    // that exists only in an SMTP call that failed is an erasure request we
+    // never received.
+    try {
+      await logErrorToDb(new Error('account deletion request (web)'), {
+        level: 'info',
+        category: 'account_deletion_request',
+        requestId: req.requestId,
+        url: req.originalUrl,
+        method: req.method,
+        requestEmail: email || 'none',
+        requestPhone: phone || 'none',
+        requestNote: note.slice(0, 2000)
+      });
+    } catch (e) {
+      console.error('[ACCOUNT-DELETION-REQUEST] Failed to persist request:', e && e.message);
+    }
+
+    try {
+      var { sendMail } = require('../services/emailService');
+      await sendMail({
+        to: process.env.SMTP_FROM_EMAIL || 'info@tashkheesa.com',
+        subject: 'Account deletion request (web) — verify before acting',
+        text: 'A deletion request was submitted on /delete-account.\n\n' +
+              'Email: ' + (email || 'not given') + '\n' +
+              'Phone: ' + (phone || 'not given') + '\n' +
+              'Note: ' + (note || 'none') + '\n\n' +
+              'DO NOT delete on the strength of this form alone. Contact the person on the ' +
+              'address or number above, confirm the request came from them, then run the ' +
+              'erasure from the admin tools. 30 working days from confirmation.',
+        html: '<p>A deletion request was submitted on <b>/delete-account</b>.</p>' +
+              '<p><b>Email:</b> ' + escapeHtmlText(email || 'not given') + '</p>' +
+              '<p><b>Phone:</b> ' + escapeHtmlText(phone || 'not given') + '</p>' +
+              '<p><b>Note:</b> ' + escapeHtmlText(note || 'none') + '</p>' +
+              '<p><b>Do not delete on the strength of this form alone.</b> Contact the person on the ' +
+              'address or number above, confirm the request came from them, then run the erasure ' +
+              'from the admin tools. 30 working days from confirmation.</p>'
+      });
+    } catch (err) {
+      console.error('[ACCOUNT-DELETION-REQUEST] Email send failed:', err && err.message);
+      try {
+        await logErrorToDb(err, {
+          level: 'error',
+          category: 'account_deletion_request',
+          requestId: req.requestId,
+          url: req.originalUrl,
+          method: req.method
+        });
+      } catch (_) { /* logger swallows its own */ }
+      // The request IS recorded, so the person is told it arrived. Telling
+      // them to try again would produce a second row and no extra safety.
+    }
+
+    // PRG, so a refresh does not resubmit. The redirect keeps the /ar prefix.
+    return res.redirect(303, (res.locals && res.locals.publicLinkPrefix ? res.locals.publicLinkPrefix : '') + '/delete-account?sent=1');
+  });
+
   router.get('/faq', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('faq', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', title: isAr ? 'الأسئلة الشائعة' : 'FAQ – Frequently Asked Questions', BUSINESS_INFO: BUSINESS_INFO, description: isAr ? 'إجابات عن أكثر الأسئلة شيوعًا حول تشخيصة: كيف يعمل الرأي الطبي الثاني، ومدة المراجعة، والأسعار، والخصوصية، ووسائل الدفع.' : 'Answers to the most common questions about Tashkheesa: how second opinions work, turnaround times, pricing, privacy, and payment options.', canonical: '/faq' }); });
 
   // /blog — index + posts (P1-PUB-1 part 3).

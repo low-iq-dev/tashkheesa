@@ -72,6 +72,9 @@
           <a href="<%= locals.publicLinkPrefix || '' %>/terms"><%= __footerIsAr ? 'شروط الخدمة' : 'Terms of Service' %></a>
           <a href="<%= locals.publicLinkPrefix || '' %>/refund-policy"><%= __footerIsAr ? 'الاسترداد والإلغاء' : 'Refund & Cancellation' %></a>
           <a href="<%= locals.publicLinkPrefix || '' %>/delivery-policy"><%= __footerIsAr ? 'سياسة التسليم' : 'Delivery Policy' %></a>
+          <%# Play asks for the deletion pathway to be prominently featured, and
+              a footer link on every public page is the honest reading of that. %>
+          <a href="<%= locals.publicLinkPrefix || '' %>/delete-account"><%= __footerIsAr ? 'حذف حسابك' : 'Delete Your Account' %></a>
         </div>
         <div class="footer-col">
           <%# /apply is a complete, live, public doctor-application page that had
