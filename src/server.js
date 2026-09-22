@@ -1452,7 +1452,7 @@ async function runSlaEnforcementSweep(source) {
   }
 }
 
-var { startJobQueue, stopJobQueue, scheduleSlaSweep, scheduleAiCanary, scheduleClassifierLearning } = require('./job_queue');
+var { startJobQueue, stopJobQueue, scheduleSlaSweep, scheduleAiCanary, scheduleClassifierLearning, scheduleAttentionSweep } = require('./job_queue');
 
 // Boot: wait for DB migration before starting workers
 _dbReady.then(async function() {
@@ -1467,6 +1467,20 @@ _dbReady.then(async function() {
   // staleness heartbeat fresh before any patient hits a dead AI call.
   try { await scheduleAiCanary(); } catch (e) {
     logMajor('AI canary schedule failed: ' + e.message);
+  }
+  // 2026-09-22 — the attention sweep. Every 15 minutes it reads
+  // v_needs_attention and alerts on anyone waiting over an hour who has not
+  // been alerted on today. Deliberately NOT gated on SLA_MODE: this watches
+  // for people nobody answered, which is not an SLA concern and must keep
+  // working on any instance that can reach the database.
+  //
+  // Logged rather than fatal, but note what the failure COSTS — with this
+  // unscheduled, nothing is watching the intake doors, which is the exact
+  // state that let a patient wait eight weeks. The heartbeat registered in
+  // admin_health.WORKER_SPECS is what makes that state visible on /healthz
+  // rather than silent.
+  try { await scheduleAttentionSweep(); } catch (e) {
+    logMajor('Attention sweep schedule FAILED — intake doors are unwatched: ' + e.message);
   }
   // LEARNING LOOP 2026-08-25 — nightly aggregation of
   // specialty_classification_overrides into candidate corrections. Produces a

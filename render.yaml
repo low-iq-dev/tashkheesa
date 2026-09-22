@@ -351,6 +351,20 @@ services:
         value: "false"
 
       # ── Feature flags held OFF for launch ────────────────────────────────
+      # 2026-09-22 — DECLARED, because it was missing here and someone had set
+      # it to `on` in the dashboard. services/public_cta.js gates every public
+      # booking button on this and defaults to OFF for a reason: no card
+      # payment has ever settled through Paymob (401 since 16 June), so an open
+      # CTA walks a patient into a funnel that cannot take their money. It did
+      # exactly that on 15 July, to a woman asking about her mother's
+      # breast-cancer MRI, who abandoned the wizard at step 2.
+      #
+      # A service-level variable beats an environment group in Render, so this
+      # closes it whatever else is setting it. Flip to `on` when there is a
+      # working payment path, not before.
+      - key: PUBLIC_BOOKING_CTA
+        value: "off"
+
       # AUDIT-2026-08-22, CORRECTED: I first wrote `false` here from the code
       # default. The LIVE Render environment has it TRUE — registry.js:37 calls
       # flipping it "Phase 3", and Phase 3 has happened. Syncing a blueprint

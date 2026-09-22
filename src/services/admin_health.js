@@ -22,6 +22,14 @@ const WORKER_SPECS = [
   // (notification_worker.js, video_scheduler.js). ~2-3x-interval staleness budget:
   { key: 'notification_worker', staleSeconds: 3 * 60 }, // pings ~30 s
   { key: 'video_scheduler', staleSeconds: 4 * 60 },     // pings ~1 min
+  // 2026-09-22 — the attention sweep (services/needs_attention.js) runs every
+  // 15 minutes and is the only thing watching for people who reached out and
+  // were never answered. Registering it here is the dead-man's switch: it is
+  // what makes /healthz — and therefore the external uptime monitor already
+  // pointed at /healthz — notice if the watcher itself stops. Three separate
+  // intake doors failed silently before this existed precisely because nothing
+  // reported its own absence. 40 minutes is ~2.5 intervals.
+  { key: 'attention_sweep', staleSeconds: 40 * 60 },
 ];
 
 /**

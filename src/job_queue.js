@@ -287,6 +287,62 @@ async function handleSlaSweep() {
  *
  * @returns {boolean} true if scheduled via pg-boss, false if boss not available
  */
+// Same shape as notification_worker.js / case_sla_worker.js: a fire-and-forget
+// POST to the local /ops/agent/ping, which writes agent_heartbeats. Errors are
+// swallowed on purpose — a heartbeat that throws must never take down the
+// sweep whose liveness it is reporting.
+function pingOps(agentName, task) {
+  try {
+    var http = require('http');
+    var body = JSON.stringify({ agent_name: agentName, status: 'running', current_task: task });
+    var req = http.request({
+      hostname: 'localhost',
+      port: Number(process.env.PORT || 3000),
+      path: '/ops/agent/ping',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+    });
+    req.on('error', function() {});
+    req.write(body);
+    req.end();
+  } catch (e) { /* never block the sweep on its own heartbeat */ }
+}
+
+/**
+ * The attention sweep — every 15 minutes, singleton across instances.
+ *
+ * Reads v_needs_attention (migration 114) and alerts on anyone who has been
+ * waiting over an hour and has not already been alerted on today. It runs on
+ * a clock rather than on an event, because the thing it is watching for is
+ * the ABSENCE of events: three intake doors each notified on success and none
+ * of them noticed silence, which is how a patient in Poland waited eight weeks
+ * and a woman asking about her mother's breast-cancer MRI was never called.
+ *
+ * It heartbeats as 'attention_sweep', registered in admin_health.WORKER_SPECS,
+ * so /healthz and the external monitor already watching /healthz will notice
+ * if the watcher itself dies. That is the property the original three doors
+ * lacked and the reason this is scheduled here rather than on the Mac mini
+ * alongside Tash, which goes down with its own watchdog.
+ */
+async function handleAttentionSweep() {
+  const { runAttentionSweep } = require('./services/needs_attention');
+  pingOps('attention_sweep', 'sweeping intake doors');
+  const result = await runAttentionSweep();
+  if (result.alerted > 0) {
+    logMajor('[attention-sweep] alerted on ' + result.alerted + ' new item(s); ' +
+      result.total + ' waiting in total');
+  }
+  return result;
+}
+
+async function scheduleAttentionSweep() {
+  if (!boss) return false;
+  await boss.work('attention-sweep', { teamSize: 1, teamConcurrency: 1 }, handleAttentionSweep);
+  await boss.schedule('attention-sweep', '*/15 * * * *', {}, { singletonKey: 'attention-sweep' });
+  logMajor('[job-queue] attention sweep scheduled via pg-boss (*/15 * * * *, singleton)');
+  return true;
+}
+
 async function scheduleSlaSweep() {
   if (!boss) return false;
   await boss.work('sla-sweep', { teamSize: 1, teamConcurrency: 1 }, handleSlaSweep);
@@ -405,6 +461,7 @@ module.exports = {
   startJobQueue: startJobQueue,
   stopJobQueue: stopJobQueue,
   scheduleSlaSweep: scheduleSlaSweep,
+  scheduleAttentionSweep: scheduleAttentionSweep,
   scheduleAiCanary: scheduleAiCanary,
   scheduleClassifierLearning: scheduleClassifierLearning,
   enqueueCaseIntelligence: enqueueCaseIntelligence,
