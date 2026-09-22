@@ -89,7 +89,7 @@ const SMTP_FROM_NAME = process.env.SMTP_FROM_NAME || 'Tashkheesa';
 // founder-signed messages). Callers opt in by passing replyTo=true (or an
 // explicit address); transactional templates that should NOT invite a reply
 // (system notifications, automated alerts) omit it and stay on noreply@.
-const SMTP_REPLY_TO_EMAIL = process.env.SMTP_REPLY_TO_EMAIL || 'info@tashkheesa.com';
+const SMTP_REPLY_TO_EMAIL = process.env.SMTP_REPLY_TO_EMAIL || 'support@tashkheesa.com';
 const APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
 
 // ── Transporter (lazy init) ─────────────────────────────────────────────────

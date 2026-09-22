@@ -37,6 +37,15 @@ function assert(cond, label, detail) {
 
 const BUSINESS_INFO = {
   email: 'legal-probe@tashkheesa.com',          // distinctive so we can prove it interpolates
+  // 2026-09-22 — each legal page now hands out the address for its own
+  // subject rather than the general one. The invariant this file exists to
+  // protect is unchanged (the address must INTERPOLATE, never be hardcoded);
+  // it is now checked per page, with a distinctive probe value each, so a
+  // page quietly reverting to a literal still fails here.
+  privacyEmail: 'privacy-probe@tashkheesa.com',
+  legalEmail: 'legal-terms-probe@tashkheesa.com',
+  billingEmail: 'billing-probe@tashkheesa.com',
+  supportEmail: 'support-probe@tashkheesa.com',
   phone: '+20 110 200 9886',
   address: 'Cairo, Egypt',
   address_ar: 'القاهرة، مصر',
@@ -63,10 +72,10 @@ function render(view, isAr) {
 
 // enKnown / arKnown are distinctive body phrases present ONLY in that language.
 const PAGES = [
-  { view: 'refund_policy.ejs',   enKnown: 'Refund & Cancellation Policy', arKnown: 'سياسة الاسترداد والإلغاء' },
-  { view: 'terms.ejs',           enKnown: 'Terms of Service',             arKnown: 'شروط الخدمة' },
-  { view: 'delivery_policy.ejs', enKnown: 'Delivery & Service Policy',    arKnown: 'سياسة التسليم والخدمة' },
-  { view: 'privacy.ejs',         enKnown: 'Privacy Policy',               arKnown: 'سياسة الخصوصية' }
+  { view: 'refund_policy.ejs',   enKnown: 'Refund & Cancellation Policy', arKnown: 'سياسة الاسترداد والإلغاء', emailField: 'billingEmail' },
+  { view: 'terms.ejs',           enKnown: 'Terms of Service',             arKnown: 'شروط الخدمة', emailField: 'legalEmail' },
+  { view: 'delivery_policy.ejs', enKnown: 'Delivery & Service Policy',    arKnown: 'سياسة التسليم والخدمة', emailField: 'supportEmail' },
+  { view: 'privacy.ejs',         enKnown: 'Privacy Policy',               arKnown: 'سياسة الخصوصية', emailField: 'privacyEmail' }
 ];
 
 // Prevailing-language clause — must appear in BOTH renderings (its OWN language).
@@ -93,7 +102,10 @@ PAGES.forEach(function (p) {
     assert(ar.indexOf(p.enKnown) === -1, p.view + ' [ar] does NOT show the English heading', 'English leaked into AR mode');
     assert(ar.indexOf(AR_PREVAIL) !== -1, p.view + ' [ar] includes the prevailing-language clause (AR)', 'missing AR prevailing clause');
     // BUSINESS_INFO must interpolate in Arabic too (never hardcoded).
-    assert(ar.indexOf(BUSINESS_INFO.email) !== -1, p.view + ' [ar] interpolates BUSINESS_INFO.email', 'biz.email not dynamic in AR');
+    const __field = p.emailField || 'email';
+    assert(ar.indexOf(BUSINESS_INFO[__field]) !== -1,
+      p.view + ' [ar] interpolates BUSINESS_INFO.' + __field,
+      'biz.' + __field + ' not dynamic in AR — the address is hardcoded');
   }
 });
 

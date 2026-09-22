@@ -77,6 +77,18 @@ function setupStaticPages(opts) {
   // biz.<field>_ar as the AR fallback. See Theme 10 Phase 2C / OQ-1 follow-up.
   var BUSINESS_INFO = {
     email: 'info@tashkheesa.com',
+    // 2026-09-22 — one address per purpose, all of them aliases on info@ in
+    // Workspace, each with a Gmail filter putting it under its own label. The
+    // point is not extra mailboxes; it is that a PDPL erasure request, a
+    // vulnerability report and a doctor's application stop arriving in the
+    // same undifferentiated pile as a pricing question. `email` stays the
+    // general address and is what the footer, About and Contact still show.
+    privacyEmail: 'privacy@tashkheesa.com',
+    supportEmail: 'support@tashkheesa.com',
+    billingEmail: 'billing@tashkheesa.com',
+    legalEmail: 'legal@tashkheesa.com',
+    doctorsEmail: 'doctors@tashkheesa.com',
+    securityEmail: 'security@tashkheesa.com',
     phone: '+20 110 200 9886',
     address: 'Cairo, Egypt',
     address_ar: 'القاهرة، مصر',
@@ -512,7 +524,7 @@ function setupStaticPages(opts) {
     try {
       var { sendMail } = require('../services/emailService');
       await sendMail({
-        to: process.env.SMTP_FROM_EMAIL || 'info@tashkheesa.com',
+        to: process.env.PRIVACY_NOTIFY_EMAIL || 'privacy@tashkheesa.com',
         subject: 'Account deletion request (web) — verify before acting',
         text: 'A deletion request was submitted on /delete-account.\n\n' +
               'Email: ' + (email || 'not given') + '\n' +

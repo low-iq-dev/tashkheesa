@@ -146,7 +146,7 @@ module.exports = function (deps) {
     // POST-COMMIT, best-effort. A mailer failure must NEVER throw and NEVER
     // affect the already-committed application row.
     try {
-      const to = process.env.APPLICATIONS_NOTIFY_EMAIL || 'info@tashkheesa.com';
+      const to = process.env.APPLICATIONS_NOTIFY_EMAIL || 'doctors@tashkheesa.com';
       await sendMail(buildNotificationEmail(to, data, appRow));
     } catch (mailErr) {
       console.error('[apply] notification email failed (application already saved):', mailErr && mailErr.message);
