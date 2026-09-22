@@ -662,6 +662,24 @@
                   <span class="v2-chip v2-chip--brass" style="margin-inline-start:6px;"><%= tt('Added later', 'Added later', 'أُضيف لاحقاً') %></span>
                 <% } %>
               </div>
+              <%# AUDIT-ANNOTATOR-UNREACHABLE-2026-09-22 — the way in.
+                  /annotator.html, public/js/image-annotator.js and the five
+                  /api/annotations routes have all been live and working, and
+                  portal_doctor_guide.ejs has been telling doctors they can
+                  "add arrows, circles, text" to images — but nothing in the
+                  portal ever linked to the tool. A doctor could only reach it
+                  by hand-building a URL with an imageId, a caseId and a CSRF
+                  token. The guide promised a feature the UI did not expose.
+
+                  Images only: the annotator loads the file into a fabric.js
+                  canvas via fabric.Image.fromURL, which cannot render a PDF. %>
+              <% var _annExt = String(f.name || '').split('.').pop().toLowerCase();
+                 if (['jpg','jpeg','png','gif','webp','bmp','tif','tiff'].indexOf(_annExt) !== -1) { %>
+                <a class="v2-btn v2-btn--ghost v2-btn--sm"
+                   href="/annotator.html?imageId=<%= encodeURIComponent(f.id) %>&caseId=<%= _orderIdEnc %>&lang=<%= _isAr ? 'ar' : 'en' %>&csrf=<%= encodeURIComponent(typeof csrfToken !== 'undefined' && csrfToken ? csrfToken : '') %>"
+                   target="_blank" rel="noopener"
+                   title="<%= tt('Circle, arrow and label findings on this image', 'Circle, arrow and label findings on this image', 'ضع دوائر وأسهم وملاحظات على الصورة') %>"><%= tt('Annotate', 'Annotate', 'تعليم') %></a>
+              <% } %>
               <a class="v2-btn v2-btn--ghost v2-btn--sm" href="<%= f.url %>" target="_blank" rel="noopener"><%= tt('Open', 'Open', 'فتح') %></a>
             </div>
           <% }); %>
