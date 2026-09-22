@@ -191,12 +191,20 @@ function assertUrgentWindowOpen(urgencyTier) {
 // site quotes — /services, specialty pages, blog bodies, the FAQ, the
 // schema.org priceRange — reads base_price, so for this market base_price IS
 // the advertised price and nothing else may override it at checkout.
-const { pricingProxyFor } = require('./pricing_market');
+const { pricingProxyFor, normaliseCountry } = require('./pricing_market');
 
 const HOME_MARKET = 'EG';
 
 async function priceCaseForMarket({ service, country, urgencyTier }) {
-  const displayCountry = String(country || 'EG').trim().toUpperCase() || 'EG';
+  // 2026-09-22 — normalised, not just uppercased. Two production rows store
+  // the country as 'Egypt' rather than 'EG'. Uppercasing gives 'EGYPT', which
+  // is not the home market, matches no price list, and would have sent an
+  // Egyptian patient to the rest-of-world list at roughly four times the
+  // domestic price. An unrecognisable value keeps its raw uppercase form so
+  // the regional lookup below simply misses and the proxy decides, which is
+  // the intended behaviour for a country we do not know.
+  const rawCountry = String(country || 'EG').trim().toUpperCase() || 'EG';
+  const displayCountry = normaliseCountry(country) || rawCountry;
 
   // ── The home market prices from services.base_price, never from
   //    service_regional_prices. ────────────────────────────────────────────

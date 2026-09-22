@@ -20,7 +20,7 @@ try { require('dotenv').config(); } catch (_) {}
 
 const fs = require('fs');
 const path = require('path');
-const { pricingProxyFor, PRICED_MARKETS, EUROPE_TO_GB, REST_OF_WORLD } =
+const { pricingProxyFor, normaliseCountry, PRICED_MARKETS, EUROPE_TO_GB, REST_OF_WORLD } =
   require('../../src/services/pricing_market');
 
 const t = global._testRunner || {
@@ -88,6 +88,38 @@ check('lowercase input is handled — country codes arrive in both cases', () =>
     ? null : 'case handling is wrong'
 ));
 
+// ── dirty country data, which is what production actually holds ───────────
+//
+// Of 30 patient rows on 22 Sep: 16 'EG', 12 NULL, 2 the string 'Egypt'.
+// 'Egypt' uppercases to 'EGYPT', which is not 'EG' — so without normalisation
+// an Egyptian patient lands on the rest-of-world list at about four times the
+// domestic price. Over-charging a domestic patient is a worse failure than the
+// under-charge this module was written to fix, not a smaller one.
+
+check("'Egypt' is Egypt, not the rest of the world", () => (
+  pricingProxyFor('Egypt') === null && normaliseCountry('Egypt') === 'EG'
+    ? null : 'a real production row would be charged the US list'
+));
+
+check('country names and casing are tolerated', () => {
+  const cases = [['egypt', 'EG'], [' eg ', 'EG'], ['United Kingdom', 'GB'],
+                 ['UK', 'GB'], ['USA', 'US'], ['Poland', 'PL'], ['UAE', 'AE']];
+  for (const [input, iso] of cases) {
+    if (normaliseCountry(input) !== iso) return input + ' → ' + normaliseCountry(input) + ', expected ' + iso;
+  }
+  return null;
+});
+
+check('a name we do not recognise returns null rather than guessing', () => (
+  normaliseCountry('Wakanda') === null && normaliseCountry('E G') === null
+    ? null : 'an unknown name was silently resolved to a country'
+));
+
+check('an unrecognisable country still prices upward, never Egyptian', () => (
+  pricingProxyFor('Wakanda') === REST_OF_WORLD && pricingProxyFor(null) === REST_OF_WORLD
+    ? null : 'unknown input falls back to the home price'
+));
+
 // ── the wiring ────────────────────────────────────────────────────────────
 
 const intake = fs.readFileSync(
@@ -95,6 +127,11 @@ const intake = fs.readFileSync(
 
 check('case_intake_pricing actually uses the resolver', () => (
   /pricingProxyFor/.test(intake) ? null : 'the resolver is not wired in'
+));
+
+check('case_intake_pricing normalises the country at the door', () => (
+  /normaliseCountry\(country\)/.test(intake)
+    ? null : "a row storing 'Egypt' would miss the home market"
 ));
 
 check("the country's OWN row still wins — the proxy only runs on a miss", () => (
