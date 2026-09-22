@@ -525,6 +525,10 @@
             <li><a href="<%= locals.publicLinkPrefix || '' %>/terms"><%= tt('home.footer.terms', 'Terms of Service', 'شروط الخدمة') %></a></li>
             <li><a href="<%= locals.publicLinkPrefix || '' %>/refund-policy"><%= tt('home.footer.refund', 'Refund & Cancellation', 'الاسترجاع والإلغاء') %></a></li>
             <li><a href="<%= locals.publicLinkPrefix || '' %>/delivery-policy"><%= tt('home.footer.delivery', 'Delivery Policy', 'سياسة التسليم') %></a></li>
+            <%# The homepage carries its own footer rather than partials/footer.ejs,
+                so the deletion link has to be added here too — and this is the
+                page a Play reviewer is most likely to land on. %>
+            <li><a href="<%= locals.publicLinkPrefix || '' %>/delete-account"><%= tt('home.footer.delete_account', 'Delete Your Account', 'حذف حسابك') %></a></li>
             <li><a href="/login<%= locals.langParam ? '?' + locals.langParam : '' %>"><%= tt('home.footer.patient_portal', 'Patient Portal', 'بوابة المريض') %></a></li>
           </ul>
         </div>

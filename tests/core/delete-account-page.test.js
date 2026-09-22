@@ -64,8 +64,18 @@ check('the page is in the sitemap, so it is findable without the app', () => {
   return /'\/delete-account'/.test(m[1]) ? null : 'not listed in the sitemap';
 });
 
-check('the footer links to it from every public page', () => (
+check('the shared footer links to it', () => (
   /\/delete-account/.test(footer) ? null : 'no footer link — Play asks for it to be prominent'
+));
+
+// The homepage does NOT use partials/footer.ejs. It carries its own footer
+// markup, so the shared-partial check above passes while / has no link at
+// all — which is exactly what happened on the first deploy, on the one page
+// a reviewer is most likely to land on.
+check('the homepage, which has its own footer, links to it too', () => (
+  /\/delete-account/.test(read('src/views/index.ejs'))
+    ? null
+    : 'index.ejs has its own footer and no deletion link in it'
 ));
 
 check('the unauthenticated form is rate limited', () => (
