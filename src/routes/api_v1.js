@@ -108,6 +108,15 @@ module.exports = function (db, helpers, deploy) {
   const adminRoutes = require('./api/admin')(db, helpers, deploy);
   router.use('/admin', adminRoutes);
 
+  // ─── Doctor auth (C2 — doctors' own door, 12h refresh) ─────
+  // Mounted BEFORE the patient gate below, like /admin: its endpoints are
+  // public (sign-in) or authenticate explicitly (logout). The strict auth
+  // limiter covers the whole surface — it is nothing but auth. The wider
+  // /doctor/* API mounts here in a later batch; /doctor/auth must stay ahead
+  // of it and of the patient gate.
+  const doctorAuthRoutes = require('./api/doctor_auth')(db, helpers);
+  router.use('/doctor/auth', authLimiter, doctorAuthRoutes);
+
   // ─── Protected Routes (JWT required) ───────────────────────
 
   router.use(requireJWT);

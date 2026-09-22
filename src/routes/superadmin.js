@@ -4287,6 +4287,22 @@ router.post('/superadmin/doctors/outreach/state', requireSuperadmin, async (req,
     // activate/pause/unpause has no credential to revoke, and burning a live
     // invite on pause would strand a doctor mid-onboarding.
     if (action === 'deactivate') {
+      // C1 (Batch C) — refresh tokens live in per-device user_sessions rows
+      // now (migration 110); the refresh_token = NULL above clears only the
+      // transition mirror. Revoke every device. Best-effort like the burn
+      // below: the account flags above already make refresh refuse.
+      try {
+        await execute(
+          `UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`,
+          [id]
+        );
+      } catch (e) {
+        logErrorToDb(e, {
+          context: 'superadmin.doctor_deactivate_session_revoke',
+          userId: req.user && req.user.id, url: req.originalUrl, method: req.method,
+          category: 'superadmin_auth'
+        });
+      }
       try {
         await execute(
           `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
@@ -4937,6 +4953,22 @@ router.post('/superadmin/doctors/:id/reject', requireSuperadmin, async (req, res
   } catch (e) {
     logErrorToDb(e, {
       context: 'superadmin.doctor_reject_token_burn',
+      userId: req.user?.id, url: req.originalUrl, method: req.method,
+      category: 'superadmin_auth'
+    });
+  }
+
+  // C1 (Batch C) — per-device sessions (migration 110): the refresh_token =
+  // NULL in the UPDATE above clears only the transition mirror. Revoke every
+  // device. Best-effort, same reasoning as the burn above.
+  try {
+    await execute(
+      `UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`,
+      [doctorId]
+    );
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'superadmin.doctor_reject_session_revoke',
       userId: req.user?.id, url: req.originalUrl, method: req.method,
       category: 'superadmin_auth'
     });

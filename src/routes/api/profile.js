@@ -20,7 +20,10 @@ function ev() { if (!_ev) _ev = require('express-validator'); return _ev; }
 function body(...a) { return ev().body(...a); }
 function validationResult(...a) { return ev().validationResult(...a); }
 
-module.exports = function (db, { safeGet, safeRun }) {
+module.exports = function (db, { safeGet, safeAll, safeRun }) {
+  // C1 (Batch C) — push registration is per DEVICE (session row, migration
+  // 110). A second phone no longer steals the first one's push token.
+  const sessionStore = require('../../services/user_sessions')({ safeGet, safeAll, safeRun });
 
   // ─── GET /profile ────────────────────────────────────────
 
@@ -156,13 +159,28 @@ module.exports = function (db, { safeGet, safeRun }) {
       return res.fail('Invalid push token format', 400);
     }
 
-    await safeRun('UPDATE users SET push_token = $1 WHERE id = $2', [token, req.user.id]);
+    // C1 — store on this device's session row when the access token names one
+    // (`sid`); a sid-less token was minted pre-C1 and keeps the single-slot
+    // behaviour. The send path reads the union of both.
+    let stored = false;
+    if (req.user.sid) {
+      stored = await sessionStore.setPushToken(req.user.sid, token);
+    }
+    if (!stored) {
+      await safeRun('UPDATE users SET push_token = $1 WHERE id = $2', [token, req.user.id]);
+    }
     return res.ok({ message: 'Push token registered' });
   });
 
   // ─── DELETE /profile/push-token ──────────────────────────
 
   router.delete('/push-token', async (req, res) => {
+    // C1 — clear this device's registration; the mirror column is cleared
+    // too (pre-C1 clients read only it, and a stale mirror keeps pushing to
+    // a device that asked to stop).
+    if (req.user.sid) {
+      await sessionStore.setPushToken(req.user.sid, null);
+    }
     await safeRun('UPDATE users SET push_token = NULL WHERE id = $1', [req.user.id]);
     return res.ok({ message: 'Push token removed' });
   });
