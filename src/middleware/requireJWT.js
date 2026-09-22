@@ -9,6 +9,7 @@
  */
 
 const jwt = require('jsonwebtoken');
+const { randomUUID } = require('crypto');
 
 // Single source of truth for JWT signing/verification. The previous SESSION_SECRET
 // fallback was removed in Theme 4 Sub-issue C — it was undocumented, masked by
@@ -73,21 +74,36 @@ function requireRole(role) {
 
 /**
  * Generate access + refresh token pair.
+ *
+ * C1 (Batch C, 2026-09-22): `sessionId` — when given, both tokens carry it as
+ * the `sid` claim. Refresh/logout/push-registration use it to target the
+ * DEVICE the token belongs to (user_sessions row, migration 110). It also
+ * makes two same-second token pairs for one user distinct strings, which the
+ * unique user_sessions.refresh_token index relies on. Omitting it (older
+ * call sites, tests) mints a sid-less pair — those are treated as 'legacy'
+ * sessions by the consumers.
  */
-function generateTokens(user) {
+function generateTokens(user, sessionId) {
   const accessToken = jwt.sign(
     {
       id: user.id,
       email: user.email,
       role: user.role,
       name: user.name,
+      ...(sessionId ? { sid: sessionId } : {}),
     },
     JWT_SECRET,
     { expiresIn: '15m' }
   );
 
+  // `jti` — a JWT signs the same claims to the same string, so two mints in
+  // the same second (a refresh right after sign-in) used to produce an
+  // IDENTICAL refresh token: "rotation" then rotated a token onto itself and
+  // the old string stayed valid. A per-mint jti makes every refresh token a
+  // distinct string, which the unique user_sessions.refresh_token index and
+  // the rotation contract both rely on.
   const refreshToken = jwt.sign(
-    { id: user.id, type: 'refresh' },
+    { id: user.id, type: 'refresh', jti: randomUUID(), ...(sessionId ? { sid: sessionId } : {}) },
     JWT_SECRET,
     { expiresIn: '30d' }
   );
@@ -102,25 +118,38 @@ function generateTokens(user) {
  * real second factor, and there is no "remember me" for the keys-to-the-castle
  * account. See docs/COMMAND_APP_PHASE0_AUDIT.md §2 (decision 2).
  */
-function generateAdminTokens(user) {
+function generateAdminTokens(user, sessionId) {
   const accessToken = jwt.sign(
     {
       id: user.id,
       email: user.email,
       role: user.role,
       name: user.name,
+      ...(sessionId ? { sid: sessionId } : {}),
     },
     JWT_SECRET,
     { expiresIn: '15m' }
   );
 
+  // Same per-mint jti as generateTokens — see the comment there.
   const refreshToken = jwt.sign(
-    { id: user.id, type: 'refresh' },
+    { id: user.id, type: 'refresh', jti: randomUUID(), ...(sessionId ? { sid: sessionId } : {}) },
     JWT_SECRET,
     { expiresIn: '12h' }
   );
 
   return { accessToken, refreshToken };
+}
+
+/**
+ * C2 (Batch C, 2026-09-22): doctor token pair — access 15m like everyone,
+ * refresh 12h like the superadmin Command app, NOT the patient 30d. A doctor
+ * session carries other people's medical records; the brief's decision is the
+ * tight lifetime. Shape is otherwise identical to generateAdminTokens (same
+ * `sid` semantics as generateTokens above).
+ */
+function generateDoctorTokens(user, sessionId) {
+  return generateAdminTokens(user, sessionId);
 }
 
 /**
@@ -142,6 +171,7 @@ module.exports = {
   requireRole,
   generateTokens,
   generateAdminTokens,
+  generateDoctorTokens,
   verifyRefreshToken,
   JWT_SECRET,
 };

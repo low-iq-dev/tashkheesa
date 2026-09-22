@@ -36,39 +36,17 @@ const { withTransaction } = require('../../db');
 //
 // Mirrors routes/auth.js:323-348. validate:false because the trust-proxy
 // req.ip shape varies at the Render edge.
-const { rateLimit: _otpRateLimit } = require('express-rate-limit');
-
-// Normalises {countryCode, phone} into a stable limiter key. Runs BEFORE the
-// limiters so they have something to key on; falls back to the IP so a
-// malformed body can never bypass the cap by yielding a constant key.
-function otpPhoneScope(req, _res, next) {
-  const cc = String((req.body && req.body.countryCode) || '').replace(/[^0-9+]/g, '');
-  const ph = String((req.body && req.body.phone) || '').replace(/[^0-9]/g, '');
-  req.otpPhone = { key: (cc + ph) || ('ip:' + (req.ip || 'unknown')) };
-  next();
-}
-const otpPhoneKey = (req) => (req.otpPhone && req.otpPhone.key) || 'unknown';
-const otpRlMsg = { success: false, error: 'Too many attempts. Try again later.', code: 'RATE_LIMITED' };
-
-// Per-phone: 60s cooldown between sends.
-const otpSendCooldown = _otpRateLimit({
-  windowMs: 60 * 1000, max: 1, validate: false,
-  standardHeaders: false, legacyHeaders: false,
-  keyGenerator: otpPhoneKey,
-  message: { success: false, error: 'Please wait a minute before requesting another code.', code: 'OTP_COOLDOWN' },
-});
-// Per-phone: total sends per window (SMS-cost / bombing guard).
-const otpSendCap = _otpRateLimit({
-  windowMs: 15 * 60 * 1000, max: 3, validate: false,
-  standardHeaders: false, legacyHeaders: false,
-  keyGenerator: otpPhoneKey, message: otpRlMsg,
-});
-// Per-phone: verify attempts per window.
-const otpVerifyCap = _otpRateLimit({
-  windowMs: 15 * 60 * 1000, max: 5, validate: false,
-  standardHeaders: false, legacyHeaders: false,
-  keyGenerator: otpPhoneKey, message: otpRlMsg,
-});
+//
+// C2 (Batch C) — the limiter INSTANCES moved to middleware/otp_phone_limits
+// and are SHARED with the doctor door (routes/api/doctor_auth.js): the
+// per-phone budget belongs to the phone, not to the door, so a second door
+// must not double it. Shapes unchanged.
+const {
+  otpPhoneScope,
+  otpSendCooldown,
+  otpSendCap,
+  otpVerifyCap,
+} = require('../../middleware/otp_phone_limits');
 
 const RESET_EXPIRY_HOURS = 2; // matches src/routes/auth.js portal flow — keep in sync
 const APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
@@ -76,6 +54,36 @@ const APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
 const { captureSignup } = require('../../services/analytics');
 
 module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) {
+  // C1 (Batch C) — per-device sessions. Sign-in creates a user_sessions row,
+  // refresh rotates INSIDE that row, sign-out revokes that row only. The
+  // single-slot users.refresh_token is a transition mirror, no longer
+  // authoritative (see services/user_sessions.js header).
+  const sessions = require('../../services/user_sessions')({ safeGet, safeAll, safeRun });
+
+  // The app may name the device it is signing in from; both optional.
+  function deviceInfo(req) {
+    const b = req.body || {};
+    return {
+      deviceId: b.deviceId ? String(b.deviceId).slice(0, 128) : null,
+      deviceName: b.deviceName ? String(b.deviceName).slice(0, 128) : null,
+    };
+  }
+
+  // Mint a pair bound to a NEW session row for this device.
+  async function openSession(user, req, client) {
+    const sessionId = sessions.newSessionId();
+    const tokens = generateTokens(user, sessionId);
+    const { deviceId, deviceName } = deviceInfo(req);
+    await sessions.createSession({
+      id: sessionId,
+      userId: user.id,
+      refreshToken: tokens.refreshToken,
+      client,
+      deviceId,
+      deviceName,
+    });
+    return tokens;
+  }
   // ─── POST /register ──────────────────────────────────────
 
   router.post(
@@ -159,10 +167,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       captureSignup({ userId: userId, signupMethod: 'password_mobile', role: 'patient', surface: 'mobile' });
 
       const user = await safeGet('SELECT * FROM users WHERE id = $1', [userId]);
-      const tokens = generateTokens(user);
-
-      // Store refresh token
-      await safeRun('UPDATE users SET refresh_token = $1 WHERE id = $2', [tokens.refreshToken, userId]);
+      // C1 — a sign-up is this device's sign-in: new session row, not the
+      // shared column.
+      const tokens = await openSession(user, req, 'patient_app');
 
       return res.ok({
         user: sanitizeUser(user),
@@ -210,8 +217,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
         return res.fail('This account is not active. Please contact support.', 403, 'ACCOUNT_INACTIVE');
       }
 
-      const tokens = generateTokens(user);
-      await safeRun('UPDATE users SET refresh_token = $1 WHERE id = $2', [tokens.refreshToken, user.id]);
+      // C1 — this device gets its own session row; a phone already signed in
+      // stays signed in.
+      const tokens = await openSession(user, req, 'patient_app');
 
       return res.ok({
         user: sanitizeUser(user),
@@ -234,43 +242,79 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       return res.fail('Invalid refresh token', 401, 'INVALID_REFRESH');
     }
 
-    // Verify token matches stored token (rotation check).
+    // C1 — the rotation check is now BY SESSION, not by the shared column:
+    // this token authenticates the device row it lives in, and other devices'
+    // rows are untouched. A token minted by pre-cutover code in the deploy
+    // window (matches the mirror column, has no row yet) is adopted into a
+    // 'legacy' row on its first refresh instead of being rejected.
     //
-    // SECURITY: `role <> 'superadmin'` — users.refresh_token is a SINGLE shared
-    // column, so the token the superadmin console stores (12h, via
-    // /api/v1/admin/refresh, which already filters role = 'superadmin') is the
-    // very same string this patient endpoint would accept. Without the filter a
-    // lifted superadmin refresh token could be laundered here into a 30-day
-    // patient-lifetime pair still carrying role=superadmin. The two endpoints
-    // now partition the role space: admin.js:292 serves superadmin only, this
-    // one serves everyone else. Same REFRESH_REVOKED shape on no match, so the
-    // client cannot tell a role rejection from a rotated/revoked token.
-    const user = await safeGet(
-      "SELECT * FROM users WHERE id = $1 AND refresh_token = $2 AND role <> 'superadmin'",
-      [decoded.id, refreshToken]
-    );
-    if (!user) {
+    // SECURITY (role partition, tightened in C2): this endpoint now serves
+    // PATIENTS only. The superadmin exclusion predates C1 (a lifted Command
+    // refresh token must not be laundered into a 30-day pair) and the same
+    // laundering existed for doctors — a 12-hour doctor token presented here
+    // would re-mint as 30 days. Doctors refresh at /doctor/auth/refresh;
+    // superadmins at /admin/auth/refresh. Same REFRESH_REVOKED shape for
+    // every non-patient, so the response cannot fingerprint roles.
+    let session = await sessions.findLiveByToken(refreshToken);
+    let user = null;
+    if (session) {
+      user = await safeGet('SELECT * FROM users WHERE id = $1', [session.user_id]);
+    } else {
+      const legacyMatch = await safeGet(
+        'SELECT * FROM users WHERE id = $1 AND refresh_token = $2',
+        [decoded.id, refreshToken]
+      );
+      if (legacyMatch) {
+        session = await sessions.adoptLegacyToken(legacyMatch, refreshToken);
+        user = legacyMatch;
+      }
+    }
+    if (!session || !user || String(session.user_id) !== String(decoded.id)) {
       return res.fail('Refresh token revoked', 401, 'REFRESH_REVOKED');
     }
+    if (String(user.role || '').toLowerCase() !== 'patient') {
+      // Wrong door — kill this session so the stale credential dies now.
+      await sessions.revokeById(session.id);
+      return res.fail('Refresh token revoked', 401, 'REFRESH_REVOKED');
+    }
+
+    // A4 — honour the revocation stamp on REFRESH tokens too, not only access
+    // tokens. A password change stamps tokens_valid_after; before C1 the
+    // refresh token survived it (the stamp was only consulted in requireJWT),
+    // so a stolen device could re-mint forever. iat is app-clock seconds,
+    // same comparison requireJWT makes. Fail-open cache, same as everywhere.
+    try {
+      if (require('../../services/access_revocation').isTokenStale(decoded.id, decoded.iat)) {
+        await sessions.revokeById(session.id);
+        return res.fail('Refresh token revoked', 401, 'REFRESH_REVOKED');
+      }
+    } catch (_) { /* fail open */ }
 
     // AUDIT 2026-09-06 (BLOCKER 1) — the gate has to be here too, not only at
     // sign-in. Refresh tokens live 30 days and this endpoint re-mints an
     // access token from one with no reference to account state, so gating only
-    // the login paths would leave a doctor deactivated on Monday still holding
-    // a working credential until the following month. Deliberately reported as
+    // the login paths would leave a deactivated account still holding a
+    // working credential until the following month. Deliberately reported as
     // REFRESH_REVOKED rather than ACCOUNT_INACTIVE: the mobile clients already
     // treat that code as "session over, sign in again" (lib/api.ts), and it is
     // the honest description — this token is no longer good.
     if (loginBlockReason(user) !== null) {
-      // Burn the stored token so the 30-day window closes now rather than at
-      // its natural expiry. Without this the client could keep retrying.
+      // Burn the stored tokens so the window closes now rather than at
+      // natural expiry. Without this the client could keep retrying. The
+      // mirror column is cleared too (pre-C1 code would still read it).
+      await sessions.revokeById(session.id);
       await safeRun('UPDATE users SET refresh_token = NULL WHERE id = $1', [user.id]);
       return res.fail('Refresh token revoked', 401, 'REFRESH_REVOKED');
     }
 
-    // Generate new pair (rotation)
-    const tokens = generateTokens(user);
-    await safeRun('UPDATE users SET refresh_token = $1 WHERE id = $2', [tokens.refreshToken, user.id]);
+    // Generate new pair (rotation, inside this device's row). A race loser
+    // (same token presented twice) sees rotate() return false and is told the
+    // token is gone — identical contract to the old single-column rotation.
+    const tokens = generateTokens(user, session.id);
+    const rotated = await sessions.rotate(session.id, refreshToken, tokens.refreshToken, user.id);
+    if (!rotated) {
+      return res.fail('Refresh token revoked', 401, 'REFRESH_REVOKED');
+    }
 
     return res.ok({
       accessToken: tokens.accessToken,
@@ -579,12 +623,29 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
         return res.fail('Could not complete sign-in. Please try again.', 500, 'OTP_USER_LOOKUP_FAILED');
       }
 
+      // C2 (Batch C) — doctors stop signing in through the patient door.
+      // This endpoint used to accept doctors and mint them a 30-DAY refresh
+      // token with none of the doctor account-state answers. The lookup above
+      // still RESOLVES doctors (OTP_ROLES keeps 'doctor') — that is what
+      // prevents the auto-create below from minting a shadow PATIENT account
+      // against a doctor's phone — but a resolved doctor is now sent to their
+      // own door instead of being signed in here. Patients are untouched.
+      if (String(user.role || '').toLowerCase() === 'doctor') {
+        return res.fail(
+          'This number belongs to a consultant account. Please sign in through the doctor app.',
+          403,
+          'DOCTOR_LOGIN_REQUIRED'
+        );
+      }
+
       // AUDIT 2026-09-06 (BLOCKER 1) — replay the post-auth account-status
       // gates. This path had none: a deactivated or rejected doctor who still
       // controlled their phone number could OTP in here and use the returned
       // accessToken as a portal Bearer credential (src/auth.js:59), because
       // requireRole('doctor') does not re-check status per request. See
       // services/login_gate.js for why is_paused is deliberately not a gate.
+      // (Doctors are refused above, so for this endpoint the gate is now a
+      // backstop — kept because the refusal is one edit from being widened.)
       const _otpBlock = loginBlockReason(user);
       if (_otpBlock === LOGIN_BLOCKED.PENDING_APPROVAL) {
         return res.fail(
@@ -601,8 +662,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
         );
       }
 
-      const tokens = generateTokens(user);
-      await safeRun('UPDATE users SET refresh_token = $1 WHERE id = $2', [tokens.refreshToken, user.id]);
+      // C1 — this device gets its own session row; a phone already signed in
+      // stays signed in.
+      const tokens = await openSession(user, req, 'patient_app');
 
       return res.ok({
         user: sanitizeUser(user),
@@ -639,12 +701,22 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
   // (AUDIT-APP-H6).
   //
   // Mounted under the public /auth router, so it authenticates explicitly.
+  // C1 — sign-out revokes THIS DEVICE's session (the `sid` in the access
+  // token), not every session the user has. An access token with no sid was
+  // minted by pre-C1 code, and the only sessions those sign-ins have are the
+  // 'legacy' rows — revoke those, plus the mirror columns those clients used
+  // (which is exactly the pre-C1 logout, so old app builds lose nothing).
   router.post('/logout', requireJWT, async (req, res) => {
     try {
-      await safeRun(
-        'UPDATE users SET refresh_token = NULL, push_token = NULL WHERE id = $1',
-        [req.user.id]
-      );
+      if (req.user.sid) {
+        await sessions.revokeById(req.user.sid, req.user.id);
+      } else {
+        await sessions.revokeLegacyForUser(req.user.id);
+        await safeRun(
+          'UPDATE users SET refresh_token = NULL, push_token = NULL WHERE id = $1',
+          [req.user.id]
+        );
+      }
     } catch (err) {
       // Never fail a logout — the client is signing out regardless.
       console.error('[auth/logout] failed:', err && err.message);

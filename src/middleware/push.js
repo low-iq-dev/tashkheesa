@@ -60,16 +60,55 @@ async function _sendExpoPush(db, userId, pushToken, { title, body, data = {} }) 
   if (result.data?.[0]?.status === 'error') {
     console.error(`[push] Failed for user ${userId}:`, result.data[0].message);
 
-    // If the token is invalid, remove it
+    // If the token is invalid, remove it — from the single-slot column AND
+    // from whichever device session rows hold it (C1, migration 110). Only
+    // the DEAD token is cleared; the user's other devices keep theirs.
     if (result.data[0].details?.error === 'DeviceNotRegistered') {
       if (db.prepare) {
-        db.prepare('UPDATE users SET push_token = NULL WHERE id = ?').run(userId);
+        db.prepare('UPDATE users SET push_token = NULL WHERE id = ? AND push_token = ?').run(userId, pushToken);
+        try {
+          db.prepare('UPDATE user_sessions SET push_token = NULL WHERE user_id = ? AND push_token = ?').run(userId, pushToken);
+        } catch (_) { /* table absent in legacy sqlite fixtures */ }
       } else {
-        await db.query('UPDATE users SET push_token = NULL WHERE id = $1', [userId]);
+        await db.query('UPDATE users SET push_token = NULL WHERE id = $1 AND push_token = $2', [userId, pushToken]);
+        try {
+          await db.query('UPDATE user_sessions SET push_token = NULL WHERE user_id = $1 AND push_token = $2', [userId, pushToken]);
+        } catch (_) { /* pre-110 database */ }
       }
       console.log(`[push] Removed invalid token for user ${userId}`);
     }
   }
+}
+
+/**
+ * C1 (Batch C) — every live push token for a user: the per-device session
+ * rows (migration 110) UNIONed with the single-slot users.push_token, which
+ * stays readable as a transition mirror (a device registered by pre-C1 code
+ * lives only there until it re-registers). Deduped. Returns [] on any lookup
+ * failure — push is always best-effort.
+ */
+async function _liveTokensForUser(db, userId) {
+  const tokens = [];
+  const add = (t) => { if (t && !tokens.includes(t)) tokens.push(t); };
+  try {
+    if (db.prepare) {
+      try {
+        for (const r of db.prepare('SELECT push_token FROM user_sessions WHERE user_id = ? AND revoked_at IS NULL AND push_token IS NOT NULL').all(userId)) add(r.push_token);
+      } catch (_) { /* table absent in legacy sqlite fixtures */ }
+      const row = db.prepare('SELECT push_token FROM users WHERE id = ?').get(userId);
+      add(row?.push_token);
+    } else {
+      try {
+        const s = await db.query('SELECT push_token FROM user_sessions WHERE user_id = $1 AND revoked_at IS NULL AND push_token IS NOT NULL', [userId]);
+        for (const r of s.rows) add(r.push_token);
+      } catch (_) { /* pre-110 database */ }
+      const result = await db.query('SELECT push_token FROM users WHERE id = $1', [userId]);
+      add(result.rows[0]?.push_token);
+    }
+  } catch (err) {
+    console.error(`[push] token lookup failed for user ${userId}:`, err.message);
+  }
+  return tokens;
 }
 
 /**
@@ -89,21 +128,19 @@ async function _sendExpoPush(db, userId, pushToken, { title, body, data = {} }) 
  */
 async function sendPushNotification(db, userId, { title, body, data = {} }) {
   try {
-    // Get user's push token
-    let pushToken;
-    if (db.prepare) {
-      // SQLite (better-sqlite3)
-      const row = db.prepare('SELECT push_token FROM users WHERE id = ?').get(userId);
-      pushToken = row?.push_token;
-    } else {
-      // PostgreSQL
-      const result = await db.query('SELECT push_token FROM users WHERE id = $1', [userId]);
-      pushToken = result.rows[0]?.push_token;
+    // C1 — every live DEVICE of this user gets the push (session rows +
+    // the transition-mirror column), not just whichever device registered
+    // last. One bad token never stops the rest.
+    const tokens = await _liveTokensForUser(db, userId);
+    if (!tokens.length) return;
+
+    for (const pushToken of tokens) {
+      try {
+        await _sendExpoPush(db, userId, pushToken, { title, body, data });
+      } catch (err) {
+        console.error(`[push] Error sending to user ${userId}:`, err.message);
+      }
     }
-
-    if (!pushToken) return;
-
-    await _sendExpoPush(db, userId, pushToken, { title, body, data });
   } catch (err) {
     console.error(`[push] Error sending to user ${userId}:`, err.message);
   }
@@ -123,13 +160,32 @@ async function sendPushNotification(db, userId, { title, body, data = {} }) {
  */
 async function notifySuperadmins(db, { title, body, data = {} }) {
   try {
+    // C1 — every live DEVICE of every superadmin: per-device session rows
+    // UNIONed with the transition-mirror column (a Command build that
+    // registered pre-C1 lives only there until it re-registers). Deduped
+    // per (user, token) by the UNION itself.
     let rows;
     if (db.prepare) {
       // SQLite (better-sqlite3)
       rows = db.prepare("SELECT id, push_token FROM users WHERE role = 'superadmin' AND push_token IS NOT NULL").all();
+      try {
+        const sessRows = db.prepare(
+          "SELECT u.id, s.push_token FROM user_sessions s JOIN users u ON u.id = s.user_id " +
+          "WHERE u.role = 'superadmin' AND s.revoked_at IS NULL AND s.push_token IS NOT NULL"
+        ).all();
+        for (const sr of sessRows) {
+          if (!rows.some((r) => r.id === sr.id && r.push_token === sr.push_token)) rows.push(sr);
+        }
+      } catch (_) { /* table absent in legacy sqlite fixtures */ }
     } else {
       // PostgreSQL
-      const result = await db.query("SELECT id, push_token FROM users WHERE role = 'superadmin' AND push_token IS NOT NULL");
+      const result = await db.query(`
+        SELECT u.id, u.push_token FROM users u
+         WHERE u.role = 'superadmin' AND u.push_token IS NOT NULL
+        UNION
+        SELECT u.id, s.push_token FROM user_sessions s
+          JOIN users u ON u.id = s.user_id
+         WHERE u.role = 'superadmin' AND s.revoked_at IS NULL AND s.push_token IS NOT NULL`);
       rows = result.rows;
     }
 

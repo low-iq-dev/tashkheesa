@@ -2679,6 +2679,25 @@ const canAccept =
       en: 'We could not finish accepting this case. Open it again from your queue — if it now shows as yours, it was accepted and only the confirmation failed.',
       ar: 'تعذّر إتمام قبول هذه الحالة. افتحها مرة أخرى من قائمتك — إذا ظهرت الآن باسمك فقد تم القبول وفشل التأكيد فقط.'
     },
+    // C3 (Batch C) — the decline / hand-back refusal and failure codes.
+    // Each states what actually happened: on every one of these the case did
+    // NOT leave the doctor.
+    decline_not_pending: {
+      en: 'This case can no longer be declined — it is not waiting for your acceptance. If you have accepted it and cannot finish, use "Unable to finish this case?" below.',
+      ar: 'لم يعد بالإمكان رفض هذه الحالة — فهي ليست بانتظار قبولك. إذا كنت قد قبلتها ولا يمكنك إكمالها، استخدم «غير قادر على إكمال الحالة؟» أدناه.'
+    },
+    decline_failed: {
+      en: 'We could not decline this case right now — it is still assigned to you. Please try again in a moment.',
+      ar: 'تعذّر رفض الحالة الآن — ما زالت مسندة إليك. يرجى المحاولة بعد قليل.'
+    },
+    handback_not_active: {
+      en: 'This case cannot be handed back in its current state. If files were requested, resolve that first, or contact operations.',
+      ar: 'لا يمكن إعادة الحالة في وضعها الحالي. إذا كانت هناك ملفات مطلوبة فيرجى حسم ذلك أولاً، أو التواصل مع العمليات.'
+    },
+    handback_failed: {
+      en: 'We could not hand this case back right now — it is still assigned to you. Please try again in a moment.',
+      ar: 'تعذّرت إعادة الحالة الآن — ما زالت مسندة إليك. يرجى المحاولة بعد قليل.'
+    },
     reason_required: {
       en: 'A reason is required before the uploaded files can be rejected.',
       ar: 'السبب مطلوب قبل رفض الملفات المرفوعة.'
@@ -3170,6 +3189,17 @@ const canAccept =
     prescriptionRequestUrl: `/portal/doctor/case/${orderId}/request-prescription`,
     showAcceptButton: canAccept,
     acceptBlockedReason,
+    // C3 (Batch C) — server-decided, like showAcceptButton: the decline form
+    // renders only for the assigned-not-yet-accepted doctor, the hand-back
+    // form only for the accepted doctor in a state reassignCase can route
+    // onward from. The POST handlers re-check both; these only gate the UI.
+    canDecline: String(order.doctor_id || '') === doctorId &&
+      !order.accepted_at &&
+      toCanonStatus(order.status) === caseLifecycle.CASE_STATUS.ASSIGNED,
+    canHandback: String(order.doctor_id || '') === doctorId &&
+      !!order.accepted_at && !order.completed_at &&
+      [caseLifecycle.CASE_STATUS.IN_REVIEW, caseLifecycle.CASE_STATUS.SLA_BREACH]
+        .includes(toCanonStatus(order.status)),
     isPaid,
     caseConversationId,
     fileAiChecks: showFullCase ? fileAiChecks : {},
@@ -4100,6 +4130,206 @@ router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, async (re
   return res.redirect(`/portal/doctor/case/${orderId}`);
 });
 // ---- end reject-files ----
+
+// ---- Portal doctor decline (before acceptance) + hand-back (after) ----
+//
+// C3 (Batch C, fix plan 2026-09-15). Until now there was NO way for a doctor
+// to decline: a case only left an unaccepting doctor by acceptance-window
+// timeout (case_sla_worker.handleDoctorTimeout), which is why acceptance
+// windows burned. Both actions ride the SAME canonical path the timeout and
+// the admin reassign use — findNextAvailableDoctor (the A2-unified picker) +
+// case_lifecycle.reassignCase — so re-offer, retry backoff, patient email,
+// conversation churn and audit fields all behave identically.
+//
+// The two actions differ exactly where the money and the pause counter do:
+//
+//   DECLINE (accepted_at IS NULL, status ASSIGNED). Not a reassignment in
+//   the ledger's eyes: the doctor has no earnings row yet (rows are written
+//   at accept via writePendingForCase), so markReassignedOnReassignment
+//   returns {skipped:'no_main_row'} BEFORE writing a doctor_sla_events row —
+//   no earnings row, no SLA event, no pause pressure. Earns nothing, costs
+//   nothing, and the case re-offers immediately.
+//
+//   HAND-BACK (accepted_at set). A real reassignment: the outgoing doctor
+//   earns ZERO (Batch B) and a doctor_sla_events row is written with the
+//   reason below. A hand-back for a legitimate reason (on leave, wrong
+//   subspecialty, conflict of interest) is stamped
+//   'doctor_handback:excused:<category>', which services/doctor_pause.js
+//   excludes from the 3-in-30 auto-pause count — see the exclusion there.
+//   'workload' / 'other' still count: taking cases and returning them is the
+//   pattern the pause exists to catch, and the form says so.
+const DOCTOR_DECLINE_REASONS = ['unavailable', 'wrong_subspecialty', 'conflict_of_interest', 'workload', 'other'];
+const DOCTOR_HANDBACK_EXCUSED = ['on_leave', 'wrong_subspecialty', 'conflict_of_interest'];
+const DOCTOR_HANDBACK_REASONS = DOCTOR_HANDBACK_EXCUSED.concat(['workload', 'other']);
+
+router.post('/portal/doctor/case/:caseId/decline', requireDoctor, async (req, res) => {
+  const orderId = String(req.params.caseId || '');
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  if (!orderId || !doctorId) {
+    return res.redirect('/portal/doctor/dashboard');
+  }
+
+  const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
+  // Ownership: only the doctor the case is ASSIGNED to can decline it. A pool
+  // case (doctor_id NULL) has nothing to decline — the doctor simply does not
+  // accept it.
+  if (!order || String(order.doctor_id || '') !== doctorId) {
+    return res.redirect('/portal/doctor/dashboard');
+  }
+  // Pre-accept only. An accepted case goes through hand-back below, where the
+  // earnings and pause consequences are real and stated.
+  if (order.accepted_at || toCanonStatus(order.status) !== caseLifecycle.CASE_STATUS.ASSIGNED) {
+    return res.redirect(`/portal/doctor/case/${orderId}?error=decline_not_pending`);
+  }
+
+  const reasonCategory = String((req.body && req.body.reason) || '').trim();
+  if (!DOCTOR_DECLINE_REASONS.includes(reasonCategory)) {
+    return res.redirect(`/portal/doctor/case/${orderId}?error=reason_required`);
+  }
+  const note = String((req.body && req.body.note) || '').trim().slice(0, 500);
+
+  try {
+    // Same selection the timeout path makes: next eligible doctor in this
+    // specialty, excluding the decliner; none found → reassignCase(null)
+    // returns the case to the pool with the acceptance watcher's retry stamp.
+    const nextDoctor = await findNextAvailableDoctor(order, doctorId);
+    // expectedDoctorId (adversarial X3): reassignCase re-verifies the case
+    // still belongs to THIS doctor at its own read, so a decline racing the
+    // timeout worker or an admin reassign fails loudly instead of moving —
+    // and zero-earning — a case that now belongs to someone else.
+    await caseLifecycle.reassignCase(orderId, (nextDoctor && nextDoctor.id) || null, {
+      reason: 'doctor_declined:' + reasonCategory,
+      expectedDoctorId: doctorId
+    });
+
+    await logOrderEvent({
+      orderId: orderId,
+      label: 'doctor_declined',
+      meta: { doctorId: doctorId, reason: reasonCategory, note: note, reoffered_to: (nextDoctor && nextDoctor.id) || null },
+      actorUserId: doctorId,
+      actorRole: 'doctor'
+    });
+
+    try {
+      await notifyAdmins({
+        template: 'admin_doctor_declined_case',
+        payload: {
+          case_id: orderId,
+          caseReference: orderId.slice(0, 12).toUpperCase(),
+          doctorId,
+          doctorName: req.user.name || '',
+          reason: reasonCategory,
+          reoffered: !!(nextDoctor && nextDoctor.id)
+        },
+        dedupeKey: 'doctor_declined:' + orderId + ':' + doctorId,
+        orderId
+      });
+    } catch (_) {}
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'doctor.decline_case',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case',
+      orderId
+    });
+    console.error('[doctor.decline] failed:', err && err.message);
+    // "Already assigned to this doctor" / status races surface as a plain
+    // failure: the case did NOT leave the doctor, and the page still shows it.
+    return res.redirect(`/portal/doctor/case/${orderId}?error=decline_failed`);
+  }
+
+  return res.redirect('/portal/doctor/dashboard?msg=case_declined');
+});
+
+router.post('/portal/doctor/case/:caseId/handback', requireDoctor, async (req, res) => {
+  const orderId = String(req.params.caseId || '');
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  if (!orderId || !doctorId) {
+    return res.redirect('/portal/doctor/dashboard');
+  }
+
+  const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
+  if (!order || String(order.doctor_id || '') !== doctorId) {
+    return res.redirect('/portal/doctor/dashboard');
+  }
+  // Post-accept only, and only from the states reassignCase itself allows
+  // onward routing from. A completed case is refused here AND at the earnings
+  // layer (markReassignedOnReassignment's already_completed guard) — a doctor
+  // who delivered keeps the fee. rejected_files is refused: resolve the file
+  // request (or let an operator reassign) before handing back, so a paused
+  // SLA clock is never silently carried to the next doctor.
+  const handbackCanon = toCanonStatus(order.status);
+  const HANDBACK_STATUSES = [caseLifecycle.CASE_STATUS.IN_REVIEW, caseLifecycle.CASE_STATUS.SLA_BREACH];
+  if (!order.accepted_at || order.completed_at || !HANDBACK_STATUSES.includes(handbackCanon)) {
+    return res.redirect(`/portal/doctor/case/${orderId}?error=handback_not_active`);
+  }
+
+  const reasonCategory = String((req.body && req.body.reason) || '').trim();
+  if (!DOCTOR_HANDBACK_REASONS.includes(reasonCategory)) {
+    return res.redirect(`/portal/doctor/case/${orderId}?error=reason_required`);
+  }
+  const note = String((req.body && req.body.note) || '').trim().slice(0, 500);
+  const excused = DOCTOR_HANDBACK_EXCUSED.includes(reasonCategory);
+  const reason = excused
+    ? 'doctor_handback:excused:' + reasonCategory
+    : 'doctor_handback:' + reasonCategory;
+
+  try {
+    const nextDoctor = await findNextAvailableDoctor(order, doctorId);
+    // NOT operatorInitiated: this is the doctor's own decision, so the
+    // auto-pause check runs — and counts only the non-excused reasons, per
+    // the doctor_pause.js exclusion. The outgoing doctor's earnings row goes
+    // to zero inside reassignCase (Batch B).
+    await caseLifecycle.reassignCase(orderId, (nextDoctor && nextDoctor.id) || null, {
+      reason: reason,
+      // expectedDoctorId (adversarial X3): same stale-read guard as decline.
+      expectedDoctorId: doctorId
+    });
+
+    await logOrderEvent({
+      orderId: orderId,
+      label: 'doctor_handed_back',
+      meta: { doctorId: doctorId, reason: reasonCategory, excused: excused, note: note, reoffered_to: (nextDoctor && nextDoctor.id) || null },
+      actorUserId: doctorId,
+      actorRole: 'doctor'
+    });
+
+    try {
+      await notifyAdmins({
+        template: 'admin_doctor_handed_back_case',
+        payload: {
+          case_id: orderId,
+          caseReference: orderId.slice(0, 12).toUpperCase(),
+          doctorId,
+          doctorName: req.user.name || '',
+          reason: reasonCategory,
+          excused: excused,
+          reoffered: !!(nextDoctor && nextDoctor.id)
+        },
+        dedupeKey: 'doctor_handback:' + orderId + ':' + doctorId,
+        orderId
+      });
+    } catch (_) {}
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'doctor.handback_case',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case',
+      orderId
+    });
+    console.error('[doctor.handback] failed:', err && err.message);
+    return res.redirect(`/portal/doctor/case/${orderId}?error=handback_failed`);
+  }
+
+  return res.redirect('/portal/doctor/dashboard?msg=case_handed_back');
+});
+// ---- end decline / hand-back ----
 
 // ---- Portal doctor save diagnosis / medical notes ----
 router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, res) => {

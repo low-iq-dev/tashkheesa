@@ -88,11 +88,30 @@ async function checkAndAutoPauseDoctor(doctorId) {
   // reassignCase also suppresses this check outright for operator-initiated
   // reassignment — this filter is the backstop for any caller that forgets the
   // flag, and it retro-corrects backfilled events from the Command app era.
+  // C3 (Batch C, 2026-09-22) — EXCUSED HAND-BACKS DO NOT COUNT EITHER.
+  //
+  // The doctor hand-back action (routes/doctor.js) routes through
+  // case_lifecycle.reassignCase like every other reassignment, so it writes a
+  // doctor_sla_events row. A hand-back for a legitimate reason — on leave,
+  // wrong subspecialty, conflict of interest — is the doctor doing the RIGHT
+  // thing early instead of letting the window burn, and counting it would
+  // auto-pause exactly the consultants who behave well. Those reasons are
+  // stamped 'doctor_handback:excused:<category>' and excluded here, the same
+  // mechanism as admin_manual. A hand-back with no legitimate reason
+  // ('doctor_handback:workload', ':other') still counts: repeatedly taking
+  // cases and returning them IS the pattern the pause exists to catch.
   var cnt = await queryOne(
     `SELECT COUNT(*)::int AS n
        FROM doctor_sla_events
       WHERE doctor_id = $1
         AND COALESCE(reason, '') NOT LIKE 'admin\\_manual%'
+        AND COALESCE(reason, '') NOT LIKE 'doctor\\_handback:excused%'
+        -- A pre-accept DECLINE never legitimately writes an event at all
+        -- (earnings_writer returns no_main_row first), so any
+        -- 'doctor_declined:%' row that exists is a race artefact or repair
+        -- residue — structural backstop (Batch C adversarial X3): the spec
+        -- says declining costs nothing, so it must never count here either.
+        AND COALESCE(reason, '') NOT LIKE 'doctor\\_declined%'
         AND created_at >= NOW() - ($2 * INTERVAL '1 day')`,
     [doctorId, windowDays]
   );

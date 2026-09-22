@@ -10,6 +10,9 @@
   var _blurred = !!(typeof blurred !== 'undefined' && blurred);
   var _canView = !!(typeof canViewDetails !== 'undefined' && canViewDetails);
   var _showAccept = !!(typeof showAcceptButton !== 'undefined' && showAcceptButton);
+  /* C3 — server-decided (routes/doctor.js), like showAcceptButton. */
+  var _canDecline = !!(typeof canDecline !== 'undefined' && canDecline);
+  var _canHandback = !!(typeof canHandback !== 'undefined' && canHandback);
   var _isPaid = !!(typeof isPaid !== 'undefined' && isPaid);
   var _acceptUrl = (typeof acceptActionUrl !== 'undefined' && acceptActionUrl) ? String(acceptActionUrl) : '';
   var _orderIdEnc = (_order && _order.id) ? encodeURIComponent(String(_order.id)) : '';
@@ -535,8 +538,33 @@
             <form id="acceptCaseForm" class="v2-gated__actions" method="POST" action="<%= _acceptUrl %>">
               <%- (typeof csrfField === 'function') ? csrfField() : '' %>
               <button type="submit" class="v2-btn v2-btn--primary v2-btn--lg v2-accept-inline"><%= tt('Accept case', 'Accept case', 'قبول الحالة') %></button>
-              <a class="v2-btn v2-btn--ghost" href="/portal/doctor/cases"><%= tt('Decline · back to queue', 'Decline · back to queue', 'رفض · العودة للقائمة') %></a>
+              <a class="v2-btn v2-btn--ghost" href="/portal/doctor/cases"><%= _canDecline ? tt('Back to queue', 'Back to queue', 'العودة للقائمة') : tt('Decline · back to queue', 'Decline · back to queue', 'رفض · العودة للقائمة') %></a>
             </form>
+            <%# C3 — a REAL decline for the assigned doctor: records the reason,
+                returns the case to the pool immediately and re-offers it.
+                Earns nothing, costs nothing (no earnings row, no SLA event —
+                the copy promises only what the server does). Renders only
+                when the server said so (canDecline). %>
+            <% if (_canDecline) { %>
+            <details class="v2-request-files" id="decline-case">
+              <summary><%= tt("Can't take this case?", "Can't take this case?", 'لا يمكنك قبول هذه الحالة؟') %></summary>
+              <form method="POST" action="/portal/doctor/case/<%= _orderIdEnc %>/decline">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <label for="decline-reason"><%= tt('Why are you declining?', 'Why are you declining?', 'لماذا ترفض؟') %></label>
+                <select id="decline-reason" name="reason" required style="width:100%;padding:8px 10px;border:1px solid var(--v2-rule);border-radius:10px;font-size:13px;">
+                  <option value=""><%= tt('Choose a reason…', 'Choose a reason…', 'اختر سبباً…') %></option>
+                  <option value="unavailable"><%= tt('Not available right now', 'Not available right now', 'غير متاح حالياً') %></option>
+                  <option value="wrong_subspecialty"><%= tt('Outside my subspecialty', 'Outside my subspecialty', 'خارج تخصصي الدقيق') %></option>
+                  <option value="conflict_of_interest"><%= tt('Conflict of interest', 'Conflict of interest', 'تعارض مصالح') %></option>
+                  <option value="workload"><%= tt('Too much on my plate', 'Too much on my plate', 'ضغط عمل') %></option>
+                  <option value="other"><%= tt('Other', 'Other', 'سبب آخر') %></option>
+                </select>
+                <textarea name="note" rows="2" maxlength="500" placeholder="<%= tt('Anything operations should know (optional)', 'Anything operations should know (optional)', 'أي ملاحظة للعمليات (اختياري)') %>"></textarea>
+                <p class="v2-request-files__hint"><%= tt('The case goes back to the pool immediately and is offered to another consultant. Declining before accepting never affects your earnings or your record.', 'The case goes back to the pool immediately and is offered to another consultant. Declining before accepting never affects your earnings or your record.', 'تعود الحالة فوراً إلى القائمة وتُعرض على استشاري آخر. الرفض قبل القبول لا يؤثر على أرباحك أو سجلك.') %></p>
+                <button type="submit" class="v2-btn v2-btn--secondary" data-confirm="<%= tt('Decline this case and return it to the pool?', 'Decline this case and return it to the pool?', 'رفض الحالة وإعادتها إلى القائمة؟') %>"><%= tt('Decline case', 'Decline case', 'رفض الحالة') %></button>
+              </form>
+            </details>
+            <% } %>
 <%
   var _barMeta = [];
   if (_tierChip) _barMeta.push(_tierChip.label);
@@ -763,6 +791,31 @@
               <textarea id="rf-reason" name="reason" rows="3" maxlength="500" required></textarea>
               <p class="v2-request-files__hint"><%= tt('The patient is asked to upload them, and your deadline pauses until they do.', 'The patient is asked to upload them, and your deadline pauses until they do.', 'سيُطلب من المريض رفعها، وتتوقف مهلتك حتى يفعل.') %></p>
               <button type="submit" class="v2-btn v2-btn--secondary" data-confirm="<%= tt('Ask the patient for more files? Your deadline pauses until they upload.', 'Ask the patient for more files? Your deadline pauses until they upload.', 'طلب ملفات إضافية من المريض؟ ستتوقف مهلتك حتى يرفعها.') %>"><%= tt('Send request', 'Send request', 'إرسال الطلب') %></button>
+            </form>
+          </details>
+        <% } %>
+        <%# C3 — hand-back for an accepted case. The copy states the real
+            consequences the server enforces: the fee for this case is lost
+            (Batch B: a reassigned-away case earns zero), and only the
+            legitimate reasons are excused from the reliability record
+            (doctor_pause.js exclusion). Renders only when the server said so. %>
+        <% if (_canHandback) { %>
+          <details class="v2-request-files" id="handback-case">
+            <summary><%= tt('Unable to finish this case?', 'Unable to finish this case?', 'غير قادر على إكمال الحالة؟') %></summary>
+            <form method="POST" action="/portal/doctor/case/<%= _orderIdEnc %>/handback">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <label for="handback-reason"><%= tt('Why are you handing it back?', 'Why are you handing it back?', 'لماذا تعيد الحالة؟') %></label>
+              <select id="handback-reason" name="reason" required style="width:100%;padding:8px 10px;border:1px solid var(--v2-rule);border-radius:10px;font-size:13px;">
+                <option value=""><%= tt('Choose a reason…', 'Choose a reason…', 'اختر سبباً…') %></option>
+                <option value="on_leave"><%= tt('On leave / emergency', 'On leave / emergency', 'إجازة / طارئ') %></option>
+                <option value="wrong_subspecialty"><%= tt('Outside my subspecialty', 'Outside my subspecialty', 'خارج تخصصي الدقيق') %></option>
+                <option value="conflict_of_interest"><%= tt('Conflict of interest', 'Conflict of interest', 'تعارض مصالح') %></option>
+                <option value="workload"><%= tt('Too much on my plate', 'Too much on my plate', 'ضغط عمل') %></option>
+                <option value="other"><%= tt('Other', 'Other', 'سبب آخر') %></option>
+              </select>
+              <textarea name="note" rows="2" maxlength="500" placeholder="<%= tt('Anything operations should know (optional)', 'Anything operations should know (optional)', 'أي ملاحظة للعمليات (اختياري)') %>"></textarea>
+              <p class="v2-request-files__hint"><%= tt('The case is reassigned to another consultant and you earn nothing for it. Repeated hand-backs without a legitimate reason can pause new assignments to you.', 'The case is reassigned to another consultant and you earn nothing for it. Repeated hand-backs without a legitimate reason can pause new assignments to you.', 'تُعاد الحالة إلى استشاري آخر ولن تحصل على أتعاب عنها. تكرار الإعادة دون سبب وجيه قد يوقف إسناد حالات جديدة إليك.') %></p>
+              <button type="submit" class="v2-btn v2-btn--secondary" data-confirm="<%= tt('Hand this case back? You earn nothing for it and it goes to another consultant.', 'Hand this case back? You earn nothing for it and it goes to another consultant.', 'إعادة الحالة؟ لن تحصل على أتعاب وستُسند لاستشاري آخر.') %>"><%= tt('Hand back case', 'Hand back case', 'إعادة الحالة') %></button>
             </form>
           </details>
         <% } %>

@@ -428,6 +428,9 @@ module.exports = function (db, helpers, deploy, deps) {
   const strictSql = require('../../sql-utils');
   const mustGet = helpers.mustGet || strictSql.mustGet;
   const mustAll = helpers.mustAll || strictSql.mustAll;
+  // C1 (Batch C) — per-device session rows (migration 110); see
+  // services/user_sessions.js for the model and the transition mirror.
+  const sessionStore = require('../../services/user_sessions')({ safeGet, safeAll, safeRun });
   const router = express.Router();
 
   // Part C7 (2026-09-13) — the refund figures the web queue shows, for the
@@ -559,9 +562,20 @@ module.exports = function (db, helpers, deploy, deps) {
       return res.fail('Invalid email or password.', 401, 'INVALID_CREDENTIALS');
     }
 
-    const tokens = generateAdminTokens(user);
-    // The single auth-infra write: rotate this superadmin's stored refresh token.
-    await safeRun('UPDATE users SET refresh_token = $1 WHERE id = $2', [tokens.refreshToken, user.id]);
+    // C1 (Batch C) — this device gets its own user_sessions row; signing into
+    // Command no longer signs the same superadmin out of anything else. The
+    // users.refresh_token write moved into the session store as a transition
+    // mirror (services/user_sessions.js).
+    const sessionId = sessionStore.newSessionId();
+    const tokens = generateAdminTokens(user, sessionId);
+    await sessionStore.createSession({
+      id: sessionId,
+      userId: user.id,
+      refreshToken: tokens.refreshToken,
+      client: 'command',
+      deviceId: req.body && req.body.deviceId ? String(req.body.deviceId).slice(0, 128) : null,
+      deviceName: req.body && req.body.deviceName ? String(req.body.deviceName).slice(0, 128) : null,
+    });
 
     return res.ok({
       user: sanitizeAdmin(user),
@@ -598,28 +612,55 @@ module.exports = function (db, helpers, deploy, deps) {
     // the only safe answer to that is 500 — which the client treats as
     // transient and retries, keeping the session. Throwing reaches the catch
     // below.
-    let user;
+    // C1 (Batch C) — the rotation check is now BY SESSION ROW (user_sessions,
+    // migration 110), so a second Command device does not invalidate the
+    // first. Same mustGet 500-vs-401 discipline as before: a database blip is
+    // "we could not tell" (500, client retries), never "you were revoked".
+    // A token minted by pre-cutover code (matches the mirror column, no row)
+    // is adopted into a 'legacy' row on its first refresh.
+    let session, user;
     try {
-      user = await mustGet(
-        "SELECT * FROM users WHERE id = $1 AND refresh_token = $2 AND role = 'superadmin'",
-        [decoded.id, refreshToken]
+      session = await mustGet(
+        'SELECT * FROM user_sessions WHERE refresh_token = $1 AND revoked_at IS NULL',
+        [refreshToken]
       );
+      if (session) {
+        user = await mustGet(
+          "SELECT * FROM users WHERE id = $1 AND role = 'superadmin'",
+          [session.user_id]
+        );
+      } else {
+        const legacyMatch = await mustGet(
+          "SELECT * FROM users WHERE id = $1 AND refresh_token = $2 AND role = 'superadmin'",
+          [decoded.id, refreshToken]
+        );
+        if (legacyMatch) {
+          session = await sessionStore.adoptLegacyToken(legacyMatch, refreshToken);
+          user = legacyMatch;
+        }
+      }
     } catch (err) {
       return res.fail('Could not verify the session', 500, 'REFRESH_UNAVAILABLE');
     }
-    if (!user) {
+    if (!session || !user || String(session.user_id) !== String(decoded.id) || user.role !== 'superadmin') {
       return res.fail('Refresh token revoked', 401, 'REFRESH_REVOKED');
     }
 
-    const tokens = generateAdminTokens(user);
+    const tokens = generateAdminTokens(user, session.id);
     // If the rotation write fails, the client must NOT be handed tokens whose
     // refresh half the database does not know about — the next refresh would
     // then genuinely not match and log them out for real. execute() throws;
     // answer 500 and let them keep the working session they already have.
+    // rotate() returning false (a racing refresh already rotated this row) is
+    // a real revocation, not a blip.
+    let rotated;
     try {
-      await safeRun('UPDATE users SET refresh_token = $1 WHERE id = $2', [tokens.refreshToken, user.id]);
+      rotated = await sessionStore.rotate(session.id, refreshToken, tokens.refreshToken, user.id);
     } catch (err) {
       return res.fail('Could not rotate the session', 500, 'REFRESH_UNAVAILABLE');
+    }
+    if (!rotated) {
+      return res.fail('Refresh token revoked', 401, 'REFRESH_REVOKED');
     }
 
     return res.ok({
@@ -2864,8 +2905,15 @@ module.exports = function (db, helpers, deploy, deps) {
     // device, and middleware/push.notifySuperadmins (fired by
     // services/worker_watchdog) kept pushing production worker-down alerts to
     // whoever now held that phone.
+    // C1 — the registration is per DEVICE now (the session row named by the
+    // access token's `sid`), so a second Command device no longer steals the
+    // first one's push. A sid-less token (minted pre-C1) keeps the old
+    // single-column behaviour; the send path reads the union of both.
     if (req.body && req.body.token === null) {
       try {
+        if (req.user.sid) {
+          await sessionStore.setPushToken(req.user.sid, null, req.user.id);
+        }
         await safeRun('UPDATE users SET push_token = NULL WHERE id = $1', [req.user.id]);
         return res.ok({ message: 'Push token cleared' });
       } catch (err) {
@@ -2883,7 +2931,15 @@ module.exports = function (db, helpers, deploy, deps) {
       return res.fail('Invalid push token format', 400, 'INVALID_PUSH_TOKEN');
     }
     try {
-      await safeRun('UPDATE users SET push_token = $1 WHERE id = $2', [token, req.user.id]);
+      let stored = false;
+      if (req.user.sid) {
+        stored = await sessionStore.setPushToken(req.user.sid, token, req.user.id);
+      }
+      if (!stored) {
+        // Pre-C1 token (no sid) or the session vanished — the single-slot
+        // column is still read by the send path's union.
+        await safeRun('UPDATE users SET push_token = $1 WHERE id = $2', [token, req.user.id]);
+      }
       return res.ok({ message: 'Push token registered' });
     } catch (err) {
       console.error('[admin/push-token] failed:', err && err.message);

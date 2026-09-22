@@ -94,6 +94,20 @@ async function setDoctorRejection(client, opts) {
       [doctorId]
     );
 
+    // C1 (Batch C) — per-device sessions (migration 110): the refresh_token =
+    // NULL above clears only the transition mirror; the live credentials are
+    // the session rows. Same transaction as the rejection, so a rejection
+    // revokes everything or nothing (this service's stated property).
+    await client.query(
+      `UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`,
+      [doctorId]
+    );
+
+    // Adversarial X11 — the push MIRROR: revoked session rows leave the send
+    // fan-out on their own, but users.push_token is unioned in, and a
+    // rejected doctor's device must stop receiving pushes.
+    await client.query(`UPDATE users SET push_token = NULL WHERE id = $1`, [doctorId]);
+
     // (4) admin audit on the txn client (atomic with the flag write). Shape
     //     matches admin_doctor_approve.js / admin_doctor_pause.js. The reason is
     //     carried in the context JSON — our substitute for a rejected_by/at column.
