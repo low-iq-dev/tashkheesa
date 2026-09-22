@@ -4296,6 +4296,11 @@ router.post('/superadmin/doctors/outreach/state', requireSuperadmin, async (req,
           `UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`,
           [id]
         );
+        // Adversarial X11 — the push MIRROR too: revoked session rows are
+        // already excluded from the send fan-out, but users.push_token is
+        // unioned in, and a deactivated doctor's device must stop receiving
+        // case pushes.
+        await execute(`UPDATE users SET push_token = NULL WHERE id = $1`, [id]);
       } catch (e) {
         logErrorToDb(e, {
           context: 'superadmin.doctor_deactivate_session_revoke',
@@ -4966,6 +4971,9 @@ router.post('/superadmin/doctors/:id/reject', requireSuperadmin, async (req, res
       `UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`,
       [doctorId]
     );
+    // Adversarial X11 — clear the push mirror too, same reasoning as
+    // deactivate above.
+    await execute(`UPDATE users SET push_token = NULL WHERE id = $1`, [doctorId]);
   } catch (e) {
     logErrorToDb(e, {
       context: 'superadmin.doctor_reject_session_revoke',

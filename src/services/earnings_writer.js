@@ -848,7 +848,7 @@ async function markReassignedOnReassignment(originalDoctorId, orderId, reason) {
   return withTransaction(async function (client) {
     // Step 1: lock the main row for this (order, doctor) and inspect.
     var existingResult = await client.query(
-      `SELECT id, status, earned_amount
+      `SELECT id, status, earned_amount, reassignment_reason
          FROM doctor_earnings
         WHERE appointment_id = $1
           AND doctor_id = $2
@@ -909,7 +909,14 @@ async function markReassignedOnReassignment(originalDoctorId, orderId, reason) {
         return { idempotent: true, oldRowId: row.id, slaEventId: evt.rows[0].id };
       }
       // status='reassigned' but no event — half-done state from a prior
-      // crashed run (or a pre-migration flip). Fall through and record it.
+      // crashed run (or a pre-migration flip). Fall through and record it —
+      // but as the REPAIR of the earlier reassignment it is, not as whatever
+      // the current caller is doing. Batch C spec review S5: a doctor
+      // DECLINING a case that came back to them after such a torn write would
+      // otherwise stamp the repaired event 'doctor_declined:…' — a decline
+      // must never appear to have written an SLA event, and the row's stored
+      // reason is the honest one for the event being backfilled.
+      reason = row.reassignment_reason || reason;
     }
 
     // Step 4: flip the original row to 'reassigned' at ZERO.

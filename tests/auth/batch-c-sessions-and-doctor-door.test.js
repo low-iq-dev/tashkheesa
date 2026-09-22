@@ -102,6 +102,18 @@ async function fakeQuery(sql, params = []) {
     }
     return { rowCount: 0, rows: [] };
   }
+  if (q.startsWith('UPDATE users SET push_token = NULL WHERE id = (SELECT user_id FROM user_sessions WHERE id = $1)')) {
+    const s = state.sessions.find(x => x.id === params[0]);
+    if (s) {
+      const u = state.users.find(x => x.id === s.user_id);
+      const hasLive = state.sessions.some(x => x.user_id === s.user_id && !x.revoked_at);
+      if (u && u.push_token && (u.push_token === s.push_token || !hasLive)) {
+        u.push_token = null;
+        return { rowCount: 1, rows: [] };
+      }
+    }
+    return { rowCount: 0, rows: [] };
+  }
   if (q.startsWith('UPDATE users SET refresh_token = NULL WHERE id = $1')) {
     const u = state.users.find(x => x.id === params[0]);
     if (u) u.refresh_token = null;
@@ -138,6 +150,11 @@ async function fakeQuery(sql, params = []) {
     if (s) s.refresh_token = params[0];
     return { rowCount: s ? 1 : 0, rows: [] };
   }
+  if (q.startsWith("UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND device_id = 'legacy' AND refresh_token <> $2 AND revoked_at IS NULL")) {
+    let n = 0;
+    for (const s of state.sessions) if (s.user_id === params[0] && s.device_id === 'legacy' && s.refresh_token !== params[1] && !s.revoked_at) { s.revoked_at = new Date().toISOString(); n++; }
+    return { rowCount: n, rows: [] };
+  }
   if (q.startsWith("UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND device_id = 'legacy' AND revoked_at IS NULL")) {
     let n = 0;
     for (const s of state.sessions) if (s.user_id === params[0] && s.device_id === 'legacy' && !s.revoked_at) { s.revoked_at = new Date().toISOString(); n++; }
@@ -154,12 +171,14 @@ async function fakeQuery(sql, params = []) {
     return { rowCount: n, rows: [] };
   }
   if (q.startsWith('UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL')) {
-    const s = state.sessions.find(x => x.id === params[0] && !x.revoked_at);
+    const owner = params.length > 1 ? params[1] : null;
+    const s = state.sessions.find(x => x.id === params[0] && !x.revoked_at && (owner == null || x.user_id === owner));
     if (s) s.revoked_at = new Date().toISOString();
     return { rowCount: s ? 1 : 0, rows: [] };
   }
   if (q.startsWith('UPDATE user_sessions SET push_token = $1, last_seen_at = NOW() WHERE id = $2 AND revoked_at IS NULL')) {
-    const s = state.sessions.find(x => x.id === params[1] && !x.revoked_at);
+    const owner = params.length > 2 ? params[2] : null;
+    const s = state.sessions.find(x => x.id === params[1] && !x.revoked_at && (owner == null || x.user_id === owner));
     if (s) s.push_token = params[0];
     return { rowCount: s ? 1 : 0, rows: [] };
   }
@@ -374,6 +393,47 @@ async function check(name, fn) {
     assert.strictEqual(r.status, 401);
     assert.strictEqual(r.body.code, 'REFRESH_REVOKED');
     assert.strictEqual(liveSessions('doc-x').length, 0, 'wrong-door token must die, not linger');
+  });
+
+  await check('C1 (spec S3): adopting the mirror token revokes a STALE seeded legacy row — a rotated-away pre-C1 token dies', async () => {
+    resetState();
+    const u = seedPatient({ id: 'pat-s3' });
+    const { generateTokens } = require('../../src/middleware/requireJWT');
+    const t0 = generateTokens(u); // seeded at migration snapshot…
+    state.sessions.push({ id: 'sess-legacy-pat-s3', user_id: 'pat-s3', refresh_token: t0.refreshToken, push_token: null, client: 'legacy', device_id: 'legacy', revoked_at: null });
+    const t1 = generateTokens(u); // …then old code rotated the mirror in the deploy window
+    u.refresh_token = t1.refreshToken;
+    const ok = await post('/auth/refresh', { refreshToken: t1.refreshToken });
+    assert.strictEqual(ok.status, 200, JSON.stringify(ok.body));
+    const stale = await post('/auth/refresh', { refreshToken: t0.refreshToken });
+    assert.strictEqual(stale.status, 401, 'the rotated-away seeded token must be dead');
+    assert.strictEqual(stale.body.code, 'REFRESH_REVOKED');
+  });
+
+  await check('C1 (spec S4): sid logout of the LAST live session clears the push mirror (H6 — push must not follow a signed-out device)', async () => {
+    resetState();
+    const u = seedPatient({ id: 'pat-s4', push_token: 'ExponentPushToken[mirror-only]', phone: '+201003225401' });
+    seedOtp('+2001003225401', '131313');
+    const a = await post('/auth/otp/verify', { phone: '01003225401', countryCode: '+20', otp: '131313', deviceId: 'only-phone' });
+    assert.strictEqual(a.status, 200, JSON.stringify(a.body));
+    const out = await post('/auth/logout', null, { Authorization: 'Bearer ' + a.body.data.accessToken });
+    assert.strictEqual(out.status, 200);
+    assert.strictEqual(u.push_token, null, 'mirror push token survived the last device signing out');
+  });
+
+  await check('C1 (spec S4): sid logout of ONE device leaves another device\'s mirror push registration alone', async () => {
+    resetState();
+    const u = seedPatient({ id: 'pat-s4b', push_token: 'ExponentPushToken[device-A]', phone: '+201003225402' });
+    const { generateTokens } = require('../../src/middleware/requireJWT');
+    const tA = generateTokens(u); // device A, pre-C1: push in the mirror, legacy session live
+    u.refresh_token = tA.refreshToken;
+    state.sessions.push({ id: 'sess-legacy-pat-s4b', user_id: 'pat-s4b', refresh_token: tA.refreshToken, push_token: null, client: 'legacy', device_id: 'legacy', revoked_at: null });
+    seedOtp('+2001003225402', '141414');
+    const b = await post('/auth/otp/verify', { phone: '01003225402', countryCode: '+20', otp: '141414', deviceId: 'phone-B' });
+    assert.strictEqual(b.status, 200, JSON.stringify(b.body));
+    const out = await post('/auth/logout', null, { Authorization: 'Bearer ' + b.body.data.accessToken });
+    assert.strictEqual(out.status, 200);
+    assert.strictEqual(u.push_token, 'ExponentPushToken[device-A]', 'device B\'s logout stole device A\'s push');
   });
 
   // ════ C2 — the doctor door ════

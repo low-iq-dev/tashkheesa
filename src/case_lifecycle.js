@@ -3238,11 +3238,27 @@ VALUES ($1, $2, $3, $4, $5, $6)`,
 // assign endpoint (routes/api/admin.js), which was routed through this function
 // in the same fix series. See the auto-pause suppression at the bottom of this
 // function for why it exists.
-async function reassignCase(caseId, newDoctorId, { reason = 'auto', operatorInitiated = false } = {}) {
+async function reassignCase(caseId, newDoctorId, { reason = 'auto', operatorInitiated = false, expectedDoctorId = null } = {}) {
   await ensureColumnCache();
   const existing = await getCase(caseId);
   if (!existing) {
     throw new Error('Case not found');
+  }
+
+  // C3 (Batch C, adversarial X3) — `expectedDoctorId`: the caller asserts who
+  // it believes currently holds the case. The doctor-initiated decline and
+  // hand-back routes check ownership from a read taken several round-trips
+  // before this call; in that window the timeout worker or an admin can have
+  // moved the case to doctor B (who may have accepted). Without this guard,
+  // doctor A's late decline would re-read B as originalDoctorId and zero
+  // B's earnings + write an SLA event against B for an action A took.
+  // Optional so the existing callers (worker, admin routes) are unchanged;
+  // the residual race narrows to the gap between this read and
+  // finalizePreviousAssignment, and the earnings layer's own FOR UPDATE
+  // already_paid/already_completed guards still hold behind it.
+  if (expectedDoctorId != null &&
+      String(existing.doctor_id || '') !== String(expectedDoctorId)) {
+    throw new Error('Case is no longer assigned to this doctor');
   }
   const currentStatus = normalizeStatus(existing.status);
   if (![CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.SLA_BREACH, CASE_STATUS.REASSIGNED].includes(currentStatus)) {

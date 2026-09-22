@@ -103,6 +103,11 @@ async function setDoctorRejection(client, opts) {
       [doctorId]
     );
 
+    // Adversarial X11 — the push MIRROR: revoked session rows leave the send
+    // fan-out on their own, but users.push_token is unioned in, and a
+    // rejected doctor's device must stop receiving pushes.
+    await client.query(`UPDATE users SET push_token = NULL WHERE id = $1`, [doctorId]);
+
     // (4) admin audit on the txn client (atomic with the flag write). Shape
     //     matches admin_doctor_approve.js / admin_doctor_pause.js. The reason is
     //     carried in the context JSON — our substitute for a rejected_by/at column.

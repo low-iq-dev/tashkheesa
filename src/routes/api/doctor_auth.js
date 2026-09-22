@@ -25,9 +25,8 @@
  *   * per-device sessions (C1): sign-in opens a user_sessions row, refresh
  *     rotates inside it, sign-out revokes that device only.
  *
- * The per-phone OTP limiters are intentionally duplicated from
- * routes/api/auth.js (same shape, separate counters), matching the
- * "kept local so the surfaces stay independent" precedent there.
+ * The per-phone OTP limiters are the SAME instances the patient door uses
+ * (middleware/otp_phone_limits) — one budget per phone across both doors.
  */
 
 const router = require('express').Router();
@@ -47,34 +46,17 @@ function ev() { if (!_ev) _ev = require('express-validator'); return _ev; }
 function body(...a) { return ev().body(...a); }
 function validationResult(...a) { return ev().validationResult(...a); }
 
-// ── per-phone OTP rate limits (mirrors api/auth.js AUDIT-P0-8) ────────────
-const { rateLimit: _otpRateLimit } = require('express-rate-limit');
-
-function otpPhoneScope(req, _res, next) {
-  const cc = String((req.body && req.body.countryCode) || '').replace(/[^0-9+]/g, '');
-  const ph = String((req.body && req.body.phone) || '').replace(/[^0-9]/g, '');
-  req.otpPhone = { key: (cc + ph) || ('ip:' + (req.ip || 'unknown')) };
-  next();
-}
-const otpPhoneKey = (req) => (req.otpPhone && req.otpPhone.key) || 'unknown';
-const otpRlMsg = { success: false, error: 'Too many attempts. Try again later.', code: 'RATE_LIMITED' };
-
-const otpSendCooldown = _otpRateLimit({
-  windowMs: 60 * 1000, max: 1, validate: false,
-  standardHeaders: false, legacyHeaders: false,
-  keyGenerator: otpPhoneKey,
-  message: { success: false, error: 'Please wait a minute before requesting another code.', code: 'OTP_COOLDOWN' },
-});
-const otpSendCap = _otpRateLimit({
-  windowMs: 15 * 60 * 1000, max: 3, validate: false,
-  standardHeaders: false, legacyHeaders: false,
-  keyGenerator: otpPhoneKey, message: otpRlMsg,
-});
-const otpVerifyCap = _otpRateLimit({
-  windowMs: 15 * 60 * 1000, max: 5, validate: false,
-  standardHeaders: false, legacyHeaders: false,
-  keyGenerator: otpPhoneKey, message: otpRlMsg,
-});
+// ── per-phone OTP rate limits ─────────────────────────────────────────────
+// SHARED INSTANCES with the patient door (middleware/otp_phone_limits): the
+// per-phone budget (60s cooldown, 3 sends / 15 min, 5 verifies / 15 min)
+// belongs to the phone, not to the door — two doors with separate counters
+// would double the SMS-bombing budget against one number.
+const {
+  otpPhoneScope,
+  otpSendCooldown,
+  otpSendCap,
+  otpVerifyCap,
+} = require('../../middleware/otp_phone_limits');
 
 module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) {
   const sessions = require('../../services/user_sessions')({ safeGet, safeAll, safeRun });
@@ -354,7 +336,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
   router.post('/logout', requireJWT, async (req, res) => {
     try {
       if (req.user.sid) {
-        await sessions.revokeById(req.user.sid);
+        await sessions.revokeById(req.user.sid, req.user.id);
       } else {
         await sessions.revokeLegacyForUser(req.user.id);
         await safeRun(

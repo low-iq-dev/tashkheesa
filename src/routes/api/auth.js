@@ -36,39 +36,17 @@ const { withTransaction } = require('../../db');
 //
 // Mirrors routes/auth.js:323-348. validate:false because the trust-proxy
 // req.ip shape varies at the Render edge.
-const { rateLimit: _otpRateLimit } = require('express-rate-limit');
-
-// Normalises {countryCode, phone} into a stable limiter key. Runs BEFORE the
-// limiters so they have something to key on; falls back to the IP so a
-// malformed body can never bypass the cap by yielding a constant key.
-function otpPhoneScope(req, _res, next) {
-  const cc = String((req.body && req.body.countryCode) || '').replace(/[^0-9+]/g, '');
-  const ph = String((req.body && req.body.phone) || '').replace(/[^0-9]/g, '');
-  req.otpPhone = { key: (cc + ph) || ('ip:' + (req.ip || 'unknown')) };
-  next();
-}
-const otpPhoneKey = (req) => (req.otpPhone && req.otpPhone.key) || 'unknown';
-const otpRlMsg = { success: false, error: 'Too many attempts. Try again later.', code: 'RATE_LIMITED' };
-
-// Per-phone: 60s cooldown between sends.
-const otpSendCooldown = _otpRateLimit({
-  windowMs: 60 * 1000, max: 1, validate: false,
-  standardHeaders: false, legacyHeaders: false,
-  keyGenerator: otpPhoneKey,
-  message: { success: false, error: 'Please wait a minute before requesting another code.', code: 'OTP_COOLDOWN' },
-});
-// Per-phone: total sends per window (SMS-cost / bombing guard).
-const otpSendCap = _otpRateLimit({
-  windowMs: 15 * 60 * 1000, max: 3, validate: false,
-  standardHeaders: false, legacyHeaders: false,
-  keyGenerator: otpPhoneKey, message: otpRlMsg,
-});
-// Per-phone: verify attempts per window.
-const otpVerifyCap = _otpRateLimit({
-  windowMs: 15 * 60 * 1000, max: 5, validate: false,
-  standardHeaders: false, legacyHeaders: false,
-  keyGenerator: otpPhoneKey, message: otpRlMsg,
-});
+//
+// C2 (Batch C) — the limiter INSTANCES moved to middleware/otp_phone_limits
+// and are SHARED with the doctor door (routes/api/doctor_auth.js): the
+// per-phone budget belongs to the phone, not to the door, so a second door
+// must not double it. Shapes unchanged.
+const {
+  otpPhoneScope,
+  otpSendCooldown,
+  otpSendCap,
+  otpVerifyCap,
+} = require('../../middleware/otp_phone_limits');
 
 const RESET_EXPIRY_HOURS = 2; // matches src/routes/auth.js portal flow — keep in sync
 const APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
@@ -731,7 +709,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
   router.post('/logout', requireJWT, async (req, res) => {
     try {
       if (req.user.sid) {
-        await sessions.revokeById(req.user.sid);
+        await sessions.revokeById(req.user.sid, req.user.id);
       } else {
         await sessions.revokeLegacyForUser(req.user.id);
         await safeRun(

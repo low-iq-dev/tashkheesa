@@ -243,8 +243,19 @@ async function pushOpsEvent(opts) {
       // failures. It does not report how many it reached, so count here — a
       // zero is worth recording, because it means the event fired and nobody
       // had a device registered to receive it.
+      // C1 (Batch C) — count devices the way notifySuperadmins now resolves
+      // them: per-device session rows UNION the transition-mirror column. A
+      // Command build registered post-C1 lives only in user_sessions, and the
+      // old count would have recorded a false zero for it.
       const rows = await queryOne(
-        "SELECT COUNT(*)::int AS c FROM users WHERE role = 'superadmin' AND push_token IS NOT NULL"
+        `SELECT COUNT(*)::int AS c FROM (
+           SELECT u.id, u.push_token FROM users u
+            WHERE u.role = 'superadmin' AND u.push_token IS NOT NULL
+           UNION
+           SELECT u.id, s.push_token FROM user_sessions s
+             JOIN users u ON u.id = s.user_id
+            WHERE u.role = 'superadmin' AND s.revoked_at IS NULL AND s.push_token IS NOT NULL
+         ) x`
       );
       recipients = (rows && rows.c) || 0;
 

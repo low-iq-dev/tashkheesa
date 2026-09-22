@@ -106,6 +106,12 @@ async function checkAndAutoPauseDoctor(doctorId) {
       WHERE doctor_id = $1
         AND COALESCE(reason, '') NOT LIKE 'admin\\_manual%'
         AND COALESCE(reason, '') NOT LIKE 'doctor\\_handback:excused%'
+        -- A pre-accept DECLINE never legitimately writes an event at all
+        -- (earnings_writer returns no_main_row first), so any
+        -- 'doctor_declined:%' row that exists is a race artefact or repair
+        -- residue — structural backstop (Batch C adversarial X3): the spec
+        -- says declining costs nothing, so it must never count here either.
+        AND COALESCE(reason, '') NOT LIKE 'doctor\\_declined%'
         AND created_at >= NOW() - ($2 * INTERVAL '1 day')`,
     [doctorId, windowDays]
   );

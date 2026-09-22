@@ -4190,8 +4190,13 @@ router.post('/portal/doctor/case/:caseId/decline', requireDoctor, async (req, re
     // specialty, excluding the decliner; none found → reassignCase(null)
     // returns the case to the pool with the acceptance watcher's retry stamp.
     const nextDoctor = await findNextAvailableDoctor(order, doctorId);
+    // expectedDoctorId (adversarial X3): reassignCase re-verifies the case
+    // still belongs to THIS doctor at its own read, so a decline racing the
+    // timeout worker or an admin reassign fails loudly instead of moving —
+    // and zero-earning — a case that now belongs to someone else.
     await caseLifecycle.reassignCase(orderId, (nextDoctor && nextDoctor.id) || null, {
-      reason: 'doctor_declined:' + reasonCategory
+      reason: 'doctor_declined:' + reasonCategory,
+      expectedDoctorId: doctorId
     });
 
     await logOrderEvent({
@@ -4276,7 +4281,9 @@ router.post('/portal/doctor/case/:caseId/handback', requireDoctor, async (req, r
     // the doctor_pause.js exclusion. The outgoing doctor's earnings row goes
     // to zero inside reassignCase (Batch B).
     await caseLifecycle.reassignCase(orderId, (nextDoctor && nextDoctor.id) || null, {
-      reason: reason
+      reason: reason,
+      // expectedDoctorId (adversarial X3): same stale-read guard as decline.
+      expectedDoctorId: doctorId
     });
 
     await logOrderEvent({

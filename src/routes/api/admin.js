@@ -2912,7 +2912,7 @@ module.exports = function (db, helpers, deploy, deps) {
     if (req.body && req.body.token === null) {
       try {
         if (req.user.sid) {
-          await sessionStore.setPushToken(req.user.sid, null);
+          await sessionStore.setPushToken(req.user.sid, null, req.user.id);
         }
         await safeRun('UPDATE users SET push_token = NULL WHERE id = $1', [req.user.id]);
         return res.ok({ message: 'Push token cleared' });
@@ -2933,7 +2933,7 @@ module.exports = function (db, helpers, deploy, deps) {
     try {
       let stored = false;
       if (req.user.sid) {
-        stored = await sessionStore.setPushToken(req.user.sid, token);
+        stored = await sessionStore.setPushToken(req.user.sid, token, req.user.id);
       }
       if (!stored) {
         // Pre-C1 token (no sid) or the session vanished — the single-slot

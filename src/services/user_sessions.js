@@ -111,6 +111,16 @@ module.exports = function createSessionStore({ safeGet, safeAll, safeRun }) {
    * should have had (device 'legacy', like the seeded ones) and returns it.
    */
   async function adoptLegacyToken(user, refreshToken) {
+    // Spec review S3 — pre-C1 semantics were single-slot: at the moment the
+    // mirror's token is adopted, any OTHER token still sitting in a live
+    // 'legacy' row (the migration-110 seed taken before old code rotated in
+    // the deploy window) was already rotated away and must not stay
+    // redeemable as a second phantom device.
+    await safeRun(
+      `UPDATE user_sessions SET revoked_at = NOW()
+        WHERE user_id = $1 AND device_id = 'legacy' AND refresh_token <> $2 AND revoked_at IS NULL`,
+      [user.id, refreshToken]
+    );
     const id = newSessionId();
     await safeRun(
       `INSERT INTO user_sessions (id, user_id, refresh_token, push_token, client, device_id)
@@ -127,15 +137,41 @@ module.exports = function createSessionStore({ safeGet, safeAll, safeRun }) {
    * sign in or rotate), it is cleared too, so a rollback to pre-C1 code does
    * not resurrect a token the user just retired.
    */
-  async function revokeById(sessionId) {
+  async function revokeById(sessionId, userId) {
+    // `userId` (adversarial X5, defense-in-depth): every caller today derives
+    // sessionId from a SIGNED JWT's sid, so it can only name the caller's own
+    // row — but the WHERE clause makes cross-user revocation structurally
+    // impossible even if a future caller wires a sid from anywhere else.
     await safeRun(
-      'UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL',
-      [sessionId]
+      `UPDATE user_sessions SET revoked_at = NOW()
+        WHERE id = $1 AND revoked_at IS NULL AND ($2::text IS NULL OR user_id = $2)`,
+      [sessionId, userId || null]
     );
     await safeRun(
       `UPDATE users SET refresh_token = NULL
         WHERE id = (SELECT user_id FROM user_sessions WHERE id = $1)
           AND refresh_token = (SELECT refresh_token FROM user_sessions WHERE id = $1)`,
+      [sessionId]
+    );
+    // Spec review S4 — the push MIRROR (users.push_token) must not keep
+    // following a device that just signed out (the pre-C1 AUDIT-APP-H6
+    // contract). Cleared when it is attributable to THIS device (matches the
+    // revoked session's push token), or when the user has no live session
+    // left at all (single-device user whose pre-C1 registration lives only in
+    // the mirror). A still-signed-in OTHER device's mirror registration is
+    // left alone.
+    await safeRun(
+      `UPDATE users SET push_token = NULL
+        WHERE id = (SELECT user_id FROM user_sessions WHERE id = $1)
+          AND push_token IS NOT NULL
+          AND (
+            push_token = (SELECT push_token FROM user_sessions WHERE id = $1)
+            OR NOT EXISTS (
+              SELECT 1 FROM user_sessions s2
+               WHERE s2.user_id = (SELECT user_id FROM user_sessions WHERE id = $1)
+                 AND s2.revoked_at IS NULL
+            )
+          )`,
       [sessionId]
     );
   }
@@ -167,11 +203,15 @@ module.exports = function createSessionStore({ safeGet, safeAll, safeRun }) {
     );
   }
 
-  /** Register / replace this DEVICE's push token (targeted by `sid`). */
-  async function setPushToken(sessionId, pushToken) {
+  /**
+   * Register / replace this DEVICE's push token (targeted by `sid`).
+   * `userId` — same X5 defense-in-depth ownership clause as revokeById.
+   */
+  async function setPushToken(sessionId, pushToken, userId) {
     const r = await safeRun(
-      'UPDATE user_sessions SET push_token = $1, last_seen_at = NOW() WHERE id = $2 AND revoked_at IS NULL',
-      [pushToken || null, sessionId]
+      `UPDATE user_sessions SET push_token = $1, last_seen_at = NOW()
+        WHERE id = $2 AND revoked_at IS NULL AND ($3::text IS NULL OR user_id = $3)`,
+      [pushToken || null, sessionId, userId || null]
     );
     return !!(r && r.rowCount);
   }

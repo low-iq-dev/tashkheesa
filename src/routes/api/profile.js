@@ -164,7 +164,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     // behaviour. The send path reads the union of both.
     let stored = false;
     if (req.user.sid) {
-      stored = await sessionStore.setPushToken(req.user.sid, token);
+      stored = await sessionStore.setPushToken(req.user.sid, token, req.user.id);
     }
     if (!stored) {
       await safeRun('UPDATE users SET push_token = $1 WHERE id = $2', [token, req.user.id]);
@@ -179,7 +179,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     // too (pre-C1 clients read only it, and a stale mirror keeps pushing to
     // a device that asked to stop).
     if (req.user.sid) {
-      await sessionStore.setPushToken(req.user.sid, null);
+      await sessionStore.setPushToken(req.user.sid, null, req.user.id);
     }
     await safeRun('UPDATE users SET push_token = NULL WHERE id = $1', [req.user.id]);
     return res.ok({ message: 'Push token removed' });

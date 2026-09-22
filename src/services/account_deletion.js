@@ -118,6 +118,12 @@ const USER_CHILD_DELETES = [
 // to_regclass at run time rather than assumed either way.
 const OPTIONAL_USER_TABLES = [
   { table: 'notify_whatsapp_migration_062_backup', column: 'user_id' },
+  // C1 (Batch C, migration 110) — per-device sessions. An erased account's
+  // rows hold refresh/push tokens and device names; a dangling row is not a
+  // live credential (refresh dies on the deleted users lookup) but an
+  // erasure erases. Optional-listed so environments that predate 110 still
+  // delete cleanly.
+  { table: 'user_sessions', column: 'user_id' },
 ];
 
 class AccountDeletionError extends Error {
