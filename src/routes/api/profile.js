@@ -273,7 +273,13 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
       if (row.password_hash) {
         if (!password) {
-          return res.fail('Please confirm your password to delete your account.', 401, 'REAUTH_REQUIRED');
+          // AUDIT-APP-AUTH-1 (2026-09-22) — the code says WHICH factor, because
+          // the app cannot know: GET /profile does not expose whether the
+          // account has a password, and an OTP-signup user can add an email
+          // later, so nothing client-side distinguishes the two. The app calls
+          // DELETE with no body, reads the code, renders the right field and
+          // resubmits. Message unchanged; only the code narrowed.
+          return res.fail('Please confirm your password to delete your account.', 401, 'REAUTH_REQUIRED_PASSWORD');
         }
         const valid = await bcrypt.compare(password, row.password_hash);
         if (!valid) return res.fail('Current password is incorrect', 401, 'WRONG_PASSWORD');
@@ -281,7 +287,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         // Phone-signup account: the verification code is their login factor,
         // so it is also their deletion factor.
         if (!otp) {
-          return res.fail('Please confirm the code we sent you to delete your account.', 401, 'REAUTH_REQUIRED');
+          return res.fail('Please confirm the code we sent you to delete your account.', 401, 'REAUTH_REQUIRED_OTP');
         }
         if (!/^\d{6}$/.test(otp) || !row.phone) {
           return res.fail('That code is not valid.', 401, 'WRONG_CODE');
