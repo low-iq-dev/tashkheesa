@@ -176,6 +176,22 @@ const item = (over) => Object.assign({
     return null;
   });
 
+  await check('"answered" and "launch-notified" are separate facts', () => {
+    // Karol ticked consent = NO, so launch_notified_at can never be set for
+    // him. Under migration 114 he would have stayed in the queue forever after
+    // being personally answered, alerting daily. An alerting channel that
+    // cries wolf about a handled person teaches you to ignore it, which
+    // recreates the exact failure the sweep exists to prevent.
+    const f = fs.readdirSync(path.join(root, 'src/migrations'))
+      .filter((n) => /needs_attention|pre_launch_leads_handled/.test(n)).sort().pop();
+    const sql = read('src/migrations/' + f);
+    if (!/handled_at/.test(sql)) return 'no handled_at — a replied-to lead cannot leave the queue';
+    if (/l\.launch_notified_at IS NULL/.test(sql)) {
+      return 'the lead door still keys on launch_notified_at, which consent can permanently block';
+    }
+    return null;
+  });
+
   await check('practice and demo cases are excluded from the queue', () => {
     const f = fs.readdirSync(path.join(root, 'src/migrations')).find((n) => /needs_attention/.test(n));
     const sql = read('src/migrations/' + f);
