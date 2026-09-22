@@ -337,6 +337,14 @@ async function handleAttentionSweep() {
 
 async function scheduleAttentionSweep() {
   if (!boss) return false;
+  // REQUIRED, and the reason the first cut of this shipped without running.
+  // pg-boss 10 throws "Queue <name> does not exist" from work() and schedule()
+  // against a queue that was never created — the same trap the
+  // classifier-learning note below records. server.js catches and logs the
+  // throw rather than crashing, so the deploy looked clean, /healthz reported
+  // the worker as 'starting' forever, and nothing swept. Caught by reading
+  // pgboss.schedule in production, not by the deploy.
+  await boss.createQueue('attention-sweep');
   await boss.work('attention-sweep', { teamSize: 1, teamConcurrency: 1 }, handleAttentionSweep);
   await boss.schedule('attention-sweep', '*/15 * * * *', {}, { singletonKey: 'attention-sweep' });
   logMajor('[job-queue] attention sweep scheduled via pg-boss (*/15 * * * *, singleton)');
