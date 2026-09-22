@@ -111,6 +111,7 @@ function caseFeeCollectedEgp(order) {
 async function loadEarningsOrderRow(orderId, client) {
   return dbFor(client).one(
     `SELECT o.id, o.doctor_id, o.doctor_fee, o.urgency_uplift_amount,
+            o.is_practice,
             sv.urgency_uplift_doctor_pct
        FROM orders_active o
        LEFT JOIN services sv ON sv.id = o.service_id
@@ -199,6 +200,21 @@ async function writePendingForCase(orderId) {
 
   const { order } = inputs;
   if (!order.doctor_id) return { skipped: 'no_doctor_assigned' };
+
+  // AUDIT-PRACTICE-CASES-2026-09-22 — a training case must never become money.
+  //
+  // Practice cases (migration 110) are real rows in the doctor's real queue so
+  // that onboarding doctors learn the real interface. They are seeded with a
+  // zero fee, but a zero fee still writes a doctor_earnings row, and finance
+  // already has eight aggregations of "owed" that disagree with each other
+  // (see the payout audit). A pending row for a case nobody paid for would be
+  // indistinguishable from a real one without joining back to orders.
+  //
+  // This is the ONLY function that creates a doctor_earnings row from an order.
+  // recomputeOnBreach, recomputeOnRefund and markReassignedOnReassignment all
+  // mutate an existing row, so with nothing created they find nothing and
+  // no-op. Guarding here therefore guards the whole ledger.
+  if (order.is_practice === true) return { skipped: 'practice_case' };
 
   const result = buildResult(inputs);
   // gross_amount = base + uplift the doctor's share is computed against.
@@ -319,6 +335,16 @@ async function settleCaseEarningsOnCompletion(orderId, doctorId, { client } = {}
   if (!inputs || !inputs.order) return { skipped: 'order_not_found' };
 
   const { order } = inputs;
+
+  // AUDIT-PRACTICE-CASES-2026-09-22 — the settlement path, and the one that
+  // actually matters for training cases.
+  //
+  // writePendingForCase fires at ACCEPTANCE; this fires when the doctor SUBMITS
+  // THE REPORT, which is precisely what a doctor practising on a seeded case
+  // does. Guarding only the acceptance path would have let every completed
+  // practice case mint a 'pending' payable through the legacy insert below.
+  if (order.is_practice === true) return { skipped: 'practice_case' };
+
   const result = buildResult(inputs);
   const baseDoctorFee = Number(order.doctor_fee) || 0;
   const upliftAmount = Number(order.urgency_uplift_amount) || 0;
