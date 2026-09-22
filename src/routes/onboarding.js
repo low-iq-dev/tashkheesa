@@ -6,6 +6,7 @@ const { queryOne, execute } = require('../pg');
 const { requireRole } = require('../middleware');
 const { sanitizeString } = require('../validators/sanitize');
 const { validatePhoneE164 } = require('../validators/phone');
+const { normalizePhone } = require('../validators/phone_identity');
 const { refreshSessionCookie } = require('../auth');
 const { logErrorToDb } = require('../logger');
 // P0-FORM-1: only allow ?next= redirects to in-app paths to prevent
@@ -83,7 +84,17 @@ router.post('/portal/patient/onboarding/profile', requireRole('patient'), async 
     // P0-FORM-1: enforce E.164 via shared validator. Was sanitizePhone()
     // (digits-only normalizer) + bare notEmpty check, which accepted
     // truncated values like "+2010".
-    var phoneCheck = validatePhoneE164(req.body.phone, lang);
+    //
+    // AUDIT-PHONE-COUNTRY-HINT-2026-09-22 — validatePhoneE164 on its own has no
+    // idea what country the patient is in, so an Egyptian typing their number
+    // without the trunk zero ('1003225382') hit the >=8-digit forgiveness rule
+    // and was stored as '+1003225382': valid E.164, not their number, and every
+    // WhatsApp lifecycle message afterwards goes nowhere. This is the mandatory
+    // gate requirePhone() funnels every phoneless patient into, so it is the
+    // highest-traffic phone field on the site. Pass the country the patient
+    // registered with and normalizePhone treats the digits as local (branch 2).
+    // With no hint it behaves exactly as before, so this can only improve.
+    var phoneCheck = normalizePhone(req.body.phone, req.user && req.user.country_code, lang);
     var errors = [];
     if (!name) errors.push(isAr ? 'الاسم الكامل مطلوب' : 'Full name is required');
     if (!phoneCheck.ok) errors.push(phoneCheck.error);

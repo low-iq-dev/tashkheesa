@@ -512,8 +512,13 @@ router.post('/patient/profile', requireRole('patient'), async function(req, res)
         error: isAr ? 'رقم الهاتف مطلوب — لا يمكن مسحه.' : 'Phone number is required — it cannot be cleared.'
       });
     }
-    const { validatePhoneE164 } = require('../validators/phone');
-    const phoneCheck = validatePhoneE164(rawPhone, lang);
+    // AUDIT-PHONE-COUNTRY-HINT-2026-09-22 — same defect as the onboarding gate:
+    // without a country hint an Egyptian local number typed without the trunk
+    // zero normalised to '+1003225382'. Prefer the country submitted with this
+    // form (already launch-market gated above), fall back to the one the patient
+    // registered with.
+    const { normalizePhone } = require('../validators/phone_identity');
+    const phoneCheck = normalizePhone(rawPhone, countryCode || (req.user && req.user.country_code), lang);
     if (!phoneCheck.ok) {
       return renderPatientProfile(req, res, { error: phoneCheck.error });
     }
