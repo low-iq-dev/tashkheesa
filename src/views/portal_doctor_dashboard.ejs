@@ -341,6 +341,11 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
       off res.locals, so including the partials here is enough. %>
   <%- include('partials/doctor/services_banner', { isAr: _isAr }) %>
   <%- include('partials/doctor/tier_banner', { isAr: _isAr }) %>
+  <%# 2026-09-20 — the other side of those two nudges: when both clear, say so.
+      Mutually exclusive with them by construction (doctor.js returns early if
+      either flag is set), so a doctor never sees "confirm your services" and
+      "your account is complete" stacked on the same screen. %>
+  <%- include('partials/doctor/ready_banner', { isAr: _isAr }) %>
 
   <!-- ===================================================================
        HERO STATS — 4 tiles

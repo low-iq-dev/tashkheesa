@@ -250,6 +250,7 @@ const requireDoctor = requireRole('doctor');
 router.use(async (req, res, next) => {
   try { await _computeServicesBannerFlag(req, res); } catch (_) { /* banner is best-effort; never break the page */ }
   try { await _computeTierConfirmBannerFlag(req, res); } catch (_) { /* same */ }
+  try { await _computeReadyBannerFlag(req, res); } catch (_) { /* same */ }
   next();
 });
 
@@ -1598,6 +1599,73 @@ async function _computeTierConfirmBannerFlag(req, res) {
     // Fail to OFF. A banner that cannot resolve its own condition should stay
     // quiet rather than follow a doctor around every page of the portal.
     res.locals.doctorTierBanner = false;
+  }
+}
+
+
+// 2026-09-20 — "your account is complete" (AUDIT-NO-COMPLETION-STATE).
+//
+// A doctor who finishes onboarding gets NO confirmation. The services nudge
+// and the tier nudge simply vanish and they land on a dashboard with four
+// zeroed stat tiles and "No new assignments right now" — which reads as
+// something still being wrong, not as success.
+//
+// Dr Ahmed Hegazy finished everything on 13 Sep 15:43 and was still asking
+// "بكمله ازاي" ("how do I complete it") two days later. He was then walked
+// through setup steps four minutes after having completed them. The portal
+// had the answer the whole time and never said it.
+//
+// Conditions, all required:
+//   * on Today / the dashboard only (same paths as the tier nudge)
+//   * the other two nudges are OFF — services confirmed AND tiers confirmed,
+//     so this can never contradict a nudge sitting directly above it
+//   * the doctor is assignable (not paused, not pending, not deactivated) —
+//     telling a paused doctor to expect cases would be a lie
+//   * they have never held a case
+//
+// That last condition makes it self-retiring: the first assignment replaces
+// it with real content and it never returns. No new column, no dismissal
+// state, nothing to migrate.
+async function _computeReadyBannerFlag(req, res) {
+  res.locals.doctorReadyBanner = false;
+  res.locals.doctorReadyTiers = null;
+  try {
+    const path = String(req.originalUrl || '').split('?')[0].replace(/\/+$/, '') || '/';
+    if (!TIER_BANNER_PATHS.has(path)) return;
+    if (!req.user || String(req.user.role).toLowerCase() !== 'doctor' || !req.user.id) return;
+
+    // Never stack with a nudge. If either is still showing, the doctor is not
+    // finished and this banner would be telling them the opposite.
+    if (res.locals.doctorServicesBanner === true) return;
+    if (res.locals.doctorTierBanner === true) return;
+
+    const row = await queryOne(
+      `SELECT id, role, specialty_id, onboarding_complete, sla_tiers_supported,
+              sla_tiers_confirmed_at, is_active, is_paused, pending_approval
+         FROM users WHERE id = $1`,
+      [String(req.user.id)]
+    );
+    if (!row) return;
+    if (!row.sla_tiers_confirmed_at) return;
+    if (row.is_active === false || row.is_paused === true || row.pending_approval === true) return;
+    if (await shouldLandOnServices(row)) return;
+
+    // Never held a case. Counting all-time (not active) is deliberate: a
+    // doctor who has finished one case does not need to be told the account
+    // works — they have seen it work.
+    const seen = await queryOne(
+      'SELECT COUNT(*)::int AS c FROM orders WHERE doctor_id = $1 AND deleted_at IS NULL',
+      [String(req.user.id)]
+    );
+    if (seen && Number(seen.c) > 0) return;
+
+    res.locals.doctorReadyBanner = true;
+    res.locals.doctorReadyTiers = readDoctorTiers(row.sla_tiers_supported);
+  } catch (_) {
+    // Fail to OFF, like both nudges. A confirmation that cannot verify its own
+    // conditions must not claim a doctor is ready to receive patients.
+    res.locals.doctorReadyBanner = false;
+    res.locals.doctorReadyTiers = null;
   }
 }
 
@@ -6345,3 +6413,4 @@ async function handlePortalDoctorGenerateReport(req, res) {
 module.exports = router;
 module.exports._computeServicesBannerFlag = _computeServicesBannerFlag;
 module.exports._computeTierConfirmBannerFlag = _computeTierConfirmBannerFlag;
+module.exports._computeReadyBannerFlag = _computeReadyBannerFlag;
