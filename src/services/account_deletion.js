@@ -347,23 +347,112 @@ async function deleteAccount(userId) {
  * failed because a storage call timed out. Failures are logged with the key
  * so they can be swept by hand — the database no longer knows about them.
  */
-async function purgeStorageKeys(keys, meta, extra) {
-  // Anything we cannot delete ourselves is shouted about here rather than
-  // dropped. Both lists are empty against today's data; they exist so that the
-  // first row that is not is visible in the logs instead of invisible forever.
-  if (extra && extra.externalUrls && extra.externalUrls.length) {
-    logMajor('[account-deletion] ' + extra.externalUrls.length + ' file(s) are absolute URLs (legacy Uploadcare) and were NOT deleted — they need Uploadcare\'s API, not R2', {
-      urls: extra.externalUrls, uploadcareUuids: (extra.uploadcareUuids || []), meta: meta
+// PRIV-1 (2026-09-22). Legacy Uploadcare objects, deleted through Uploadcare's
+// own REST API rather than only shouted about.
+//
+// WHY THIS WAS NOT ALREADY HERE. purgeStorageKeys deletes R2 keys, and the
+// Uploadcare objects predate the R2 cutover: they are addressed by a UUID in
+// order_files.uploadcare_uuid and live in a different service entirely, so
+// deleteFile() has nothing to delete. Until today the code collected them,
+// logged loudly that they had NOT been deleted, and stopped — on the stated
+// grounds that "zero rows match today". That comment has since gone stale:
+// as of 22 Sep production holds NINE rows with an uploadcare_uuid. Every one
+// belongs to a Tashkheesa account (ziad@test.com and zmelwahsh@gmail.com, all
+// on expired_unpaid orders) and none to a third-party patient, so nobody
+// else's medical file is exposed today — but an erasure request against any
+// of them would have left the object addressable forever, while the app told
+// the patient their data was gone. Play's Data safety declaration says
+// otherwise, and so does privacy.ejs §5.
+//
+// AUTH. Uploadcare's Simple scheme, which is what their REST API accepts
+// without request signing: `Uploadcare.Simple <public>:<secret>`.
+// UPLOADCARE_SECRET_KEY is deliberately NOT validated at boot (see
+// server.js:113) and is absent from .env by design, so this must degrade to
+// the old loud log rather than throw when the key is not configured.
+//
+// 404 COUNTS AS DELETED. The object is not there, which is the state we were
+// asking for. Two rows carry placeholder ids from a test fixture
+// ('prod-test-001', 'cancel-test-001') rather than UUIDs; they are reported
+// separately instead of being sent to the API to be rejected.
+const UPLOADCARE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UPLOADCARE_TIMEOUT_MS = 10000;
+
+async function purgeUploadcareUuids(uuids, meta) {
+  const list = Array.from(new Set((uuids || []).map((u) => String(u || '').trim()).filter(Boolean)));
+  if (!list.length) return { deleted: 0, failed: [], configured: true };
+
+  const pub = process.env.UPLOADCARE_PUBLIC_KEY;
+  const secret = process.env.UPLOADCARE_SECRET_KEY;
+  if (!pub || !secret) {
+    logMajor('[account-deletion] ' + list.length + ' Uploadcare object(s) were NOT deleted: UPLOADCARE_SECRET_KEY is not configured on this instance', {
+      uploadcareUuids: list, meta: meta
+    });
+    return { deleted: 0, failed: list, configured: false };
+  }
+
+  const headers = {
+    Authorization: 'Uploadcare.Simple ' + pub + ':' + secret,
+    Accept: 'application/vnd.uploadcare-v0.7+json'
+  };
+
+  const failed = [];
+  const notUuid = [];
+  let deleted = 0;
+
+  for (const uuid of list) {
+    if (!UPLOADCARE_UUID_RE.test(uuid)) { notUuid.push(uuid); continue; }
+    try {
+      const res = await fetch('https://api.uploadcare.com/files/' + encodeURIComponent(uuid) + '/', {
+        method: 'DELETE',
+        headers: headers,
+        signal: AbortSignal.timeout(UPLOADCARE_TIMEOUT_MS)
+      });
+      if (res && (res.ok || res.status === 404)) deleted++;
+      else failed.push(uuid);
+    } catch (err) {
+      failed.push(uuid);
+    }
+  }
+
+  if (notUuid.length) {
+    logMajor('[account-deletion] ' + notUuid.length + ' uploadcare_uuid value(s) are not UUIDs and were not sent to the API', {
+      values: notUuid, meta: meta
     });
   }
+  if (failed.length) {
+    logMajor('[account-deletion] ' + failed.length + ' Uploadcare object(s) could not be deleted and are now unreferenced', {
+      uploadcareUuids: failed, meta: meta
+    });
+  }
+  return { deleted: deleted, failed: failed.concat(notUuid), configured: true };
+}
+
+async function purgeStorageKeys(keys, meta, extra) {
+  // Anything we cannot delete ourselves is shouted about here rather than
+  // dropped. externalUrls stays a log-only path: an absolute URL carries no
+  // UUID, so there is nothing to call the API with.
+  if (extra && extra.externalUrls && extra.externalUrls.length) {
+    logMajor('[account-deletion] ' + extra.externalUrls.length + ' file(s) are absolute URLs (legacy Uploadcare) and were NOT deleted — an absolute URL carries no UUID to delete by', {
+      urls: extra.externalUrls, meta: meta
+    });
+  }
+
+  // Runs whether or not there are R2 keys: an account can hold Uploadcare
+  // objects and no R2 objects at all, which is exactly the shape of every one
+  // of the nine rows in production today.
+  let uploadcare = { deleted: 0, failed: [], configured: true };
+  if (extra && extra.uploadcareUuids && extra.uploadcareUuids.length) {
+    uploadcare = await purgeUploadcareUuids(extra.uploadcareUuids, meta);
+  }
+
   const failed = [];
-  if (!keys || !keys.length) return { deleted: 0, failed: failed };
+  if (!keys || !keys.length) return { deleted: 0, failed: failed, uploadcare: uploadcare };
   let deleteFile;
   try {
     ({ deleteFile } = require('../storage'));
   } catch (err) {
     logMajor('[account-deletion] storage module unavailable; ' + keys.length + ' object(s) left in R2', { keys: keys, meta: meta });
-    return { deleted: 0, failed: keys.slice() };
+    return { deleted: 0, failed: keys.slice(), uploadcare: uploadcare };
   }
   let deleted = 0;
   for (const key of keys) {
@@ -379,7 +468,7 @@ async function purgeStorageKeys(keys, meta, extra) {
       keys: failed, meta: meta
     });
   }
-  return { deleted: deleted, failed: failed };
+  return { deleted: deleted, failed: failed, uploadcare: uploadcare };
 }
 
-module.exports = { deleteAccount, purgeStorageKeys, AccountDeletionError, ORDER_FIELDS_TO_BLANK };
+module.exports = { deleteAccount, purgeStorageKeys, purgeUploadcareUuids, AccountDeletionError, ORDER_FIELDS_TO_BLANK };
