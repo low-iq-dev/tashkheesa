@@ -28,7 +28,9 @@
  */
 
 const express = require('express');
-const upload = require('../../middleware/upload');
+// U-2 — the mobile instance: same allowlist as the web routes, plus
+// extensionless DICOM accepted by its DICM magic (see middleware/upload.js).
+const { uploadWithDicomSniff: upload, verifyDicomCandidate } = require('../../middleware/upload');
 const { uploadFile } = require('../../storage');
 const { logErrorToDb } = require('../../logger');
 
@@ -50,12 +52,24 @@ router.post('/', function (req, res) {
     if (!req.file || !req.file.buffer) {
       return res.fail('No file provided', 400, 'NO_FILE');
     }
+    // Second half of the extensionless-DICOM gate: a provisional pass from
+    // the file filter stands only if bytes 128..131 are 'DICM'.
+    const sniffErr = verifyDicomCandidate(req.file);
+    if (sniffErr) {
+      return res.fail(sniffErr.message, 400, 'UPLOAD_REJECTED');
+    }
+    // A sniffed DICOM gets a .dcm object key so every downstream reader that
+    // goes by extension (viewer, AI checks, downloads) knows what it is. The
+    // patient-facing filename is left exactly as uploaded.
+    const storedName = req.file.dicomSniffRequired
+      ? (req.file.originalname || 'dicom') + '.dcm'
+      : req.file.originalname;
 
     const folder = 'orders/draft/' + req.user.id;
     try {
       const key = await uploadFile({
         buffer: req.file.buffer,
-        originalname: req.file.originalname,
+        originalname: storedName,
         mimetype: req.file.mimetype,
         folder: folder
       });
