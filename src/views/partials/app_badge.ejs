@@ -1,0 +1,41 @@
+<%#
+  "Get it on Google Play" badge — app funnel 2026-09-23.
+
+  Renders NOTHING unless PLAY_STORE_URL is set (res.locals.appFunnel is null
+  otherwise; see src/utils/app_funnel.js). Include with a placement, which
+  becomes utm_medium in Play's install referrer:
+
+    include('partials/app_badge', { placement: 'home' })
+
+  Placements: home | footer | app_landing | smart_banner. Marketing surface
+  only — never include this from a portal/auth/superadmin view.
+
+  The mark is drawn inline (no hotlinked Google asset, nothing for img-src to
+  refuse). Styles live in /css/app-funnel.css.
+%>
+<%
+  var __af = (typeof locals !== 'undefined' && locals && locals.appFunnel) ? locals.appFunnel : null;
+  var __afHref = null;
+  try { __afHref = (__af && typeof __af.link === 'function') ? __af.link((typeof placement !== 'undefined') ? placement : '') : null; } catch (_) { __afHref = null; }
+%>
+<% if (__afHref) { %>
+<%
+  var __afIsAr = (typeof locals !== 'undefined' && locals && String(locals.lang || '').toLowerCase() === 'ar');
+  var __afTop = (typeof tt === 'function') ? tt('app_badge.get_it_on', 'GET IT ON', 'احصل عليه من') : (__afIsAr ? 'احصل عليه من' : 'GET IT ON');
+  var __afAria = (typeof tt === 'function') ? tt('app_badge.aria', 'Get the Tashkheesa app on Google Play', 'حمّل تطبيق تشخيصة من Google Play') : (__afIsAr ? 'حمّل تطبيق تشخيصة من Google Play' : 'Get the Tashkheesa app on Google Play');
+  var __afPlacement = (typeof placement !== 'undefined' && placement) ? String(placement) : 'website';
+%>
+<a class="tk-play-badge" href="<%= __afHref %>" target="_blank" rel="noopener"
+   aria-label="<%= __afAria %>" data-app-badge="<%= __afPlacement %>" dir="ltr">
+  <svg class="tk-play-badge__mark" viewBox="0 0 24 26" width="22" height="24" aria-hidden="true" focusable="false">
+    <path fill="#00D7FE" d="M1.1 0.6C0.8 0.9 0.6 1.4 0.6 2v22c0 .6.2 1.1.5 1.4L13.4 13 1.1 0.6z"/>
+    <path fill="#FFCE00" d="M17.5 17.2 13.4 13l4.1-4.2 4.9 2.8c1.4.8 1.4 2.1 0 2.9l-4.9 2.7z"/>
+    <path fill="#FF3A44" d="M17.5 17.2 13.4 13 1.1 25.4c.5.5 1.2.5 2.1 0l14.3-8.2z"/>
+    <path fill="#00F076" d="M17.5 8.8 3.2.6C2.3.1 1.6.1 1.1.6L13.4 13l4.1-4.2z"/>
+  </svg>
+  <span class="tk-play-badge__text">
+    <span class="tk-play-badge__top"<% if (__afIsAr) { %> lang="ar" dir="rtl"<% } %>><%= __afTop %></span>
+    <span class="tk-play-badge__brand">Google Play</span>
+  </span>
+</a>
+<% } %>

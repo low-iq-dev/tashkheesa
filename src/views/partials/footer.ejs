@@ -99,6 +99,13 @@
           <a href="mailto:info@tashkheesa.com" style="color:inherit;">info@tashkheesa.com</a>
           <a href="https://wa.me/201102009886" style="color:inherit;" dir="ltr">+20 110 200 9886</a>
           <p><%= __footerIsAr ? 'القاهرة، مصر' : 'Cairo, Egypt' %></p>
+          <%# App funnel 2026-09-23 — Play badge, marketing pages only: the
+              flag is set by layouts/public.ejs, so a portal-framed page (which
+              also renders this footer) never shows it. Off when PLAY_STORE_URL
+              is unset (appFunnel is null). %>
+          <% if (!usePortalFrame && locals.appFunnel && locals.appFunnel.marketing) { %>
+            <div class="tk-app-badge-row tk-app-badge-row--start"><%- include('app_badge', { placement: 'footer' }) %></div>
+          <% } %>
         </div>
       </div>
     </div>

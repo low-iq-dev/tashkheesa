@@ -1,0 +1,76 @@
+/* public/css/app-funnel.css — Google Play badge + Android smart banner.
+ * App funnel 2026-09-23. Linked only when PLAY_STORE_URL is set.
+ * Logical properties only (RTL: the site serves /ar/). */
+
+.tk-play-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding-block: 7px;
+  padding-inline: 14px 18px;
+  min-height: 48px;
+  background: #000;
+  color: #fff;
+  border: 1px solid #a6a6a6;
+  border-radius: 8px;
+  text-decoration: none;
+  line-height: 1.1;
+  font-family: Roboto, "Segoe UI", Arial, sans-serif;
+}
+.tk-play-badge:hover,
+.tk-play-badge:focus-visible { background: #1a1a1a; color: #fff; text-decoration: none; }
+.tk-play-badge:focus-visible { outline: 2px solid #4c8dff; outline-offset: 2px; }
+.tk-play-badge__mark { flex: 0 0 auto; }
+.tk-play-badge__text { display: inline-flex; flex-direction: column; text-align: start; }
+.tk-play-badge__top { font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; }
+.tk-play-badge__brand { font-size: 19px; font-weight: 500; letter-spacing: -0.01em; }
+
+.tk-app-badge-row { margin-block: 16px 0; display: flex; justify-content: center; }
+.tk-app-badge-row--start { justify-content: flex-start; }
+
+/* Smart banner: fixed bottom bar → never shifts page content. */
+.tk-app-banner {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-block: 10px;
+  padding-inline: 12px;
+  background: #fff;
+  color: #0f172a;
+  border-block-start: 1px solid #e2e8f0;
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.08);
+  font-size: 14px;
+}
+.tk-app-banner[hidden] { display: none; }
+.tk-app-banner__close {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tk-app-banner__icon { flex: 0 0 auto; border-radius: 9px; }
+.tk-app-banner__text { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+.tk-app-banner__title { font-weight: 600; }
+.tk-app-banner__sub { color: #64748b; font-size: 12px; }
+.tk-app-banner__install {
+  flex: 0 0 auto;
+  padding-block: 8px;
+  padding-inline: 16px;
+  border-radius: 999px;
+  background: #1e3a8a;
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+.tk-app-banner__install:hover { color: #fff; text-decoration: none; }
+/* Keep the page's last line reachable above the bar while it is shown. */
+html.tk-has-app-banner body { padding-block-end: 64px; }

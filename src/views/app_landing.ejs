@@ -5,7 +5,9 @@
   description: tt('app.meta.description',
     'Upload your scans, chat with your specialist, get your report — all from your phone.',
     'ارفع أشعتك وتواصل مع الاستشاري واستلم تقريرك الطبي، كل ذلك من هاتفك عبر تطبيق تشخيصة.'),
-  robots: 'noindex, nofollow'
+  robots: 'noindex, nofollow',
+  // The page leads with the Play badge itself; the smart banner would repeat it.
+  hideAppBanner: true
 }) %>
 <link rel="stylesheet" href="/css/app-landing.css" />
 
@@ -31,6 +33,13 @@
     <p class="app-landing__sub app-landing__sub--ar" lang="ar" dir="rtl">
       ارفع أشعتك، اتكلم مع الدكتور بتاعك، واستلم تقريرك — كل ده من موبايلك.
     </p>
+
+    <%# App funnel 2026-09-23 — Google Play badge, shown to every device once
+        PLAY_STORE_URL is set (desktop visitors can install to their phone from
+        the Play web listing). Renders nothing while it is unset. %>
+    <% if (locals.appFunnel) { %>
+    <div class="tk-app-badge-row"><%- include('partials/app_badge', { placement: 'app_landing' }) %></div>
+    <% } %>
 
     <% /* ════════════════════════════════════════════════════
           VARIANT 1 — iOS

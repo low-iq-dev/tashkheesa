@@ -452,6 +452,10 @@ app.use(requirePhone());
 var { patientUnreadMessages } = require('./middleware/patient_unread');
 app.use(patientUnreadMessages());
 
+// App funnel 2026-09-23 — res.locals.appFunnel (Play badge + Android smart
+// banner). null unless PLAY_STORE_URL is set; every view guards on it.
+app.use(require('./utils/app_funnel').appFunnelLocals());
+
 // CSP nonce — and, since helmet's contentSecurityPolicy is now `false`
 // (src/middleware.js), the SINGLE source of truth for Content-Security-Policy.
 //

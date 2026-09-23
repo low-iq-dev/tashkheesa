@@ -1,0 +1,38 @@
+<%#
+  Android smart banner — app funnel 2026-09-23.
+
+  Renders NOTHING unless PLAY_STORE_URL is set. When set, the markup ships with
+  the `hidden` attribute and /js/app_smart_banner.js reveals it only for an
+  Android user agent that has not dismissed it in the last 30 days. It is a
+  fixed bottom bar, so it never pushes page content down (no layout shift on
+  desktop, where it stays hidden anyway).
+
+  Included from layouts/public.ejs and the standalone homepage (index.ejs) —
+  the marketing surface. Never from a portal/auth/superadmin layout.
+  Pass hideAppBanner: true on a page that already leads with the install CTA.
+%>
+<%
+  var __sbAf = (typeof locals !== 'undefined' && locals && locals.appFunnel) ? locals.appFunnel : null;
+  var __sbHide = (typeof hideAppBanner !== 'undefined' && hideAppBanner);
+  var __sbHref = null;
+  try { __sbHref = (__sbAf && !__sbHide && typeof __sbAf.link === 'function') ? __sbAf.link('smart_banner') : null; } catch (_) { __sbHref = null; }
+%>
+<% if (__sbHref) { %>
+<%
+  var __sbIsAr = (typeof locals !== 'undefined' && locals && String(locals.lang || '').toLowerCase() === 'ar');
+  var __sbTitle = (typeof tt === 'function') ? tt('app_banner.title', 'Get the Tashkheesa app', 'حمّل تطبيق تشخيصة') : (__sbIsAr ? 'حمّل تطبيق تشخيصة' : 'Get the Tashkheesa app');
+  var __sbSub = (typeof tt === 'function') ? tt('app_banner.sub', 'Free on Google Play', 'مجاني على Google Play') : (__sbIsAr ? 'مجاني على Google Play' : 'Free on Google Play');
+  var __sbInstall = (typeof tt === 'function') ? tt('app_banner.install', 'Install', 'تثبيت') : (__sbIsAr ? 'تثبيت' : 'Install');
+  var __sbClose = (typeof tt === 'function') ? tt('app_banner.close', 'Dismiss', 'إغلاق') : (__sbIsAr ? 'إغلاق' : 'Dismiss');
+%>
+<div class="tk-app-banner" data-app-smart-banner hidden role="region" aria-label="<%= __sbTitle %>">
+  <button type="button" class="tk-app-banner__close" data-app-smart-banner-close aria-label="<%= __sbClose %>">&times;</button>
+  <img class="tk-app-banner__icon" src="/assets/favicons/android-chrome-192x192.png" alt="" width="40" height="40" />
+  <span class="tk-app-banner__text">
+    <strong class="tk-app-banner__title"><%= __sbTitle %></strong>
+    <span class="tk-app-banner__sub"><%= __sbSub %></span>
+  </span>
+  <a class="tk-app-banner__install" href="<%= __sbHref %>" target="_blank" rel="noopener" data-app-smart-banner-install><%= __sbInstall %></a>
+</div>
+<script src="/js/app_smart_banner.js" defer></script>
+<% } %>

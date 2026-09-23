@@ -114,8 +114,12 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/site/assets/favicons/favicon-16x16.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/site/assets/favicons/apple-touch-icon.png" />
   <meta name="theme-color" content="#1e3a8a" />
+  <%# App funnel 2026-09-23 — Play badge + Android smart banner. Nothing below
+      renders unless PLAY_STORE_URL is set (locals.appFunnel is null). %>
+  <% if (locals.appFunnel) { %><link rel="stylesheet" href="/css/app-funnel.css" /><% } %>
 </head>
 <body data-meta-pixel="1">
+<%- include('partials/app_smart_banner') %>
 <script src="/js/meta_pixel.js" defer></script>
   <!-- Navigation -->
   <nav class="site-nav">
@@ -473,6 +477,7 @@
           'خد رأي تاني من دكتور متخصص في 48 ساعة قياسي، وحتى 4 ساعات للحالات العاجلة. ابدأ مراجعتك الطبية الآمنة النهارده.') %></p>
         <% if (__ctaOn) { %><a class="btn-primary reveal" href="/register<%= locals.langParam ? '?' + locals.langParam : '' %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
         <% } else { %><span class="btn-primary reveal is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></span><% } %>
+        <% if (locals.appFunnel) { %><div class="tk-app-badge-row"><%- include('partials/app_badge', { placement: 'home' }) %></div><% } %>
       </div>
     </section>
   </main>
@@ -541,6 +546,7 @@
               businessAddress,
               'القاهرة، مصر') %></li>
           </ul>
+          <% if (locals.appFunnel) { %><div class="tk-app-badge-row tk-app-badge-row--start"><%- include('partials/app_badge', { placement: 'footer' }) %></div><% } %>
         </div>
       </div>
       <div class="footer-bottom">
