@@ -904,5 +904,8 @@ function sanitizeUser(user) {
     lang: user.lang || 'en',
     role: user.role,
     createdAt: user.created_at,
+    // NEW-AUTH-5 — lets the app hide Change Password for phone-signup
+    // accounts and pick the right deletion factor up front.
+    hasPassword: !!user.password_hash,
   };
 }

@@ -14,11 +14,63 @@ const { coerceCountry } = require('../../launch-market');
 // a LOGIN IDENTIFIER for both OTP paths, and WhatsApp/SMS dispatch matches on an
 // exact E.164 string.
 const { validatePhoneE164 } = require('../../validators/phone');
+const { normalizePhone, dialCodeFromE164 } = require('../../validators/phone_identity');
+const { generateTokens } = require('../../middleware/requireJWT');
+// NEW-AUTH-1 — the deletion code draws on the SAME per-phone OTP budget as the
+// sign-in doors (60s cooldown, 3 sends / 15 min): the limiter instances are
+// shared, so this door cannot be used to double anyone's SMS allowance.
+const { otpSendCooldown, otpSendCap } = require('../../middleware/otp_phone_limits');
 // Lazy-load express-validator — top-level require takes ~120s and starves DB pool on boot.
 let _ev;
 function ev() { if (!_ev) _ev = require('express-validator'); return _ev; }
 function body(...a) { return ev().body(...a); }
 function validationResult(...a) { return ev().validationResult(...a); }
+
+// The number a deletion code is sent to AND checked against. One derivation
+// for both, so the two can never disagree: the stored phone, normalised to
+// E.164 with the account's country as the hint for a legacy local spelling;
+// the stored string itself when it cannot be normalised (it is what the web
+// deletion page has always used).
+function deletionPhoneFor(row) {
+  const raw = row && row.phone ? String(row.phone).trim() : '';
+  if (!raw) return '';
+  const chk = normalizePhone(raw, (row && (row.country_code || row.country)) || null, 'en');
+  return chk.ok ? chk.normalized : raw;
+}
+
+// '+201277399043' -> '+20•••••9043'. Enough for the patient to recognise
+// their own number, not enough to read someone else's off a screenshot.
+function maskPhone(e164) {
+  const s = String(e164 || '').trim();
+  if (s.length < 6) return '';
+  const dial = dialCodeFromE164(s) || s.slice(0, 3);
+  const rest = s.replace(/^\+/, '').slice(dial.replace(/^\+/, '').length);
+  const tail = rest.slice(-4);
+  return dial + '•'.repeat(Math.max(1, rest.length - tail.length)) + tail;
+}
+
+// Run a shared express-rate-limit instance as a gate and report the verdict
+// instead of letting it write its own 429. The instance (and so the counter)
+// is the shared OTP one; only the response shape is ours, so the app gets a
+// single code for "wait" and a retry hint.
+function runLimiter(limiter, req) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    const sink = {
+      headersSent: false,
+      writableEnded: false,
+      statusCode: 200,
+      status(c) { sink.statusCode = c; return sink; },
+      send() { done({ blocked: true, info: req.rateLimit }); return sink; },
+      json() { done({ blocked: true, info: req.rateLimit }); return sink; },
+      setHeader() {}, append() {}, on() {},
+    };
+    try {
+      limiter(req, sink, (err) => (err ? reject(err) : done({ blocked: false })));
+    } catch (err) { reject(err); }
+  });
+}
 
 module.exports = function (db, { safeGet, safeAll, safeRun }) {
   // C1 (Batch C) — push registration is per DEVICE (session row, migration
@@ -40,6 +92,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       lang: user.lang || 'en',
       role: user.role,
       createdAt: user.created_at,
+      // NEW-AUTH-5 — phone-signup accounts have no password; the app hides
+      // Change Password and picks the right deletion factor from this.
+      hasPassword: !!user.password_hash,
     });
   });
 
@@ -143,6 +198,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       phone: updated.phone,
       country: updated.country,
       lang: updated.lang,
+      hasPassword: !!updated.password_hash,
     });
   });
 
@@ -191,13 +247,21 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     body('currentPassword').notEmpty(),
     body('newPassword').isLength({ min: 8 }),
   ], async (req, res) => {
+    const user = await safeGet('SELECT id, email, role, name, password_hash FROM users WHERE id = $1', [req.user.id]);
+    if (!user) return res.fail('User not found', 404);
+
+    // NEW-AUTH-5 — a phone-signup account has no password to change.
+    // bcrypt.compare against a NULL hash threw, and the patient got a 500.
+    // Checked before the body validation so the answer is the same whatever
+    // the app sent.
+    if (!user.password_hash) {
+      return res.fail('This account signs in with a code and has no password to change.', 400, 'NO_PASSWORD_SET');
+    }
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.fail(errors.array()[0].msg, 422);
     }
-
-    const user = await safeGet('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
-    if (!user) return res.fail('User not found', 404);
 
     const valid = await bcrypt.compare(req.body.currentPassword, user.password_hash);
     if (!valid) {
@@ -213,7 +277,43 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     const revokedAt = new Date();
     await safeRun('UPDATE users SET password_hash = $1, tokens_valid_after = $3::timestamptz WHERE id = $2', [hashed, req.user.id, revokedAt]);
 
-    return res.ok({ message: 'Password updated successfully' });
+    // AUDIT-AUTH-4 (2026-09-23) — the cut above revokes the pair on THIS phone
+    // too, and nothing replaced it: success alert, then "session expired"
+    // within the 60s revocation-cache window. Mint a fresh pair now, AFTER the
+    // stamp. access_revocation compares iat (whole seconds) with
+    // floor(cut / 1000) and only revokes an EARLIER second, so a token minted
+    // after this line survives even in the same second as the cut.
+    //
+    // Other devices are signed out eagerly (their rows revoked now, rather
+    // than when they next try to refresh); this device keeps its row — and its
+    // push registration — with the new refresh token in it.
+    const sid = req.user.sid || null;
+    await sessionStore.revokeOthersForUser(user.id, sid);
+    let tokens = null;
+    if (sid) {
+      const pair = generateTokens(user, sid);
+      if (await sessionStore.reissue(sid, pair.refreshToken, user.id)) tokens = pair;
+    }
+    if (!tokens) {
+      // A sid-less (pre-C1) token, or its row is gone: open a new device row.
+      const newSid = sessionStore.newSessionId();
+      tokens = generateTokens(user, newSid);
+      const b = req.body || {};
+      await sessionStore.createSession({
+        id: newSid,
+        userId: user.id,
+        refreshToken: tokens.refreshToken,
+        client: 'patient_app',
+        deviceId: b.deviceId ? String(b.deviceId).slice(0, 128) : null,
+        deviceName: b.deviceName ? String(b.deviceName).slice(0, 128) : null,
+      });
+    }
+
+    return res.ok({
+      message: 'Password updated successfully',
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    });
   });
 
   // ─── GET /profile/export ─────────────────────────────────
@@ -233,6 +333,63 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       console.error('[profile/export] failed:', err && err.message);
       return res.fail('Could not build your export. Please try again.', 500, 'EXPORT_FAILED');
     }
+  });
+
+  // ─── POST /profile/account/code ──────────────────────────
+  // NEW-AUTH-1 (2026-09-23) — send the deletion code to the phone ON FILE.
+  //
+  // The app used POST /auth/otp/request with the stored '+2010…' plus a
+  // countryCode, which that route glued into '+20+2010…'; Twilio refused it,
+  // the route said "sent", and every phone-signup patient's deletion ended in
+  // WRONG_CODE. The web page (/patient/delete-account/code) never had this
+  // problem because it sends to users.phone; this is the same approach, and
+  // DELETE /profile/account below checks the code against the same number
+  // (deletionPhoneFor), so the two cannot disagree.
+  //
+  // 200 { sent: true, maskedPhone }   400 NO_PHONE
+  // 429 OTP_COOLDOWN { retryAfterSec } 502 OTP_SEND_FAILED
+
+  router.post('/account/code', async (req, res) => {
+    const row = await safeGet('SELECT phone, country, country_code FROM users WHERE id = $1', [req.user.id]);
+    if (!row) return res.fail('User not found', 404);
+    const phone = deletionPhoneFor(row);
+    if (!phone) {
+      return res.fail('There is no phone number on your account. Please contact us to delete it.', 400, 'NO_PHONE');
+    }
+
+    // Same limiter instances as /auth/otp/request, keyed on the same E.164
+    // string that door keys on for this number.
+    req.otpPhone = { key: phone };
+    for (const limiter of [otpSendCooldown, otpSendCap]) {
+      const verdict = await runLimiter(limiter, req);
+      if (verdict.blocked) {
+        const reset = verdict.info && verdict.info.resetTime ? new Date(verdict.info.resetTime).getTime() : null;
+        const retryAfterSec = reset ? Math.max(1, Math.ceil((reset - Date.now()) / 1000)) : null;
+        const body = {
+          success: false,
+          error: 'Please wait a little before requesting another code.',
+          code: 'OTP_COOLDOWN',
+        };
+        if (retryAfterSec) body.retryAfterSec = retryAfterSec;
+        return res.status(429).json(body);
+      }
+    }
+
+    // sendOtpViaTwilio NEVER throws; with credentials missing it returns
+    // { stub: true }. A stub is a failure here, exactly as on the web page:
+    // offering the code field to a patient who will never receive a code ends
+    // in "invalid code" forever, for precisely the password-less accounts
+    // this route exists to serve.
+    const { sendOtpViaTwilio } = require('../../services/twilio_verify');
+    let sent = null;
+    try { sent = await sendOtpViaTwilio(phone); } catch (_) { sent = null; }
+    if (!sent || sent.stub || sent.ok === false) {
+      return res.fail(
+        'We could not send a confirmation code. Please try again shortly, or contact us and we will delete your account for you.',
+        502, 'OTP_SEND_FAILED'
+      );
+    }
+    return res.ok({ sent: true, maskedPhone: maskPhone(phone) });
   });
 
   // ─── DELETE /profile/account ─────────────────────────────
@@ -262,7 +419,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
   router.delete('/account', async (req, res) => {
     const userId = req.user.id;
     try {
-      const row = await safeGet('SELECT password_hash, phone, role FROM users WHERE id = $1', [userId]);
+      const row = await safeGet('SELECT password_hash, phone, country, country_code, role FROM users WHERE id = $1', [userId]);
       if (!row) return res.fail('User not found', 404);
       if (String(row.role || '').toLowerCase() !== 'patient') {
         return res.fail('Only patient accounts can be deleted here.', 403, 'ROLE_NOT_ERASABLE');
@@ -293,7 +450,8 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
           return res.fail('That code is not valid.', 401, 'WRONG_CODE');
         }
         const { verifyOtpCode } = require('../../services/twilio_verify');
-        const result = await verifyOtpCode(String(row.phone).trim(), otp);
+        // The number POST /profile/account/code sent the code to.
+        const result = await verifyOtpCode(deletionPhoneFor(row), otp);
         if (!result || !result.valid) {
           return res.fail('That code is not valid or has expired.', 401, 'WRONG_CODE');
         }

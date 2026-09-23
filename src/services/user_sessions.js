@@ -106,6 +106,46 @@ module.exports = function createSessionStore({ safeGet, safeAll, safeRun }) {
   }
 
   /**
+   * Replace this device's refresh token without presenting the old one.
+   *
+   * AUDIT-AUTH-4 (2026-09-23) — a password change stamps tokens_valid_after,
+   * which kills every credential minted before it, including the pair on the
+   * phone that made the change. The route re-mints a pair AFTER the stamp and
+   * stores it here, in the SAME row, so the device keeps its push
+   * registration. Authenticated by the caller's access token (its signed
+   * `sid`), never by a client-supplied id; the user_id clause is the same X5
+   * defense-in-depth as revokeById. Returns false when the row is gone or
+   * revoked (the caller then opens a fresh session instead).
+   */
+  async function reissue(sessionId, newToken, userId) {
+    if (!sessionId || !userId) return false;
+    const r = await safeRun(
+      `UPDATE user_sessions
+          SET refresh_token = $1, last_seen_at = NOW()
+        WHERE id = $2 AND user_id = $3 AND revoked_at IS NULL`,
+      [newToken, sessionId, userId]
+    );
+    const moved = !!(r && r.rowCount);
+    if (moved) {
+      // Transition mirror (see header).
+      await safeRun('UPDATE users SET refresh_token = $1 WHERE id = $2', [newToken, userId]);
+    }
+    return moved;
+  }
+
+  /**
+   * Revoke every live session of a user EXCEPT one (the device that just
+   * proved the new password). `keepId` null revokes them all.
+   */
+  async function revokeOthersForUser(userId, keepId) {
+    await safeRun(
+      `UPDATE user_sessions SET revoked_at = NOW()
+        WHERE user_id = $1 AND revoked_at IS NULL AND ($2::text IS NULL OR id <> $2)`,
+      [userId, keepId || null]
+    );
+  }
+
+  /**
    * Adopt a token that pre-C1 code minted after the migration-110 snapshot:
    * it matches users.refresh_token but has no session row. Creates the row it
    * should have had (device 'legacy', like the seeded ones) and returns it.
@@ -240,6 +280,8 @@ module.exports = function createSessionStore({ safeGet, safeAll, safeRun }) {
     createSession,
     findLiveByToken,
     rotate,
+    reissue,
+    revokeOthersForUser,
     adoptLegacyToken,
     revokeById,
     revokeLegacyForUser,
