@@ -186,3 +186,16 @@ function loadWithFakeClient() {
   const attr = profile.slice(profile.indexOf("router.post('/attribution'"), profile.indexOf("router.post('/attribution'") + 600);
   assert(!/safeRun|safeGet|execute\(|INSERT|UPDATE/.test(attr), 'attribution route writes nothing to the database');
 }
+
+// ── 5. The privacy policy discloses it, in both languages ──────────────
+{
+  const src = read('src/views/privacy.ejs');
+  const split = src.indexOf('Last updated:');
+  const AR = src.slice(0, split);
+  const EN = src.slice(split);
+  assert(/PostHog/.test(EN) && /PostHog/.test(AR), 'privacy policy names PostHog in EN and AR');
+  assert(/no medical content/.test(EN) && /where the app was installed from/.test(EN),
+    'EN policy: app sends anonymous usage events (no medical content) + install source');
+  assert(/لا تتضمن أي محتوى طبي/.test(AR) && /مصدر تثبيت التطبيق/.test(AR),
+    'AR policy: same disclosure');
+}
