@@ -15,6 +15,7 @@ const { getWhatsAppTemplate } = require('./notify/whatsappTemplateMap');
 // FIX 13 — bilingual countdown rendering (minutes under the hour, correct
 // Arabic number agreement). Shared with notify/openclawTemplates.js.
 const { formatTimeRemaining } = require('./notify/duration');
+const { caseUrlForRecipient } = require('./notify/case_url');
 const { emitNotificationDropped } = require('./notify');
 // Always-charge-EGP receipt figures (read-only over the stored EGP charge).
 const { isIntlOrder, primaryPrice, egpCharge } = require('./utils/money_display');
@@ -327,7 +328,8 @@ async function processEmail(notification, user, order) {
     specialty: data.specialty || '',
     slaHours: data.slaHours || (order ? order.sla_hours : ''),
     dashboardUrl: data.dashboardUrl || `${process.env.APP_URL || 'https://tashkheesa.com'}/dashboard`,
-    caseUrl: data.caseUrl || (order ? `${process.env.APP_URL || 'https://tashkheesa.com'}/portal/doctor/case/${order.id}` : ''),
+    // Audience-aware: a patient recipient gets /portal/patient/orders/:id.
+    caseUrl: data.caseUrl || caseUrlForRecipient(user.role, order ? order.id : null, process.env.APP_URL || 'https://tashkheesa.com'),
     reportUrl: data.reportUrl || (order ? `${process.env.APP_URL || 'https://tashkheesa.com'}/portal/case/${order.id}/report` : ''),
     appUrl: process.env.APP_URL || 'https://tashkheesa.com',
     // Always-charge-EGP receipt fields (payment-success only; undefined elsewhere
