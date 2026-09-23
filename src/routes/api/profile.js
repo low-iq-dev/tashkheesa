@@ -350,8 +350,12 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
   // 429 OTP_COOLDOWN { retryAfterSec } 502 OTP_SEND_FAILED
 
   router.post('/account/code', async (req, res) => {
-    const row = await safeGet('SELECT phone, country, country_code FROM users WHERE id = $1', [req.user.id]);
+    const row = await safeGet('SELECT phone, country, country_code, role FROM users WHERE id = $1', [req.user.id]);
     if (!row) return res.fail('User not found', 404);
+    // Only patient accounts are erasable here — don't spend an SMS on anyone else.
+    if (row.role !== 'patient') {
+      return res.fail('Only patient accounts can be deleted here.', 403, 'ROLE_NOT_ERASABLE');
+    }
     const phone = deletionPhoneFor(row);
     if (!phone) {
       return res.fail('There is no phone number on your account. Please contact us to delete it.', 400, 'NO_PHONE');
