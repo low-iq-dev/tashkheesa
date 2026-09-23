@@ -9,6 +9,19 @@ const { randomUUID } = require('crypto');
 // Lazy-load express-validator — top-level require takes ~120s and starves DB pool on boot.
 let _ev;
 function body(...a) { if (!_ev) _ev = require('express-validator'); return _ev.body(...a); }
+function validationResult(...a) { if (!_ev) _ev = require('express-validator'); return _ev.validationResult(...a); }
+
+// NEW-MSG (2026-09-23) — the app needs to know a thread is closed BEFORE it
+// offers the composer, and which case it belongs to. conversations.status is
+// 'active' | 'closed' in the database (routes/messaging.js close/reopen); the
+// API speaks 'open' | 'closed'. caseId is order_id under the name the rest of
+// the patient API uses (orderId is kept for older builds).
+function shapeConversation(c) {
+  if (!c) return c;
+  c.status = String(c.status || '').toLowerCase() === 'closed' ? 'closed' : 'open';
+  c.caseId = c.orderId || null;
+  return c;
+}
 // NOTIFICATIONS 2026-09-13 (Part B, item 1) — the doctor-side notification for
 // a message sent from the patient APP goes through the same helper the web
 // send uses (routes/messaging.js), so the doctor gets the bell row AND the
@@ -43,7 +56,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       ORDER BY "lastMessageAt" DESC NULLS LAST
     `, [req.user.id, req.user.id]);
 
-    return res.ok(conversations);
+    return res.ok((conversations || []).map(shapeConversation));
   });
 
   // ─── GET /conversations/:id ──────────────────────────────
@@ -79,7 +92,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     `, [convo.id, req.user.id]);
 
     convo.messages = messages;
-    return res.ok(convo);
+    return res.ok(shapeConversation(convo));
   });
 
   // ─── GET /conversations/:id/messages ─────────────────────
@@ -113,6 +126,13 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
   router.post('/:id/messages', [
     body('body').trim().isLength({ min: 1, max: 2000 }),
   ], async (req, res) => {
+    // The validator above was declared and never read, so an empty or
+    // 50,000-character body went straight into messages.
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.fail('Messages must be between 1 and 2000 characters.', 422, 'VALIDATION_ERROR');
+    }
+
     const convo = await safeGet(`
       SELECT c.*, d.name as "doctorName"
       FROM conversations c
