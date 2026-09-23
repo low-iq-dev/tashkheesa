@@ -39,7 +39,7 @@
 
 const router = require('express').Router();
 const { randomUUID } = require('crypto');
-const { queryOne, queryAll, execute } = require('../../pg');
+const { queryOne, queryAll, execute, withTransaction } = require('../../pg');
 const { logErrorToDb } = require('../../logger');
 const { logOrderEvent } = require('../../audit');
 const { IntakeError, resolveAndPriceIntake } = require('../../services/case_intake_pricing');
@@ -385,30 +385,57 @@ router.post('/:id/files', async (req, res) => {
       return res.fail('fileId must be a valid R2 key', 400, 'INVALID_FILE');
     }
 
-    const existing = await queryOne(
-      'SELECT COUNT(*) AS c FROM order_files WHERE order_id = $1', [draft.id]
-    );
-    if (existing && Number(existing.c) >= MAX_FILES) {
-      return res.fail('Attach between 1 and ' + MAX_FILES + ' files.', 400, 'TOO_MANY_FILES');
-    }
-
     const { isImageExtension } = require('../../ai_image_check');
     const mimeType = b.mimeType ? String(b.mimeType) : null;
     const isImage = isImageExtension(filename) || /^image\//i.test(mimeType || '');
     const fileRowId = randomUUID();
 
-    await execute(
-      `INSERT INTO order_files
-         (id, order_id, url, filename, mime_type, size, ai_quality_status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
-      [fileRowId, draft.id, key, filename, mimeType,
-       b.size == null ? null : Number(b.size),
-       isImage ? 'pending' : 'skipped']
-    );
-    await execute(
-      `UPDATE orders SET updated_at = $1 WHERE id = $2`,
-      [new Date().toISOString(), draft.id]
-    );
+    // U-6 (2026-09-23) — the count check and the insert were two separate
+    // autocommitted statements, and the app attaches in a parallel fan-out:
+    // several requests all read 14, all insert, and the draft ends with more
+    // than MAX_FILES — then submit refuses it. Now one transaction that first
+    // locks the draft's orders row (FOR UPDATE), so concurrent attaches to the
+    // same draft serialise on it: each sees the count the previous one left.
+    // (READ COMMITTED: the COUNT below runs after the lock is granted, so it
+    // sees the previous holder's committed insert.)
+    //
+    // U-7 — `label` is written (= the filename). Mobile inserts left it NULL,
+    // so the doctor's file list showed /files/<uuid> and downloads saved as
+    // <uuid>.heic; the web wizard has always set it.
+    const outcome = await withTransaction(async (client) => {
+      const locked = await client.query(
+        // orders_active is `SELECT * FROM orders WHERE deleted_at IS NULL`
+        // (migrations 045/069), a simple view, so FOR UPDATE locks the
+        // underlying orders row.
+        `SELECT id FROM orders_active
+          WHERE id = $1 AND patient_id = $2
+            AND UPPER(COALESCE(status, '')) = 'DRAFT'
+          FOR UPDATE`,
+        [draft.id, req.user.id]
+      );
+      if (!locked.rows.length) return 'gone';
+      const counted = await client.query(
+        'SELECT COUNT(*) AS c FROM order_files WHERE order_id = $1', [draft.id]
+      );
+      if (Number(counted.rows[0] && counted.rows[0].c) >= MAX_FILES) return 'full';
+      await client.query(
+        `INSERT INTO order_files
+           (id, order_id, url, filename, label, mime_type, size, ai_quality_status, created_at)
+         VALUES ($1, $2, $3, $4, $4, $5, $6, $7, NOW())`,
+        [fileRowId, draft.id, key, filename, mimeType,
+         b.size == null ? null : Number(b.size),
+         isImage ? 'pending' : 'skipped']
+      );
+      await client.query(
+        `UPDATE orders SET updated_at = $1 WHERE id = $2`,
+        [new Date().toISOString(), draft.id]
+      );
+      return 'ok';
+    });
+    if (outcome === 'gone') return res.fail('Draft not found', 404, 'NOT_FOUND');
+    if (outcome === 'full') {
+      return res.fail('Attach between 1 and ' + MAX_FILES + ' files.', 400, 'TOO_MANY_FILES');
+    }
 
     return res.ok({ file: { id: fileRowId, filename, mimeType, size: b.size ?? null } });
   } catch (err) {

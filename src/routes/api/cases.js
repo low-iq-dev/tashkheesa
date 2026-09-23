@@ -432,9 +432,10 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       const initialStatus = isImage ? 'pending' : 'skipped';
       const r2Key = (file.fileId && String(file.fileId).trim()) || null;
       const ucUuid = (file.uploadcareUuid && String(file.uploadcareUuid).trim()) || null;
+      // U-7: label = filename, so the doctor's list shows a name, not /files/<uuid>.
       await safeRun(`
-        INSERT INTO order_files (id, order_id, url, uploadcare_uuid, filename, mime_type, size, ai_quality_status, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        INSERT INTO order_files (id, order_id, url, uploadcare_uuid, filename, label, mime_type, size, ai_quality_status, created_at)
+        VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, NOW())
       `, [fileId, orderId, r2Key, ucUuid, file.filename, file.mimeType, file.size, initialStatus]);
       insertedFiles.push({ id: fileId, r2Key: r2Key, uploadcareUuid: ucUuid, isImage, filename: file.filename });
     }
