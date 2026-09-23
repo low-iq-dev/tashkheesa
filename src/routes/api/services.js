@@ -8,6 +8,18 @@
 const router = require('express').Router();
 const { coerceCountry } = require('../../launch-market');
 const { serviceBookableClause } = require('../../services/service_bookable');
+// NEW-CASE-4 — the SAME window rule the submit path enforces
+// (case_intake_pricing.assertUrgentWindowOpen → URGENT_UNAVAILABLE), so the
+// app can grey Urgent out instead of offering it and failing at submit.
+const { isUrgentWindowOpen } = require('../../services/urgency_window');
+
+// Per-tier availability, stamped on every catalogue item. Urgent is the only
+// tier with a sales window today; it is per item so a per-service rule can
+// land later without an API change.
+function withAvailability(rows) {
+  const urgentAvailable = isUrgentWindowOpen();
+  return (rows || []).map((r) => Object.assign(r, { urgentAvailable }));
+}
 
 // One definition of "a patient may order this", shared with the web wizard and
 // the case-intake path. Aliased `s` to match every query in this file.
@@ -47,7 +59,7 @@ module.exports = function (db, { safeGet, safeAll }) {
   router.get('/specialties/:id/services', async (req, res) => {
     const services = await safeAll(`
       SELECT DISTINCT ON (s.id)
-        s.id, s.name, s.base_price as "basePrice", s.currency,
+        s.id, s.name, s.name_ar as "nameAr", s.base_price as "basePrice", s.currency,
         s.sla_hours as "slaHours", s.specialty_id as "specialtyId"
       FROM services s
       -- 2026-08-25: was s.is_visible = true alone, so this happily listed
@@ -57,7 +69,7 @@ module.exports = function (db, { safeGet, safeAll }) {
       ORDER BY s.id
     `, [req.params.id]);
 
-    return res.ok(services);
+    return res.ok(withAvailability(services));
   });
 
 
@@ -101,7 +113,10 @@ function pricingCountryFor(req) {
     const sql = `
       SELECT * FROM (
         SELECT DISTINCT ON (s.id)
-          s.id, s.name, s.specialty_id as "specialtyId",
+          s.id, s.name,
+          -- NEW-CASE-8: migration 102 added services.name_ar; no API returned it.
+          s.name_ar as "nameAr",
+          s.specialty_id as "specialtyId",
           sp.name as "specialtyName",
           sp.name_ar as "specialtyNameAr",
           COALESCE(rp.tashkheesa_price, s.base_price) as "basePrice",
@@ -120,7 +135,7 @@ function pricingCountryFor(req) {
     `;
 
     const services = await safeAll(sql, params);
-    return res.ok(services);
+    return res.ok(withAvailability(services));
   });
 
   // ─── GET /services/:id/price ─────────────────────────────
