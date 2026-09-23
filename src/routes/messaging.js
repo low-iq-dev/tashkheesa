@@ -285,6 +285,10 @@ router.post('/portal/messages/:conversationId/send', requireRole('patient', 'doc
         response: {
           case_id: conversation.order_id,
           caseReference: conversation.order_id ? conversation.order_id.slice(0, 12).toUpperCase() : '',
+          // N-3 (2026-09-23) — without this the patient's push and in-app row
+          // for a doctor's reply could not open the thread and fell back to
+          // the case page. The app-side send (api/conversations.js) had it.
+          conversation_id: conversationId,
           senderName: req.user.name || 'Someone',
           messagePreview: (content || '').slice(0, 100)
         },

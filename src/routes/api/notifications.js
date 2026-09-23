@@ -14,7 +14,11 @@ const PAYMENT_SCREEN_TEMPLATES = new Set([
   'payment_reminder_30m',
   'payment_reminder_6h',
   'payment_reminder_24h',
-  'payment_failed_patient'
+  'payment_failed_patient',
+  // N-6 (2026-09-23) — push already routes this one to 'payment'
+  // (services/patient_push.js); the in-app row sent the same event to the
+  // case. EXPIRED_UNPAID -> PAID revives the case, so paying is the action.
+  'case_expired_unpaid_patient'
 ]);
 
 function screenForTemplate(template) {
@@ -40,6 +44,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
              -- report is ready". order_id IS populated by notify.js, so return
              -- it and synthesize the payload below.
              order_id as "orderId",
+             -- N-3: read server-side only, for the chat thread id; never
+             -- returned (it also carries the message preview).
+             response,
              data, at as "createdAt"
       FROM notifications
       -- NOTIFICATIONS 2026-08-25 — channel = 'internal'.
@@ -76,8 +83,48 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         // (Those rows also carried order_id NULL until today, so they did not
         // even reach the case — see case_lifecycle.queuePaymentReminder.)
         n.data = { screen: screenForTemplate(n.template || n.type), caseId: n.orderId };
+        // N-3 (2026-09-23) — a message notification opens THE THREAD, the
+        // same target the push carries (patient_push: conversationId, or the
+        // case when there is none). The id is in the queued payload until the
+        // notification worker marks the internal row sent and overwrites
+        // `response` with its delivery result; after that it is resolved from
+        // the case below.
+        if (n.data.screen === 'chat') {
+          try {
+            const r = n.response ? JSON.parse(n.response) : null;
+            const convoId = r && (r.conversation_id || r.conversationId);
+            if (convoId) n.data.conversationId = String(convoId);
+          } catch (_) { /* resolved from the case below */ }
+        }
       }
+      delete n.response;
       n.read = !!n.read;
+    });
+
+    // N-3 — chat rows whose payload no longer names the thread: the
+    // patient's most recent conversation on that case. Scoped to this
+    // patient, so a row can never open someone else's thread. No thread at
+    // all → the case, exactly as the push falls back.
+    try {
+      const needs = notifications.filter(n => n.data && n.data.screen === 'chat' && !n.data.conversationId && n.data.caseId);
+      if (needs.length) {
+        const ids = [...new Set(needs.map(n => String(n.data.caseId)))];
+        const rows = await safeAll(
+          `SELECT DISTINCT ON (order_id) id, order_id
+             FROM conversations
+            WHERE patient_id = $1 AND order_id = ANY($2::text[])
+            ORDER BY order_id, created_at DESC`,
+          [req.user.id, ids]
+        );
+        const byOrder = new Map((rows || []).map(r => [String(r.order_id), String(r.id)]));
+        needs.forEach(n => {
+          const c = byOrder.get(String(n.data.caseId));
+          if (c) n.data.conversationId = c;
+        });
+      }
+    } catch (_) { /* fall through to the case-detail fallback */ }
+    notifications.forEach(n => {
+      if (n.data && n.data.screen === 'chat' && !n.data.conversationId) n.data.screen = 'case-detail';
     });
 
     // AUDIT-APP — localise the title to the RECIPIENT's language.
