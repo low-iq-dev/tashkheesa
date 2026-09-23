@@ -1,3 +1,11 @@
+-- Renumbered from 110 to 116 on 2026-09-23. It collided with
+-- 110_orders_is_practice.sql, which left the apply order between the two
+-- decided by alphabetical tie-break rather than intent. is_practice could
+-- not move instead: 114 and 115 both depend on that column.
+--
+-- The runner keys schema_migrations on the FILENAME, so an environment that
+-- already applied 110_user_sessions.sql will apply this once more under its
+-- new name. That is harmless - every statement in here is IF NOT EXISTS.
 -- 110_user_sessions.sql
 -- ============================================================================
 -- Batch C (fix plan 2026-09-15, C1) — sessions that survive a second device.
