@@ -6670,3 +6670,27 @@ module.exports = router;
 module.exports._computeServicesBannerFlag = _computeServicesBannerFlag;
 module.exports._computeTierConfirmBannerFlag = _computeTierConfirmBannerFlag;
 module.exports._computeReadyBannerFlag = _computeReadyBannerFlag;
+
+// ─── Reused by the mobile doctor API (routes/api/doctor_cases.js) ──────────
+//
+// The app is a second client onto the SAME queue, so it must not re-derive
+// "which cases may this doctor see". These are exported rather than copied so
+// there is exactly one answer, and a change to the portal's queue is a change
+// to the app's queue in the same edit. Nothing here is moved, renamed or
+// rewritten — only made reachable.
+//
+// The ACCESS RULE already lives in services/doctor_case_access.js and the
+// STATE CHANGE in case_lifecycle.js; the API requires those directly.
+module.exports._queue = {
+  buildPortalCases,
+  buildPortalCasesUnassigned,
+  countPortalCasesByStatuses,
+  countPortalCasesUnassigned,
+  countAssignedPendingCases,
+  countActiveCasesForDoctor,
+  readDoctorSlaTiersRaw,
+  mapPortalCaseItem,
+  enrichOrders,
+  ACCEPTED_STATUSES,
+  UNACCEPTED_STATUSES,
+};

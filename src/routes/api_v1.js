@@ -117,6 +117,14 @@ module.exports = function (db, helpers, deploy) {
   const doctorAuthRoutes = require('./api/doctor_auth')(db, helpers);
   router.use('/doctor/auth', authLimiter, doctorAuthRoutes);
 
+  // ─── Doctor cases (the app's queue) ────────────────────────
+  // Mounted here, beside /doctor/auth and ahead of the patient gate below,
+  // because these routes authenticate as a DOCTOR. They reuse the portal's
+  // own queue builders and access rule rather than restating them, so the
+  // app and the portal cannot disagree about what a doctor may see or do.
+  const doctorCaseRoutes = require('./api/doctor_cases')(db, helpers);
+  router.use('/doctor', apiLimiter, doctorCaseRoutes);
+
   // ─── Protected Routes (JWT required) ───────────────────────
 
   router.use(requireJWT);
