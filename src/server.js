@@ -328,6 +328,13 @@ var COOKIE_SAMESITE = 'lax';
 app.use(attachRequestId);
 app.use(accessLogger());
 
+// App funnel 2026-09-23 — Android App Links verification file. Mounted BEFORE
+// the canonical-host redirect, staging auth, sessions, CSRF and every rate
+// limiter: Google's verifier follows no redirects, sends no cookies and must
+// get a 200 application/json. Unset ANDROID_APP_SHA256_FINGERPRINTS → 404.
+// See src/utils/app_funnel.js.
+app.get('/.well-known/assetlinks.json', require('./utils/app_funnel').assetLinksHandler);
+
 // SEO 2026-09-18 — one canonical host. tashkheesa.onrender.com served the
 // whole site as a duplicate; every non-canonical Host now 301s to
 // https://tashkheesa.com<path+query>. Mounted before the static mounts and
