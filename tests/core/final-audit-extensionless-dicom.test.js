@@ -35,9 +35,10 @@ require.cache[STORAGE_PATH] = {
     getSignedDownloadUrl: async () => 'x', getFileBuffer: async () => Buffer.alloc(0), deleteFile: async () => {},
   },
 };
+const prevRoute = require.cache[FILES_PATH];
 delete require.cache[FILES_PATH];
 const filesRouter = require(FILES_PATH);
-delete require.cache[FILES_PATH];
+if (prevRoute) require.cache[FILES_PATH] = prevRoute; else delete require.cache[FILES_PATH];
 if (realStorage) require.cache[STORAGE_PATH] = realStorage; else delete require.cache[STORAGE_PATH];
 
 const app = express();

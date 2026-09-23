@@ -8,6 +8,17 @@
 
 'use strict';
 
+// Route modules keep ONE module-level Router and register handlers on it each
+// time their factory runs, so a factory called by an earlier test file in the
+// same runner would answer first. Load a private copy, then put back whatever
+// the cache held.
+function freshRequire(rel) {
+  const p = require.resolve(rel);
+  const prev = require.cache[p];
+  delete require.cache[p];
+  try { return require(p); } finally { if (prev) require.cache[p] = prev; else delete require.cache[p]; }
+}
+
 const t = global._testRunner || {
   pass: (n) => console.log('  \x1b[32m✅\x1b[0m ' + n),
   fail: (n, e) => { console.error('  \x1b[31m❌\x1b[0m ' + n + ': ' + ((e && e.message) || e)); process.exitCode = 1; },
@@ -46,7 +57,7 @@ const app = express();
 app.use(require('../../src/middleware/apiResponse'));
 app.use(express.json());
 app.use((req, _res, next) => { req.user = { id: 'pat-1', role: 'patient', name: 'P' }; next(); });
-app.use('/conversations', require('../../src/routes/api/conversations')(null, helpers));
+app.use('/conversations', freshRequire('../../src/routes/api/conversations')(null, helpers));
 
 (async () => {
   const server = await new Promise((resolve) => { const s = http.createServer(app).listen(0, '127.0.0.1', () => resolve(s)); });

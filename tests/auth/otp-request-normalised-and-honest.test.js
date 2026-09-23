@@ -16,6 +16,17 @@
 
 'use strict';
 
+// Route modules keep ONE module-level Router and register handlers on it each
+// time their factory runs, so a factory called by an earlier test file in the
+// same runner would answer first. Load a private copy, then put back whatever
+// the cache held.
+function freshRequire(rel) {
+  const p = require.resolve(rel);
+  const prev = require.cache[p];
+  delete require.cache[p];
+  try { return require(p); } finally { if (prev) require.cache[p] = prev; else delete require.cache[p]; }
+}
+
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'otp-honest-test-secret';
 
 const t = global._testRunner || {
@@ -72,7 +83,7 @@ const helpers = {
 const app = express();
 app.use(require('../../src/middleware/apiResponse'));
 app.use(express.json());
-app.use('/auth', require('../../src/routes/api/auth')({}, helpers));
+app.use('/auth', freshRequire('../../src/routes/api/auth')({}, helpers));
 app.use((err, req, res, _next) => res.fail(err.message || 'boom', 500, 'TEST_UNCAUGHT'));
 
 let server;

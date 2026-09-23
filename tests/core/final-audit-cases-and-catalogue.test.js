@@ -112,6 +112,7 @@ require.cache[STORAGE_PATH] = {
 };
 // cases.js destructures getSignedDownloadUrl at load: load it fresh under the stub.
 const CASES_PATH = require.resolve(path.join(ROOT, 'src', 'routes', 'api', 'cases.js'));
+const prevRoute = require.cache[CASES_PATH];
 delete require.cache[CASES_PATH];
 
 const FILES = {
@@ -131,7 +132,7 @@ const helpers = {
 };
 const casesRouter = require(CASES_PATH)(null, helpers);
 if (realStorage) require.cache[STORAGE_PATH] = realStorage; else delete require.cache[STORAGE_PATH];
-delete require.cache[CASES_PATH];
+if (prevRoute) require.cache[CASES_PATH] = prevRoute; else delete require.cache[CASES_PATH];
 
 const app = express();
 app.use(require('../../src/middleware/apiResponse'));

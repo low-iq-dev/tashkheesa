@@ -14,6 +14,17 @@
 
 'use strict';
 
+// Route modules keep ONE module-level Router and register handlers on it each
+// time their factory runs, so a factory called by an earlier test file in the
+// same runner would answer first. Load a private copy, then put back whatever
+// the cache held.
+function freshRequire(rel) {
+  const p = require.resolve(rel);
+  const prev = require.cache[p];
+  delete require.cache[p];
+  try { return require(p); } finally { if (prev) require.cache[p] = prev; else delete require.cache[p]; }
+}
+
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'profile-pw-test-secret';
 
 const t = global._testRunner || {
@@ -87,7 +98,7 @@ const helpers = {
   safeRun: async (a, b) => { const r = await q(a, b); return Array.isArray(r) ? { rowCount: r.length, rows: r } : r; },
 };
 
-const profile = require('../../src/routes/api/profile')(null, helpers);
+const profile = freshRequire('../../src/routes/api/profile')(null, helpers);
 // profile.js requires the helper lazily, per request, so the stub stays in
 // place until the checks finish; restored in `finally` for later test files.
 function restoreTv() { if (realTv) require.cache[TV_PATH] = realTv; else delete require.cache[TV_PATH]; }
