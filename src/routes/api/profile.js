@@ -20,6 +20,8 @@ const { generateTokens } = require('../../middleware/requireJWT');
 // sign-in doors (60s cooldown, 3 sends / 15 min): the limiter instances are
 // shared, so this door cannot be used to double anyone's SMS allowance.
 const { otpSendCooldown, otpSendCap } = require('../../middleware/otp_phone_limits');
+// App funnel 2026-09-23 — install attribution → PostHog. Stores nothing.
+const { captureAppAttribution } = require('../../services/analytics');
 // Lazy-load express-validator — top-level require takes ~120s and starves DB pool on boot.
 let _ev;
 function ev() { if (!_ev) _ev = require('express-validator'); return _ev; }
@@ -226,6 +228,23 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       await safeRun('UPDATE users SET push_token = $1 WHERE id = $2', [token, req.user.id]);
     }
     return res.ok({ message: 'Push token registered' });
+  });
+
+  // ─── POST /profile/attribution ───────────────────────────
+  // App funnel 2026-09-23. The app reads Play's install referrer once and
+  // sends the utm_* values here. Nothing is written to the database: the
+  // values go to PostHog as `app_attributed` plus first-touch ($set_once)
+  // person properties, allow-listed and capped at 100 chars each by
+  // services/analytics.js. Repeats are ignored (idempotent), and the answer is
+  // always 200 — attribution is best-effort and must never surface as an error
+  // in the app. Behind requireJWT + requireRole('patient') + apiLimiter
+  // (mounted in api_v1.js).
+  router.post('/attribution', (req, res) => {
+    let recorded = false;
+    try {
+      recorded = captureAppAttribution({ userId: req.user && req.user.id, utm: req.body || {} }) === true;
+    } catch (_) { recorded = false; }
+    return res.ok({ recorded: recorded });
   });
 
   // ─── DELETE /profile/push-token ──────────────────────────

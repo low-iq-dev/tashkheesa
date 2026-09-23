@@ -2,9 +2,11 @@
 
 // src/services/analytics.js — the one PostHog client.
 //
-// Scope today is deliberately narrow: a single `user_signed_up` event, emitted
-// once per account that actually reaches the database. Everything here is built
-// around three rules that matter more than the feature itself.
+// Scope is deliberately narrow: `user_signed_up` (once per account that actually
+// reaches the database), the case funnel `case_draft_started` → `case_submitted`
+// → `case_paid` split by platform (web | app), and `app_attributed` (the app's
+// Play install referrer). Everything here is built around three rules that
+// matter more than the feature itself.
 //
 // ── 1. ANALYTICS MUST NEVER BREAK A REGISTRATION ────────────────────────────
 //
@@ -50,7 +52,23 @@ const ALLOWED_PROPS = new Set([
   'signup_method',   // 'password_web' | 'otp_web' | 'password_mobile' | ...
   'role',            // 'patient' | 'doctor'
   'surface',         // 'web' | 'mobile' | 'api'
+  // ── Case funnel (app funnel 2026-09-23) ──
+  'platform',        // 'web' | 'app' | 'unknown'
+  'tier',            // 'standard' | 'vip' | 'urgent'
+  'country',         // ISO-3166 alpha-2, e.g. 'EG'
+  'amount_egp',      // case_paid only: rounded integer EGP charged
+  // ── App install attribution (app_attributed) ──
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_content',
+  'utm_term',
 ]);
+
+// Default string cap, and the wider one for campaign strings (ad platforms
+// routinely produce utm_campaign values past 64 characters).
+const DEFAULT_MAX_LEN = 64;
+const MAX_LEN = { utm_source: 100, utm_medium: 100, utm_campaign: 100, utm_content: 100, utm_term: 100 };
 
 let client = null;
 let initialised = false;
@@ -117,7 +135,7 @@ function sanitizeProps(props) {
     // Strings, numbers and booleans only. An object or array here would be a
     // caller handing over a row.
     if (typeof v === 'object') continue;
-    out[key] = typeof v === 'string' ? v.slice(0, 64) : v;
+    out[key] = typeof v === 'string' ? v.slice(0, MAX_LEN[key] || DEFAULT_MAX_LEN) : v;
   }
   return out;
 }
@@ -179,6 +197,164 @@ function captureSignup(args) {
   }
 }
 
+// ── Case funnel: case_draft_started → case_submitted → case_paid ───────────
+//
+// Same three rules as captureSignup: synchronous, returns nothing, throws
+// nothing, never awaited. Props are the allow-listed funnel dimensions only —
+// NOT the specialty (a specialty tied to a person is health data: "this user
+// is an oncology patient"), no clinical text, no names/contacts.
+
+const FUNNEL_EVENTS = new Set(['case_draft_started', 'case_submitted', 'case_paid']);
+const PLATFORMS = new Set(['web', 'app', 'unknown']);
+const TIERS = new Set(['standard', 'vip', 'urgent']);
+
+function normPlatform(p) {
+  const v = String(p || '').trim().toLowerCase();
+  return PLATFORMS.has(v) ? v : 'unknown';
+}
+
+function normTier(tier) {
+  let v = String(tier || '').trim().toLowerCase();
+  if (v === 'fast_track' || v === 'fast') v = 'vip';
+  return TIERS.has(v) ? v : undefined;
+}
+
+function normCountry(c) {
+  const v = String(c || '').trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(v) ? v : undefined;
+}
+
+/**
+ * Which surface created an order, from orders.source.
+ *   patient_app_v1    → 'app'  (api/cases_draft.js)
+ *   patient_wizard_v2 → 'web'  (routes/patient.js wizard)
+ *   anything else     → 'unknown' — 'website_portal' is BOTH the column
+ *     default (so POST /api/v1/cases rows carry it) and what the public
+ *     website intake writes, so it cannot be attributed honestly.
+ * @param {string} source
+ * @returns {'web'|'app'|'unknown'}
+ */
+function platformFromOrderSource(source) {
+  const v = String(source || '').trim().toLowerCase();
+  if (v === 'patient_app_v1') return 'app';
+  if (v === 'patient_wizard_v2') return 'web';
+  return 'unknown';
+}
+
+/**
+ * Record one step of the case funnel. Fire-and-forget; never await it.
+ *
+ * @param {string} event  'case_draft_started' | 'case_submitted' | 'case_paid'
+ * @param {object} args
+ * @param {string} args.userId     patient user id — distinctId
+ * @param {string} args.platform   'web' | 'app' (else 'unknown')
+ * @param {string} [args.tier]     urgency tier
+ * @param {string} [args.country]  ISO2
+ * @param {number} [args.amountEgp] case_paid only
+ */
+function captureFunnel(event, args) {
+  try {
+    if (!FUNNEL_EVENTS.has(event)) return;
+    const { userId, platform, tier, country, amountEgp } = args || {};
+
+    const ph = getClient();
+    if (!ph) return;
+
+    const distinctId = String(userId || '').trim();
+    if (!distinctId) return;
+
+    let amount;
+    if (event === 'case_paid') {
+      const n = Math.round(Number(amountEgp));
+      if (Number.isFinite(n) && n >= 0) amount = n;
+    }
+
+    ph.capture({
+      distinctId: distinctId,
+      event: event,
+      properties: sanitizeProps({
+        // platform is never absent — a funnel split on it must not silently
+        // lose rows. 'unknown' is meant to be noticed.
+        platform: normPlatform(platform),
+        tier: normTier(tier),
+        country: normCountry(country),
+        amount_egp: amount,
+      }),
+    });
+  } catch (err) {
+    try { logFatal('[analytics] captureFunnel failed', err); } catch (_) {}
+  }
+}
+
+// ── App install attribution ─────────────────────────────────────────────────
+//
+// The app reads Play's install referrer once and POSTs it to
+// /api/v1/profile/attribution. We store nothing; we capture `app_attributed`
+// and set first-touch person properties with $set_once (so a repeat can never
+// overwrite the first source). Repeats from the same user in this process are
+// ignored outright — idempotent, and it caps what a looping client can cost.
+
+const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+const attributedUsers = new Set();
+const ATTRIBUTED_CAP = 10000;
+
+/**
+ * Keep only the five utm_* keys as short printable strings.
+ * @param {object} input
+ * @returns {object}
+ */
+function sanitizeUtm(input) {
+  const out = {};
+  if (!input || typeof input !== 'object') return out;
+  for (const k of UTM_KEYS) {
+    const v = input[k];
+    if (typeof v !== 'string') continue;
+    // Printable only; control characters are nobody's campaign name.
+    const s = v.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 100);
+    if (s) out[k] = s;
+  }
+  return out;
+}
+
+/**
+ * Record where an app install came from. Fire-and-forget; never await it.
+ * @param {object} args
+ * @param {string} args.userId
+ * @param {object} args.utm   {utm_source, utm_medium, utm_campaign, utm_content, utm_term}
+ * @returns {boolean} true if an event was queued (for the route's response)
+ */
+function captureAppAttribution(args) {
+  try {
+    const { userId, utm } = args || {};
+    const distinctId = String(userId || '').trim();
+    if (!distinctId) return false;
+    const clean = sanitizeUtm(utm);
+    if (!Object.keys(clean).length) return false;
+    if (attributedUsers.has(distinctId)) return false;
+
+    const ph = getClient();
+    if (!ph) return false;
+
+    if (attributedUsers.size >= ATTRIBUTED_CAP) attributedUsers.clear();
+    attributedUsers.add(distinctId);
+
+    const firstTouch = {};
+    for (const k of Object.keys(clean)) firstTouch['first_' + k] = clean[k];
+
+    ph.capture({
+      distinctId: distinctId,
+      event: 'app_attributed',
+      properties: Object.assign(sanitizeProps(Object.assign({ platform: 'app' }, clean)), {
+        $set_once: firstTouch,
+      }),
+    });
+    return true;
+  } catch (err) {
+    try { logFatal('[analytics] captureAppAttribution failed', err); } catch (_) {}
+    return false;
+  }
+}
+
 /**
  * Flush queued events and stop the client. Called from gracefulShutdown.
  *
@@ -214,9 +390,15 @@ function analyticsStatus() {
 
 module.exports = {
   captureSignup,
+  captureFunnel,
+  captureAppAttribution,
+  platformFromOrderSource,
   shutdownAnalytics,
   analyticsStatus,
   // Exported for the unit test only.
   _sanitizeProps: sanitizeProps,
   _ALLOWED_PROPS: ALLOWED_PROPS,
+  _sanitizeUtm: sanitizeUtm,
+  _FUNNEL_EVENTS: FUNNEL_EVENTS,
+  _resetAttributionMemo: function () { attributedUsers.clear(); },
 };

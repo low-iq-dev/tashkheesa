@@ -2336,6 +2336,9 @@ async function markCasePaid(caseId) {
   // window (AUDIT-PAY-1); read after commit to tell the patient. Declared out
   // here so the post-commit block can see it.
   let urgentDeferredTo = null;
+  // App funnel 2026-09-23 — true only when THIS call moved the case to PAID
+  // (not the idempotent already-processed return). Read after commit.
+  let paidTransitionApplied = false;
 
   const result = await withTransaction(async (client) => {
     // Lock the row for the duration of this transaction — prevents concurrent double-processing.
@@ -2442,8 +2445,28 @@ async function markCasePaid(caseId) {
     // do not block payment flow
   }
 
+  paidTransitionApplied = true;
   return await getCase(caseId, client);
   }); // end withTransaction
+
+  // App funnel 2026-09-23 — PostHog `case_paid`. Post-commit (withTransaction
+  // has resolved), synchronous, never awaited, wrapped: it cannot roll back,
+  // delay or alter a confirmed payment. The one place every paid path shares.
+  // Platform comes from orders.source (see analytics.platformFromOrderSource).
+  if (paidTransitionApplied && result) {
+    try {
+      const analytics = require('./services/analytics');
+      analytics.captureFunnel('case_paid', {
+        userId: getPatientUserIdFromOrder(result),
+        platform: analytics.platformFromOrderSource(result.source),
+        tier: result.urgency_tier,
+        country: result.country,
+        amountEgp: result.price
+      });
+    } catch (err) {
+      /* analytics must never touch the payment path */
+    }
+  }
 
   // Stage 2 P0-PAY-3: unified post-payment hook. Fires AFTER the txn
   // commits so a queue-enqueue failure cannot roll back payment status;

@@ -26,6 +26,8 @@ const { getThresholds } = require('../services/admin_settings');
 const { isAllowedFileUrl } = require('../services/file_url_allowlist');
 
 const caseLifecycle = require('../case_lifecycle');
+// App funnel 2026-09-23 — fire-and-forget PostHog funnel events (never awaited).
+const { captureFunnel } = require('../services/analytics');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
 const { loadReportContentForPatient } = require('../helpers/load-report-content');
 const getStatusUi = caseLifecycle.getStatusUi || caseLifecycle;
@@ -2198,6 +2200,13 @@ router.post('/patient/new-case/step1', requireRole('patient'), async (req, res) 
       try {
         logOrderEvent({ orderId, label: 'draft_created', actorUserId: patientId, actorRole: 'patient' });
       } catch (_) {}
+      // App funnel — a NEW draft row only (the UPDATE branch is a resume).
+      try {
+        captureFunnel('case_draft_started', {
+          userId: patientId, platform: 'web',
+          country: req.user && (req.user.country_code || req.user.country)
+        });
+      } catch (_) { /* analytics never blocks a draft */ }
     }
   } catch (e) {
     logErrorToDb(e, {
@@ -2753,6 +2762,16 @@ router.post('/patient/new-case/step5', requireRole('patient'), newCaseSubmitLimi
     });
     return res.redirect('/patient/new-case?step=5&id=' + encodeURIComponent(orderId) + '&err=submit_failed');
   }
+
+  // App funnel — reached only when submitCase resolved (the catch above
+  // returns), so the row is SUBMITTED. Own try: it cannot change the redirect.
+  try {
+    captureFunnel('case_submitted', {
+      userId: patientId, platform: 'web',
+      tier: owned.urgency_tier,
+      country: req.user && (req.user.country_code || req.user.country)
+    });
+  } catch (_) { /* analytics never blocks a submission */ }
 
   const paymentMode = String(process.env.PAYMENT_MODE || 'stub').toLowerCase();
   if (paymentMode === 'live') {

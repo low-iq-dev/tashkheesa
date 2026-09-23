@@ -45,6 +45,9 @@ const { logOrderEvent } = require('../../audit');
 const { IntakeError, resolveAndPriceIntake } = require('../../services/case_intake_pricing');
 const { scheduleImageQualityChecks } = require('../../services/case_image_quality');
 const { generateReferenceId } = require('../../utils/reference');
+// App funnel 2026-09-23 — fire-and-forget PostHog funnel events. Never awaited,
+// never throws (and each call site is try-wrapped on top of that).
+const { captureFunnel } = require('../../services/analytics');
 
 router.use(require('express').json());
 
@@ -246,6 +249,11 @@ router.post('/', async (req, res) => {
           actorUserId: req.user.id, actorRole: 'patient'
         });
       } catch (_) { /* timeline is not worth failing a draft over */ }
+      // Only a NEW draft row counts as a started case — the reuse branch above
+      // is the same patient resuming, not a new funnel entry.
+      try {
+        captureFunnel('case_draft_started', { userId: req.user.id, platform: 'app', country: country });
+      } catch (_) { /* analytics never blocks a draft */ }
     }
 
     const row = await loadOwnedDraft(orderId, req.user.id);
@@ -787,6 +795,15 @@ router.post('/:id/submit', async (req, res) => {
         userId: req.user.id, orderId: draft.id, category: 'patient_case'
       });
     }
+
+    // App funnel — after the DRAFT→submitted UPDATE matched a row (rowCount
+    // checked above), so a double-tapped Submit is counted once.
+    try {
+      captureFunnel('case_submitted', {
+        userId: req.user.id, platform: 'app',
+        tier: intake.urgencyTier, country: intake.displayCountry
+      });
+    } catch (_) { /* analytics never blocks a submission */ }
 
     // Fire-and-forget AI image quality check, same worker shape as
     // POST /api/v1/cases. The HTTP response must not wait on it — the patient

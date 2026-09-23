@@ -20,6 +20,8 @@ const { isImageExtension } = require('../../ai_image_check');
 const { IntakeError, resolveAndPriceIntake } = require('../../services/case_intake_pricing');
 const { scheduleImageQualityChecks } = require('../../services/case_image_quality');
 const { generateReferenceId } = require('../../utils/reference');
+// App funnel 2026-09-23 — fire-and-forget PostHog funnel events (never awaited).
+const { captureFunnel } = require('../../services/analytics');
 // Theme 13 Sub-issue D + I: signed-URL generation for the AI image-quality
 // worker when the file was uploaded directly to R2 (instead of the legacy
 // Uploadcare CDN path). See POST /cases handler below.
@@ -464,6 +466,14 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       INSERT INTO order_timeline (id, order_id, status, description, created_at)
       VALUES ($1, $2, 'submitted', 'Case submitted with files', NOW())
     `, [randomUUID(), orderId]);
+
+    // App funnel — this route creates a case already 'submitted' (the app's
+    // pre-draft single-shot path), so it is a submission, not a draft start.
+    try {
+      captureFunnel('case_submitted', {
+        userId: req.user.id, platform: 'app', tier: urgencyTier, country: displayCountry
+      });
+    } catch (_) { /* analytics never blocks a submission */ }
 
     // Return created case
     const created = await safeGet(`
