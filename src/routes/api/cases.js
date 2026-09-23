@@ -29,6 +29,34 @@ const { getSignedDownloadUrl } = require('../../storage');
 const { ensurePaymentLinkForOrder } = require('../../services/paymob_intention');
 const { logErrorToDb } = require('../../logger');
 
+// NEW-CASE-6 — when a case was SUBMITTED, as opposed to when its row was
+// created. App cases start life as a DRAFT row (cases_draft.js), so
+// orders.created_at is the moment the wizard opened; a patient who took more
+// than ten minutes over it never saw Cancel. There is no submitted_at column;
+// both API submit paths write an order_timeline 'submitted' row at the moment
+// of submission, so that is the clock. created_at remains the fallback for a
+// case that has no such row (web-created cases, or the best-effort timeline
+// insert having failed) — i.e. the old behaviour, never a longer window.
+const SUBMITTED_AT_SQL = `COALESCE(
+          (SELECT MIN(ot.created_at) FROM order_timeline ot
+            WHERE ot.order_id = o.id AND LOWER(COALESCE(ot.status, '')) = 'submitted'),
+          o.created_at)`;
+const CANCEL_WINDOW_MINUTES = 10;
+const CANCELLABLE_STATUSES = ['submitted', 'new'];
+
+function cancellableUntilIso(status, submittedAt, now) {
+  if (!CANCELLABLE_STATUSES.includes(String(status || '').toLowerCase())) return null;
+  const at = submittedAt ? new Date(submittedAt).getTime() : NaN;
+  if (!Number.isFinite(at)) return null;
+  const until = at + CANCEL_WINDOW_MINUTES * 60 * 1000;
+  return until > (now || Date.now()) ? new Date(until).toISOString() : null;
+}
+
+// NEW-CASE-7 — the "promised by" figure only means something once the case is
+// paid; before that nothing is running, so no ticking (or red, overdue) SLA.
+const SLA_DEADLINE_SQL = `CASE WHEN LOWER(COALESCE(o.payment_status, '')) = 'paid'
+          THEN COALESCE(o.deadline_at, o.sla_deadline) END`;
+
 module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
   // ─── GET /cases ──────────────────────────────────────────
@@ -46,7 +74,12 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     const statusFilter = req.query.status;
 
     let paramIndex = 1;
-    let whereClause = `WHERE o.patient_id = $${paramIndex++} AND o.deleted_at IS NULL`;
+    // NEW-CASE-5 — a DRAFT is not a case yet. It rendered as a blank "Draft"
+    // card in All and Active that could not be resumed from there (the wizard
+    // resumes drafts through /cases/draft). Excluded from the list AND the
+    // count, which share this clause.
+    let whereClause = `WHERE o.patient_id = $${paramIndex++} AND o.deleted_at IS NULL
+      AND UPPER(COALESCE(o.status, '')) <> 'DRAFT'`;
     const params = [patientId];
 
     // AUDIT-P1-3: these were case-SENSITIVE comparisons against lowercase
@@ -55,7 +88,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     // filter therefore matched zero rows for any case created through the web
     // wizard: the app showed an empty list for both Active and Completed.
     if (statusFilter === 'active') {
-      whereClause += " AND LOWER(COALESCE(o.status, '')) IN ('draft','submitted','new','paid','assigned','accepted','in_review','rejected_files','sla_breach','reassigned')";
+      whereClause += " AND LOWER(COALESCE(o.status, '')) IN ('submitted','new','paid','assigned','accepted','in_review','rejected_files','sla_breach','reassigned')";
     } else if (statusFilter === 'completed') {
       whereClause += " AND LOWER(COALESCE(o.status, '')) IN ('completed','done','delivered','report_ready','finalized')";
     } else if (statusFilter === 'cancelled') {
@@ -74,7 +107,8 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         -- AUDIT-APP-H3: deadline_at is NULL by design until a doctor accepts, so
         -- the app's SLA countdown showed nothing for the whole pre-acceptance
         -- window — exactly when the patient is watching the clock they paid for.
-        COALESCE(o.deadline_at, o.sla_deadline) as "slaDeadline",
+        -- NEW-CASE-7: and null until the case is PAID (SLA_DEADLINE_SQL).
+        ${SLA_DEADLINE_SQL} as "slaDeadline",
         o.deadline_at as "acceptedDeadline",
         -- AUDIT-APP-M1: return the tier and hours instead of making the app
         -- infer them from (deadline - created), which includes the whole
@@ -82,7 +116,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         o.sla_hours as "slaHours", o.urgency_tier as "urgencyTier",
         o.created_at as "createdAt",
         o.completed_at as "completedAt",
-        s.name as "serviceName", sp.name as "specialtyName",
+        s.name as "serviceName", s.name_ar as "serviceNameAr", sp.name as "specialtyName",
         s.specialty_id as "specialtyId",
         d.name as "doctorName",
         dspec.name as "doctorSpecialty"
@@ -120,12 +154,13 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         o.doctor_id as "doctorId", o.service_id as "serviceId",
         o.status, o.clinical_question as "clinicalQuestion",
         o.price, o.base_price as "basePrice", o.urgency_uplift_amount as "urgencyUplift", o.currency,
-        COALESCE(o.deadline_at, o.sla_deadline) as "slaDeadline",
+        ${SLA_DEADLINE_SQL} as "slaDeadline",
+        ${SUBMITTED_AT_SQL} as "submittedAt",
         o.deadline_at as "acceptedDeadline",
         o.sla_hours as "slaHours", o.urgency_tier as "urgencyTier",
         o.created_at as "createdAt",
         o.completed_at as "completedAt", o.urgency_flag as "urgent",
-        s.name as "serviceName", sp.name as "specialtyName",
+        s.name as "serviceName", s.name_ar as "serviceNameAr", sp.name as "specialtyName",
         s.specialty_id as "specialtyId",
         d.name as "doctorName"
       FROM orders_active o
@@ -194,6 +229,11 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     caseData.reviewRating = review ? review.rating : null;
 
     caseData.paymentStatus = payment?.status || 'pending';
+
+    // NEW-CASE-6 — the server says until when Cancel is offered, counted from
+    // SUBMISSION (see SUBMITTED_AT_SQL), so the app never re-derives the rule
+    // from a timestamp that means something else. null = not cancellable now.
+    caseData.cancellableUntil = cancellableUntilIso(caseData.status, caseData.submittedAt);
     caseData.paymentLink = payment?.paymentLink || null;
     caseData.timeline = timeline;
     caseData.files = files;
@@ -455,7 +495,8 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
   router.post('/:id/cancel', async (req, res) => {
     const caseData = await safeGet(
-      'SELECT * FROM orders_active WHERE id = $1 AND patient_id = $2',
+      `SELECT o.*, ${SUBMITTED_AT_SQL} AS submitted_at_resolved
+         FROM orders_active o WHERE o.id = $1 AND o.patient_id = $2`,
       [req.params.id, req.user.id]
     );
 
@@ -463,12 +504,13 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       return res.fail('Case not found', 404, 'CASE_NOT_FOUND');
     }
 
-    // Allow cancellation only within 10 minutes of creation
-    const createdAt = new Date(caseData.created_at);
+    // Allow cancellation only within 10 minutes of SUBMISSION (NEW-CASE-6 —
+    // this counted from row creation, i.e. from when the draft was started).
+    const submittedAt = new Date(caseData.submitted_at_resolved || caseData.created_at);
     const now = new Date();
-    const minutesSinceCreation = (now - createdAt) / (1000 * 60);
+    const minutesSinceSubmission = (now - submittedAt) / (1000 * 60);
 
-    if (minutesSinceCreation > 10) {
+    if (minutesSinceSubmission > CANCEL_WINDOW_MINUTES) {
       return res.fail('Cancellation window has expired. Cases can only be cancelled within 10 minutes of submission.', 400, 'CANCEL_WINDOW_EXPIRED');
     }
 
@@ -551,6 +593,58 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     }
 
     return res.ok(payment || { status: 'pending' });
+  });
+
+  // ─── GET /cases/:id/files/:fileId/url ────────────────────
+  // A-2 (2026-09-23) — the patient could not open ANY file uploaded since the
+  // R2 migration: case detail gives R2 rows cdnUrl=null, and its `url` is the
+  // cookie-authenticated web path /files/:id, which a Bearer-token app cannot
+  // follow. This hands the app something it can open directly.
+  //
+  //   200 { url, expiresAt, mimeType, filename }
+  //       R2 key          → 1-hour signed URL, expiresAt = ISO
+  //       legacy Uploadcare / stored http URL → that URL, expiresAt = null
+  //   404 FILE_NOT_FOUND  unknown file, someone else's case, or a stored URL
+  //                       on a host the file allowlist refuses
+  //
+  // The signed URL carries no Content-Disposition, so an image or PDF renders
+  // in place instead of being forced to download.
+  router.get('/:id/files/:fileId/url', async (req, res) => {
+    const row = await safeGet(`
+      SELECT f.id, f.url, f.uploadcare_uuid, f.filename, f.label, f.mime_type
+        FROM order_files f
+        JOIN orders_active o ON o.id = f.order_id
+       WHERE f.id = $1 AND f.order_id = $2 AND o.patient_id = $3
+    `, [req.params.fileId, req.params.id, req.user.id]);
+    if (!row) return res.fail('File not found', 404, 'FILE_NOT_FOUND');
+
+    res.set('Cache-Control', 'no-store, private');
+    const filename = row.label || row.filename || null;
+    const mimeType = row.mime_type || null;
+    const stored = String(row.url || '').trim();
+
+    if (stored && /^https?:\/\//i.test(stored)) {
+      // Same sink-side allowlist the web /files/:id redirect applies.
+      const { isAllowedFileUrl } = require('../../services/file_url_allowlist');
+      if (!isAllowedFileUrl(stored)) return res.fail('File not found', 404, 'FILE_NOT_FOUND');
+      return res.ok({ url: stored, expiresAt: null, mimeType, filename });
+    }
+    if (!stored) {
+      const uuid = String(row.uploadcare_uuid || '').trim();
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid)) {
+        return res.ok({ url: `https://ucarecdn.com/${uuid}/`, expiresAt: null, mimeType, filename });
+      }
+      return res.fail('File not found', 404, 'FILE_NOT_FOUND');
+    }
+
+    const TTL = 3600;
+    try {
+      const url = await getSignedDownloadUrl(stored, TTL);
+      return res.ok({ url, expiresAt: new Date(Date.now() + TTL * 1000).toISOString(), mimeType, filename });
+    } catch (err) {
+      logErrorToDb(err, { context: 'mobile_file_sign', orderId: req.params.id, fileId: row.id });
+      return res.fail('Could not open this file right now. Please try again.', 500, 'FILE_SIGN_ERROR');
+    }
   });
 
   // ─── GET /cases/:id/report ───────────────────────────────
