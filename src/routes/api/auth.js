@@ -338,7 +338,23 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
         return res.fail(errors.array()[0].msg, 422, 'VALIDATION_ERROR');
       }
       const { phone, countryCode } = req.body;
-      const fullPhone = `${countryCode}${phone}`.replace(/\s/g, '');
+      // AUDIT-AUTH-3 (2026-09-23) — normalise BEFORE delivery and storage.
+      //
+      // This was `${countryCode}${phone}` raw concatenation. A patient who
+      // typed the ordinary Egyptian '01012345678' got their code "sent" to
+      // '+2001012345678', and the delete-account screen (which sends the
+      // stored '+2010…' plus countryCode '+20') produced '+20+2010…'. Twilio
+      // refused both and the route still answered 200. /otp/verify already
+      // resolved identity through normalizePhone; the send and the check now
+      // agree with it, and with the web door (routes/auth.js parseOtpPhone):
+      // `phone` may be local with or without the trunk 0, or full E.164.
+      //
+      // The per-phone limiter key (otpPhoneScope) is deliberately unchanged.
+      const phoneCheck = normalizePhone(phone, countryCode, 'en');
+      if (!phoneCheck.ok) {
+        return res.fail(phoneCheck.error, 422, 'PHONE_INVALID');
+      }
+      const fullPhone = phoneCheck.normalized;
 
       // Generate 6-digit OTP — crypto.randomInt is uniformly distributed and
       // cryptographically secure (P1-AUTH-2). Math.random is not safe for
@@ -371,10 +387,24 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
         }
       } catch (err) {
         console.error('[otp] Failed to send:', err.message);
-        // Still return success — in dev, check DB for the code
+        sendResult = { ok: false, error: err && err.message };
       }
 
-      const wasStub = !sendOtpViaTwilio || (sendResult && sendResult.stub);
+      // AUDIT-AUTH-3 — be honest about delivery. sendOtpViaTwilio never
+      // throws; a Twilio refusal comes back as { ok:false }, and this route
+      // used to answer 200 "OTP sent" regardless, so the patient waited for a
+      // code that was never coming and burned the 3-per-15-min send cap doing
+      // it. A stub (no Verify credentials) is only acceptable off production,
+      // where the local otp_codes row is the dev delivery channel.
+      const wasStub = !sendOtpViaTwilio || !!(sendResult && sendResult.stub);
+      const sendFailed = (sendResult && sendResult.ok === false)
+        || (wasStub && process.env.NODE_ENV === 'production');
+      if (sendFailed) {
+        return res.fail(
+          'We could not send a code to this number. Please check it and try again.',
+          502, 'OTP_SEND_FAILED'
+        );
+      }
       return res.ok({
         message: wasStub
           ? 'OTP generated. SMS delivery is not configured in this environment — contact support or check the otp_codes table in dev.'
@@ -400,44 +430,12 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       }
 
       const { phone, countryCode, otp } = req.body;
+      // The raw spelling is kept ONLY as the legacy-row lookup hint for
+      // findUserByPhone below. Delivery, the code check and storage all use
+      // the normalised number (AUDIT-AUTH-3) — the same string /otp/request
+      // sent the code to, so the check asks Twilio about the right number.
       const fullPhone = `${countryCode}${phone}`.replace(/\s/g, '');
 
-      // Primary: Twilio Verify (when configured)
-      const useTwilioVerify = !!(process.env.TWILIO_VERIFY_SERVICE_SID && process.env.TWILIO_ACCOUNT_SID);
-      let codeValid = false;
-
-      if (useTwilioVerify) {
-        const result = await verifyOtpCode(fullPhone, otp);
-        codeValid = result.valid;
-      }
-
-      // Fallback: check otp_codes table (dev mode, or if Twilio Verify not configured)
-      if (!codeValid) {
-        const record = await safeGet(
-          'SELECT * FROM otp_codes WHERE phone = $1 AND code = $2 AND expires_at > NOW()',
-          [fullPhone, otp]
-        );
-        if (record) {
-          codeValid = true;
-          await safeRun('DELETE FROM otp_codes WHERE phone = $1', [fullPhone]);
-        }
-      }
-
-      if (!codeValid) {
-        return res.fail('Invalid or expired OTP.', 401, 'INVALID_OTP');
-      }
-
-      // Clean up otp_codes regardless (Twilio Verify manages its own state)
-      if (useTwilioVerify) {
-        await safeRun('DELETE FROM otp_codes WHERE phone = $1', [fullPhone]);
-      }
-
-      // P0-FORM-1: validate + normalize fullPhone before lookup/insert.
-      // Bug fix: previous code looked up + stored bare `phone` (without
-      // country code), which is one of the sources of the truncated
-      // (e.g. "+2010") rows we audited yesterday. Look up + store
-      // `fullPhone` post-normalization so every patient row is E.164.
-      const { validatePhoneE164 } = require('../../validators/phone');
       // AUDIT 2026-08-25 — country-aware normalisation.
       //
       // This concatenated the dial code onto whatever the user typed and ran a
@@ -449,13 +447,46 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       //
       // normalizePhone knows the dial code is a COUNTRY, not a prefix to glue
       // on, so it drops the trunk digit and rebuilds the number correctly.
+      // (Moved ahead of the code check in AUDIT-AUTH-3: an unparseable number
+      // was never sent a code, so there is nothing to check it against.)
       const phoneCheck = normalizePhone(phone, countryCode, 'en');
       if (!phoneCheck.ok) {
-        // OTP succeeded but the format is bad — defense in depth, near-zero
-        // in practice (an OTP wouldn't have arrived for an unparseable number).
         return res.fail(phoneCheck.error, 422, 'PHONE_INVALID');
       }
       const normalizedPhone = phoneCheck.normalized;
+
+      // Primary: Twilio Verify (when configured)
+      const useTwilioVerify = !!(process.env.TWILIO_VERIFY_SERVICE_SID && process.env.TWILIO_ACCOUNT_SID);
+      let codeValid = false;
+
+      if (useTwilioVerify) {
+        const result = await verifyOtpCode(normalizedPhone, otp);
+        codeValid = result.valid;
+      }
+
+      // Fallback: check otp_codes table (dev mode, or if Twilio Verify not configured)
+      if (!codeValid) {
+        const record = await safeGet(
+          'SELECT * FROM otp_codes WHERE phone = $1 AND code = $2 AND expires_at > NOW()',
+          [normalizedPhone, otp]
+        );
+        if (record) {
+          codeValid = true;
+          await safeRun('DELETE FROM otp_codes WHERE phone = $1', [normalizedPhone]);
+        }
+      }
+
+      if (!codeValid) {
+        return res.fail('Invalid or expired OTP.', 401, 'INVALID_OTP');
+      }
+
+      // Clean up otp_codes regardless (Twilio Verify manages its own state)
+      if (useTwilioVerify) {
+        await safeRun('DELETE FROM otp_codes WHERE phone = $1', [normalizedPhone]);
+      }
+
+      // P0-FORM-1: every patient row is E.164 — lookup and insert below use
+      // `normalizedPhone`, computed above before the code check.
 
       // Find-or-use-existing. The ON CONFLICT DO NOTHING + re-SELECT by phone is
       // race/constraint-safe under the users(phone) WHERE phone IS NOT NULL

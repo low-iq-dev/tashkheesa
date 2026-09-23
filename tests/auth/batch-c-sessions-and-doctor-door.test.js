@@ -286,6 +286,9 @@ function seedDoctor(over = {}) {
   return u;
 }
 
+// AUDIT-AUTH-3 (2026-09-23): the PATIENT door now stores and checks codes
+// under the NORMALISED number ('+20' + '0100…' → '+20100…'), so patient-door
+// seeds use that spelling. The doctor door still keys on the raw concatenation.
 function seedOtp(phone, code) {
   state.otps.push({ phone, code, expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString() });
 }
@@ -306,10 +309,10 @@ async function check(name, fn) {
   await check('C1: OTP sign-in on device A then device B — two LIVE session rows, distinct refresh tokens', async () => {
     resetState();
     seedPatient();
-    seedOtp('+2001003225382', '111111');
+    seedOtp('+201003225382', '111111');
     const a = await post('/auth/otp/verify', { phone: '01003225382', countryCode: '+20', otp: '111111', deviceId: 'phone-A' });
     assert.strictEqual(a.status, 200, JSON.stringify(a.body));
-    seedOtp('+2001003225382', '222222');
+    seedOtp('+201003225382', '222222');
     const b = await post('/auth/otp/verify', { phone: '01003225382', countryCode: '+20', otp: '222222', deviceId: 'phone-B' });
     assert.strictEqual(b.status, 200, JSON.stringify(b.body));
     assert.notStrictEqual(a.body.data.refreshToken, b.body.data.refreshToken);
@@ -413,7 +416,7 @@ async function check(name, fn) {
   await check('C1 (spec S4): sid logout of the LAST live session clears the push mirror (H6 — push must not follow a signed-out device)', async () => {
     resetState();
     const u = seedPatient({ id: 'pat-s4', push_token: 'ExponentPushToken[mirror-only]', phone: '+201003225401' });
-    seedOtp('+2001003225401', '131313');
+    seedOtp('+201003225401', '131313');
     const a = await post('/auth/otp/verify', { phone: '01003225401', countryCode: '+20', otp: '131313', deviceId: 'only-phone' });
     assert.strictEqual(a.status, 200, JSON.stringify(a.body));
     const out = await post('/auth/logout', null, { Authorization: 'Bearer ' + a.body.data.accessToken });
@@ -428,7 +431,7 @@ async function check(name, fn) {
     const tA = generateTokens(u); // device A, pre-C1: push in the mirror, legacy session live
     u.refresh_token = tA.refreshToken;
     state.sessions.push({ id: 'sess-legacy-pat-s4b', user_id: 'pat-s4b', refresh_token: tA.refreshToken, push_token: null, client: 'legacy', device_id: 'legacy', revoked_at: null });
-    seedOtp('+2001003225402', '141414');
+    seedOtp('+201003225402', '141414');
     const b = await post('/auth/otp/verify', { phone: '01003225402', countryCode: '+20', otp: '141414', deviceId: 'phone-B' });
     assert.strictEqual(b.status, 200, JSON.stringify(b.body));
     const out = await post('/auth/logout', null, { Authorization: 'Bearer ' + b.body.data.accessToken });
@@ -532,7 +535,7 @@ async function check(name, fn) {
   await check('C2: the PATIENT door refuses a doctor\'s phone with DOCTOR_LOGIN_REQUIRED (and creates nothing)', async () => {
     resetState();
     seedDoctor();
-    seedOtp('+2001007801095', '999999');
+    seedOtp('+201007801095', '999999');
     const r = await post('/auth/otp/verify', { phone: '01007801095', countryCode: '+20', otp: '999999' });
     assert.strictEqual(r.status, 403, JSON.stringify(r.body));
     assert.strictEqual(r.body.code, 'DOCTOR_LOGIN_REQUIRED');
@@ -541,7 +544,7 @@ async function check(name, fn) {
 
   await check('C2 control: the patient door still auto-creates a PATIENT for an unknown phone (unchanged for patients)', async () => {
     resetState();
-    seedOtp('+2001555666777', '121212');
+    seedOtp('+201555666777', '121212');
     const r = await post('/auth/otp/verify', { phone: '01555666777', countryCode: '+20', otp: '121212' });
     assert.strictEqual(r.status, 200, JSON.stringify(r.body));
     assert.strictEqual(state.userInserts, 1);
