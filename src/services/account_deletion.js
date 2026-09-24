@@ -124,6 +124,13 @@ const OPTIONAL_USER_TABLES = [
   // erasure erases. Optional-listed so environments that predate 110 still
   // delete cleanly.
   { table: 'user_sessions', column: 'user_id' },
+  // Migration 116 — InstaPay/bank transfer claims. They hold the reference the
+  // patient typed and the sender name on their bank account, so they are the
+  // patient's to erase. A CONFIRMED claim's money evidence already lives on
+  // the order row (payment_method / payment_reference, written by mark-paid),
+  // which is kept and anonymised like every other order. Optional-listed so
+  // environments that predate 116 still delete cleanly.
+  { table: 'payment_claims', column: 'patient_id' },
 ];
 
 class AccountDeletionError extends Error {
