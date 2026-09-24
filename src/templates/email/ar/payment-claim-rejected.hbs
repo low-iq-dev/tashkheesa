@@ -1,0 +1,36 @@
+<!-- Payment Claim Rejected — EG-AR (manual payment path, migration 116) -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#0B6B5F;direction:rtl;text-align:right;">
+  لم نتمكن من مطابقة تحويلك
+</h2>
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4A4640;direction:rtl;text-align:right;">
+  أهلاً {{patientName}},
+</p>
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4A4640;direction:rtl;text-align:right;">
+  راجعنا حسابنا بحثًا عن التحويل الذي أخبرتنا به، ولم نتمكن من مطابقته مع حالتك. حالتك محفوظة ولا تزال بانتظار الدفع — لم يُخصم أو يضيع أي شيء من جهتنا.
+</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#fff8f0;border-radius:8px;border:1px solid #f0d2b0;direction:rtl;">
+  <tr>
+    <td style="padding:20px 24px;text-align:right;">
+      {{#if transferReference}}
+      <p style="margin:0 0 12px 0;font-size:14px;color:#4A4640;">المرجع الذي أرسلته: {{transferReference}}</p>
+      {{/if}}
+      <p style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#7a4a1a;letter-spacing:0.5px;">السبب</p>
+      <p style="margin:0;font-size:15px;line-height:1.6;color:#4A4640;">{{rejectionReason}}</p>
+      {{#if caseReference}}
+      <p style="margin:12px 0 0 0;font-size:13px;color:#7A736A;">رقم الحالة: {{caseReference}}</p>
+      {{/if}}
+    </td>
+  </tr>
+</table>
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4A4640;direction:rtl;text-align:right;">
+  من فضلك راجع المبلغ ومرجع التحويل، ثم أرسلهما مرة أخرى من صفحة الدفع. لو شايف إن في خطأ، رد على الإيميل ده وهنراجع تاني.
+</p>
+{{#if caseUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+  <tr>
+    <td align="center" style="background-color:#0B6B5F;border-radius:8px;">
+      <a href="{{caseUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">افتح صفحة الدفع</a>
+    </td>
+  </tr>
+</table>
+{{/if}}

@@ -48,6 +48,11 @@ const TEMPLATES = Object.freeze({
   // than reusing patient_refund_requested ("You've submitted a refund
   // request" — which would mislead the patient about who initiated).
   PATIENT_REFUND_OPENED_BY_OPERATOR:  'patient_refund_opened_by_operator',
+
+  // Manual payment path (migration 116). Admin alert is internal-only (the
+  // superadmin queue + Command push); the patient rejection is internal+email.
+  ADMIN_PAYMENT_CLAIM_RECEIVED:       'admin_payment_claim_received',
+  PAYMENT_CLAIM_REJECTED_PATIENT:     'payment_claim_rejected_patient',
 });
 
 module.exports = { TEMPLATES };

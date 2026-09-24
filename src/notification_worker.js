@@ -155,6 +155,11 @@ const TEMPLATE_TO_EMAIL = {
   patient_refund_approved:  'patient-refund-approved',
   patient_refund_denied:    'patient-refund-denied',
   patient_refund_paid:      'patient-refund-paid',
+  // Manual payment path (migration 116) — a superadmin could not match the
+  // patient's InstaPay/bank transfer. The admin alert
+  // (admin_payment_claim_received) is intentionally NOT mapped: superadmins
+  // work transfer claims from the in-app queue, like refund triage.
+  payment_claim_rejected_patient: 'payment-claim-rejected',
   // Side issue #44 — operator-initiated refund: patient notification.
   patient_refund_opened_by_operator: 'patient-refund-opened-by-operator',
   appointment_cancelled: 'appointment-cancelled',

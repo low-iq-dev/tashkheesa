@@ -116,6 +116,10 @@ const TEMPLATE_TITLES = {
   patient_refund_denied:              { en: 'Refund request reviewed',         ar: 'تمت مراجعة طلب استرداد المبلغ' },
   patient_refund_paid:                { en: 'Refund sent via Instapay',        ar: 'تم تحويل المبلغ عبر الإنستاباي' },
 
+  // Manual payment path (migration 116) — InstaPay / bank transfer claims.
+  admin_payment_claim_received:       { en: 'Transfer to verify: {caseReference}', ar: 'تحويل بانتظار التحقق: {caseReference}' },
+  payment_claim_rejected_patient:     { en: 'We could not match your transfer', ar: 'لم نتمكن من مطابقة تحويلك' },
+
   // WhatsApp-via-OpenClaw rollout — case cancellation queue-ified.
   case_cancelled_patient: { en: 'Case cancelled', ar: 'تم إلغاء الحالة' },
 

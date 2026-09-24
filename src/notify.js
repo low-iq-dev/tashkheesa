@@ -688,6 +688,23 @@ function renderNotificationMessage(template, payload, lang) {
         ? `We have received your refund request for ${money}. We will review it and come back to you.`
         : 'We have received your refund request. We will review it and come back to you.';
 
+    // ── Manual payment path (migration 116). ──
+    case 'admin_payment_claim_received': {
+      const how = p.method === 'bank' ? 'bank transfer' : 'InstaPay';
+      const howAr = p.method === 'bank' ? 'تحويل بنكي' : 'إنستاباي';
+      const tref = p.transferReference ? String(p.transferReference) : null;
+      if (isAr) return `المريض يقول إنه دفع ${money ? money + ' ' : ''}عبر ${howAr} على ${arCaseN || 'الحالة'}${tref ? ` (مرجع ${tref})` : ''}. راجِع كشف الحساب ثم أكّد الدفع أو ارفضه.`;
+      return `Patient says they paid ${money ? money + ' ' : ''}by ${how} on ${caseLabel || 'a case'}${tref ? ` (ref ${tref})` : ''}. Check the statement, then mark paid or reject.`;
+    }
+
+    case 'payment_claim_rejected_patient':
+      if (isAr) return reason
+        ? `لم نتمكن من مطابقة تحويلك ل${arCase || 'حالتك'}. السبب: ${reason}. حالتك لا تزال بانتظار الدفع — راجع التفاصيل وأرسل المرجع مرة أخرى.`
+        : `لم نتمكن من مطابقة تحويلك ل${arCase || 'حالتك'}. حالتك لا تزال بانتظار الدفع — راجع التفاصيل وأرسل المرجع مرة أخرى.`;
+      return reason
+        ? `We could not match your transfer for ${ref ? 'case ' + ref : 'your case'}. Reason: ${reason}. Your case is still awaiting payment — check the details and send the reference again.`
+        : `We could not match your transfer for ${ref ? 'case ' + ref : 'your case'}. Your case is still awaiting payment — check the details and send the reference again.`;
+
     case 'patient_refund_opened_by_operator':
       if (isAr) return 'فتحنا طلب استرداد نيابة عنك. سنوافيك بالتحديثات.';
       return 'We have opened a refund on your behalf. We will keep you updated.';

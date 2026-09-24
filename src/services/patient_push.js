@@ -54,6 +54,7 @@ const PUSH_TEMPLATES = Object.freeze({
   payment_success_patient:           { screen: 'case-detail' },
   payment_marked_paid_patient:       { screen: 'case-detail' },
   payment_failed_patient:            { screen: 'payment' },
+  payment_claim_rejected_patient:    { screen: 'payment' },
   patient_refund_approved:           { screen: 'case-detail' },
   patient_refund_denied:             { screen: 'case-detail' },
   patient_refund_paid:               { screen: 'case-detail' },
