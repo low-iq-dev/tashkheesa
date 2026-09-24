@@ -1604,6 +1604,16 @@ router.get('/dashboard', requireRole('patient'), async (req, res) => {
     && (!activeOrder.doctor_id)
     && String(activeOrder.status || '').toUpperCase() === 'PAID');
 
+  // "Starting at" on the empty-state fact strip. It was hardcoded EGP 1,200
+  // while the cheapest bookable service is 1,600 — a price floor nobody can
+  // buy at. Same source as the homepage priceRange (5-minute cache, last-good
+  // value / production fallback on a DB blip), so the two can never disagree.
+  let startingPriceEgp = null;
+  try {
+    const cat = await require('../services/site_stats').getCatalogueStats();
+    startingPriceEgp = Number(cat && cat.minPrice) || null;
+  } catch (_) { /* the view omits the figure rather than invent one */ }
+
   res.render('patient_dashboard', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
@@ -1614,7 +1624,8 @@ router.get('/dashboard', requireRole('patient'), async (req, res) => {
     reportReadyOrder,
     draftOrder,
     activeUnreadMessages,
-    isLimbo
+    isLimbo,
+    startingPriceEgp
   });
 });
 

@@ -460,12 +460,22 @@
   </div>
 
   <div class="p-card" style="margin-top:14px;padding:18px 22px;display:flex;gap:18px;align-items:center;background:#FBF9F4;flex-wrap:wrap;">
+    <%
+      // Live catalogue floor from routes/patient.js (services/site_stats.js,
+      // bookable services only). Never a hardcoded figure — it drifted to
+      // a figure below anything bookable (the floor is 1,600).
+      const __startingPrice = (typeof startingPriceEgp === 'number' && startingPriceEgp > 0)
+        // Western digits + "EGP" in both languages — the formatMoney policy
+        // (utils/formatNumber.js, OQ-2).
+        ? ('EGP ' + startingPriceEgp.toLocaleString('en-US'))
+        : null;
+    %>
     <% [
       { k: tt('Turnaround', 'Turnaround', 'مدة التسليم'),     v: tt('48h standard · 4h urgent', '48h standard · 4h urgent', '48 ساعة قياسي · 4 ساعات عاجل'),  brass: false },
-      { k: tt('Starting at', 'Starting at', 'يبدأ من'),        v: 'EGP 1,200',                                  brass: true  },
+      __startingPrice ? { k: tt('Starting at', 'Starting at', 'يبدأ من'), v: __startingPrice, brass: true } : null,
       { k: tt('Languages', 'Languages', 'اللغات'),           v: tt('Arabic · English', 'Arabic · English', 'العربية · الإنجليزية'), brass: false },
       { k: tt('Partner hospital', 'Partner hospital', 'مستشفى شريك'), v: tt('Shifa Hospital Group · Tagammo & Sherouk branches', 'Shifa Hospital Group · Tagammo & Sherouk branches', 'مجموعة مستشفيات شفا · فرعا التجمع والشروق'), brass: false }
-    ].forEach(function(t) { %>
+    ].filter(Boolean).forEach(function(t) { %>
       <div>
         <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;"><%= t.k %></div>
         <div class="p-num" style="font-size:16px;font-weight:600;margin-top:2px;<%= t.brass ? 'color:var(--accent-dark);' : '' %>"><%= t.v %></div>
