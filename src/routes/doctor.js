@@ -3123,6 +3123,12 @@ const canAccept =
   // services/doctor_case_access.PRE_ACCEPT_ORDER_FIELDS, and is built into
   // viewOrder above.
   const preAcceptFiles = showFullCase ? files : redactPreAcceptFiles(files);
+  // The report boxes are named in the language of the department doing the
+  // work — see services/report_labels.js. Keyed off the ORDER's specialty,
+  // not the doctor's profile, so a case always reads in the dialect of the
+  // work it actually is.
+  const reportLabels = require('../services/report_labels')
+    .reportLabelsFor(order && order.specialty_id);
   const clinicalQuestion =
     (order && (order.clinical_question || order.primary_concern || order.concern)) || '';
   const clinicalContext = !showFullCase
@@ -3179,6 +3185,7 @@ const canAccept =
     // medicalHistory and medications exist post-accept alone, so there is
     // still nothing to blank and nothing for a template edit to leak.
     clinicalContext,
+    reportLabels,
     // The doctor's own money for this case (base + uplift share), never the
     // patient's price. null when it could not be computed.
     feeBreakdown,

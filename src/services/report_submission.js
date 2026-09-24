@@ -553,6 +553,9 @@ async function submitDoctorReport({
       caseId: orderId,
       doctorName: doctor.name || '',
       specialty: specialty.name || '',
+      // Names the PDF's three sections to match the boxes the doctor actually
+      // filled in — see services/report_labels.js.
+      specialtyId: (doctor && doctor.specialty_id) || (order && order.specialty_id) || null,
       createdAt: order.created_at,
       // AUDIT-2026-08-22 (L2): the diagnosis_text fallback is the doctor's
       // own saved draft — never orders.notes (patient-written intake text).

@@ -18,6 +18,14 @@
   var _orderIdEnc = (_order && _order.id) ? encodeURIComponent(String(_order.id)) : '';
   var _errMsg = (typeof errorMessage !== 'undefined' && errorMessage) ? String(errorMessage) : '';
   var _ctx = (typeof clinicalContext !== 'undefined' && clinicalContext) ? clinicalContext : {};
+  // Department-specific names for the three report boxes (services/report_labels.js).
+  // The fallback repeats the imaging wording so a render without the payload
+  // still produces the labels this form has always had.
+  var _rl = (typeof reportLabels !== 'undefined' && reportLabels) ? reportLabels : {
+    findings:       { en: 'Findings', ar: 'النتائج', hintEn: 'Describe what you see. Measurements, locations, comparisons with priors.', hintAr: 'صف ما تراه. القياسات، المواقع، والمقارنة بالفحوص السابقة.' },
+    impression:     { en: 'Impression', ar: 'الانطباع', hintEn: 'Your clinical interpretation. One or two sentences.', hintAr: 'تفسيرك السريري. جملة أو جملتان.' },
+    recommendation: { en: 'Recommendation to patient', ar: 'التوصية للمريض', hintEn: 'Calm, specific, actionable. Avoid jargon — the patient reads this directly.', hintAr: 'هادئة، محددة، قابلة للتنفيذ. تجنّب المصطلحات — المريض يقرأها مباشرة.' }
+  };
   var _routing = (typeof routingFacts !== 'undefined' && routingFacts) ? routingFacts : null;
   var _rx = (typeof prescriptionAddon !== 'undefined' && prescriptionAddon) ? prescriptionAddon : null;
   var _rxUrl = (typeof prescriptionRequestUrl !== 'undefined' && prescriptionRequestUrl) ? String(prescriptionRequestUrl) : '';
@@ -738,30 +746,30 @@
           <div class="v2-card__body" style="display:flex;flex-direction:column;gap:14px;">
             <div class="v2-field">
               <div class="v2-field__labelrow">
-                <label class="v2-field__label" for="rep-diag"><%= tt('Findings', 'Findings', 'النتائج') %><span class="v2-field__req"><%= tt('required', 'required', 'مطلوب') %></span></label>
+                <label class="v2-field__label" for="rep-diag"><%= tt(_rl.findings.en, _rl.findings.en, _rl.findings.ar) %><span class="v2-field__req"><%= tt('required', 'required', 'مطلوب') %></span></label>
                 <span class="v2-field__count" data-wc-for="rep-diag" data-numeric><%= _wc(_exDiag) %> <%= tt('words', 'words', 'كلمة') %></span>
               </div>
               <%# AUDIT-2026-08-22 (L2): aria-required, NOT the `required`
                   attribute — the same form's "Save draft" button must keep
                   accepting a partial report, and `required` would block it. %>
               <textarea class="v2-field__textarea" id="rep-diag" name="diagnosis" rows="6" aria-required="true"><%= _exDiag %></textarea>
-              <div class="v2-field__hint"><%= tt('Describe what you see. Measurements, locations, comparisons with priors.', 'Describe what you see. Measurements, locations, comparisons with priors.', 'صف ما تراه. القياسات، المواقع، والمقارنة بالفحوص السابقة.') %></div>
+              <div class="v2-field__hint"><%= tt(_rl.findings.hintEn, _rl.findings.hintEn, _rl.findings.hintAr) %></div>
             </div>
             <div class="v2-field">
               <div class="v2-field__labelrow">
-                <label class="v2-field__label" for="rep-impr"><%= tt('Impression', 'Impression', 'الانطباع') %><span class="v2-field__req"><%= tt('required', 'required', 'مطلوب') %></span></label>
+                <label class="v2-field__label" for="rep-impr"><%= tt(_rl.impression.en, _rl.impression.en, _rl.impression.ar) %><span class="v2-field__req"><%= tt('required', 'required', 'مطلوب') %></span></label>
                 <span class="v2-field__count" data-wc-for="rep-impr" data-numeric><%= _wc(_exImpr) %> <%= tt('words', 'words', 'كلمة') %></span>
               </div>
               <textarea class="v2-field__textarea" id="rep-impr" name="impression" rows="4" aria-required="true"><%= _exImpr %></textarea>
-              <div class="v2-field__hint"><%= tt('Your clinical interpretation. One or two sentences.', 'Your clinical interpretation. One or two sentences.', 'تفسيرك السريري. جملة أو جملتان.') %></div>
+              <div class="v2-field__hint"><%= tt(_rl.impression.hintEn, _rl.impression.hintEn, _rl.impression.hintAr) %></div>
             </div>
             <div class="v2-field">
               <div class="v2-field__labelrow">
-                <label class="v2-field__label" for="rep-rec"><%= tt('Recommendation to patient', 'Recommendation to patient', 'التوصية للمريض') %><span class="v2-field__req"><%= tt('required', 'required', 'مطلوب') %></span></label>
+                <label class="v2-field__label" for="rep-rec"><%= tt(_rl.recommendation.en, _rl.recommendation.en, _rl.recommendation.ar) %><span class="v2-field__req"><%= tt('required', 'required', 'مطلوب') %></span></label>
                 <span class="v2-field__count" data-wc-for="rep-rec" data-numeric><%= _wc(_exRec) %> <%= tt('words', 'words', 'كلمة') %></span>
               </div>
               <textarea class="v2-field__textarea" id="rep-rec" name="recommendations" rows="4" placeholder="<%= tt('Plain language. The patient reads this directly.', 'Plain language. The patient reads this directly.', 'لغة بسيطة. المريض يقرأ هذا مباشرة.') %>"><%= _exRec %></textarea>
-              <div class="v2-field__hint"><%= tt('Calm, specific, actionable. Avoid jargon — the patient reads this directly.', 'Calm, specific, actionable. Avoid jargon — the patient reads this directly.', 'هادئة، محددة، قابلة للتنفيذ. تجنّب المصطلحات — المريض يقرأها مباشرة.') %></div>
+              <div class="v2-field__hint"><%= tt(_rl.recommendation.hintEn, _rl.recommendation.hintEn, _rl.recommendation.hintAr) %></div>
             </div>
             <%# AUDIT-2026-08-22 (L2): inline refusal message for an empty
                 submit. The server refuses independently — this is only the

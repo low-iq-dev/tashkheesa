@@ -237,6 +237,8 @@ router.post(
         caseId: caseId,
         doctorName: (doctor && doctor.name) || 'Doctor',
         specialty: (specialty && specialty.name) || '',
+        // Same section names the doctor's form used - services/report_labels.js.
+        specialtyId: (doctor && doctor.specialty_id) || (order && order.specialty_id) || null,
         createdAt: order.created_at,
         notes: order.notes || '',
         findings: order.diagnosis_text || order.impression_text || '',
@@ -390,6 +392,8 @@ router.post(
           patientName: patient.name || 'Patient',
           caseReference: String(caseId).slice(0, 12).toUpperCase(),
           specialty: (specialty && specialty.name) || '',
+          // Same section names the doctor's form used - services/report_labels.js.
+          specialtyId: (doctor && doctor.specialty_id) || (order && order.specialty_id) || null,
           doctorName: (doctor && doctor.name) || '',
           reportUrl: reportUrl
         }

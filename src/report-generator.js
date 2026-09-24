@@ -244,7 +244,13 @@ function buildPdf({ contentStream }) {
   return Buffer.concat(parts);
 }
 
-async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, createdAt, notes, patient, findings, impression, recommendations, annotations } = {}) {
+async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, specialtyId, createdAt, notes, patient, findings, impression, recommendations, annotations } = {}) {
+  // The three sections are named in the language of the department that wrote
+  // them, from the SAME map the doctor's form uses (services/report_labels.js).
+  // A cardiologist fills a box called "Assessment"; this document must not
+  // then print "Impression" over their words. Unknown or missing specialty
+  // falls back to the general-medicine wording, which is the map's default.
+  const _labels = require('./services/report_labels').reportLabelsFor(specialtyId);
   if (!PDFDocument) {
     throw new Error('pdfkit is not installed');
   }
@@ -280,9 +286,9 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
   const ar = {
     patientInfo: 'بيانات المريض',
     doctorInfo: 'بيانات الطبيب',
-    findings: 'النتائج / الملاحظات',
-    impression: 'الانطباع / الخلاصة',
-    recommendations: 'التوصيات',
+    findings: _labels.findings.pdfAr,
+    impression: _labels.impression.pdfAr,
+    recommendations: _labels.recommendation.pdfAr,
     disclaimer: 'إخلاء المسؤولية',
     // A8 (fix plan 2026-09-15): "Consultant", not "Doctor Signature" — no
     // signature image is placed on this document, and a heading that promises
@@ -721,15 +727,15 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
 
   // Findings
   // AUDIT-2026-08-22 (L3): the reserve keeps the header with its box.
-  sectionHeader('Findings / Observations', ar.findings, 114);
+  sectionHeader(_labels.findings.pdfEn, ar.findings, 114);
   notesBox(sections.findings);
 
   // Impression
-  sectionHeader('Impression / Conclusion', ar.impression, 114);
+  sectionHeader(_labels.impression.pdfEn, ar.impression, 114);
   notesBox(sections.impression || '—');
 
   // Recommendations
-  sectionHeader('Recommendations', ar.recommendations, 114);
+  sectionHeader(_labels.recommendation.pdfEn, ar.recommendations, 114);
   notesBox(sections.recommendations || '—');
 
   // Annotated Images (if available)
