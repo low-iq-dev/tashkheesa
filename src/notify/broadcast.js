@@ -194,7 +194,7 @@ async function broadcastOrderToSpecialty(orderId) {
   const tierAny = tierSpellings(tier);
   const candidates = await queryAll(`
       SELECT u.id, u.name, u.phone, u.notify_whatsapp,
-             u.max_active_cases, u.max_active_cases_urgent,
+             u.max_active_cases, u.max_active_cases_urgent, u.doctor_max_active_override,
              (
                SELECT COUNT(*) FROM orders_active o
                WHERE o.doctor_id = u.id

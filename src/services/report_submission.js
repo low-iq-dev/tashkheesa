@@ -126,6 +126,22 @@ async function getReportUrlColumnName() {
   ]);
 }
 
+// Migration 117 — the Arabic body of each section, and the doctor's sign-off
+// on it. Probed like the English trio so a database that has not run 117
+// simply has no Arabic path (the write skips them, the read returns '').
+async function getDiagnosisArColumnName() {
+  return await pickFirstExistingOrderColumn(['diagnosis_text_ar']);
+}
+async function getImpressionArColumnName() {
+  return await pickFirstExistingOrderColumn(['impression_text_ar']);
+}
+async function getRecommendationsArColumnName() {
+  return await pickFirstExistingOrderColumn(['recommendation_text_ar']);
+}
+async function getReportArApprovedColumnName() {
+  return await pickFirstExistingOrderColumn(['report_ar_approved_at']);
+}
+
 // AUDIT-2026-08-22 (L5) — a case must never be completed on an unresolved
 // schema probe. Throwing keeps the doctor's text and lets them retry.
 class ReportSchemaUnresolvedError extends Error {
@@ -204,6 +220,21 @@ function buildReportDraftFields(order) {
   return { findings: diagnosis.trim(), impression, recommendations };
 }
 
+// The Arabic half of the editor (migration 117). Sibling of
+// buildReportDraftFields rather than an extension of it: every existing
+// caller deep-compares the English trio, and the Arabic body has no legacy
+// combined-blob format to parse. A row from a pre-117 database has none of
+// these columns and reads as empty / not approved.
+function buildReportDraftFieldsAr(order) {
+  const o = order || {};
+  return {
+    findings_ar: String(o.diagnosis_text_ar || '').trim(),
+    impression_ar: String(o.impression_text_ar || '').trim(),
+    recommendation_ar: String(o.recommendation_text_ar || '').trim(),
+    arabic_approved: !!o.report_ar_approved_at,
+  };
+}
+
 // AUDIT-2026-08-22 (L2) — what "empty" means for a report section: nothing
 // but whitespace, dashes and the em-dash placeholder the PDF itself prints.
 function isReportSectionEmpty(text) {
@@ -277,7 +308,22 @@ const NOT_SUBMITTABLE_SQL_LIST = NOT_SUBMITTABLE_DB_STATUSES.map((s) => `'${s}'`
 // now-COMPLETED order, so the patient's on-site report showed the stale text
 // while the PDF held the winner's. Returns the affected row count; 0 means
 // the case is no longer open and the caller must not proceed.
-async function persistReportText({ orderId, diagnosisText, impressionText, recommendationsText }) {
+//
+// Migration 117: the optional Arabic fields (diagnosisTextAr, impressionTextAr,
+// recommendationsTextAr, arabicApproved) join the SAME UPDATE — one statement,
+// one status guard — but ONLY when the caller passed them (`!== undefined`) AND
+// the column exists. An English-only save from the web editor therefore
+// never touches the Arabic text, and a pre-117 database is unaffected.
+async function persistReportText({
+  orderId,
+  diagnosisText,
+  impressionText,
+  recommendationsText,
+  diagnosisTextAr,
+  impressionTextAr,
+  recommendationsTextAr,
+  arabicApproved
+} = {}) {
   const diagnosisCol = await getDiagnosisColumnName();
   const impressionCol = await getImpressionColumnName();
   const recsCol = await getRecommendationsColumnName();
@@ -315,6 +361,32 @@ async function persistReportText({ orderId, diagnosisText, impressionText, recom
     sets.push(`${recsCol} = $${idx++}`);
     params.push(recommendationsText || null);
   }
+
+  // Arabic body — only what was passed, only where the column exists.
+  const arabicSets = [
+    [diagnosisTextAr, await getDiagnosisArColumnName()],
+    [impressionTextAr, await getImpressionArColumnName()],
+    [recommendationsTextAr, await getRecommendationsArColumnName()],
+  ];
+  for (const [value, col] of arabicSets) {
+    if (value === undefined || !col) continue;
+    sets.push(`${col} = $${idx++}`);
+    params.push(String(value || '').trim() || null);
+  }
+  if (arabicApproved !== undefined) {
+    const approvedCol = await getReportArApprovedColumnName();
+    if (approvedCol) {
+      // Approval is a timestamp: set it once and keep the original moment on a
+      // re-save (COALESCE), clear it when the doctor withdraws approval.
+      if (arabicApproved) {
+        sets.push(`${approvedCol} = COALESCE(${approvedCol}, $${idx++})`);
+        params.push(nowIso);
+      } else {
+        sets.push(`${approvedCol} = NULL`);
+      }
+    }
+  }
+
   if (orderCols.includes('updated_at')) {
     sets.push(`updated_at = $${idx++}`);
     params.push(nowIso);
@@ -497,6 +569,12 @@ async function submitDoctorReport({
   diagnosisText,
   impressionText,
   recommendationsText,
+  // Migration 117 — optional Arabic body. Omitted (undefined) means "what is
+  // stored"; a string, even '', is the doctor's latest text for that section.
+  diagnosisTextAr,
+  impressionTextAr,
+  recommendationsTextAr,
+  arabicApproved,
   via = 'doctor_portal_report'
 } = {}) {
   if (!doctorId || !orderId) return { ok: false, code: 'invalid_request' };
@@ -530,14 +608,29 @@ async function submitDoctorReport({
   const impression = String(impressionText || '') || storedDraft.impression || '';
   const recommendations = String(recommendationsText || '') || storedDraft.recommendations || '';
 
+  // The Arabic body: what the caller sent, else what is stored. Unlike the
+  // English trio an explicit '' is NOT overridden by the stored draft — the
+  // app clears a section on purpose; there is no textarea-drop risk to guard.
+  const storedAr = buildReportDraftFieldsAr(order);
+  const findingsAr = typeof diagnosisTextAr === 'string' ? diagnosisTextAr.trim() : storedAr.findings_ar;
+  const impressionAr = typeof impressionTextAr === 'string' ? impressionTextAr.trim() : storedAr.impression_ar;
+  const recommendationsAr = typeof recommendationsTextAr === 'string' ? recommendationsTextAr.trim() : storedAr.recommendation_ar;
+
   // Persist the text draft-shaped BEFORE anything that can fail.
   try {
-    const saved = await persistReportText({
+    const persistArgs = {
       orderId,
       diagnosisText: findings,
       impressionText: impression,
       recommendationsText: recommendations
-    });
+    };
+    // Arabic fields ride along only when the caller supplied them, so a web
+    // submit (English only) is byte-for-byte the UPDATE it always was.
+    if (typeof diagnosisTextAr === 'string') persistArgs.diagnosisTextAr = findingsAr;
+    if (typeof impressionTextAr === 'string') persistArgs.impressionTextAr = impressionAr;
+    if (typeof recommendationsTextAr === 'string') persistArgs.recommendationsTextAr = recommendationsAr;
+    if (typeof arabicApproved === 'boolean') persistArgs.arabicApproved = arabicApproved;
+    const saved = await persistReportText(persistArgs);
     if (!saved) {
       // The case closed between the load above and this write (a concurrent
       // submit completed it, or an operator cancelled it). Nothing was
@@ -614,6 +707,11 @@ async function submitDoctorReport({
       findings: findings || order.diagnosis_text || '',
       impression,
       recommendations,
+      // Migration 117 — the Arabic body per section. Empty strings render
+      // nothing (the generator prints the English-only layout it always has).
+      findingsAr,
+      impressionAr,
+      recommendationsAr,
       patient: {
         name: patient.name || '—',
         age: (reportPatientAge != null) ? String(reportPatientAge) : '—',
@@ -876,8 +974,13 @@ module.exports = {
   getImpressionColumnName,
   getRecommendationsColumnName,
   getReportUrlColumnName,
+  getDiagnosisArColumnName,
+  getImpressionArColumnName,
+  getRecommendationsArColumnName,
+  getReportArApprovedColumnName,
   buildCombinedReportText,
   buildReportDraftFields,
+  buildReportDraftFieldsAr,
   readDiagnosisFromOrder,
   parseCombinedNotesToFields,
   isReportSectionEmpty,

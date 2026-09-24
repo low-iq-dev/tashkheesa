@@ -243,6 +243,26 @@ async function resolveRecipientLang(uid) {
 }
 
 /**
+ * Doctor push, fire-and-forget, from queueNotification's two 'internal'
+ * write paths (insert + re-arm). services/doctor_push.js swallows its own
+ * errors; the try/catch here guards the require itself, so a broken module
+ * can never cost a doctor the in-app row or fail the request that queued it.
+ */
+async function pushDoctorSafely({ uid, template, inAppTitle, inAppMessage, orderId, parsedResponse }) {
+  try {
+    const { pushForDoctorNotification } = require('./services/doctor_push');
+    await pushForDoctorNotification({
+      userId: uid,
+      template: template,
+      title: inAppTitle,
+      body: inAppMessage,
+      orderId: orderId,
+      payload: parsedResponse
+    });
+  } catch (_) { /* push must never break the queue */ }
+}
+
+/**
  * Hard rule:
  * notifications.to_user_id must ALWAYS be users.id (NOT email).
  * If an email is passed, resolve to users.id. If not resolvable, skip insert.
@@ -1154,6 +1174,8 @@ async function queueNotification({
             payload: parsedResponse
           });
         } catch (_) { /* push must never break the queue */ }
+        // Doctor push — same reasoning as the insert path below.
+        await pushDoctorSafely({ uid, template, inAppTitle, inAppMessage, orderId, parsedResponse });
       }
       return { ok: true, id: requeueRowId, requeued: true, dedupe_key: normalizedDedupeKey };
     } catch (err) {
@@ -1236,6 +1258,20 @@ async function queueNotification({
           payload: parsedResponse
         });
       } catch (_) { /* push must never break the queue */ }
+
+      // ── DOCTOR PUSH ────────────────────────────────────────────────────
+      //
+      // patient_push's allowlist holds patient templates only, so until now a
+      // doctor's phone got nothing: not the urgent case broadcast to their
+      // specialty, not the SLA hour-to-breach reminder. Same hook, same
+      // reasons (one wiring point, bilingual title already resolved, can
+      // never disagree with the bell). services/doctor_push.js owns the
+      // template -> preference-key map, the doctor's prefs, quiet hours and
+      // the locked 'offer' key; it resolves the recipient's ROLE itself (this
+      // block has no role in hand — the patient hook never needed one) in the
+      // same SELECT that reads the quiet hours, and returns early for a
+      // non-doctor before touching anything else. Non-throwing by contract.
+      await pushDoctorSafely({ uid, template, inAppTitle, inAppMessage, orderId, parsedResponse });
     }
 
     return { ok: true, id: notifId };

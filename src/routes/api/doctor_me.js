@@ -8,7 +8,10 @@
  * same users row and the same helpers the web portal already uses:
  *
  *   - availability is the existing is_paused mechanism the accept gate
- *     (services/doctor_eligibility) and auto_assign already respect;
+ *     (services/doctor_eligibility) and auto_assign already respect; away
+ *     dates (doctor_away_periods) drive that same flag through
+ *     services/doctor_pause.applyDoctorAwayPeriods, and the doctor's own cap
+ *     is an override that only lowers the platform's (capFor);
  *   - services reuse services/doctor_service_catalog + the exact transaction
  *     body of POST /portal/doctor/services;
  *   - tiers reuse the whitelist and the UPDATE of POST /portal/doctor/turnaround;
@@ -43,6 +46,36 @@ const SIG_MAX_BYTES = 2 * 1024 * 1024;
 // an operator's free text, NULL from a legacy admin pause) was applied by
 // the platform and only the platform lifts it.
 const SELF_PAUSE_REASON = 'doctor_self';
+// The scheduled self-pause: services/doctor_pause.applyDoctorAwayPeriods
+// sets and lifts it from doctor_away_periods (migration 116). Also the
+// doctor's own, so the app may lift it (= "back early").
+const AWAY_PAUSE_REASON = 'doctor_away';
+const SELF_PAUSE_REASONS = [SELF_PAUSE_REASON, AWAY_PAUSE_REASON];
+
+// Away periods: at most a quarter ahead in one row, a short note.
+const AWAY_MAX_SPAN_DAYS = 90;
+const AWAY_NOTE_MAX = 120;
+// When the platform has no cap at all, the doctor may still choose one.
+const CAP_FALLBACK_CEILING = 20;
+
+function pauseSvc() {
+  return require('../../services/doctor_pause');
+}
+
+// 'YYYY-MM-DD' that is a real calendar date (2026-02-30 is not).
+function isoDay(v) {
+  const s = typeof v === 'string' ? v.trim() : '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [y, m, d] = s.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return null;
+  return s;
+}
+function daysBetween(fromDay, toDay) {
+  const a = new Date(fromDay + 'T00:00:00Z').getTime();
+  const b = new Date(toDay + 'T00:00:00Z').getTime();
+  return Math.round((b - a) / 86400000);
+}
 
 function parseJsonish(v) {
   if (v == null || typeof v !== 'string') return v;
@@ -79,7 +112,9 @@ module.exports = function (db, helpers) {
               spoken_languages, sub_specialties, bio, bio_ar, profile_photo_url,
               signature_url, lang, appearance_preference, onboarding_complete,
               approved_at, is_paused, paused_at, pause_reason, sla_tiers_supported,
-              sla_tiers_confirmed_at, max_active_cases, is_available, created_at`;
+              sla_tiers_confirmed_at, max_active_cases, max_active_cases_urgent,
+              doctor_max_active_override, payout_method, payout_handle,
+              is_available, created_at`;
 
   async function liveDoctorRow(doctorId) {
     const row = await safeGet(
@@ -133,6 +168,10 @@ module.exports = function (db, helpers) {
         is_available: row.is_available !== false,
         approved_at: iso(row.approved_at),
         created_at: iso(row.created_at),
+        // Ops-set (migration 116); the app only shows them. Vocabulary:
+        // 'instapay' | 'cash' | 'shifa_finance' | 'bank'.
+        payout_method: row.payout_method || null,
+        payout_handle: row.payout_handle || null,
       }),
       specialty_name: specialty ? (specialty.name || '') : '',
       specialty_name_ar: specialty ? (specialty.name_ar || null) : null,
@@ -219,25 +258,153 @@ module.exports = function (db, helpers) {
     try { currentlyHeld = await q.countActiveCasesForDoctor(doctorId); }
     catch (err) { logErr(err, req, 'api.doctor_me.availability_count'); }
 
+    const away = await listAwayPeriods(doctorId);
+
     return res.ok({
       taking_cases: row.is_paused !== true,
-      max_active: Number(row.max_active_cases) || 0,
+      // The effective cap — the platform's figure lowered by the doctor's own
+      // override, exactly as every routing gate computes it (capFor).
+      max_active: require('../../services/doctor_eligibility').capFor(row, 'standard'),
+      max_active_ceiling: Number(row.max_active_cases) || 0,
       currently_held: currentlyHeld,
       tiers,
-      away: [],                    // the portal has no away-dates concept
+      away,
       self_pause_supported: true,
-      away_supported: false,
-      max_active_editable: false,  // caps are set by the platform
+      away_supported: true,
+      max_active_editable: true,   // lower only; the ceiling stays the platform's
       pause_reason: row.is_paused === true ? (row.pause_reason || null) : null,
-      paused_by_self: row.is_paused === true && row.pause_reason === SELF_PAUSE_REASON,
+      paused_by_self: row.is_paused === true && SELF_PAUSE_REASONS.includes(row.pause_reason),
     });
+  });
+
+  // ─── Away periods (doctor_away_periods, migration 116) ────
+  // A period is a self-pause with dates. services/doctor_pause
+  // .applyDoctorAwayPeriods turns "today is inside a live period" into the
+  // is_paused flag every routing path already respects; the sweep runs it
+  // every 5 minutes and the handlers below run it immediately after a write
+  // that changes today, so the response already reflects the new state.
+  const AWAY_COLUMNS = `id, to_char(from_date, 'YYYY-MM-DD') AS from_day,
+              to_char(to_date, 'YYYY-MM-DD') AS to_day, note`;
+  const awayOut = (r) => ({ id: r.id, from: r.from_day, to: r.to_day, note: r.note || null });
+
+  async function listAwayPeriods(doctorId) {
+    const today = pauseSvc().cairoDateString(new Date());
+    const rows = await safeAll(
+      `SELECT ${AWAY_COLUMNS} FROM doctor_away_periods
+        WHERE doctor_id = $1 AND cancelled_at IS NULL AND to_date >= $2::date
+        ORDER BY from_date ASC, id ASC`,
+      [doctorId, today], []
+    );
+    return (rows || []).map(awayOut);
+  }
+
+  // Re-read the flag after a write that may have moved it.
+  async function takingCases(doctorId) {
+    const r = await safeGet(`SELECT is_paused FROM users WHERE id = $1 AND role = 'doctor'`, [doctorId], null);
+    return !r || r.is_paused !== true;
+  }
+
+  router.post('/availability/away', async (req, res) => {
+    const doctorId = meId(req);
+    if (!doctorId) return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const from = isoDay(body.from);
+    const to = isoDay(body.to);
+    if (!from || !to) return res.fail('from and to must be YYYY-MM-DD dates', 400, 'INVALID_REQUEST');
+    if (body.note != null && typeof body.note !== 'string') return res.fail('note must be text', 400, 'INVALID_REQUEST');
+    const note = body.note == null ? null : (String(body.note).trim().slice(0, AWAY_NOTE_MAX) || null);
+
+    const today = pauseSvc().cairoDateString(new Date());
+    // ISO day strings order lexically, so string comparison is date comparison.
+    if (to < from || from < today) return res.fail('The range must start today or later and end on or after it starts', 400, 'INVALID_RANGE');
+    if (daysBetween(from, to) > AWAY_MAX_SPAN_DAYS) return res.fail('An away period may cover at most ' + AWAY_MAX_SPAN_DAYS + ' days', 400, 'RANGE_TOO_LONG');
+
+    let row;
+    try {
+      const r = await safeRun(
+        `INSERT INTO doctor_away_periods (id, doctor_id, from_date, to_date, note)
+         VALUES ('away-' || gen_random_uuid(), $1, $2::date, $3::date, $4)
+         RETURNING ${AWAY_COLUMNS}`,
+        [doctorId, from, to, note]
+      );
+      row = r && r.rows && r.rows[0];
+      if (!row) throw new Error('away insert returned no row');
+    } catch (err) {
+      logErr(err, req, 'api.doctor_me.away_insert');
+      return res.fail('Away period could not be saved', 500, 'AWAY_SAVE_FAILED');
+    }
+
+    // Starting today: pause now rather than at the next sweep, so the doctor
+    // sees the switch off in the same response.
+    if (from <= today && today <= to) {
+      try { await pauseSvc().applyDoctorAwayPeriods(new Date()); }
+      catch (err) { logErr(err, req, 'api.doctor_me.away_apply'); }
+    }
+    return res.ok({ away: awayOut(row), taking_cases: await takingCases(doctorId) });
+  });
+
+  router.delete('/availability/away/:id', async (req, res) => {
+    const doctorId = meId(req);
+    const id = String((req.params && req.params.id) || '');
+    if (!doctorId || !id) return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+    try {
+      const r = await safeRun(
+        `UPDATE doctor_away_periods SET cancelled_at = NOW()
+          WHERE id = $1 AND doctor_id = $2 AND cancelled_at IS NULL`,
+        [id, doctorId]
+      );
+      // Another doctor's period and a missing one look the same.
+      if (!r || !r.rowCount) return res.fail('Away period not found', 404, 'AWAY_NOT_FOUND');
+    } catch (err) {
+      logErr(err, req, 'api.doctor_me.away_cancel');
+      return res.fail('Away period could not be removed', 500, 'AWAY_SAVE_FAILED');
+    }
+    // A pause that existed only because of this period lifts now.
+    try { await pauseSvc().applyDoctorAwayPeriods(new Date()); }
+    catch (err) { logErr(err, req, 'api.doctor_me.away_apply'); }
+    return res.ok({ ok: true, taking_cases: await takingCases(doctorId) });
+  });
+
+  // ─── PUT /availability/max-active ─────────────────────────
+  // The doctor's own cap, users.doctor_max_active_override. It only LOWERS the
+  // platform's max_active_cases (capFor takes the minimum), so ops keep the
+  // ceiling. n = 0 clears it. With no platform cap at all the doctor may still
+  // choose 1..CAP_FALLBACK_CEILING.
+  router.put('/availability/max-active', async (req, res) => {
+    const doctorId = meId(req);
+    if (!doctorId) return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+    const n = req.body ? req.body.n : undefined;
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 0) return res.fail('n must be a whole number (0 clears)', 400, 'INVALID_CAP');
+
+    const row = await safeGet(
+      `SELECT max_active_cases, max_active_cases_urgent, doctor_max_active_override
+         FROM users WHERE id = $1 AND role = 'doctor'`, [doctorId], null
+    );
+    if (!row) return res.fail('Doctor not found', 404, 'NOT_FOUND');
+    const ceiling = Number(row.max_active_cases) || 0;
+    const upper = ceiling > 0 ? ceiling : CAP_FALLBACK_CEILING;
+    if (n > upper) return res.fail('n must be between 1 and ' + upper + ' (0 clears)', 400, 'INVALID_CAP');
+
+    const value = n === 0 ? null : n;
+    try {
+      await safeRun(
+        `UPDATE users SET doctor_max_active_override = $2 WHERE id = $1 AND role = 'doctor'`,
+        [doctorId, value]
+      );
+    } catch (err) {
+      logErr(err, req, 'api.doctor_me.max_active');
+      return res.fail('Cap could not be saved', 500, 'AVAILABILITY_SAVE_FAILED');
+    }
+    const effective = require('../../services/doctor_eligibility')
+      .capFor(Object.assign({}, row, { doctor_max_active_override: value }), 'standard');
+    return res.ok({ max_active: effective, max_active_ceiling: ceiling });
   });
 
   // ─── PUT /availability/taking-cases ───────────────────────
   // The doctor's SELF-pause, on the existing is_paused flag. Pausing is
   // always allowed. Unpausing is allowed only when the pause is the doctor's
-  // own: an admin or auto pause (any other pause_reason) stays until ops
-  // lift it. services/admin_doctor_pause.setDoctorPause is not reused here —
+  // own (doctor_self, or doctor_away = a scheduled one): an admin or auto
+  // pause (any other pause_reason) stays until ops lift it. services/admin_doctor_pause.setDoctorPause is not reused here —
   // it audits as an operator action and rejects a no-op with 409, and a
   // doctor toggling their own switch twice is not an error.
   router.put('/availability/taking-cases', async (req, res) => {
@@ -265,13 +432,24 @@ module.exports = function (db, helpers) {
         return res.ok({ taking_cases: false });
       }
       if (row.is_paused === true) {
-        if (row.pause_reason !== SELF_PAUSE_REASON) {
+        if (!SELF_PAUSE_REASONS.includes(row.pause_reason)) {
           return res.fail('Paused by the platform: ' + (row.pause_reason || 'admin'), 409, 'PAUSED_BY_PLATFORM');
+        }
+        if (row.pause_reason === AWAY_PAUSE_REASON) {
+          // Back early: the period that holds today is cancelled FIRST, so a
+          // sweep landing between the two writes cannot re-pause the doctor.
+          // Later periods stay — they start on their own day.
+          await safeRun(
+            `UPDATE doctor_away_periods SET cancelled_at = NOW()
+              WHERE doctor_id = $1 AND cancelled_at IS NULL
+                AND from_date <= $2::date AND to_date >= $2::date`,
+            [doctorId, pauseSvc().cairoDateString(new Date())]
+          );
         }
         await safeRun(
           `UPDATE users SET is_paused = false, paused_at = NULL, pause_reason = NULL
             WHERE id = $1 AND role = 'doctor' AND pause_reason = $2`,
-          [doctorId, SELF_PAUSE_REASON]
+          [doctorId, row.pause_reason]
         );
       }
       return res.ok({ taking_cases: true });
@@ -308,11 +486,6 @@ module.exports = function (db, helpers) {
     }
     return res.ok({ tiers });
   });
-
-  // Caps are set by the platform (users.max_active_cases is admin-managed).
-  router.put('/availability/max-active', (req, res) => res.fail('Not supported', 501, 'NOT_SUPPORTED'));
-  // The portal has no away-dates concept; self-pause is the only switch.
-  router.post('/availability/away', (req, res) => res.fail('Not supported', 501, 'NOT_SUPPORTED'));
 
   // ─── GET /services ────────────────────────────────────────
   router.get('/services', async (req, res) => {
@@ -707,10 +880,6 @@ module.exports = function (db, helpers) {
     }
     return res.ok({ ok: true, id });
   });
-
-  // No notification-preference or quiet-hours columns exist on users.
-  router.get('/notification-prefs', (req, res) => res.fail('Not supported', 501, 'NOT_SUPPORTED'));
-  router.put('/notification-prefs', (req, res) => res.fail('Not supported', 501, 'NOT_SUPPORTED'));
 
   return router;
 };

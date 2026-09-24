@@ -500,10 +500,12 @@ test('GET /cases/:id/draft splits the saved report the way the web editor does a
   const o = order({ diagnosis_text: 'Findings:\nTear\n\nImpression:\nBankart\n\nRecommendations:\nRepair', impression_text: '', recommendation_text: '' });
   const res = await drive('get', '/cases/:id/draft', { helpers: makeHelpers([[ORDER_RE, o]]), params: { id: 'ord-1' } });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(data(res), { order_id: 'ord-1', findings: 'Tear', impression: 'Bankart', recommendation: 'Repair', saved_at: iso(-1 * H) });
+  // Migration 117: the Arabic half reads '' / false on a row without it.
+  const noAr = { findings_ar: '', impression_ar: '', recommendation_ar: '', arabic_approved: false };
+  assert.deepEqual(data(res), { order_id: 'ord-1', findings: 'Tear', impression: 'Bankart', recommendation: 'Repair', ...noAr, saved_at: iso(-1 * H) });
   // a completed case still reads its draft
   const done = await drive('get', '/cases/:id/draft', { helpers: makeHelpers([[ORDER_RE, order({ status: 'completed', diagnosis_text: 'A', impression_text: 'B', recommendation_text: 'C' })]]), params: { id: 'ord-1' } });
-  assert.deepEqual(data(done), { order_id: 'ord-1', findings: 'A', impression: 'B', recommendation: 'C', saved_at: iso(-1 * H) });
+  assert.deepEqual(data(done), { order_id: 'ord-1', findings: 'A', impression: 'B', recommendation: 'C', ...noAr, saved_at: iso(-1 * H) });
 });
 
 test('PUT /cases/:id/draft: partial overlay through persistReportText; completed → 409 CASE_COMPLETED; refused write → 409 CASE_NOT_OPEN; throw → 500', async () => {

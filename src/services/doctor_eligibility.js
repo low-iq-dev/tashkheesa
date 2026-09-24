@@ -153,10 +153,23 @@ function doctorSupportsTier(slaTiers, orderTier) {
 // Capacity is by tier: urgent cases count against max_active_cases_urgent.
 // A cap of 0 / NULL / non-numeric means "no cap configured" and callers skip
 // the check — the same fail direction services/assign_case.js has always used.
+//
+// users.doctor_max_active_override (migration 116) is the doctor's OWN cap,
+// set from the app. It can only LOWER the platform's figure: the platform's
+// max_active_cases stays the ceiling ops control, and the doctor chooses to
+// hold fewer. Math.min against Infinity when the platform has no cap, so the
+// override alone applies there rather than being ignored. Callers that SELECT
+// max_active_cases for this function must also select the override column,
+// or a doctor who lowered their cap is routed as if they had not.
 function capFor(doctor, orderTier) {
   const urgent = String(orderTier || '').toLowerCase() === 'urgent';
-  const cap = Number(urgent ? doctor.max_active_cases_urgent : doctor.max_active_cases);
-  return Number.isFinite(cap) && cap > 0 ? cap : 0;
+  const raw = Number(urgent ? doctor.max_active_cases_urgent : doctor.max_active_cases);
+  let cap = Number.isFinite(raw) && raw > 0 ? raw : 0;
+  const override = Number(doctor.doctor_max_active_override);
+  if (Number.isFinite(override) && override > 0) {
+    cap = Math.min(cap || Infinity, override);
+  }
+  return cap;
 }
 
 // ── Order-side tier filtering, for the pool LISTING queries (A2-2) ──────────

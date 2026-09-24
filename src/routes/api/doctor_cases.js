@@ -252,7 +252,8 @@ module.exports = function (db, helpers) {
               sla_tiers_supported, max_active_cases, max_active_cases_urgent,
               is_paused, paused_at, pause_reason, pending_approval,
               rejection_reason, approved_at, name, name_ar, lang, email,
-              profile_photo_url, signature_url, is_available
+              profile_photo_url, signature_url, is_available,
+              doctor_max_active_override
          FROM users WHERE id = $1 LIMIT 1`,
       [doctorId], null
     );
@@ -890,11 +891,18 @@ module.exports = function (db, helpers) {
     const ctx = await requireAcceptedCase(req, res);
     if (!ctx) return;
     const fields = reportSubmission.buildReportDraftFields(ctx.order);
+    // Migration 117 — the Arabic half of the editor, '' / false on a row (or a
+    // database) that has none.
+    const ar = reportSubmission.buildReportDraftFieldsAr(ctx.order);
     return res.ok({
       order_id: ctx.orderId,
       findings: fields.findings || '',
       impression: fields.impression || '',
       recommendation: fields.recommendations || '',
+      findings_ar: ar.findings_ar || '',
+      impression_ar: ar.impression_ar || '',
+      recommendation_ar: ar.recommendation_ar || '',
+      arabic_approved: !!ar.arabic_approved,
       saved_at: isoOrNull(ctx.order.updated_at),
     });
   });
@@ -907,10 +915,13 @@ module.exports = function (db, helpers) {
     const ctx = await requireAcceptedCase(req, res);
     if (!ctx) return;
     const body = req.body || {};
-    for (const k of ['findings', 'impression', 'recommendation']) {
+    for (const k of ['findings', 'impression', 'recommendation', 'findings_ar', 'impression_ar', 'recommendation_ar']) {
       if (body[k] != null && typeof body[k] !== 'string') {
         return res.fail('Invalid request', 400, 'INVALID_REQUEST');
       }
+    }
+    if (body.arabic_approved != null && typeof body.arabic_approved !== 'boolean') {
+      return res.fail('Invalid request', 400, 'INVALID_REQUEST');
     }
     if (isCompletedRow(ctx.order)) return res.fail('Case already completed', 409, 'CASE_COMPLETED');
 
@@ -920,11 +931,18 @@ module.exports = function (db, helpers) {
     const impressionText = pick('impression', current.impression);
     const recommendationsText = pick('recommendation', current.recommendations);
 
+    // Migration 117 — the Arabic fields are passed ONLY when the body carries
+    // them, so an English-only save (and the web editor, which never sends
+    // them) leaves the Arabic text and its approval untouched.
+    const persistArgs = { orderId: ctx.orderId, diagnosisText, impressionText, recommendationsText };
+    if (typeof body.findings_ar === 'string') persistArgs.diagnosisTextAr = body.findings_ar;
+    if (typeof body.impression_ar === 'string') persistArgs.impressionTextAr = body.impression_ar;
+    if (typeof body.recommendation_ar === 'string') persistArgs.recommendationsTextAr = body.recommendation_ar;
+    if (typeof body.arabic_approved === 'boolean') persistArgs.arabicApproved = body.arabic_approved;
+
     let changed = 0;
     try {
-      changed = await reportSubmission.persistReportText({
-        orderId: ctx.orderId, diagnosisText, impressionText, recommendationsText,
-      });
+      changed = await reportSubmission.persistReportText(persistArgs);
     } catch (_) {
       return res.fail('Draft could not be saved', 500, 'DRAFT_SAVE_FAILED');
     }
@@ -1257,14 +1275,27 @@ module.exports = function (db, helpers) {
     const body = req.body || {};
     const text = (v) => (typeof v === 'string' ? v.trim() : '');
 
-    const result = await reportSubmission.submitDoctorReport({
+    const submitArgs = {
       orderId,
       doctorId,
       diagnosisText: text(body.findings ?? body.diagnosis ?? body.diagnosis_text),
       impressionText: text(body.impression ?? body.impression_text),
       recommendationsText: text(body.recommendation ?? body.recommendations ?? body.recommendation_text),
       via: 'doctor_app_report',
-    });
+    };
+    // Migration 117 — optional Arabic body, forwarded only when sent: the
+    // service falls back to the stored Arabic draft for anything omitted, and
+    // an app build that predates the Arabic editor submits exactly as before.
+    const textAr = (v) => (typeof v === 'string' ? v.trim() : undefined);
+    const findingsAr = textAr(body.findings_ar ?? body.diagnosis_text_ar);
+    const impressionAr = textAr(body.impression_ar ?? body.impression_text_ar);
+    const recommendationsAr = textAr(body.recommendation_ar ?? body.recommendations_ar ?? body.recommendation_text_ar);
+    if (findingsAr !== undefined) submitArgs.diagnosisTextAr = findingsAr;
+    if (impressionAr !== undefined) submitArgs.impressionTextAr = impressionAr;
+    if (recommendationsAr !== undefined) submitArgs.recommendationsTextAr = recommendationsAr;
+    if (typeof body.arabic_approved === 'boolean') submitArgs.arabicApproved = body.arabic_approved;
+
+    const result = await reportSubmission.submitDoctorReport(submitArgs);
 
     if (result.ok) {
       const earnings = result.earnings || null;

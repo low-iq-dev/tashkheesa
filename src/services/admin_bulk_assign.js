@@ -119,7 +119,7 @@ async function bulkAutoAssign(client, opts) {
       let pool = poolCache.get(poolKey);
       if (!pool) {
         pool = (await client.query(
-          `SELECT id, name, is_active, is_paused, onboarding_complete, max_active_cases, max_active_cases_urgent, sla_tiers_supported,
+          `SELECT id, name, is_active, is_paused, onboarding_complete, max_active_cases, max_active_cases_urgent, doctor_max_active_override, sla_tiers_supported,
                   EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = users.id AND ds.service_id = $2) AS offers_service
              FROM users WHERE role = 'doctor' AND specialty_id = $1`,
           [c.specialty_id, c.service_id]

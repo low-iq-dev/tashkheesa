@@ -1625,7 +1625,7 @@ module.exports = function (db, helpers, deploy, deps) {
       const docs = c.specialty_id
         ? await mustAll(
             `SELECT u.id, u.name, u.is_active, u.is_paused, u.onboarding_complete, u.specialty_id, COALESCE(sp.name,'—') AS specialty,
-                    u.max_active_cases, u.max_active_cases_urgent, u.sla_tiers_supported,
+                    u.max_active_cases, u.max_active_cases_urgent, u.doctor_max_active_override, u.sla_tiers_supported,
                     EXISTS (SELECT 1 FROM doctor_services ds WHERE ds.doctor_id = u.id AND ds.service_id = $2) AS offers_service,
                     -- AUDIT-PREDICATE-PARITY — shared with /doctors, /cases/:id
                     -- AND the capacity gate in POST /cases/:id/assign, so the
@@ -1697,7 +1697,7 @@ module.exports = function (db, helpers, deploy, deps) {
         `SELECT u.id, u.name, u.name_ar, u.display_name, u.email, u.phone,
                 u.specialty_id, COALESCE(sp.name, '—') AS specialty,
                 u.is_active, u.is_paused, u.is_available, u.pending_approval,
-                u.max_active_cases, u.max_active_cases_urgent, u.sla_tiers_supported,
+                u.max_active_cases, u.max_active_cases_urgent, u.doctor_max_active_override, u.sla_tiers_supported,
                 u.years_of_experience, u.medical_license_number,
                 u.created_at, u.approved_at, u.last_seen_at, u.welcome_email_last_sent_at,
                 -- AUDIT-PREDICATE-PARITY — one shared expression for load and
@@ -1848,7 +1848,7 @@ module.exports = function (db, helpers, deploy, deps) {
       if (isReassign && o.doctor_id === doctorId) af('Case is already assigned to this doctor', 409, 'ALREADY_ASSIGNED_TO_DOCTOR');
 
       const d = (await client.query(
-        `SELECT id, name, role, is_active, is_paused, onboarding_complete, specialty_id, max_active_cases, max_active_cases_urgent
+        `SELECT id, name, role, is_active, is_paused, onboarding_complete, specialty_id, max_active_cases, max_active_cases_urgent, doctor_max_active_override
            FROM users WHERE id = $1`,
         [doctorId]
       )).rows[0];

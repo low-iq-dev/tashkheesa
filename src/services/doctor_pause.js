@@ -35,6 +35,9 @@
 
 const { randomUUID } = require('crypto');
 const { queryOne, execute } = require('../pg');
+// Module reference (not destructured) for the away-period sweep below, so a
+// hermetic test can stub pg.execute by assignment on the real module object.
+const pg = require('../pg');
 
 function _getThreshold() {
   var n = Number(process.env.SLA_AUTO_PAUSE_BREACHES);
@@ -177,8 +180,91 @@ async function checkAndAutoPauseDoctor(doctorId) {
   return { paused: true, breaches: breaches, threshold: threshold, windowDays: windowDays };
 }
 
+// ── Scheduled self-pause: doctor_away_periods (migration 116) ───────────────
+//
+// Away dates are NOT a second availability concept. The platform has ONE
+// mechanism every routing path already respects — users.is_paused /
+// paused_at / pause_reason (doctorNewCaseBlockReason at accept,
+// eligibleDoctorClause in the pool and broadcast SQL, auto_assign) — and an
+// away period simply drives that flag on a calendar. This sweep is what
+// turns the dates into the flag; the doctor app writes the rows.
+//
+// pause_reason='doctor_away' is the whole contract: (a) only a doctor with
+// NO pause at all is paused here (a platform pause or the doctor's own manual
+// pause is never overwritten, so the next lift cannot undo it), and (b) only
+// a pause carrying this reason is lifted here, so an admin / auto pause that
+// happens to coincide with leave stands until ops lift it.
+//
+// The day is the Cairo calendar day (Africa/Cairo, as every business date in
+// this codebase — earnings_reader BUSINESS_TZ). Computed in JS via Intl
+// rather than a fixed offset because Egypt observes DST, and passed as a
+// date so the comparison against the date columns is exact and the function
+// is testable at any instant. Both statements are idempotent: running the
+// sweep twice in the same minute changes nothing the second time.
+
+const DOCTOR_AWAY_REASON = 'doctor_away';
+
+// 'en-CA' is the locale whose short date format IS ISO (same trick as
+// services/ai_usage.js cairoDayKey).
+const _cairoDayFmt = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit',
+});
+function cairoDateString(d) {
+  return _cairoDayFmt.format(d instanceof Date ? d : new Date(d));
+}
+
+// Returns { paused: n, lifted: n } — the number of doctors whose flag changed
+// in each direction on this run. Called by the SLA sweep every 5 minutes and
+// by the doctor app right after a period is added / cancelled / ended early.
+async function applyDoctorAwayPeriods(now = new Date()) {
+  const today = cairoDateString(now);
+
+  // (a) A live, uncancelled period contains today and the doctor is not
+  //     paused for any reason → pause as 'doctor_away'.
+  const paused = await pg.execute(
+    `UPDATE users u
+        SET is_paused = true, paused_at = NOW(), pause_reason = $2
+      WHERE u.role = 'doctor'
+        AND COALESCE(u.is_paused, false) = false
+        AND EXISTS (SELECT 1 FROM doctor_away_periods p
+                     WHERE p.doctor_id = u.id
+                       AND p.cancelled_at IS NULL
+                       AND p.from_date <= $1::date
+                       AND p.to_date   >= $1::date)`,
+    [today, DOCTOR_AWAY_REASON]
+  );
+
+  // (b) Paused as 'doctor_away' but no live period contains today (it ended,
+  //     or was cancelled) → lift. Only this reason, never another.
+  const lifted = await pg.execute(
+    `UPDATE users u
+        SET is_paused = false, paused_at = NULL, pause_reason = NULL
+      WHERE u.role = 'doctor'
+        AND u.is_paused = true
+        AND u.pause_reason = $2
+        AND NOT EXISTS (SELECT 1 FROM doctor_away_periods p
+                         WHERE p.doctor_id = u.id
+                           AND p.cancelled_at IS NULL
+                           AND p.from_date <= $1::date
+                           AND p.to_date   >= $1::date)`,
+    [today, DOCTOR_AWAY_REASON]
+  );
+
+  const out = {
+    paused: (paused && Number(paused.rowCount)) || 0,
+    lifted: (lifted && Number(lifted.rowCount)) || 0,
+  };
+  if (out.paused || out.lifted) {
+    console.log('[doctor-away] ' + today + ' paused=' + out.paused + ' lifted=' + out.lifted);
+  }
+  return out;
+}
+
 module.exports = {
   checkAndAutoPauseDoctor: checkAndAutoPauseDoctor,
+  applyDoctorAwayPeriods: applyDoctorAwayPeriods,
+  cairoDateString: cairoDateString,
+  DOCTOR_AWAY_REASON: DOCTOR_AWAY_REASON,
   _getThreshold: _getThreshold,
   _getWindowDays: _getWindowDays
 };

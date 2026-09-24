@@ -244,7 +244,14 @@ function buildPdf({ contentStream }) {
   return Buffer.concat(parts);
 }
 
-async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, specialtyId, createdAt, notes, patient, findings, impression, recommendations, annotations } = {}) {
+async function generateStyledReportPdfUnicode({
+  caseId, doctorName, specialty, specialtyId, createdAt, notes, patient, findings, impression, recommendations, annotations,
+  // Migration 117 — the Arabic body per section, composed by the doctor app.
+  // Accepted under both spellings the callers use; empty means "no Arabic
+  // block", and the layout is then exactly what it was before.
+  findingsAr, impressionAr, recommendationsAr,
+  findings_ar, impression_ar, recommendations_ar
+} = {}) {
   // The three sections are named in the language of the department that wrote
   // them, from the SAME map the doctor's form uses (services/report_labels.js).
   // A cardiologist fills a box called "Assessment"; this document must not
@@ -254,6 +261,12 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, s
   if (!PDFDocument) {
     throw new Error('pdfkit is not installed');
   }
+
+  const arabicBody = {
+    findings: String(findingsAr || findings_ar || '').trim(),
+    impression: String(impressionAr || impression_ar || '').trim(),
+    recommendations: String(recommendationsAr || recommendations_ar || '').trim(),
+  };
 
   const fileName = `${slugify(caseId)}-${stamp()}.pdf`;
 
@@ -633,7 +646,14 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, s
     return out;
   }
 
-  function notesBox(textBody) {
+  // `opts.rtl` (migration 117, the Arabic body block): every line is drawn
+  // right-aligned, whatever script it holds, so a Latin token inside an Arabic
+  // paragraph — a drug name, a lab value — sits on the Arabic margin instead
+  // of jumping to the left edge. Font selection stays PER LINE exactly as for
+  // the English box, so nothing is ever encoded in a face that lacks its
+  // glyphs. Pagination is the same code path; there is one box renderer.
+  function notesBox(textBody, opts) {
+    const rtl = !!(opts && opts.rtl);
     const w = x1 - x0;
     const innerW = w - 20;
     const PAD = 10;
@@ -681,7 +701,9 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, s
         if (ln.text) {
           const isArabic = selectBodyFont(ln.arabic);
           if (isArabic) {
-            doc.text(ln.text, x0 + 10, ty, { width: innerW, align: 'right', features: ['rtla'] });
+            doc.text(arabicLabel(ln.text), x0 + 10, ty, { width: innerW, align: 'right', features: ['rtla'] });
+          } else if (rtl) {
+            doc.text(ln.text, x0 + 10, ty, { width: innerW, align: 'right' });
           } else {
             doc.text(ln.text, x0 + 10, ty, { width: innerW });
           }
@@ -699,6 +721,23 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, s
       // the watermark and footer, so continuation pages are fully dressed.
       if (idx < lines.length) doc.addPage();
     }
+  }
+
+  // Migration 117 — the Arabic body of a section, right under its English
+  // box. Rendered ONLY when there is Arabic text AND the Arabic face resolved:
+  // without the font every glyph would encode to .notdef (a blank box), which
+  // is the failure the per-line font selection above exists to prevent, and a
+  // report is better English-only than English plus a page of empty squares.
+  // When nothing is rendered, doc.y is untouched and the page is byte-for-
+  // byte the pre-117 layout.
+  function arabicBodyBox(textBody) {
+    const text = String(textBody == null ? '' : textBody).trim();
+    if (!text || !arabicFontPath) return false;
+    // Pull the Arabic box up against the English one so the pair reads as a
+    // single bilingual section rather than two unrelated boxes.
+    doc.y -= 8;
+    notesBox(text, { rtl: true });
+    return true;
   }
 
   // Patient
@@ -729,14 +768,17 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, s
   // AUDIT-2026-08-22 (L3): the reserve keeps the header with its box.
   sectionHeader(_labels.findings.pdfEn, ar.findings, 114);
   notesBox(sections.findings);
+  arabicBodyBox(arabicBody.findings);
 
   // Impression
   sectionHeader(_labels.impression.pdfEn, ar.impression, 114);
   notesBox(sections.impression || '—');
+  arabicBodyBox(arabicBody.impression);
 
   // Recommendations
   sectionHeader(_labels.recommendation.pdfEn, ar.recommendations, 114);
   notesBox(sections.recommendations || '—');
+  arabicBodyBox(arabicBody.recommendations);
 
   // Annotated Images (if available)
   const annotationImages = Array.isArray(annotations) ? annotations.filter(function(a) { return a.annotated_image_data; }) : [];

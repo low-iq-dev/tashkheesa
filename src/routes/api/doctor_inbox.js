@@ -23,6 +23,9 @@ const { randomUUID } = require('crypto');
 const { requireJWT, requireRole } = require('../../middleware/requireJWT');
 const { sanitizeHtml, sanitizeString } = require('../../validators/sanitize');
 const { doctorHasAcceptedCase } = require('../../services/doctor_case_access');
+// The preference vocabulary and the HH:MM parser are the push path's own, so
+// what this API enumerates and validates is exactly what doctor_push honours.
+const { DOCTOR_PREF_KEYS, isLockedKey, hhmmToMinutes } = require('../../services/doctor_push');
 
 // Portal modules, resolved at CALL time. routes/doctor.js requires this file's
 // siblings at module load, so a top-level require of it here would close a
@@ -482,6 +485,167 @@ module.exports = function (db, helpers) {
     }
 
     return res.ok({ ok: true });
+  });
+
+  // ─── Push token ───────────────────────────────────────────
+  // The doctor-side twin of POST/DELETE /api/v1/profile/push-token
+  // (routes/api/profile.js), which is patient-gated. Same storage model
+  // (migration 110): the per-device row in user_sessions when the access
+  // token names a session (`sid`), AND the single-slot users.push_token
+  // mirror, which the send path still reads for devices registered by
+  // pre-110 builds. The token format check is the one middleware/push.js
+  // applies before every send, so a token that would be dropped at send
+  // time is refused at registration instead.
+  const EXPO_TOKEN_RE = /^(ExponentPushToken|ExpoPushToken)\[[^\]\s]+\]$/;
+
+  router.post('/push-token', async (req, res) => {
+    const me = meId(req);
+    if (!me) return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+    const token = typeof (req.body || {}).token === 'string' ? req.body.token.trim() : '';
+    if (!token || !EXPO_TOKEN_RE.test(token)) return res.fail('Invalid push token format', 400, 'INVALID_TOKEN');
+
+    const sid = req.user && req.user.sid ? String(req.user.sid) : '';
+    try {
+      if (sid) {
+        // Ownership clause as services/user_sessions.setPushToken: a sid from
+        // another user's token can never retarget their device row.
+        await safeRun(
+          'UPDATE user_sessions SET push_token = $1, last_seen_at = NOW() WHERE id = $2 AND user_id = $3 AND revoked_at IS NULL',
+          [token, sid, me]
+        );
+      }
+      await safeRun('UPDATE users SET push_token = $1 WHERE id = $2', [token, me]);
+    } catch (e) {
+      return res.fail('Push token could not be saved', 500, 'PUSH_TOKEN_SAVE_FAILED');
+    }
+    return res.ok({ ok: true });
+  });
+
+  router.delete('/push-token', async (req, res) => {
+    const me = meId(req);
+    if (!me) return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+    const sid = req.user && req.user.sid ? String(req.user.sid) : '';
+    try {
+      if (sid) {
+        await safeRun('UPDATE user_sessions SET push_token = NULL WHERE id = $1 AND user_id = $2', [sid, me]);
+      }
+      // The mirror is cleared too: a stale mirror keeps pushing to a device
+      // that asked to stop (same reasoning as the patient endpoint).
+      await safeRun('UPDATE users SET push_token = NULL WHERE id = $1', [me]);
+    } catch (e) {
+      return res.fail('Push token could not be removed', 500, 'PUSH_TOKEN_SAVE_FAILED');
+    }
+    return res.ok({ ok: true });
+  });
+
+  // ─── Notification preferences ─────────────────────────────
+  // Enumerated from services/doctor_push.DOCTOR_PREF_KEYS so the settings
+  // screen and the push decision share one vocabulary. A missing row is ON.
+  const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+  // time -> 'HH:MM' ('' when unset). pg returns a time column as 'HH:MM:SS'.
+  function hhmm(v) {
+    const mins = hhmmToMinutes(v);
+    if (mins == null) return '';
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  }
+
+  async function readQuiet(doctorId) {
+    const row = await safeGet(
+      'SELECT quiet_hours_on, quiet_from, quiet_to FROM users WHERE id = $1 LIMIT 1',
+      [doctorId], null
+    );
+    return {
+      on: !!(row && (row.quiet_hours_on === true || row.quiet_hours_on === 1)),
+      from: row ? hhmm(row.quiet_from) : '',
+      to: row ? hhmm(row.quiet_to) : '',
+    };
+  }
+
+  router.get('/notification-prefs', async (req, res) => {
+    const me = meId(req);
+    if (!me) return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+
+    const rows = await safeAll(
+      'SELECT key, enabled FROM doctor_notification_prefs WHERE doctor_id = $1',
+      [me], []
+    );
+    const stored = {};
+    for (const r of rows || []) {
+      if (r && r.key) stored[String(r.key)] = !(r.enabled === false || r.enabled === 0);
+    }
+    const prefs = DOCTOR_PREF_KEYS.map((k) => ({
+      key: k.key,
+      // A locked key reads ON whatever a row says — that is what the push
+      // path does with it, and the switch must not lie.
+      on: k.locked ? true : (Object.prototype.hasOwnProperty.call(stored, k.key) ? stored[k.key] : true),
+      locked: !!k.locked,
+      channel: k.channel,
+    }));
+    const quiet = await readQuiet(me);
+    return res.ok({ prefs, quiet });
+  });
+
+  router.put('/notification-prefs', async (req, res) => {
+    const me = meId(req);
+    if (!me) return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+    const body = req.body || {};
+    const key = typeof body.key === 'string' ? body.key.trim() : '';
+    const spec = DOCTOR_PREF_KEYS.find((k) => k.key === key);
+    if (!spec || typeof body.on !== 'boolean') return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+    if (isLockedKey(key)) return res.fail('This notification cannot be turned off', 409, 'PREF_LOCKED');
+
+    try {
+      // Upsert on the primary key: idempotent, a retry lands the same value.
+      await safeRun(
+        `INSERT INTO doctor_notification_prefs (doctor_id, key, enabled, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (doctor_id, key) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = NOW()`,
+        [me, key, body.on]
+      );
+    } catch (e) {
+      return res.fail('Preference could not be saved', 500, 'PREF_SAVE_FAILED');
+    }
+    return res.ok({ key, on: body.on, locked: false });
+  });
+
+  // ─── Quiet hours ──────────────────────────────────────────
+  // Cairo wall-clock 'HH:MM'. Turning the window ON requires both ends; a
+  // window may cross midnight (from later than to). Turning it OFF keeps the
+  // stored times so the switch can be flipped back without retyping them.
+  router.put('/quiet-hours', async (req, res) => {
+    const me = meId(req);
+    if (!me) return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+    const body = req.body || {};
+    if (typeof body.on !== 'boolean') return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+
+    const given = (k) => body[k] != null && body[k] !== '';
+    for (const k of ['from', 'to']) {
+      if (given(k) && (typeof body[k] !== 'string' || !HHMM_RE.test(body[k].trim()))) {
+        return res.fail('Times must be HH:MM', 400, 'INVALID_TIME');
+      }
+    }
+    const from = given('from') ? body.from.trim() : null;
+    const to = given('to') ? body.to.trim() : null;
+
+    // Both ends are needed for a window that is on; if the body carries only
+    // one, the other must already be stored.
+    const current = await readQuiet(me);
+    const nextFrom = from || current.from || null;
+    const nextTo = to || current.to || null;
+    if (body.on && (!nextFrom || !nextTo)) return res.fail('Quiet hours need a start and an end', 400, 'QUIET_RANGE_REQUIRED');
+
+    try {
+      await safeRun(
+        'UPDATE users SET quiet_hours_on = $1, quiet_from = $2, quiet_to = $3 WHERE id = $4',
+        [body.on, nextFrom, nextTo, me]
+      );
+    } catch (e) {
+      return res.fail('Quiet hours could not be saved', 500, 'QUIET_SAVE_FAILED');
+    }
+    return res.ok({ quiet: { on: body.on, from: nextFrom || '', to: nextTo || '' } });
   });
 
   return router;

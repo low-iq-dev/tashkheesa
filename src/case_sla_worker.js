@@ -1361,6 +1361,20 @@ async function _runCaseSlaSweepInner(runAt = new Date()) {
     } catch (_) { /* ignore */ }
     logFatal('Stranded paid-case fetch failed', err);
   }
+  // Doctor away dates (migration 116): turn today's doctor_away_periods into
+  // the is_paused flag before the sweep routes anything, so a doctor whose
+  // leave started at midnight is not offered a case at 00:04. Best-effort and
+  // never part of fetchError — availability housekeeping must not fail or
+  // retry-storm the SLA job; the next tick applies it again anyway.
+  try {
+    await require('./services/doctor_pause').applyDoctorAwayPeriods(now);
+  } catch (err) {
+    try {
+      const { logErrorToDb } = require('./logger');
+      logErrorToDb(err, { context: 'case_sla_worker.runCaseSlaSweep.applyDoctorAwayPeriods', level: 'error' });
+    } catch (_) { /* ignore */ }
+    logFatal('Doctor away-period sweep failed', err);
+  }
 
   let breachCount = 0;
   let timeoutCount = 0;

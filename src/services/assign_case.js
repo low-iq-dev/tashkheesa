@@ -123,7 +123,7 @@ async function checkHandpickedDoctorEligibility(orderId, doctorId, opts = {}) {
 
   const doctor = await queryOne(
     `SELECT id, name, role, is_active, is_paused, onboarding_complete,
-            specialty_id, max_active_cases, max_active_cases_urgent
+            specialty_id, max_active_cases, max_active_cases_urgent, doctor_max_active_override
        FROM users WHERE id = $1`,
     [doctorId]
   );

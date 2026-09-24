@@ -206,7 +206,7 @@ async function findNextAvailableDoctor(order, excludeDoctorId) {
   if (!ids.length) return null;
 
   const rows = await queryAll(`
-    SELECT id, max_active_cases, max_active_cases_urgent
+    SELECT id, max_active_cases, max_active_cases_urgent, doctor_max_active_override
     FROM users
     WHERE id = ANY($1)
     ORDER BY COALESCE(created_at, '1970-01-01')::timestamp ASC
@@ -2581,7 +2581,7 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
       // NOT under any configured cap — fail closed, like everything else on
       // this path.
       doctorAccountRow = await queryOne(
-        'SELECT specialty_id, is_active, is_paused, pending_approval, rejection_reason, sla_tiers_supported, max_active_cases, max_active_cases_urgent FROM users WHERE id = $1',
+        'SELECT specialty_id, is_active, is_paused, pending_approval, rejection_reason, sla_tiers_supported, max_active_cases, max_active_cases_urgent, doctor_max_active_override FROM users WHERE id = $1',
         [doctorId]
       );
       doctorLoadCount = await countActiveCasesForDoctor(doctorId, orderId);
@@ -3613,7 +3613,7 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
   let liveDoctorReadFailed = false;
   try {
     liveDoctorRow = await queryOne(
-      'SELECT specialty_id, is_active, is_paused, pending_approval, rejection_reason, sla_tiers_supported, max_active_cases, max_active_cases_urgent FROM users WHERE id = $1',
+      'SELECT specialty_id, is_active, is_paused, pending_approval, rejection_reason, sla_tiers_supported, max_active_cases, max_active_cases_urgent, doctor_max_active_override FROM users WHERE id = $1',
       [doctorId]
     );
   } catch (e) {

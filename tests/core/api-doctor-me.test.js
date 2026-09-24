@@ -1,7 +1,7 @@
 // tests/core/api-doctor-me.test.js
 //
 // /api/v1/doctor/{profile,appearance,availability,services,signature,phrases,
-// feedback,ops-ticket,account/closure,notification-prefs} — the doctor app's
+// feedback,ops-ticket,account/closure} — the doctor app's
 // "me" surface (routes/api/doctor_me.js).
 //
 // What these pin:
@@ -295,8 +295,11 @@ test('GET /availability: taking_cases = NOT is_paused, tiers carry case_lifecycl
   ]);
   assert.deepEqual(d.away, []);
   assert.equal(d.self_pause_supported, true);
-  assert.equal(d.away_supported, false);
-  assert.equal(d.max_active_editable, false);
+  // Migration 116: away dates and a lower-only cap are live; the full
+  // contract is pinned in api-doctor-availability.test.js.
+  assert.equal(d.away_supported, true);
+  assert.equal(d.max_active_editable, true);
+  assert.equal(d.max_active_ceiling, 4);
   assert.equal(d.pause_reason, null);
 });
 
@@ -371,11 +374,13 @@ test('PUT /availability/tiers whitelists against DOCTOR_SLA_TIERS, floors at sta
   assert.deepEqual(r.runs[0].params, ['doc_1', JSON.stringify(['standard'])]);
 });
 
-test('max-active and away are 501 NOT_SUPPORTED', async () => {
+test('max-active and away are real routes now (migration 116) — a bad body is a 400, not a 501', async () => {
+  // Behaviour is pinned in api-doctor-availability.test.js; this only guards
+  // against the 501 stubs coming back.
   let r = await drive({ method: 'put', route: '/availability/max-active', body: { max_active: 9 } });
-  assert.equal(r.res.statusCode, 501); assert.equal(r.res._code, 'NOT_SUPPORTED');
+  assert.equal(r.res.statusCode, 400); assert.equal(r.res._code, 'INVALID_CAP');
   r = await drive({ method: 'post', route: '/availability/away', body: { from: 'x', to: 'y' } });
-  assert.equal(r.res.statusCode, 501); assert.equal(r.res._code, 'NOT_SUPPORTED');
+  assert.equal(r.res.statusCode, 400); assert.equal(r.res._code, 'INVALID_REQUEST');
 });
 
 // ═══ Services ══════════════════════════════════════════════════════════════
@@ -647,11 +652,13 @@ test('feedback, ops-ticket and closure all 404 when the doctor row is gone', asy
 });
 
 // ═══ Notification prefs ════════════════════════════════════════════════════
-test('notification-prefs is 501 NOT_SUPPORTED both ways', async () => {
-  let r = await drive({ method: 'get', route: '/notification-prefs' });
-  assert.equal(r.res.statusCode, 501); assert.equal(r.res._code, 'NOT_SUPPORTED');
-  r = await drive({ method: 'put', route: '/notification-prefs', body: { key: 'x', on: true } });
-  assert.equal(r.res.statusCode, 501); assert.equal(r.res._code, 'NOT_SUPPORTED');
+// Notification prefs and quiet hours live in doctor_inbox.js (mounted ahead of
+// this router). This router must not register them: a stub here would shadow
+// nothing today but would become the live handler the day the mount order moves.
+test('notification-prefs is not registered here (doctor_inbox owns it)', () => {
+  const router = buildRouter({}, makeDb().helpers);
+  const paths = router.stack.filter((l) => l.route).map((l) => l.route.path);
+  assert.ok(!paths.includes('/notification-prefs'));
 });
 
 // ═══ Router guards ═════════════════════════════════════════════════════════
