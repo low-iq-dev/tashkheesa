@@ -29,8 +29,28 @@
 
 const { randomUUID } = require('crypto');
 
-// Lazy requires keep this module cheap to load and trivially mockable.
-function pg() { return require('../pg'); }
+// Collaborators, resolved lazily (keeps the module cheap to load) and
+// overridable in tests via __setTestDeps — so a test can hand in a recording
+// database and a payment-lifecycle spy without touching require.cache, which
+// the suite runner shares across files.
+const DEFAULT_DEPS = Object.freeze({
+  pg: () => require('../pg'),
+  notify: () => require('../notify'),
+  opsPush: () => require('./ops_push'),
+  audit: () => require('../audit'),
+  reference: () => require('../utils/reference'),
+  caseLifecycle: () => require('../case_lifecycle'),
+  logger: () => require('../logger')
+});
+let D = Object.assign({}, DEFAULT_DEPS);
+function pg() { return D.pg(); }
+
+/** Test hook: override collaborators; returns a restore function. */
+function __setTestDeps(overrides) {
+  const prev = D;
+  D = Object.assign({}, D, overrides || {});
+  return function restore() { D = prev; };
+}
 
 const METHODS = Object.freeze(['instapay', 'bank']);
 const STATUSES = Object.freeze(['pending', 'confirmed', 'rejected']);
@@ -141,7 +161,7 @@ function transferAmountForOrder(order) {
  */
 async function ensureOrderReference(order, patientId) {
   if (order && order.reference_id) return String(order.reference_id);
-  const { generateReferenceId } = require('../utils/reference');
+  const { generateReferenceId } = D.reference();
   const fresh = await generateReferenceId();
   const row = await pg().queryOne(
     `UPDATE orders SET reference_id = COALESCE(reference_id, $1)
@@ -288,11 +308,11 @@ async function submitClaim({ order, patientId, patientName, claim, source }) {
   try {
     await db.execute('UPDATE orders SET updated_at = $1 WHERE id = $2', [new Date().toISOString(), orderId]);
   } catch (e) {
-    try { require('../logger').logErrorToDb(e, { context: 'manual_payment.touch_updated_at', orderId }); } catch (_) {}
+    try { D.logger().logErrorToDb(e, { context: 'manual_payment.touch_updated_at', orderId }); } catch (_) {}
   }
 
   try {
-    const { logOrderEvent } = require('../audit');
+    const { logOrderEvent } = D.audit();
     logOrderEvent({
       orderId,
       label: created ? 'payment_claim_submitted' : 'payment_claim_updated',
@@ -329,7 +349,7 @@ function notifyStaffOfClaim({ order, claimRow, patientName, created }) {
   const stamp = (toIso(claimRow.updated_at) || new Date().toISOString());
 
   try {
-    const { notifyAdmins } = require('../notify');
+    const { notifyAdmins } = D.notify();
     Promise.resolve(notifyAdmins({
       template: 'admin_payment_claim_received',
       payload: {
@@ -350,7 +370,7 @@ function notifyStaffOfClaim({ order, claimRow, patientName, created }) {
   } catch (_) { /* fan-out failure must not block the claim */ }
 
   try {
-    const { pushOpsEvent } = require('./ops_push');
+    const { pushOpsEvent } = D.opsPush();
     Promise.resolve(pushOpsEvent({
       kind: 'payment_claim',
       dedupeKey: claimRow.id + ':' + stamp,
@@ -387,7 +407,7 @@ async function rejectClaim({ orderId, claimId, reason, actorId }) {
   if (!row) return { ok: false, code: 'not_pending' };
 
   try {
-    const { logOrderEvent } = require('../audit');
+    const { logOrderEvent } = D.audit();
     logOrderEvent({
       orderId,
       label: 'payment_claim_rejected',
@@ -401,7 +421,7 @@ async function rejectClaim({ orderId, claimId, reason, actorId }) {
     try {
       const ord = await db.queryOne('SELECT reference_id FROM orders_active WHERE id = $1', [orderId]);
       const caseReference = (ord && ord.reference_id) || String(orderId).slice(0, 12).toUpperCase();
-      const { queueMultiChannelNotification } = require('../notify');
+      const { queueMultiChannelNotification } = D.notify();
       Promise.resolve(queueMultiChannelNotification({
         orderId,
         toUserId: row.patient_id,
@@ -455,6 +475,8 @@ async function listClaims({ status } = {}) {
        JOIN orders_active o ON o.id = pc.order_id
        LEFT JOIN users u ON u.id = pc.patient_id
       WHERE pc.status = $1
+        -- A pending claim on a case since paid by card is moot: hide it.
+        AND ($1 <> 'pending' OR COALESCE(o.payment_status, '') <> 'paid')
       ORDER BY pc.updated_at ASC
       LIMIT 200`,
     [st]
@@ -481,7 +503,8 @@ async function countPendingClaims() {
       `SELECT COUNT(*) AS cnt
          FROM payment_claims pc
          JOIN orders_active o ON o.id = pc.order_id
-        WHERE pc.status = 'pending'`
+        WHERE pc.status = 'pending'
+          AND COALESCE(o.payment_status, '') <> 'paid'`
     );
     return Number((r && r.cnt) || 0);
   } catch (_) {
@@ -503,7 +526,7 @@ async function buildManualInfo({ order, patientId, lang }) {
   const cfg = readManualPaymentConfig();
   if (!cfg.enabled || !order) return null;
   if (String(order.payment_status || '').toLowerCase() === 'paid') return null;
-  const { isPayableStatus } = require('../case_lifecycle');
+  const { isPayableStatus } = D.caseLifecycle();
   if (!isPayableStatus(order.status)) return null;
 
   const amt = transferAmountForOrder(order);
@@ -551,5 +574,6 @@ module.exports = {
   confirmPendingClaimForOrder,
   listClaims,
   countPendingClaims,
-  buildManualInfo
+  buildManualInfo,
+  __setTestDeps
 };

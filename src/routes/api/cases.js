@@ -30,6 +30,36 @@ const { getSignedDownloadUrl } = require('../../storage');
 // (the app never calls the web POST /payments/paymob/create-intention route).
 const { ensurePaymentLinkForOrder } = require('../../services/paymob_intention');
 const { logErrorToDb } = require('../../logger');
+// Manual payment path (InstaPay / bank transfer) — MANUAL_PAY_CONTRACT.md.
+const manualPayment = require('../../services/manual_payment');
+const rateLimit = require('express-rate-limit');
+
+// Per-patient limit on transfer claims, on top of the router-wide apiLimiter
+// (which is per IP and would let one CGNAT neighbour starve another).
+const paymentClaimLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  validate: false,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user && req.user.id) ? 'user:' + String(req.user.id) : 'ip:' + req.ip,
+  message: { success: false, error: 'Too many attempts. Try again in 15 minutes.', code: 'RATE_LIMITED' },
+});
+
+// Language for the localized notes in GET /cases/:id/payment's `manual`:
+// explicit ?lang= wins, then the patient's saved preference, then
+// Accept-Language. Default English.
+async function resolveApiLang(req, safeGet) {
+  const q = String((req.query && req.query.lang) || '').toLowerCase();
+  if (q === 'ar' || q === 'en') return q;
+  try {
+    const u = await safeGet('SELECT lang FROM users WHERE id = $1', [req.user.id]);
+    const l = String((u && u.lang) || '').toLowerCase();
+    if (l === 'ar' || l === 'en') return l;
+  } catch (_) { /* fall through */ }
+  const al = String((req.headers && req.headers['accept-language']) || '').toLowerCase();
+  return /^\s*ar\b/.test(al) ? 'ar' : 'en';
+}
 
 // NEW-CASE-6 — when a case was SUBMITTED, as opposed to when its row was
 // created. App cases start life as a DRAFT row (cases_draft.js), so
@@ -545,10 +575,15 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
   router.get('/:id/payment', async (req, res) => {
     const caseData = await safeGet(
-      'SELECT id FROM orders_active WHERE id = $1 AND patient_id = $2',
+      'SELECT id, status, payment_status, price, currency, addons_json, reference_id FROM orders_active WHERE id = $1 AND patient_id = $2',
       [req.params.id, req.user.id]
     );
     if (!caseData) return res.fail('Case not found', 404);
+
+    // MANUAL PAYMENT PATH (2026-09-24, MANUAL_PAY_CONTRACT.md). Read per
+    // request. CARD_PAYMENT_ENABLED=false: no Paymob intention is minted and
+    // paymentLink is null — the app shows only the transfer block.
+    const cardEnabled = manualPayment.isCardPaymentEnabled();
 
     // Legacy `payments` table dropped by migration 042. Source the
     // same fields from `orders` — payment_method / paid_at exist
@@ -565,7 +600,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     // a checkoutUrl. ADDITIVE: the proven web POST route is untouched. A mint
     // failure must NOT turn this read endpoint into a 500 — on ANY error we log
     // and leave paymentLink null (app shows unavailable; the patient can retry).
-    if (payment && String(payment.status || '').toLowerCase() !== 'paid' && !payment.paymentLink) {
+    if (cardEnabled && payment && String(payment.status || '').toLowerCase() !== 'paid' && !payment.paymentLink) {
       try {
         const proto = req.secure ? 'https'
           : (req.headers['x-forwarded-proto'] || req.protocol || 'https');
@@ -603,8 +638,68 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       }
     }
 
-    return res.ok(payment || { status: 'pending' });
+    const out = payment || { status: 'pending' };
+    if (!cardEnabled) out.paymentLink = null;
+    out.cardEnabled = cardEnabled;
+    // `manual` — null when the flag is off, nothing is configured, or the case
+    // is paid / not payable. Built from the same resolved values the card flow
+    // charges. A failure here must never turn this read into a 500.
+    out.manual = null;
+    if (manualPayment.isManualPaymentEnabled()) {
+      try {
+        const lang = await resolveApiLang(req, safeGet);
+        out.manual = await manualPayment.buildManualInfo({ order: caseData, patientId: req.user.id, lang });
+      } catch (mpErr) {
+        logErrorToDb(mpErr, { context: 'mobile_pay_manual', orderId: caseData.id, userId: req.user && req.user.id, requestId: req.requestId });
+        out.manual = null;
+      }
+    }
+    return res.ok(out);
   });
+
+  // ── MANUAL-PAY-CLAIM-ROUTE BEGIN ───────────────────────────
+  // POST /cases/:id/payment-claim  {method, reference, senderName?}
+  //
+  // THE RULE: records an UNVERIFIED transfer claim and notifies staff. It
+  // never writes payment_status, never changes status, never touches the
+  // payment lifecycle, never triggers assignment. Only a superadmin's
+  // mark-paid does. tests/core/manual-payment-claims.test.js pins this block.
+  router.post('/:id/payment-claim', paymentClaimLimiter, async (req, res) => {
+    const cfg = manualPayment.readManualPaymentConfig();
+    if (!cfg.enabled) {
+      return res.fail('Manual payment is not available.', 403, 'MANUAL_PAYMENT_DISABLED');
+    }
+    const order = await safeGet(
+      'SELECT id, status, payment_status, price, currency, addons_json, reference_id FROM orders_active WHERE id = $1 AND patient_id = $2',
+      [req.params.id, req.user.id]
+    );
+    if (!order) return res.fail('Case not found', 404, 'CASE_NOT_FOUND');
+    if (String(order.payment_status || '').toLowerCase() === 'paid') {
+      return res.fail('This case is already paid.', 409, 'ALREADY_PAID');
+    }
+    const { isPayableStatus } = require('../../case_lifecycle');
+    if (!isPayableStatus(order.status)) {
+      return res.fail('This case cannot be paid right now.', 409, 'NOT_PAYABLE');
+    }
+    const v = manualPayment.validateClaimInput(req.body || {}, cfg);
+    if (!v.ok) return res.fail(v.message, 400, 'VALIDATION_ERROR');
+
+    try {
+      const patient = await safeGet('SELECT name FROM users WHERE id = $1', [req.user.id]);
+      const result = await manualPayment.submitClaim({
+        order,
+        patientId: req.user.id,
+        patientName: (patient && patient.name) || req.user.name || '',
+        claim: v.value,
+        source: 'app'
+      });
+      return res.ok({ claim: manualPayment.claimDto(result.claim) });
+    } catch (err) {
+      logErrorToDb(err, { context: 'mobile_payment_claim', orderId: order.id, userId: req.user.id, requestId: req.requestId });
+      return res.fail('Could not save your transfer details. Please try again.', 500, 'PAYMENT_CLAIM_ERROR');
+    }
+  });
+  // ── MANUAL-PAY-CLAIM-ROUTE END ─────────────────────────────
 
   // ─── GET /cases/:id/files/:fileId/url ────────────────────
   // A-2 (2026-09-23) — the patient could not open ANY file uploaded since the
