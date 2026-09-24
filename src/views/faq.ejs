@@ -1,6 +1,12 @@
 <%- include('partials/header', { title: tt('faq.page_title', 'FAQ – Frequently Asked Questions', 'الأسئلة الشائعة'), layout: 'public', showNav: true }) %>
 <%
   const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  // The Urgent off-hours rule (services/urgency_window.urgentWindowNote, on
+  // app.locals). Plain text, so wrapping it in <p> is safe; it also flows into
+  // the FAQPage JSON-LD below, which strips tags from the same answer.
+  function __uwnP(l) {
+    return (typeof urgentWindowNote === 'function') ? ('<p>' + urgentWindowNote(l) + '</p>') : '';
+  }
 
   // Category + Q&A data. EN copy from the approved P1-PUB-1 FAQ brief retained
   // verbatim. AR copy was MSA per the same brief; re-translated to Egyptian
@@ -43,6 +49,7 @@
               '<li><strong>VIP:</strong> 18 hours (priority surcharge)</li>' +
               '<li><strong>Urgent:</strong> 4 hours (urgent surcharge, available 7 AM – 7 PM Cairo time)</li>' +
             '</ul>' +
+            __uwnP('en') +
             '<p>The exact surcharge for each tier is shown when you select it. If we miss the deadline you chose, we refund your urgency surcharge — sent via InstaPay within 3–5 business days.</p>'
           },
           ar: { q: 'بياخد قد إيه عشان آخد رأي تاني؟', a:
@@ -52,6 +59,7 @@
               '<li><strong>VIP:</strong> 18 ساعة (رسوم أولوية)</li>' +
               '<li><strong>عاجل:</strong> 4 ساعات (رسوم استعجال، متاح من 7 الصبح لـ 7 بليل بتوقيت القاهرة)</li>' +
             '</ul>' +
+            __uwnP('ar') +
             '<p>الرسوم الدقيقة لكل خيار بتظهرلك لما تختاره. ولو اتأخرنا عن الموعد اللي اخترته، بنرجّعلك رسوم الاستعجال — عبر إنستاباي خلال 3–5 أيام عمل.</p>'
           }
         },

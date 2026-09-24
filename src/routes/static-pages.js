@@ -12,6 +12,7 @@ var comingSoonNotify = require('../notify/coming_soon');
 // Durable persistence surface for contact-form submissions (see POST /contact).
 var { logErrorToDb } = require('../logger');
 var { pathFor, isPublicPath, specialtySlug } = require('../utils/public_lang_url');
+var { urgentWindowNote } = require('../services/urgency_window');
 
 // SEO 2026-09-13 (A4) — the ONE definition of "a specialty detail page that
 // returns 200". /specialties/:slug filters on it and the sitemap lists exactly
@@ -96,8 +97,12 @@ function setupStaticPages(opts) {
     // time-boxed promise is the Urgent 4-hour tier, which runs 7am–7pm Cairo
     // (see src/services/urgency.js and patient_new_case.ejs §3). The old
     // 'Sunday – Thursday 9–5' string contradicted every SLA we actually sell.
-    businessHours: '24/7 — cases accepted any time. Urgent 4-hour reviews run 7:00 AM – 7:00 PM (Cairo Time).',
-    businessHours_ar: 'متاح 24/7 — نستقبل الحالات في أي وقت. المراجعات العاجلة خلال 4 ساعات تعمل من 7:00 صباحاً حتى 7:00 مساءً (بتوقيت القاهرة).',
+    // Launch eve 2026-09-24 — "متاح 24/7" read as "everything is 24/7". What is
+    // 24/7 is SUBMITTING a case; the Urgent tier is served inside its Cairo
+    // window. The Urgent half is the canonical sentence from
+    // services/urgency_window.urgentWindowNote, so it cannot drift from the gate.
+    businessHours: 'Case uploads are open 24/7. ' + urgentWindowNote('en'),
+    businessHours_ar: 'رفع الحالات متاح 24/7. ' + urgentWindowNote('ar'),
     instagram: 'https://instagram.com/tashkheesa',
   };
 

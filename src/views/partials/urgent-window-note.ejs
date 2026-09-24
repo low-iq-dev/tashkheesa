@@ -1,0 +1,16 @@
+<%#
+  The Urgent off-hours rule, one sentence, EN or AR by the page language.
+  Text comes from services/urgency_window.urgentWindowNote (exposed on
+  app.locals in server.js) so the wording is built from the same window
+  constants the gate uses. Launch eve 2026-09-24.
+
+  Locals: lang ('en'|'ar', falls back to the request's), style (optional
+  inline CSS for the <p>).
+%>
+<%
+  const __uwnLang = (typeof lang === 'string' && lang) ? lang
+    : ((typeof locals !== 'undefined' && locals && locals.lang) ? locals.lang : 'en');
+  const __uwnText = (typeof urgentWindowNote === 'function') ? urgentWindowNote(__uwnLang) : '';
+  const __uwnStyle = (typeof style === 'string' && style) ? style : '';
+%>
+<% if (__uwnText) { %><p class="urgent-window-note"<% if (__uwnStyle) { %> style="<%= __uwnStyle %>"<% } %>><%= __uwnText %></p><% } %>

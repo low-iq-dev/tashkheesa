@@ -82,7 +82,7 @@
       <h2>توفر الخدمة</h2>
       <ul>
         <li>يتاح تقديم الحالات على تشخيصة على مدار الساعة طوال أيام الأسبوع.</li>
-        <li>مواعيد مراجعة الأطباء: <%= biz.businessHours_ar || 'متاح 24/7 — نستقبل الحالات في أي وقت. المراجعات العاجلة خلال 4 ساعات تعمل من 7:00 صباحاً حتى 7:00 مساءً (بتوقيت القاهرة).' %></li>
+        <li>مواعيد مراجعة الأطباء: <%= biz.businessHours_ar || ('رفع الحالات متاح 24/7. ' + (typeof urgentWindowNote === 'function' ? urgentWindowNote('ar') : '')) %></li>
         <li>الحالة المقدَّمة الساعة 3 فجراً تُعالَج مثل المقدَّمة الساعة 3 عصراً. أما الحالة العاجلة المقدَّمة خارج فترة 7 صباحاً – 7 مساءً فتبدأ ساعاتها الأربع في تمام 7:00 صباحاً.</li>
         <li>تخضع المراجعات VIP (خلال 18 ساعة) والعاجلة (خلال 4 ساعات) لتوفر الأطباء الاستشاريين.</li>
       </ul>
@@ -169,7 +169,7 @@
       <h2>Service Availability</h2>
       <ul>
         <li>Tashkheesa services are available 24/7 for case submission</li>
-        <li>Specialist review hours: <%= biz.businessHours || '24/7 — cases accepted any time. Urgent 4-hour reviews run 7:00 AM – 7:00 PM (Cairo Time).' %></li>
+        <li>Specialist review hours: <%= biz.businessHours || ('Case uploads are open 24/7. ' + (typeof urgentWindowNote === 'function' ? urgentWindowNote('en') : '')) %></li>
         <li>A case submitted at 3am is handled the same as one submitted at 3pm. An urgent case submitted outside the 7:00 AM – 7:00 PM window starts its four hours at 7:00 AM</li>
         <li>VIP (18-hour) and Urgent (4-hour) reviews are subject to specialist availability</li>
       </ul>

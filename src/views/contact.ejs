@@ -123,8 +123,8 @@
       <div class="contact-hours">
         <h3><%= tt('contact.hours.title', 'Availability', 'مواعيد التوفر') %></h3>
         <p><%= tt('contact.hours.weekdays_value',
-          biz.businessHours || '24/7 — cases accepted any time. Urgent 4-hour reviews run 7:00 AM – 7:00 PM (Cairo Time).',
-          biz.businessHours_ar || 'متاح 24/7 — نستقبل الحالات في أي وقت. المراجعات العاجلة خلال 4 ساعات تعمل من 7:00 صباحاً حتى 7:00 مساءً (بتوقيت القاهرة).') %></p>
+          biz.businessHours || ('Case uploads are open 24/7. ' + (typeof urgentWindowNote === 'function' ? urgentWindowNote('en') : '')),
+          biz.businessHours_ar || ('رفع الحالات متاح 24/7. ' + (typeof urgentWindowNote === 'function' ? urgentWindowNote('ar') : ''))) %></p>
         <p class="contact-response-note"><%= tt('contact.hours.response',
           'We typically respond to messages within 24 hours, any day of the week.',
           'بنرد على الرسائل في العادة في خلال 24 ساعة، أي يوم في الأسبوع.') %></p>

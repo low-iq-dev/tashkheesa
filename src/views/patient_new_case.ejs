@@ -1092,6 +1092,9 @@
               </div>
             </label>
           <% }); %>
+          <%# Launch eve 2026-09-24 — say the Urgent off-hours consequence where
+              the patient picks the tier, not only on /delivery-policy. %>
+          <%- include('partials/urgent-window-note', { style: 'font-size:11.5px;color:var(--muted);margin:6px 0 0;line-height:1.5;padding:0 2px;' }) %>
           <% if (__pricing.showSecondary) { %>
             <%# Always-charge-EGP: tiers above show the LOCAL price with the ≈ EGP
                 charge beside each. One line clarifies the card is billed in EGP. %>

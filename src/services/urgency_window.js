@@ -21,6 +21,12 @@
 
 const CAIRO_TZ = 'Africa/Cairo';
 
+// The Urgent window, Cairo wall-clock hours: [START, END). THE source of truth —
+// isUrgentWindowOpen below gates on it and urgentWindowNote renders the
+// patient-facing sentence from it, so the rule and its wording cannot drift.
+const URGENT_WINDOW_START_HOUR = 7;
+const URGENT_WINDOW_END_HOUR = 19;
+
 // Cairo wall-clock parts for a given instant (defaults to now).
 function _cairoParts(date) {
   const d = date || new Date();
@@ -43,7 +49,7 @@ function _cairoParts(date) {
 
 function isUrgentWindowOpen(now) {
   const h = _cairoParts(now).hour;
-  return h >= 7 && h < 19;
+  return h >= URGENT_WINDOW_START_HOUR && h < URGENT_WINDOW_END_HOUR;
 }
 
 // Returns the next 7:00 Cairo as a UTC Date. If currently before 7am
@@ -66,7 +72,44 @@ function nextSevenAmCairoUtc(now) {
   return target;
 }
 
+// "7:00 AM" / "7:00 صباحاً" for a whole Cairo hour.
+function _clock(hour, lang) {
+  const h12 = (hour % 12) || 12;
+  if (lang === 'ar') return h12 + ':00 ' + (hour < 12 ? 'صباحاً' : 'مساءً');
+  return h12 + ':00 ' + (hour < 12 ? 'AM' : 'PM');
+}
+
+/**
+ * The Urgent off-hours rule in one sentence, for every place a patient picks
+ * or pays for a tier (services page, wizard tier picker, pay page, FAQ,
+ * contact). Launch eve 2026-09-24: until now only /ar/delivery-policy said
+ * what happens to an Urgent case paid at night.
+ *
+ * "Payment is confirmed", not "you pay": case_lifecycle.markCasePaid anchors
+ * the clock (next 07:00 Cairo + 4h) at the moment the case is MARKED paid,
+ * and with manual InstaPay / bank transfer that is when a human confirms the
+ * transfer, not when the patient sent it.
+ *
+ * @param {'en'|'ar'} lang
+ * @returns {string} plain text, no HTML
+ */
+function urgentWindowNote(lang) {
+  const start = URGENT_WINDOW_START_HOUR;
+  const end = URGENT_WINDOW_END_HOUR;
+  if (String(lang || '').toLowerCase() === 'ar') {
+    return 'الخدمة العاجلة (4 ساعات) متاحة من ' + _clock(start, 'ar') + ' حتى ' + _clock(end, 'ar') +
+      ' بتوقيت القاهرة، والحالة العاجلة التي يُؤكَّد دفعها خارج هذه المواعيد تبدأ ساعاتها الأربع من الساعة ' +
+      _clock(start, 'ar') + '.';
+  }
+  return 'Urgent (4 hours) runs ' + _clock(start, 'en') + ' – ' + _clock(end, 'en') +
+    ' Cairo time; an Urgent case whose payment is confirmed outside those hours starts its 4 hours at ' +
+    _clock(start, 'en') + '.';
+}
+
 module.exports = {
+  URGENT_WINDOW_START_HOUR: URGENT_WINDOW_START_HOUR,
+  URGENT_WINDOW_END_HOUR: URGENT_WINDOW_END_HOUR,
   isUrgentWindowOpen: isUrgentWindowOpen,
-  nextSevenAmCairoUtc: nextSevenAmCairoUtc
+  nextSevenAmCairoUtc: nextSevenAmCairoUtc,
+  urgentWindowNote: urgentWindowNote
 };

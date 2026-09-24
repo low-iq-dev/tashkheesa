@@ -305,6 +305,11 @@ var { setupLangRoutes } = require('./routes/lang');
 
 var app = express();
 
+// Launch eve 2026-09-24 — the Urgent off-hours rule, one sentence (EN/AR),
+// available to every view (partials/urgent-window-note.ejs, faq.ejs). Built
+// from the same window constants the intake gate uses.
+app.locals.urgentWindowNote = require('./services/urgency_window').urgentWindowNote;
+
 require('express-async-errors');
 
 app.disable('x-powered-by');
