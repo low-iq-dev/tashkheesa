@@ -198,6 +198,7 @@ test('GET /availability: away list, effective cap via capFor, ceiling, editable 
   assert.equal(d.taking_cases, true);
   assert.equal(d.max_active, 2, 'effective = min(platform 4, override 2)');
   assert.equal(d.max_active_ceiling, 4);
+  assert.equal(d.max_active_own, 2);
   assert.equal(d.max_active_editable, true);
   assert.equal(d.away_supported, true);
   assert.equal(d.self_pause_supported, true);
@@ -389,19 +390,19 @@ test('PUT /availability/max-active bounds n by the platform ceiling and writes t
   }
   let r = await drive({ method: 'put', route: '/availability/max-active', body: { n: 2 }, db: makeDb(rows) });
   assert.equal(r.res.statusCode, 200);
-  assert.deepEqual(r.res._json.data, { max_active: 2, max_active_ceiling: 4 });
+  assert.deepEqual(r.res._json.data, { max_active: 2, max_active_ceiling: 4, max_active_own: 2 });
   assert.match(r.runs[0].sql, /UPDATE users SET doctor_max_active_override = \$2 WHERE id = \$1 AND role = 'doctor'/);
   assert.deepEqual(r.runs[0].params, ['doc_1', 2]);
 
   // n = ceiling is allowed (a no-op lowering, but the doctor's explicit choice).
   r = await drive({ method: 'put', route: '/availability/max-active', body: { n: 4 }, db: makeDb(rows) });
   assert.equal(r.res.statusCode, 200);
-  assert.deepEqual(r.res._json.data, { max_active: 4, max_active_ceiling: 4 });
+  assert.deepEqual(r.res._json.data, { max_active: 4, max_active_ceiling: 4, max_active_own: 4 });
 
   // n = 0 clears: NULL written, effective cap back to the platform's.
   r = await drive({ method: 'put', route: '/availability/max-active', body: { n: 0 }, db: makeDb([[CAP_ROW_RE, { max_active_cases: 4, max_active_cases_urgent: 8, doctor_max_active_override: 2 }]]) });
   assert.equal(r.res.statusCode, 200);
-  assert.deepEqual(r.res._json.data, { max_active: 4, max_active_ceiling: 4 });
+  assert.deepEqual(r.res._json.data, { max_active: 4, max_active_ceiling: 4, max_active_own: 0 });
   assert.deepEqual(r.runs[0].params, ['doc_1', null]);
 });
 
@@ -412,7 +413,7 @@ test('PUT /availability/max-active with no platform cap allows 1..20; unknown do
   assert.equal(r.res.statusCode, 400); assert.equal(r.res._code, 'INVALID_CAP');
   r = await drive({ method: 'put', route: '/availability/max-active', body: { n: 20 }, db: makeDb(noCap) });
   assert.equal(r.res.statusCode, 200);
-  assert.deepEqual(r.res._json.data, { max_active: 20, max_active_ceiling: 0 });
+  assert.deepEqual(r.res._json.data, { max_active: 20, max_active_ceiling: 0, max_active_own: 20 });
 
   r = await drive({ method: 'put', route: '/availability/max-active', body: { n: 1 } });
   assert.equal(r.res.statusCode, 404); assert.equal(r.res._code, 'NOT_FOUND');

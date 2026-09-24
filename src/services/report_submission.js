@@ -615,6 +615,15 @@ async function submitDoctorReport({
   const findingsAr = typeof diagnosisTextAr === 'string' ? diagnosisTextAr.trim() : storedAr.findings_ar;
   const impressionAr = typeof impressionTextAr === 'string' ? impressionTextAr.trim() : storedAr.impression_ar;
   const recommendationsAr = typeof recommendationsTextAr === 'string' ? recommendationsTextAr.trim() : storedAr.recommendation_ar;
+  // The Arabic body reaches the PATIENT's PDF only once the doctor has signed
+  // it off (report_ar_approved_at, or arabicApproved sent with this submit).
+  // An Arabic draft the doctor started and never reviewed stays a draft: the
+  // English-only PDF the platform always produced is the safe default, an
+  // unreviewed medical translation is not.
+  const arabicApprovedNow = typeof arabicApproved === 'boolean' ? arabicApproved : storedAr.arabic_approved;
+  const printFindingsAr = arabicApprovedNow ? findingsAr : '';
+  const printImpressionAr = arabicApprovedNow ? impressionAr : '';
+  const printRecommendationsAr = arabicApprovedNow ? recommendationsAr : '';
 
   // Persist the text draft-shaped BEFORE anything that can fail.
   try {
@@ -707,11 +716,11 @@ async function submitDoctorReport({
       findings: findings || order.diagnosis_text || '',
       impression,
       recommendations,
-      // Migration 117 — the Arabic body per section. Empty strings render
-      // nothing (the generator prints the English-only layout it always has).
-      findingsAr,
-      impressionAr,
-      recommendationsAr,
+      // Migration 117 — the Arabic body per section, only when approved.
+      // Empty strings render nothing (the English-only layout as always).
+      findingsAr: printFindingsAr,
+      impressionAr: printImpressionAr,
+      recommendationsAr: printRecommendationsAr,
       patient: {
         name: patient.name || '—',
         age: (reportPatientAge != null) ? String(reportPatientAge) : '—',

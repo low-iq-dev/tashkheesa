@@ -155,7 +155,7 @@ test('buildReportDraftFieldsAr reads the four fields, trimmed, and is empty / fa
 });
 
 // ── 3. submitDoctorReport → generateMedicalReportPdf ─────────
-test('submitDoctorReport hands the Arabic body to the PDF: stored columns by default, the caller\'s text when sent', async () => {
+test('submitDoctorReport hands the Arabic body to the PDF only when approved: stored columns by default, the caller\'s text when sent', async () => {
   const realGen = generator.generateMedicalReportPdf;
   let pdfArgs = null;
   // Capture, then fail: the run stops at report_pdf_failed and nothing after
@@ -170,15 +170,27 @@ test('submitDoctorReport hands the Arabic body to the PDF: stored columns by def
       diagnosis_text_ar: 'نتائج مخزنة', impression_text_ar: 'انطباع مخزن', recommendation_text_ar: '', report_ar_approved_at: null,
     };
 
-    // nothing Arabic sent -> stored Arabic, and the persist UPDATE is English-only
+    // nothing Arabic sent and NOT approved -> the PDF stays English-only
+    // (an unreviewed Arabic draft never reaches the patient), and the persist
+    // UPDATE is English-only
     state.executes = [];
     let r = await service.submitDoctorReport({ orderId: 'ord-1', doctorId: 'doc_1', diagnosisText: 'F2', impressionText: 'I2', recommendationsText: 'R2' });
     assert.equal(r.ok, false); assert.equal(r.code, 'report_pdf_failed');
-    assert.equal(pdfArgs.findingsAr, 'نتائج مخزنة');
-    assert.equal(pdfArgs.impressionAr, 'انطباع مخزن');
+    assert.equal(pdfArgs.findingsAr, '', 'unapproved stored Arabic is not printed');
+    assert.equal(pdfArgs.impressionAr, '');
     assert.equal(pdfArgs.recommendationsAr, '');
     assert.equal(pdfArgs.findings, 'F2');
     assert.ok(!/_ar/.test(state.executes[0][0]), 'English-only submit leaves the Arabic columns alone');
+
+    // nothing Arabic sent but approved earlier -> stored Arabic prints
+    state.order.report_ar_approved_at = '2026-09-24T10:00:00Z';
+    state.executes = []; pdfArgs = null;
+    r = await service.submitDoctorReport({ orderId: 'ord-1', doctorId: 'doc_1', diagnosisText: 'F2', impressionText: 'I2', recommendationsText: 'R2' });
+    assert.equal(r.code, 'report_pdf_failed');
+    assert.equal(pdfArgs.findingsAr, 'نتائج مخزنة');
+    assert.equal(pdfArgs.impressionAr, 'انطباع مخزن');
+    assert.equal(pdfArgs.recommendationsAr, '');
+    state.order.report_ar_approved_at = null;
 
     // Arabic sent -> the caller's text wins, '' clears, and the persist UPDATE carries them
     state.executes = []; pdfArgs = null;

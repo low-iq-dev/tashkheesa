@@ -266,6 +266,9 @@ module.exports = function (db, helpers) {
       // override, exactly as every routing gate computes it (capFor).
       max_active: require('../../services/doctor_eligibility').capFor(row, 'standard'),
       max_active_ceiling: Number(row.max_active_cases) || 0,
+      // The doctor's own figure as stored (0 = none set), so the app can show
+      // which control is selected rather than inferring it from the minimum.
+      max_active_own: Number(row.doctor_max_active_override) || 0,
       currently_held: currentlyHeld,
       tiers,
       away,
@@ -397,7 +400,7 @@ module.exports = function (db, helpers) {
     }
     const effective = require('../../services/doctor_eligibility')
       .capFor(Object.assign({}, row, { doctor_max_active_override: value }), 'standard');
-    return res.ok({ max_active: effective, max_active_ceiling: ceiling });
+    return res.ok({ max_active: effective, max_active_ceiling: ceiling, max_active_own: value || 0 });
   });
 
   // ─── PUT /availability/taking-cases ───────────────────────
