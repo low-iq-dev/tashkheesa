@@ -415,6 +415,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     const urgencyFlag = intake.urgencyFlag;
     const urgencyTier = intake.urgencyTier;
 
+    const { resolveAppCaseLanguage, loadAccountLang } = require('../../services/intake_language');
+    const caseLanguage = resolveAppCaseLanguage(req, await loadAccountLang(req.user.id)).lang;
+
     // Generate case
     const orderId = randomUUID();
     const refNumber = await generateReferenceId();
@@ -440,8 +443,8 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         clinical_question, medical_history, country,
         base_price, price, urgency_uplift_amount, currency, doctor_fee,
         display_price, display_currency,
-        sla_deadline, sla_hours, urgency_flag, urgency_tier, created_at
-      ) VALUES ($1, $2, $3, $4, $5, 'submitted', $6, $7, $8, $9, $10, $11, 'EGP', $12, $13, $14, $15, $16, $17, $18, NOW())
+        sla_deadline, sla_hours, urgency_flag, urgency_tier, created_at, language
+      ) VALUES ($1, $2, $3, $4, $5, 'submitted', $6, $7, $8, $9, $10, $11, 'EGP', $12, $13, $14, $15, $16, $17, $18, NOW(), $19)
     `, [
       orderId, refNumber, req.user.id, serviceId, resolvedSpecialtyId,
       clinicalQuestion, medicalHistory || null, displayCountry,
@@ -450,7 +453,12 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       // delta the 30/70 doctor split applies to.
       charge.egpBase, pricing.totalPrice, pricing.upliftAmount,
       charge.doctorFeeEgp, charge.displayPrice, charge.displayCurrency,
-      slaDeadline, slaHours, urgencyFlag, urgencyTier
+      slaDeadline, slaHours, urgencyFlag, urgencyTier,
+      // $19 — launch-eve follow-up 2026-09-25: the case language was never
+      // written here, so the column default 'en' landed on every app case and
+      // the doctor's Arabic-recommendation guard could not fire. The app's
+      // field / locale header, the account's CHOSEN language, then 'ar'.
+      caseLanguage
     ]);
 
     // Insert files. Tag images for async AI quality check; non-images are skipped.

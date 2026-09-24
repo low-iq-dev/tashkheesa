@@ -183,7 +183,11 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       updates.push(`country = $${paramIndex++}`); values.push(iso);
       updates.push(`country_code = $${paramIndex++}`); values.push(iso);
     }
-    if (req.body.lang) { updates.push(`lang = $${paramIndex++}`); values.push(req.body.lang); }
+    if (req.body.lang) {
+      updates.push(`lang = $${paramIndex++}`); values.push(req.body.lang);
+      // Migration 119 — an explicit choice, as opposed to the column default.
+      updates.push('lang_chosen_at = NOW()');
+    }
 
     if (updates.length === 0) {
       return res.fail('No fields to update', 400);

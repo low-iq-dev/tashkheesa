@@ -109,13 +109,13 @@ router.post('/intake', async (req, res) => {
     // signup event, and only after COMMIT.
     let accountCreated = false;
     const existing = await client.query(
-      "SELECT id, lang FROM users WHERE LOWER(email) = LOWER($1) AND role = 'patient' LIMIT 1",
+      "SELECT id, lang, lang_chosen_at FROM users WHERE LOWER(email) = LOWER($1) AND role = 'patient' LIMIT 1",
       [email]
     );
     // Launch eve 2026-09-24 (T2) — the case's language: the form's field, else
     // the request's language, else the account's, else Arabic. Never a bare
     // 'en' (services/intake_language.js has the order and why).
-    intakeLang = resolveIntakeLanguage(req, existing.rows[0] ? existing.rows[0].lang : null).lang;
+    intakeLang = resolveIntakeLanguage(req, existing.rows[0] || null).lang;
     if (existing.rows.length > 0) {
       userId = existing.rows[0].id;
       // Best-effort enrichment: only fill blanks, don't overwrite existing data.

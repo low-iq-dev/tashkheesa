@@ -158,9 +158,11 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       // (signUserToken) embeds country_code, so pricing resolved inconsistently
       // depending on which surface created the account.
       await safeRun(`
-        INSERT INTO users (id, name, email, phone, password_hash, country, country_code, lang, role, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $6, $7, 'patient', NOW())
-      `, [userId, name, email, normalizedPhone, hashedPassword, coerceCountry(country), lang || 'en']);
+        INSERT INTO users (id, name, email, phone, password_hash, country, country_code, lang, role, created_at, lang_chosen_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $6, $7, 'patient', NOW(), CASE WHEN $8::boolean THEN NOW() END)
+      `, [userId, name, email, normalizedPhone, hashedPassword, coerceCountry(country), lang || 'en',
+          // Migration 119: the app sent a language (its own setting) — a choice.
+          lang === 'ar' || lang === 'en']);
 
       // safeRun IS execute() (server.js:1203) — auto-commit, and it did not
       // throw, so the row is durable.

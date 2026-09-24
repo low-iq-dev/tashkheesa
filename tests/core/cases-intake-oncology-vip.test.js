@@ -72,7 +72,7 @@ module.exports = (async function run() {
       const s = norm(sql);
       rec.queries.push({ sql: s, params: params || [] });
       // (launch eve 2026-09-24: the lookup also reads users.lang for T2.)
-      if (/^SELECT id(, lang)? FROM users WHERE LOWER\(email\)/.test(s)) return { rows: [{ id: 'user-1' }] };
+      if (/^SELECT id(, lang(, lang_chosen_at)?)? FROM users WHERE LOWER\(email\)/.test(s)) return { rows: [{ id: 'user-1' }] };
       if (/^SELECT nextval/.test(s)) return { rows: [{ n: 7 }] };
       return { rows: [], rowCount: 1 };
     },

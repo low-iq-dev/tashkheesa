@@ -2235,13 +2235,18 @@ router.post('/patient/new-case/step1', requireRole('patient'), async (req, res) 
       // dashboard/queue showed the raw UUID while the patient side showed a
       // derived TSH-<uuid-prefix>. Mint the sequence-backed reference here so
       // every surface shows the same TSH-YYYY-NNNNNN from the first minute.
+      const { resolveWebCaseLanguage, loadAccountLang } = require('../services/intake_language');
+      const caseLanguage = resolveWebCaseLanguage(req, await loadAccountLang(patientId)).lang;
       const referenceId = await generateReferenceId();
       await execute(
         `INSERT INTO orders
            (id, patient_id, status, language, clinical_question, medical_history, current_medications,
             payment_status, source, draft_step, reference_id, created_at, updated_at)
          VALUES ($1, $2, 'DRAFT', $3, $4, $5, $6, 'unpaid', 'patient_wizard_v2', 1, $8, $7, $7)`,
-        [orderId, patientId, lang, clinicalQuestion, medicalHistory || null, currentMedications || null, nowIso, referenceId]
+        // $3 — the CASE language (launch-eve follow-up 2026-09-25), not the UI
+        // `lang` above: that is res.locals.lang, which falls back to 'en'. The
+        // lang cookie / ?lang, the account's CHOSEN language, then 'ar'.
+        [orderId, patientId, caseLanguage, clinicalQuestion, medicalHistory || null, currentMedications || null, nowIso, referenceId]
       );
       try {
         logOrderEvent({ orderId, label: 'draft_created', actorUserId: patientId, actorRole: 'patient' });

@@ -48,7 +48,9 @@ function setupLangRoutes(opts) {
     // Patients only — doctor/admin notification flows are out of scope for the patient migration.
     // Fire-and-forget: never block the redirect on a DB hiccup.
     if (pgHelper && pgHelper.execute && req.user && req.user.role === 'patient' && req.user.id) {
-      pgHelper.execute('UPDATE users SET lang = $1 WHERE id = $2', [code, req.user.id])
+      // lang_chosen_at (migration 119): this IS a choice, unlike the column
+      // default — services/intake_language.js relies on the difference.
+      pgHelper.execute('UPDATE users SET lang = $1, lang_chosen_at = NOW() WHERE id = $2', [code, req.user.id])
         .catch(function(e) { console.warn('[lang] users.lang persist failed:', e && e.message ? e.message : e); });
     }
 

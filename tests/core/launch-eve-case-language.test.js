@@ -38,19 +38,21 @@ module.exports = (async function run() {
   const req = (o) => Object.assign({ body: {}, query: {}, cookies: {}, get: () => null }, o);
 
   await check('A1 form field wins (language or lang)', () => {
-    if (resolveIntakeLanguage(req({ body: { language: 'en' }, cookies: { lang: 'ar' } }), 'ar').lang !== 'en') throw new Error('language=en ignored');
-    if (resolveIntakeLanguage(req({ body: { lang: 'ar' } }), 'en').lang !== 'ar') throw new Error('lang=ar ignored');
+    if (resolveIntakeLanguage(req({ body: { language: 'en' }, cookies: { lang: 'ar' } }), { lang: 'ar' }).lang !== 'en') throw new Error('language=en ignored');
+    if (resolveIntakeLanguage(req({ body: { lang: 'ar' } }), { lang: 'en', lang_chosen_at: '2026-09-01T00:00:00Z' }).lang !== 'ar') throw new Error('lang=ar ignored');
   });
   await check('A1 then ?lang, then the lang cookie', () => {
     if (resolveIntakeLanguage(req({ query: { lang: 'en' }, cookies: { lang: 'ar' } })).lang !== 'en') throw new Error('query');
-    if (resolveIntakeLanguage(req({ cookies: { lang: 'en' } }), 'ar').lang !== 'en') throw new Error('cookie');
+    if (resolveIntakeLanguage(req({ cookies: { lang: 'en' } }), { lang: 'ar' }).lang !== 'en') throw new Error('cookie');
   });
   await check('A1 then an /ar/ page in the Referer (cross-origin form)', () => {
-    const r = resolveIntakeLanguage(req({ get: (h) => (/refer/.test(h) ? 'https://tashkheesa.com/ar/services' : null) }), 'en');
+    const r = resolveIntakeLanguage(req({ get: (h) => (/refer/.test(h) ? 'https://tashkheesa.com/ar/services' : null) }), { lang: 'en', lang_chosen_at: '2026-09-01T00:00:00Z' });
     if (r.lang !== 'ar' || r.source !== 'referer') throw new Error(JSON.stringify(r));
   });
   await check('A1 then the account language, then Arabic — never a bare English default', () => {
-    if (resolveIntakeLanguage(req({}), 'en').lang !== 'en') throw new Error('account en ignored');
+    if (resolveIntakeLanguage(req({}), { lang: 'en', lang_chosen_at: '2026-09-01T00:00:00Z' }).lang !== 'en') throw new Error('chosen account en ignored');
+    if (resolveIntakeLanguage(req({}), { lang: 'en', lang_chosen_at: null }).lang !== 'ar') throw new Error('the column DEFAULT en was treated as a choice');
+    if (resolveIntakeLanguage(req({}), { lang: 'ar' }).lang !== 'ar') throw new Error('non-default ar without a timestamp ignored');
     const d = resolveIntakeLanguage(req({ get: () => 'https://tashkheesa.com/services' }), null);
     if (d.lang !== 'ar' || d.source !== 'default') throw new Error('default is ' + JSON.stringify(d));
   });
@@ -74,7 +76,7 @@ module.exports = (async function run() {
     query: async (sql, params) => {
       const s = norm(sql);
       rec.queries.push({ sql: s, params: params || [] });
-      if (/^SELECT id, lang FROM users WHERE LOWER\(email\)/.test(s)) return { rows: existingUser ? [existingUser] : [] };
+      if (/^SELECT id, lang, lang_chosen_at FROM users WHERE LOWER\(email\)/.test(s)) return { rows: existingUser ? [existingUser] : [] };
       if (/^INSERT INTO users/.test(s)) return { rows: [{ id: params[0] }] };
       if (/^SELECT nextval/.test(s)) return { rows: [{ n: 9 }] };
       return { rows: [], rowCount: 1 };
@@ -120,18 +122,62 @@ module.exports = (async function run() {
       if (o !== 'en' || c !== 'en') throw new Error('orders=' + o + ' cases=' + c);
     });
     await check('A2 an /ar/ Referer → ar even for an account whose users.lang is en', async () => {
-      const [o] = langs(await intake({ referer: 'https://tashkheesa.com/ar/', user: { id: 'u1', lang: 'en' } }));
+      const [o] = langs(await intake({ referer: 'https://tashkheesa.com/ar/', user: { id: 'u1', lang: 'en', lang_chosen_at: '2026-09-01T00:00:00Z' } }));
       if (o !== 'ar') throw new Error('orders=' + o);
     });
-    await check('A2 existing patient with no request signal → their users.lang', async () => {
-      const [o, c] = langs(await intake({ user: { id: 'u1', lang: 'en' } }));
+    await check('A2 existing patient with no request signal → their CHOSEN users.lang', async () => {
+      const [o, c] = langs(await intake({ user: { id: 'u1', lang: 'en', lang_chosen_at: '2026-09-01T00:00:00Z' } }));
       if (o !== 'en' || c !== 'en') throw new Error('orders=' + o + ' cases=' + c);
+    });
+    await check('A2 existing patient whose users.lang is the never-set default en → ar', async () => {
+      const [o, c] = langs(await intake({ user: { id: 'u1', lang: 'en', lang_chosen_at: null } }));
+      if (o !== 'ar' || c !== 'ar') throw new Error('orders=' + o + ' cases=' + c);
     });
   } catch (e) {
     t.fail('A2 intake harness', e);
   } finally {
     restore();
   }
+
+  // ── C. the app and the web wizard (launch-eve follow-up 2026-09-25) ───
+  const IL = require('../../src/services/intake_language');
+  const hreq = (o) => Object.assign({ body: {}, query: {}, cookies: {}, headers: {}, get(h) { return this.headers[String(h).toLowerCase()]; } }, o);
+  const DEFAULT_EN = { lang: 'en', lang_chosen_at: null };
+
+  await check('C app: body field → locale header → chosen account lang → ar', () => {
+    if (IL.resolveAppCaseLanguage(hreq({ body: { language: 'en' }, headers: { 'x-app-locale': 'ar' } }), { lang: 'ar' }).lang !== 'en') throw new Error('body');
+    if (IL.resolveAppCaseLanguage(hreq({ headers: { 'x-app-locale': 'ar-EG' } }), { lang: 'en', lang_chosen_at: '2026-09-01T00:00:00Z' }).lang !== 'ar') throw new Error('X-App-Locale');
+    if (IL.resolveAppCaseLanguage(hreq({ headers: { 'accept-language': 'en-GB,en;q=0.9' } }), { lang: 'ar' }).lang !== 'en') throw new Error('Accept-Language');
+    if (IL.resolveAppCaseLanguage(hreq({}), { lang: 'en', lang_chosen_at: '2026-09-01T00:00:00Z' }).lang !== 'en') throw new Error('chosen account');
+    if (IL.resolveAppCaseLanguage(hreq({}), DEFAULT_EN).lang !== 'ar') throw new Error('default en treated as chosen');
+    if (IL.resolveAppCaseLanguage(hreq({}), null).lang !== 'ar') throw new Error('no account');
+  });
+  await check('C web wizard: ?lang / lang cookie → chosen account lang → ar (never res.locals.lang)', () => {
+    if (IL.resolveWebCaseLanguage(hreq({ cookies: { lang: 'en' } }), { lang: 'ar' }).lang !== 'en') throw new Error('cookie');
+    if (IL.resolveWebCaseLanguage(hreq({ query: { lang: 'ar' }, cookies: { lang: 'en' } }), null).lang !== 'ar') throw new Error('query');
+    if (IL.resolveWebCaseLanguage(hreq({}), { lang: 'en', lang_chosen_at: '2026-09-01T00:00:00Z' }).lang !== 'en') throw new Error('chosen account');
+    if (IL.resolveWebCaseLanguage(hreq({ headers: { 'accept-language': 'en' } }), DEFAULT_EN).lang !== 'ar') throw new Error('fell back to en');
+  });
+  await check('C wiring: POST /api/v1/cases writes orders.language from the app resolver', () => {
+    const src = read('src/routes/api/cases.js');
+    if (!/urgency_tier, created_at, language\s*\) VALUES \([^)]*NOW\(\), \$19\)/.test(src)) throw new Error('INSERT has no language column');
+    if (!/const caseLanguage = resolveAppCaseLanguage\(req, await loadAccountLang\(req\.user\.id\)\)\.lang;/.test(src)) throw new Error('not resolved');
+    if (!/urgencyTier,[\s\S]{0,400}caseLanguage\s*\]\);/.test(src)) throw new Error('$19 is not caseLanguage');
+  });
+  await check('C wiring: the draft API and the web wizard stop defaulting to en', () => {
+    const d = read('src/routes/api/cases_draft.js');
+    if (/b\.language === 'ar' \? 'ar' : 'en'/.test(d)) throw new Error('draft still defaults to en');
+    if (!/const language = resolveAppCaseLanguage\(req, await loadAccountLang\(req\.user\.id\)\)\.lang;/.test(d)) throw new Error('draft not using the app resolver');
+    const w = read('src/routes/patient.js');
+    if (!/const caseLanguage = resolveWebCaseLanguage\(req, await loadAccountLang\(patientId\)\)\.lang;/.test(w)) throw new Error('wizard not resolved');
+    if (!/\[orderId, patientId, caseLanguage, clinicalQuestion/.test(w)) throw new Error('wizard INSERT still writes the UI lang');
+  });
+  await check('C lang_chosen_at: migration 119, set by the toggle, the app profile update and app signup with a language', () => {
+    if (!/ADD COLUMN IF NOT EXISTS lang_chosen_at TIMESTAMPTZ/.test(read('src/migrations/119_users_lang_chosen_at.sql'))) throw new Error('migration');
+    if (!/UPDATE users SET lang = \$1, lang_chosen_at = NOW\(\) WHERE id = \$2/.test(read('src/routes/lang.js'))) throw new Error('toggle');
+    if (!/updates\.push\('lang_chosen_at = NOW\(\)'\)/.test(read('src/routes/api/profile.js'))) throw new Error('profile');
+    if (!/lang_chosen_at\)\s*VALUES[\s\S]{0,160}CASE WHEN \$8::boolean THEN NOW\(\) END/.test(read('src/routes/api/auth.js'))) throw new Error('app signup');
+  });
 
   // ── B. the report guard ────────────────────────────────────────────────
   const { checkReportLanguage, arabicLetterShare } = require('../../src/services/report_submission');

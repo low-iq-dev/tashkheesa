@@ -192,7 +192,12 @@ router.post('/', async (req, res) => {
   const medicalHistory = b.medicalHistory ? String(b.medicalHistory).trim() : null;
   const currentMedications = b.currentMedications ? String(b.currentMedications).trim() : null;
   const country = b.country ? String(b.country).trim().toUpperCase() : null;
-  const language = b.language === 'ar' ? 'ar' : 'en';
+  // Launch-eve follow-up 2026-09-25: this used to turn anything but 'ar' into 'en'
+  // — every draft without the field became English. Now the app's field, its
+  // locale header, the account's CHOSEN language, then 'ar'
+  // (services/intake_language.resolveAppCaseLanguage).
+  const { resolveAppCaseLanguage, loadAccountLang } = require('../../services/intake_language');
+  const language = resolveAppCaseLanguage(req, await loadAccountLang(req.user.id)).lang;
 
   try {
     // One open draft per patient. Reusing it rather than minting a second is
