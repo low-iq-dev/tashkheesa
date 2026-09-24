@@ -2104,7 +2104,14 @@ function assertCanonicalDbStatus(value) {
       `Attempted to write non-canonical case status to DB: "${value}"`
     );
   }
-  return canon;
+  // Lowercase ON THE WAY TO THE DATABASE ONLY. CASE_STATUS and normalizeStatus
+  // stay uppercase, so every in-JS comparison is unchanged; what changes is that
+  // updateCase now writes the same spelling the rest of the table already uses
+  // and that every LOWER(status) reader expects. Before this, a row written here
+  // read back as 'ASSIGNED' while a row written by a direct UPDATE read back as
+  // 'assigned' — two conventions in one column, papered over by the boot-time
+  // normaliser in db.js (see its comment, which asks for exactly this change).
+  return String(canon).toLowerCase();
 }
 async function updateCase(caseId, fields, client) {
   const updates = Object.keys(fields);
