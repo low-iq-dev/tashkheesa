@@ -439,6 +439,48 @@ function rx_doctorFallback(addon) {
   }
 }
 
+// ── Report language vs the case language (launch eve 2026-09-24, T2) ──────
+//
+// The Recommendation is the section the patient reads and acts on. On a case
+// whose orders.language is 'ar', a Recommendation written in English is a
+// report the patient cannot use, so submission is REFUSED (the text is already
+// saved as a draft by then, exactly as for report_empty). Findings and
+// Impression are clinician-facing and routinely English — those only WARN.
+//
+// Heuristic: share of LETTERS (\p{L}) that are Arabic script. Digits, units,
+// punctuation and whitespace are ignored so "BP 120/80, LDL 3.1 mmol/L" does
+// not count against an Arabic sentence. Below 30% → "not Arabic". A section
+// with no letters at all is not judged. English may follow the Arabic
+// underneath — a half-and-half Recommendation passes.
+const REPORT_ARABIC_SHARE_MIN = 0.30;
+
+function arabicLetterShare(text) {
+  const letters = String(text || '').match(/\p{L}/gu);
+  if (!letters || letters.length === 0) return null;
+  let arabic = 0;
+  for (const ch of letters) if (/\p{Script=Arabic}/u.test(ch)) arabic++;
+  return arabic / letters.length;
+}
+
+function isMostlyNotArabic(text) {
+  const share = arabicLetterShare(text);
+  return share !== null && share < REPORT_ARABIC_SHARE_MIN;
+}
+
+/**
+ * @returns {{ block: (null|'recommendation_not_arabic'), warnings: string[] }}
+ */
+function checkReportLanguage({ orderLanguage, findings, impression, recommendations } = {}) {
+  const out = { block: null, warnings: [] };
+  if (String(orderLanguage || '').trim().toLowerCase() !== 'ar') return out;
+  if (!isReportSectionEmpty(recommendations) && isMostlyNotArabic(recommendations)) {
+    out.block = 'recommendation_not_arabic';
+  }
+  if (!isReportSectionEmpty(findings) && isMostlyNotArabic(findings)) out.warnings.push('findings_not_arabic');
+  if (!isReportSectionEmpty(impression) && isMostlyNotArabic(impression)) out.warnings.push('impression_not_arabic');
+  return out;
+}
+
 // ── The submission itself ──────────────────────────────────────────────────
 
 /**
@@ -517,6 +559,16 @@ async function submitDoctorReport({
   // text above is already saved, so the editor re-renders it.
   if (isReportSectionEmpty(findings) || isReportSectionEmpty(impression)) {
     return { ok: false, code: 'report_empty' };
+  }
+
+  // 3b. Language (launch eve 2026-09-24, T2). The text is saved; refuse an
+  // English Recommendation on an Arabic case, warn on English Findings /
+  // Impression. See checkReportLanguage above.
+  const languageCheck = checkReportLanguage({
+    orderLanguage: order.language, findings, impression, recommendations
+  });
+  if (languageCheck.block) {
+    return { ok: false, code: 'report_recommendation_not_arabic' };
   }
 
   // 4. Fetch related entities for a rich PDF (non-critical — proceed without).
@@ -806,11 +858,16 @@ async function submitDoctorReport({
     }
   }
 
-  return { ok: true, completed: true, reportUrl, earnings: txnResult.earnings || null };
+  return {
+    ok: true, completed: true, reportUrl, earnings: txnResult.earnings || null,
+    languageWarnings: languageCheck.warnings
+  };
 }
 
 module.exports = {
   submitDoctorReport,
+  checkReportLanguage,
+  arabicLetterShare,
   // Shared report/schema helpers — routes/doctor.js imports these so there is
   // exactly one copy of each.
   getOrdersColumns,

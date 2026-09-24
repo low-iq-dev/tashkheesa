@@ -8,6 +8,7 @@ const { pool } = require('../../db');
 const { logErrorToDb } = require('../../logger');
 const emailService = require('../../services/emailService');
 const { coerceCountry } = require('../../launch-market');
+const { resolveIntakeLanguage } = require('../../services/intake_language');
 
 const { captureSignup } = require('../../services/analytics');
 const router = express.Router();
@@ -102,14 +103,19 @@ router.post('/intake', async (req, res) => {
     // endpoint to patient rows, which is the only kind of row it is allowed to
     // create in the else-branch below.
     let userId;
+    let intakeLang = 'ar';
     // Whether THIS request created the account, as opposed to reusing an
     // existing one or losing an ON CONFLICT race. Only a true here becomes a
     // signup event, and only after COMMIT.
     let accountCreated = false;
     const existing = await client.query(
-      "SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND role = 'patient' LIMIT 1",
+      "SELECT id, lang FROM users WHERE LOWER(email) = LOWER($1) AND role = 'patient' LIMIT 1",
       [email]
     );
+    // Launch eve 2026-09-24 (T2) — the case's language: the form's field, else
+    // the request's language, else the account's, else Arabic. Never a bare
+    // 'en' (services/intake_language.js has the order and why).
+    intakeLang = resolveIntakeLanguage(req, existing.rows[0] ? existing.rows[0].lang : null).lang;
     if (existing.rows.length > 0) {
       userId = existing.rows[0].id;
       // Best-effort enrichment: only fill blanks, don't overwrite existing data.
@@ -169,15 +175,17 @@ router.post('/intake', async (req, res) => {
 
       userId = randomUUID();
       const ins = await client.query(
-        `INSERT INTO users (id, email, name, phone, role, country, date_of_birth, signup_notes, is_active)
-         VALUES ($1, $2, $3, $4, 'patient', $5, $6, $7, true)
+        `INSERT INTO users (id, email, name, phone, role, country, date_of_birth, signup_notes, is_active, lang)
+         VALUES ($1, $2, $3, $4, 'patient', $5, $6, $7, true, $8)
          ON CONFLICT (email) DO NOTHING
          RETURNING id`,
         // AUDIT-2026-08-22 (L8): $6 is a validated ISO date or NULL (was the
         // submitted age). The reported age is carried in signup_notes ($7)
         // instead — free text this endpoint already owns and already writes, so
         // the lead detail is not thrown away while the date column stays clean.
-        [userId, email, full_name, insertPhone, country, date_of_birth, signupNotes]
+        // $8: a brand-new account speaks the case's language, so its WhatsApp
+        // and email follow it (users.lang otherwise defaults to 'en').
+        [userId, email, full_name, insertPhone, country, date_of_birth, signupNotes, intakeLang]
       );
 
       if (ins.rows.length) {
@@ -240,10 +248,10 @@ router.post('/intake', async (req, res) => {
          clinical_question, case_files_url, test_type, source,
          sla_hours, urgency_flag, payment_status
        )
-       VALUES ($1, $2, $3, 'pending_review', 'en',
+       VALUES ($1, $2, $3, 'pending_review', $8,
                $4, $5, $6, 'website_portal',
                $7, false, 'unpaid')`,
-      [orderId, userId, specId, clinical_question, case_files_url, test_type, slaCfg.sla_hours]
+      [orderId, userId, specId, clinical_question, case_files_url, test_type, slaCfg.sla_hours, intakeLang]
     );
 
     // 3) Generate reference ID via sequence (idempotent CREATE)
@@ -257,8 +265,8 @@ router.post('/intake', async (req, res) => {
     const slaDeadline = new Date(Date.now() + slaCfg.sla_hours * 60 * 60 * 1000).toISOString();
     await client.query(
       `INSERT INTO cases (id, reference_code, status, sla_type, sla_deadline, language, urgency_flag)
-       VALUES ($1, $2, 'pending_review', $3, $4, 'en', false)`,
-      [orderId, reference_id, slaCfg.sla_type, slaDeadline]
+       VALUES ($1, $2, 'pending_review', $3, $4, $5, false)`,
+      [orderId, reference_id, slaCfg.sla_type, slaDeadline, intakeLang]
     );
 
     await client.query('COMMIT');

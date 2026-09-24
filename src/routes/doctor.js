@@ -2641,6 +2641,15 @@ const canAccept =
       en: 'Findings and Impression are required before a report can be submitted. Your text has been kept as a draft and nothing was sent to the patient.',
       ar: 'النتائج والانطباع مطلوبان قبل إرسال التقرير. تم حفظ نصّك كمسودة ولم يُرسل شيء للمريض.'
     },
+    // Launch eve 2026-09-24 (T2) — services/report_submission.checkReportLanguage.
+    report_recommendation_not_arabic: {
+      en: 'This patient reads Arabic, and the Recommendation is what the patient reads — please write it in Arabic (English may follow underneath). Your text has been kept as a draft and nothing was sent to the patient.',
+      ar: 'هذا المريض يقرأ بالعربية، والتوصية هي ما يقرؤه المريض — يرجى كتابتها بالعربية (ويمكن أن تليها الإنجليزية أسفلها). تم حفظ نصّك كمسودة ولم يُرسل شيء للمريض.'
+    },
+    report_language_note: {
+      en: 'Report sent. Note: this patient reads Arabic, and your Findings or Impression are mostly in English. That is allowed — the Recommendation is in Arabic — but Arabic there helps the patient too.',
+      ar: 'تم إرسال التقرير. ملاحظة: هذا المريض يقرأ بالعربية، والنتائج أو الانطباع مكتوبة غالباً بالإنجليزية. هذا مسموح — فالتوصية بالعربية — لكن كتابتها بالعربية تفيد المريض أيضاً.'
+    },
     report_pdf_failed: {
       en: 'Your report was saved, but the PDF could not be produced. Nothing was sent to the patient — please press Submit report again.',
       ar: 'تم حفظ تقريرك، لكن تعذّر إنشاء ملف PDF. لم يُرسل شيء للمريض — يرجى الضغط على إرسال التقرير مرة أخرى.'
@@ -6605,7 +6614,11 @@ async function handlePortalDoctorGenerateReport(req, res) {
 
     if (result.ok) {
       // completed and alreadyCompleted land on the same page — the case view
-      // shows the delivered report either way.
+      // shows the delivered report either way. A report delivered with English
+      // Findings/Impression on an Arabic case carries a heads-up (T2, warn-only).
+      if (result.completed && Array.isArray(result.languageWarnings) && result.languageWarnings.length) {
+        return res.redirect(`/portal/doctor/case/${orderId}?error=report_language_note`);
+      }
       return res.redirect(`/portal/doctor/case/${orderId}`);
     }
 
@@ -6622,6 +6635,9 @@ async function handlePortalDoctorGenerateReport(req, res) {
         // The text is already saved as a draft, so the case page renders it
         // straight back into the boxes.
         return res.redirect(`/portal/doctor/case/${orderId}?error=report_empty`);
+      case 'report_recommendation_not_arabic':
+        // Saved as a draft, like report_empty; the boxes are repopulated.
+        return res.redirect(`/portal/doctor/case/${orderId}?error=report_recommendation_not_arabic`);
       case 'case_not_open':
         // Cancelled / refunded / otherwise closed while the tab was open —
         // the case page shows the real state.
