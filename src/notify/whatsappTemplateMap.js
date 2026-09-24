@@ -353,6 +353,25 @@ const whatsappTemplateMap = {
   // OpenClaw (openclawTemplates.js) is the canonical send path. The entries
   // exist so a flip back to 'meta' fails with template-not-found instead of
   // silently falling through to the raw internal event name.
+  // ── Doctor nudges (launch eve 2026-09-24) — same Meta-stub caveat as above:
+  // OpenClaw is the live path; these names are NOT approved with Meta.
+  doctor_accept_nudge: {
+    templateNames: { en: 'doctor_accept_nudge_en', ar: null },
+    paramBuilder: (data) => ({ case_ref: data.caseReference || data.case_id || '' }),
+  },
+  doctor_review_reminder_50: {
+    templateNames: { en: 'doctor_review_reminder_50_en', ar: null },
+    paramBuilder: (data) => ({ case_ref: data.caseReference || data.case_id || '' }),
+  },
+  doctor_review_reminder_80: {
+    templateNames: { en: 'doctor_review_reminder_80_en', ar: null },
+    paramBuilder: (data) => ({ case_ref: data.caseReference || data.case_id || '' }),
+  },
+  doctor_start_report_nudge: {
+    templateNames: { en: 'doctor_start_report_nudge_en', ar: null },
+    paramBuilder: (data) => ({ case_ref: data.caseReference || data.case_id || '' }),
+  },
+
   sla_reminder_24h: {
     templateNames: { en: 'sla_reminder_24h_en', ar: null },
     paramBuilder: (data) => ({

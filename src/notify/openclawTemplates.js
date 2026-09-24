@@ -173,6 +173,26 @@ const OPENCLAW_TEMPLATES = {
   // clock — Arabic uses a different form for 1, 2, 3–10 and 11+. The tier
   // wording ("خلال حوالي") stays approximate, so a fallback per tier is kept
   // for the case where the payload carries no countdown at all.
+  // ── Doctor nudges (launch eve 2026-09-24, case_sla_worker.runDoctorNudges) ──
+  // Doctor recipients only; v.timeRemaining is the localised countdown the
+  // worker derives from the payload's seconds_remaining.
+  doctor_accept_nudge: {
+    en: (v) => `Case ${v.caseReference} is waiting for you${v.timeRemaining ? ` — ${v.timeRemaining} left to accept it` : ''}. Open it and accept before it goes to another doctor: ${doctorCaseUrl(v.orderId)}\n— Tashkheesa`,
+    ar: (v) => `حالة ${v.caseReference} بانتظارك${v.timeRemaining ? ` — متبقٍ ${v.timeRemaining} لقبولها` : ''}. افتح الحالة واقبلها قبل أن تُعرض على طبيب آخر: ${doctorCaseUrl(v.orderId)}\n— تشخيصة`
+  },
+  doctor_review_reminder_50: {
+    en: (v) => `Half of the review window for case ${v.caseReference} has passed${v.timeRemaining ? ` — about ${v.timeRemaining} left` : ''}. ${doctorCaseUrl(v.orderId)}\n— Tashkheesa`,
+    ar: (v) => `مضى نصف مهلة مراجعة حالة ${v.caseReference}${v.timeRemaining ? ` — متبقٍ حوالي ${v.timeRemaining}` : ''}. ${doctorCaseUrl(v.orderId)}\n— تشخيصة`
+  },
+  doctor_review_reminder_80: {
+    en: (v) => `Case ${v.caseReference} is due in about ${v.timeRemaining || 'a short while'}. Please submit your review: ${doctorCaseUrl(v.orderId)}\n— Tashkheesa`,
+    ar: (v) => `موعد تسليم حالة ${v.caseReference} خلال حوالي ${v.timeRemaining || 'وقت قصير'}. برجاء إرسال المراجعة: ${doctorCaseUrl(v.orderId)}\n— تشخيصة`
+  },
+  doctor_start_report_nudge: {
+    en: (v) => `You accepted case ${v.caseReference} but no report draft is saved yet. Start the report now${v.timeRemaining ? ` — about ${v.timeRemaining} left` : ''}: ${doctorCaseUrl(v.orderId)}\n— Tashkheesa`,
+    ar: (v) => `قبلت حالة ${v.caseReference} ولم تُحفظ مسودة للتقرير بعد. ابدأ كتابة التقرير الآن${v.timeRemaining ? ` — متبقٍ حوالي ${v.timeRemaining}` : ''}: ${doctorCaseUrl(v.orderId)}\n— تشخيصة`
+  },
+
   sla_reminder_24h: {
     en: (v) => v.role === 'doctor'
       ? `Reminder — case ${v.caseReference} is due in about ${v.timeRemaining || '24 hours'}. Complete your review here: ${doctorCaseUrl(v.orderId)}\n— Tashkheesa`

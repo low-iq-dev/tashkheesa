@@ -302,6 +302,16 @@ const TEMPLATE_TITLES = {
   //
   // NOTE: both are still queued on the 'whatsapp' channel by sendSlaReminder
   // and have NO OpenClaw body — see the "Not done" note in the write-up.
+  // ── Doctor nudges (launch eve 2026-09-24, case_sla_worker.runDoctorNudges) ──
+  // Doctor-only titles (never sent to patients), so an action prompt is right.
+  doctor_accept_nudge:        { en: 'Case waiting for you: {caseReference}',         ar: 'حالة بانتظارك: {caseReference}' },
+  doctor_review_reminder_50:  { en: 'Halfway through the review window: {caseReference}', ar: 'مضى نصف مهلة المراجعة: {caseReference}' },
+  doctor_review_reminder_80:  { en: 'Review due soon: {caseReference}',             ar: 'موعد تسليم المراجعة يقترب: {caseReference}' },
+  doctor_start_report_nudge:  { en: 'Start the report: {caseReference}',            ar: 'ابدأ كتابة التقرير: {caseReference}' },
+  // Superadmin-only.
+  admin_case_unaccepted:      { en: 'No doctor has accepted {caseReference}',       ar: 'لم يقبل أي طبيب الحالة {caseReference}' },
+  admin_case_at_risk:         { en: 'At risk: {caseReference}',                     ar: 'حالة معرّضة للتأخير: {caseReference}' },
+
   sla_warning_75:     { en: 'Action needed: case approaching deadline', ar: 'إجراء مطلوب: حالة تقترب من الموعد النهائي' },
   sla_warning_urgent: { en: 'Action needed: case approaching deadline', ar: 'إجراء مطلوب: حالة تقترب من الموعد النهائي' }
 };

@@ -22,6 +22,13 @@ const TEMPLATES = Object.freeze({
   SLA_WARNING_75:            'sla_warning_75',
   SLA_WARNING_URGENT:        'sla_warning_urgent',
   SLA_BREACH:                'sla_breach',
+  // Doctor nudges (launch eve 2026-09-24, case_sla_worker.runDoctorNudges).
+  DOCTOR_ACCEPT_NUDGE:       'doctor_accept_nudge',
+  DOCTOR_REVIEW_REMINDER_50: 'doctor_review_reminder_50',
+  DOCTOR_REVIEW_REMINDER_80: 'doctor_review_reminder_80',
+  DOCTOR_START_REPORT_NUDGE: 'doctor_start_report_nudge',
+  ADMIN_CASE_UNACCEPTED:     'admin_case_unaccepted',
+  ADMIN_CASE_AT_RISK:        'admin_case_at_risk',
 
   // Admin templates
   SLA_BREACH_ADMIN:          'sla_breach',

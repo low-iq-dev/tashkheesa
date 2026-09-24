@@ -350,6 +350,8 @@ function formatCairoDateTime(iso, lang) {
  * its title sit on the same bell row, so they have to name the same things the
  * same way. The English strings are unchanged, so this is additive.
  */
+const { formatTimeRemaining } = require('./notify/duration');
+
 function renderNotificationMessage(template, payload, lang) {
   const p = (payload && typeof payload === 'object') ? payload : {};
   // AUDIT-2026-08-22: `caseReference` added to the alias list. It is the key
@@ -584,6 +586,42 @@ function renderNotificationMessage(template, payload, lang) {
       }
       if (isAr) return `موعد تسليم ${arCase || 'حالتك'} خلال ساعة. الطبيب المختص ينهي المراجعة الآن.`;
       return `${caseLabel || 'Your case'} is due within the hour. Your specialist is finalising it now.`;
+
+    // ── Doctor nudges (launch eve 2026-09-24, case_sla_worker.runDoctorNudges) ──
+    // Doctor / superadmin recipients only. The countdown comes from the
+    // payload's seconds_remaining through notify/duration (Arabic number
+    // agreement included), computed at the tick the nudge fired.
+    case 'doctor_accept_nudge': {
+      const left = formatTimeRemaining(Number(p.seconds_remaining), isAr ? 'ar' : 'en');
+      if (isAr) return `${arCaseN || 'حالة'} بانتظارك${left ? ` — متبقٍ ${left} لقبولها` : ''}. افتح الحالة واقبلها قبل أن تُعرض على طبيب آخر.`;
+      return `${caseLabel || 'A case'} is waiting for you${left ? ` — ${left} left to accept it` : ''}. Open it and accept before it is offered to another doctor.`;
+    }
+    case 'doctor_review_reminder_50': {
+      const left = formatTimeRemaining(Number(p.seconds_remaining), isAr ? 'ar' : 'en');
+      if (isAr) return `مضى نصف مهلة مراجعة ${arCaseN || 'الحالة'}${left ? ` — متبقٍ حوالي ${left}` : ''}.`;
+      return `Half of the review window for ${caseLabel || 'a case'} has passed${left ? ` — about ${left} left` : ''}.`;
+    }
+    case 'doctor_review_reminder_80': {
+      const left = formatTimeRemaining(Number(p.seconds_remaining), isAr ? 'ar' : 'en');
+      if (isAr) return `موعد تسليم ${arCaseN || 'الحالة'} خلال حوالي ${left || 'وقت قصير'}. برجاء إرسال المراجعة.`;
+      return `${caseLabel || 'A case'} is due in about ${left || 'a short while'}. Please submit your review.`;
+    }
+    case 'doctor_start_report_nudge': {
+      const left = formatTimeRemaining(Number(p.seconds_remaining), isAr ? 'ar' : 'en');
+      if (isAr) return `قبلت ${arCaseN || 'الحالة'} ولم تُحفظ مسودة للتقرير بعد. ابدأ كتابة التقرير الآن${left ? ` — متبقٍ حوالي ${left}` : ''}.`;
+      return `You accepted ${caseLabel || 'a case'} but no report draft is saved yet. Start the report now${left ? ` — about ${left} left` : ''}.`;
+    }
+    case 'admin_case_unaccepted': {
+      const waited = Number(p.minutes_waiting);
+      const w = Number(p.window_minutes);
+      if (isAr) return `لم يقبل أي طبيب ${arCaseN || 'الحالة'}${Number.isFinite(waited) ? ` منذ ${waited} دقيقة` : ''}${Number.isFinite(w) ? ` (مهلة القبول ${w} دقيقة)` : ''}. تحتاج إلى إسناد يدوي.`;
+      return `No doctor has accepted ${caseLabel || 'a case'}${Number.isFinite(waited) ? ` after ${waited} minutes` : ''}${Number.isFinite(w) ? ` (${w}-minute acceptance window)` : ''}. It needs a manual assignment.`;
+    }
+    case 'admin_case_at_risk': {
+      const left = formatTimeRemaining(Number(p.seconds_remaining), isAr ? 'ar' : 'en');
+      if (isAr) return `${arCaseN || 'إحدى الحالات'} استهلكت 80% من مهلة المراجعة وما زالت قيد المراجعة${left ? ` — متبقٍ حوالي ${left}` : ''}.`;
+      return `${caseLabel || 'A case'} has used 80% of its review window and is still in review${left ? ` — about ${left} left` : ''}.`;
+    }
 
     case 'sla_reminder_doctor':
     case 'order_sla_pre_breach':

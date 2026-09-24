@@ -10,6 +10,7 @@ const {
 } = require('./case_lifecycle');
 const { major: logMajor, fatal: logFatal } = require('./logger');
 const { eligibleDoctorClause } = require('./services/doctor_eligibility');
+const { acceptanceMinutesForOrder } = require('./acceptance_window');
 
 // SLA breach scanning should only apply once the case is in active review.
 // Keep this resilient even if older code uses a string literal for rejected_files.
@@ -955,6 +956,348 @@ async function handleStrandedPaidCase(candidate, opts = {}) {
   return 0;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// DOCTOR NUDGES — launch eve 2026-09-24 (T7)
+//
+// Practice run: 16 of 25 doctors never opened their case, and 2 accepted and
+// then stalled. The only reminders were the 24h/6h/1h pre-deadline tiers
+// (case_lifecycle.dispatchSlaReminders) — the wrong shape for a 4-hour tier,
+// and nothing at all before acceptance. Three nudges, proportional to the
+// case's own windows so Urgent / VIP / Standard all get the same shape:
+//
+//   (a) OFFERED, NOT ACCEPTED — the assigned doctor's acceptance window
+//       (doctor_assignments.assigned_at → accept_by_at; 15m / 45m / 2h by tier):
+//         50%  → doctor: WhatsApp + push + bell "case waiting, N min to accept"
+//        100%  → unchanged: fetchDoctorTimeouts reassigns / the acceptance
+//                watcher rebroadcasts
+//       and, anchored to when the case first became offerable (paid_at, or the
+//       07:00 start of an urgent case paid out of hours — never the current
+//       assignment, which a reassignment would keep pushing out):
+//        2 windows unaccepted → superadmins: "no doctor has accepted TSH-…"
+//   (b) ACCEPTED, IN REVIEW — accepted_at → deadline_at (the real deadline, so
+//       extensions, pauses and deferrals are honoured):
+//         50%  → doctor reminder
+//         80%  → doctor reminder + superadmins "at risk"
+//       breach is unchanged (fetchSlaCandidates / handleBreach).
+//   (c) ACCEPTED, NO DRAFT by 25% of that window → one "start the report"
+//       nudge (up to 50%; after that the (b) reminders carry the message).
+//       "Draft" = what report_submission.buildReportDraftFields reads.
+//
+// Candidates are selected broadly in SQL and the thresholds are decided in JS
+// against the sweep's runAt, so a missed tick never skips a nudge (crossed
+// threshold + dedupe, highest crossed level only — pickSlaReminderLevel's
+// rule) and the tests can drive a fake clock. Doctor nudges dedupe on the
+// notifications dedupe_key (per kind, per case, per doctor — and per
+// assignment for (a)); superadmin alerts dedupe on a case_events row.
+// Every query carries AND NOT o.is_practice.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const NUDGE_ACCEPT_FRACTION = 0.5;
+const NUDGE_UNACCEPTED_ALERT_WINDOWS = 2;
+const NUDGE_REVIEW_LEVELS = Object.freeze([
+  { level: '50', fraction: 0.5, template: 'doctor_review_reminder_50' },
+  { level: '80', fraction: 0.8, template: 'doctor_review_reminder_80' }
+]);
+const NUDGE_AT_RISK_FRACTION = 0.8;
+const NUDGE_START_REPORT_FRACTION = 0.25;
+// A superadmin alert is only raised while it is fresh. Without this bound the
+// first sweep after deploy would alert on every historical never-accepted case.
+const NUDGE_ADMIN_ALERT_MAX_LATE_MS = 24 * 60 * 60 * 1000;
+const NUDGE_UNACCEPTED_EVENT = 'DOCTOR_UNACCEPTED_ALERT';
+const NUDGE_AT_RISK_EVENT = 'SLA_AT_RISK_ALERT';
+
+function _ms(v) {
+  if (v == null || v === '') return NaN;
+  const t = (v instanceof Date) ? v.getTime() : new Date(v).getTime();
+  return Number.isFinite(t) ? t : NaN;
+}
+
+/** Share of [start, end] elapsed at now, or null when the span is unusable. */
+function nudgeFractionElapsed(startMs, endMs, nowMs) {
+  const span = endMs - startMs;
+  if (!Number.isFinite(span) || span <= 0 || !Number.isFinite(nowMs)) return null;
+  return (nowMs - startMs) / span;
+}
+
+/** (a) 50% of the acceptance window, before it expires. */
+function decideAcceptNudge(c, nowMs) {
+  const start = _ms(c.assigned_at);
+  const end = _ms(c.accept_by_at);
+  const f = nudgeFractionElapsed(start, end, nowMs);
+  if (f === null || f < NUDGE_ACCEPT_FRACTION || nowMs >= end) return null;
+  return {
+    template: 'doctor_accept_nudge',
+    dedupeKey: 'nudge:accept50:' + c.case_id + ':' + c.doctor_id + ':' + start,
+    secondsLeft: Math.max(0, Math.floor((end - nowMs) / 1000)),
+    minutesLeft: Math.max(1, Math.ceil((end - nowMs) / 60000))
+  };
+}
+
+/** When the case first became offerable: paid_at, or the deferred urgent start. */
+function offerAnchorMs(c) {
+  const paid = _ms(c.paid_at);
+  // markCasePaid pre-sets deadline_at only for an urgent case paid out of
+  // hours (next 07:00 + SLA); nobody is expected to accept before 07:00.
+  const deadline = _ms(c.deadline_at);
+  const slaHours = Number(c.sla_hours);
+  const deferredStart = (Number.isFinite(deadline) && slaHours > 0) ? deadline - slaHours * 3600000 : NaN;
+  if (Number.isFinite(paid) && Number.isFinite(deferredStart)) return Math.max(paid, deferredStart);
+  return Number.isFinite(paid) ? paid : deferredStart;
+}
+
+/** (a) superadmin alert: still unaccepted one full window after the rebroadcast. */
+function decideUnacceptedAlert(c, nowMs) {
+  const anchor = offerAnchorMs(c);
+  if (!Number.isFinite(anchor)) return null;
+  const windowMin = acceptanceMinutesForOrder(c);
+  const due = anchor + NUDGE_UNACCEPTED_ALERT_WINDOWS * windowMin * 60000;
+  if (nowMs < due || nowMs - due > NUDGE_ADMIN_ALERT_MAX_LATE_MS) return null;
+  return {
+    windowMinutes: windowMin,
+    minutesWaiting: Math.floor((nowMs - anchor) / 60000)
+  };
+}
+
+function _hasReportDraft(order) {
+  const { buildReportDraftFields, isReportSectionEmpty } = require('./services/report_submission');
+  const d = buildReportDraftFields(order);
+  return !(isReportSectionEmpty(d.findings) && isReportSectionEmpty(d.impression) && isReportSectionEmpty(d.recommendations));
+}
+
+/** (b) + (c) for an accepted, in-review case. */
+function decideReviewNudges(c, nowMs) {
+  const start = _ms(c.accepted_at);
+  const end = _ms(c.deadline_at);
+  const f = nudgeFractionElapsed(start, end, nowMs);
+  const out = { reminder: null, atRisk: false, startReport: false, secondsLeft: 0 };
+  if (f === null || nowMs >= end) return out; // past the deadline: the breach path owns it
+  out.secondsLeft = Math.max(0, Math.floor((end - nowMs) / 1000));
+  const crossed = NUDGE_REVIEW_LEVELS.filter((l) => f >= l.fraction);
+  out.reminder = crossed.length ? crossed[crossed.length - 1] : null;
+  out.atRisk = f >= NUDGE_AT_RISK_FRACTION;
+  out.startReport = f >= NUDGE_START_REPORT_FRACTION && f < NUDGE_REVIEW_LEVELS[0].fraction && !_hasReportDraft(c);
+  return out;
+}
+
+// ── Candidate reads (broad; thresholds are decided in JS) ─────────────────
+
+async function fetchAcceptNudgeCandidates(q, nowIso) {
+  const assigned = String(CASE_STATUS.ASSIGNED || 'assigned').toLowerCase();
+  return q(
+    `SELECT o.id AS case_id, o.doctor_id, o.reference_id,
+            da.assigned_at, da.accept_by_at, u.lang AS doctor_lang
+       FROM orders_active o
+       JOIN LATERAL (
+         SELECT assigned_at, accept_by_at FROM doctor_assignments
+          WHERE case_id = o.id AND doctor_id = o.doctor_id AND completed_at IS NULL
+          ORDER BY assigned_at DESC LIMIT 1
+       ) da ON true
+       LEFT JOIN users u ON u.id = o.doctor_id
+      WHERE LOWER(COALESCE(o.status, '')) = $1
+        AND NULLIF(o.doctor_id, '') IS NOT NULL
+        AND o.accepted_at IS NULL
+        AND da.accept_by_at IS NOT NULL
+        AND da.accept_by_at > $2
+        -- Practice cases are training rows in a real doctor's real queue.
+        AND NOT o.is_practice`,
+    [assigned, nowIso]
+  );
+}
+
+async function fetchUnacceptedAlertCandidates(q) {
+  return q(
+    `SELECT o.id AS case_id, o.reference_id, o.paid_at, o.deadline_at, o.sla_hours,
+            o.urgency_tier, o.tier, o.status
+       FROM orders_active o
+      WHERE o.accepted_at IS NULL
+        AND o.paid_at IS NOT NULL
+        AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured')
+        AND LOWER(COALESCE(o.status, '')) IN ('paid', 'assigned', 'reassigned', 'pending', 'available', 'submitted', 'new')
+        AND NOT o.is_practice`,
+    []
+  );
+}
+
+async function fetchReviewNudgeCandidates(q, nowIso) {
+  return q(
+    `SELECT o.*, u.lang AS doctor_lang
+       FROM orders_active o
+       LEFT JOIN users u ON u.id = o.doctor_id
+      WHERE LOWER(COALESCE(o.status, '')) = $1
+        AND NULLIF(o.doctor_id, '') IS NOT NULL
+        AND o.accepted_at IS NOT NULL
+        AND o.deadline_at IS NOT NULL
+        AND o.deadline_at > $2
+        AND o.breached_at IS NULL
+        AND o.sla_paused_at IS NULL
+        AND NOT o.is_practice`,
+    [String(CASE_STATUS.IN_REVIEW || 'in_review').toLowerCase(), nowIso]
+  );
+}
+
+// ── Senders ────────────────────────────────────────────────────────────────
+
+function _nudgeDeps(overrides) {
+  const d = overrides || {};
+  return {
+    queryAll: d.queryAll || queryAll,
+    queryOne: d.queryOne || queryOne,
+    logCaseEvent: d.logCaseEvent || logCaseEvent,
+    queueNotification: d.queueNotification || ((o) => require('./notify').queueNotification(o)),
+    notifyAdmins: d.notifyAdmins || ((o) => require('./notify').notifyAdmins(o)),
+    pushOpsEvent: d.pushOpsEvent || ((o) => require('./services/ops_push').pushOpsEvent(o)),
+    sendPush: d.sendPush || ((userId, msg) => require('./middleware/push').sendPushNotification(require('./pg').pool, userId, msg))
+  };
+}
+
+/**
+ * One doctor nudge on all three surfaces. The bell row is the durable dedupe:
+ * if it already exists (same kind, case, doctor[, assignment]) nothing is sent.
+ */
+async function sendDoctorNudge(deps, { caseId, doctorId, lang, template, dedupeKey, payload }) {
+  const response = JSON.stringify(payload);
+  const bell = await deps.queueNotification({
+    orderId: caseId, toUserId: doctorId, channel: 'internal', template,
+    status: 'queued', dedupe_key: dedupeKey, response
+  });
+  if (!bell || bell.ok === false || bell.skipped) return 0;
+  try {
+    await deps.queueNotification({
+      orderId: caseId, toUserId: doctorId, channel: 'whatsapp', template,
+      status: 'queued', dedupe_key: dedupeKey, response
+    });
+  } catch (_) { /* best effort — the bell row already landed */ }
+  try {
+    const { getNotificationTitles } = require('./notify/notification_titles');
+    const { renderNotificationMessage } = require('./notify');
+    const isAr = String(lang || '').toLowerCase() === 'ar';
+    const titles = getNotificationTitles(template, { caseReference: payload.caseReference });
+    await deps.sendPush(doctorId, {
+      title: isAr ? titles.title_ar : titles.title_en,
+      body: renderNotificationMessage(template, payload, isAr ? 'ar' : 'en'),
+      data: { screen: 'case-detail', caseId: caseId, kind: template }
+    });
+  } catch (_) { /* best effort */ }
+  return 1;
+}
+
+async function _caseEventExists(deps, caseId, eventType) {
+  const row = await deps.queryOne(
+    'SELECT 1 FROM case_events WHERE case_id = $1 AND event_type = $2 LIMIT 1',
+    [caseId, eventType]
+  );
+  return !!row;
+}
+
+/**
+ * Run all three nudge families for one tick. Never throws — a nudge failure
+ * must not fail (and retry-storm) the breach sweep that calls it.
+ *
+ * @param {Date} runAt
+ * @param {object} [overrides] — injectable deps for tests
+ * @returns {Promise<{ accept: number, unaccepted: number, review: number, atRisk: number, startReport: number }>}
+ */
+async function runDoctorNudges(runAt, overrides) {
+  const deps = _nudgeDeps(overrides);
+  const now = runAt instanceof Date ? runAt : new Date(runAt || Date.now());
+  const nowMs = now.getTime();
+  const nowIso = now.toISOString();
+  const counts = { accept: 0, unaccepted: 0, review: 0, atRisk: 0, startReport: 0 };
+
+  const guarded = async (label, fn) => {
+    try { await fn(); } catch (err) {
+      try {
+        require('./logger').logErrorToDb(err, { context: 'case_sla_worker.nudges.' + label, category: 'sla', level: 'error' });
+      } catch (_) { /* ignore */ }
+      logFatal('Doctor nudge phase failed: ' + label, err);
+    }
+  };
+
+  // (a) doctor, 50% of the acceptance window
+  await guarded('accept', async () => {
+    for (const c of await fetchAcceptNudgeCandidates(deps.queryAll, nowIso)) {
+      const d = decideAcceptNudge(c, nowMs);
+      if (!d) continue;
+      counts.accept += await sendDoctorNudge(deps, {
+        caseId: c.case_id, doctorId: c.doctor_id, lang: c.doctor_lang, template: d.template, dedupeKey: d.dedupeKey,
+        payload: { case_id: c.case_id, caseReference: c.reference_id || null, role: 'doctor',
+          seconds_remaining: d.secondsLeft, minutes_left: d.minutesLeft }
+      });
+    }
+  });
+
+  // (a) superadmins, two windows unaccepted
+  await guarded('unaccepted', async () => {
+    for (const c of await fetchUnacceptedAlertCandidates(deps.queryAll)) {
+      const d = decideUnacceptedAlert(c, nowMs);
+      if (!d) continue;
+      if (await _caseEventExists(deps, c.case_id, NUDGE_UNACCEPTED_EVENT)) continue;
+      await deps.logCaseEvent(c.case_id, NUDGE_UNACCEPTED_EVENT, { minutes_waiting: d.minutesWaiting, window_minutes: d.windowMinutes });
+      const ref = c.reference_id || String(c.case_id).slice(0, 12).toUpperCase();
+      await deps.notifyAdmins({
+        template: 'admin_case_unaccepted',
+        dedupeKey: 'nudge:noaccept:' + c.case_id,
+        orderId: c.case_id,
+        payload: { case_id: c.case_id, caseReference: ref, minutes_waiting: d.minutesWaiting, window_minutes: d.windowMinutes }
+      });
+      try {
+        await deps.pushOpsEvent({
+          kind: 'doctor_unaccepted',
+          dedupeKey: c.case_id,
+          title: 'No doctor has accepted ' + ref,
+          body: ref + ' has waited ' + d.minutesWaiting + ' min with no doctor accepting (' + d.windowMinutes + '-min window). Assign it manually.',
+          orderId: c.case_id,
+          data: { screen: 'case-detail', caseId: c.case_id }
+        });
+      } catch (_) { /* best effort */ }
+      counts.unaccepted++;
+    }
+  });
+
+  // (b) + (c) accepted, in review
+  await guarded('review', async () => {
+    for (const c of await fetchReviewNudgeCandidates(deps.queryAll, nowIso)) {
+      const d = decideReviewNudges(c, nowMs);
+      const base = { case_id: c.id, caseReference: c.reference_id || null, role: 'doctor', seconds_remaining: d.secondsLeft };
+      if (d.startReport) {
+        counts.startReport += await sendDoctorNudge(deps, {
+          caseId: c.id, doctorId: c.doctor_id, lang: c.doctor_lang, template: 'doctor_start_report_nudge',
+          dedupeKey: 'nudge:startreport:' + c.id + ':' + c.doctor_id, payload: base
+        });
+      }
+      if (d.reminder) {
+        counts.review += await sendDoctorNudge(deps, {
+          caseId: c.id, doctorId: c.doctor_id, lang: c.doctor_lang, template: d.reminder.template,
+          dedupeKey: 'nudge:review' + d.reminder.level + ':' + c.id + ':' + c.doctor_id, payload: base
+        });
+      }
+      if (d.atRisk && !(await _caseEventExists(deps, c.id, NUDGE_AT_RISK_EVENT))) {
+        await deps.logCaseEvent(c.id, NUDGE_AT_RISK_EVENT, { seconds_remaining: d.secondsLeft });
+        const ref = c.reference_id || String(c.id).slice(0, 12).toUpperCase();
+        await deps.notifyAdmins({
+          template: 'admin_case_at_risk',
+          dedupeKey: 'nudge:atrisk:' + c.id,
+          orderId: c.id,
+          payload: Object.assign({}, base, { caseReference: ref, role: 'superadmin' })
+        });
+        try {
+          await deps.pushOpsEvent({
+            kind: 'sla_at_risk',
+            dedupeKey: c.id,
+            title: 'At risk: ' + ref,
+            body: ref + ' has used 80% of its review window and is still in review.',
+            orderId: c.id,
+            data: { screen: 'case-detail', caseId: c.id }
+          });
+        } catch (_) { /* best effort */ }
+        counts.atRisk++;
+      }
+    }
+  });
+
+  return counts;
+}
+
 async function runCaseSlaSweep(runAt = new Date()) {
   if (_slaSweepRunning) {
     return { ok: true, skipped: 'already_running' };
@@ -1068,6 +1411,13 @@ async function _runCaseSlaSweepInner(runAt = new Date()) {
     }
   }
 
+  // T7 (launch eve 2026-09-24) — doctor nudges. Self-guarded: never throws,
+  // never joins fetchError, so a nudge problem cannot retry-storm this job.
+  const nudges = await runDoctorNudges(now);
+  if (nudges.accept || nudges.unaccepted || nudges.review || nudges.atRisk || nudges.startReport) {
+    logMajor(`[case-sla] nudges accept=${nudges.accept} unaccepted=${nudges.unaccepted} review=${nudges.review} atRisk=${nudges.atRisk} startReport=${nudges.startReport}`);
+  }
+
   if (preBreachCount || breachCount || timeoutCount || stranded.length) {
     logMajor(`[case-sla] prebreaches=${preBreachCount}, breaches=${breachCount}, timeouts=${timeoutCount}, stranded=${stranded.length} rebroadcast=${strandedRebroadcast}`);
   }
@@ -1160,6 +1510,12 @@ function startCaseSlaWorker(intervalMs = SCAN_INTERVAL_MS) {
 module.exports = {
   startCaseSlaWorker,
   runCaseSlaSweep,
+  // T7 — doctor nudges (pure deciders exported for the fake-clock tests).
+  runDoctorNudges,
+  decideAcceptNudge,
+  decideUnacceptedAlert,
+  decideReviewNudges,
+  offerAnchorMs,
   buildAlternateDoctorQuery,
   // A2 — exported for the durable-routing guard (unit + structural).
   fetchStrandedPaidCases,
