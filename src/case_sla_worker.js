@@ -320,7 +320,10 @@ async function fetchSlaCandidates() {
        AND o.deadline_at IS NOT NULL
        AND o.breached_at IS NULL
        AND o.sla_paused_at IS NULL
-       AND o.deadline_at <= NOW()`,
+       AND o.deadline_at <= NOW()
+       -- Practice cases are training rows in a real doctor's real queue.
+       -- They must never be swept, reminded on, breached or reassigned.
+       AND NOT o.is_practice`,
     statuses
   );
 }
@@ -358,7 +361,10 @@ async function fetchPreBreachCandidates() {
        AND o.breached_at IS NULL
        AND o.sla_paused_at IS NULL
        AND o.deadline_at > NOW()
-       AND o.deadline_at <= NOW() + INTERVAL '${reminderMinutes} minutes'`,
+       AND o.deadline_at <= NOW() + INTERVAL '${reminderMinutes} minutes'
+       -- Practice cases are training rows in a real doctor's real queue.
+       -- They must never be swept, reminded on, breached or reassigned.
+       AND NOT o.is_practice`,
     statuses
   );
 }
@@ -470,7 +476,10 @@ async function fetchDoctorTimeouts({ nowIso }) {
        AND o.accepted_at IS NULL
        AND da.case_id IS NOT NULL
        AND da.accept_by_at IS NOT NULL
-       AND da.accept_by_at <= $2`,
+       AND da.accept_by_at <= $2
+       -- Practice cases are training rows in a real doctor's real queue.
+       -- They must never be swept, reminded on, breached or reassigned.
+       AND NOT o.is_practice`,
     [assigned, nowIso]
   );
 }
@@ -493,7 +502,10 @@ async function countLegacyAcceptanceRows({ cutoffIso }) {
        WHERE LOWER(COALESCE(o.status, '')) = $1
          AND o.doctor_id IS NOT NULL
          AND o.accepted_at IS NULL
-         AND COALESCE(da.assigned_at, o.updated_at, o.created_at) <= $2`,
+         AND COALESCE(da.assigned_at, o.updated_at, o.created_at) <= $2
+         -- Practice cases are training rows in a real doctor's real queue.
+         -- They must never be swept, reminded on, breached or reassigned.
+         AND NOT o.is_practice`,
       [assigned, cutoffIso]
     );
     return row ? Number(row.c || 0) : 0;
@@ -703,6 +715,9 @@ async function fetchStrandedPaidCases(opts = {}) {
         AND NULLIF(o.doctor_id, '') IS NULL
         AND o.acceptance_deadline_at IS NULL
         AND COALESCE(o.assignment_status, '') NOT IN ('manual_queue', 'manual_pending', 'manual_claimed')
+        -- Practice cases are training rows in a real doctor's real queue.
+        -- They must never be swept, reminded on, breached or reassigned.
+        AND NOT o.is_practice
         AND o.paid_at IS NOT NULL
         AND o.paid_at >= $2::timestamptz
         AND o.paid_at < NOW() - make_interval(mins => $1)

@@ -108,9 +108,16 @@ function statusExpr(p) {
 // "Open work": not finished, and in one of the active statuses. This is the
 // /pulse "Active cases" definition, the ?active=1 filter, and the base of every
 // predicate below — so a case can never be inside one and outside another.
+// Practice cases are training rows seeded into a real doctor's real queue. They
+// are excluded HERE, in the base predicate, rather than at each call site: this
+// expression is the load a picker shows, the load the assign gate enforces, the
+// /pulse active count and the base of breachedCaseSql and unassignedCaseSql. Add
+// the filter downstream instead and the definitions drift — which is exactly how
+// an abandoned 'draft' cart came to occupy a capacity slot (see above).
 function activeCaseSql(p) {
   const c = p || '';
-  return `${c}completed_at IS NULL AND ${statusExpr(c)} IN ${ACTIVE_STATUSES}`;
+  return `${c}completed_at IS NULL AND ${statusExpr(c)} IN ${ACTIVE_STATUSES}`
+    + ` AND NOT COALESCE(${c}is_practice, false)`;
 }
 
 // Active AND past its SLA deadline. ::timestamptz makes it an INSTANT
@@ -155,8 +162,11 @@ function doctorLoadSql(p) {
 const COMPLETED_STATUSES = sqlTuple(['completed']);
 function slaCountableCompletionSql(p) {
   const c = p || '';
+  // A finished practice case is not a real deadline met or missed, so it belongs
+  // in neither the numerator nor the denominator of a doctor's SLA hit rate.
   return `${c}completed_at IS NOT NULL AND ${c}deadline_at IS NOT NULL`
-    + ` AND ${statusExpr(c)} IN ${COMPLETED_STATUSES}`;
+    + ` AND ${statusExpr(c)} IN ${COMPLETED_STATUSES}`
+    + ` AND NOT COALESCE(${c}is_practice, false)`;
 }
 function slaHitRatioSql(p) {
   const c = p || '';
