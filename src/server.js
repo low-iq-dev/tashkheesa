@@ -1391,7 +1391,7 @@ async function runSlaEnforcementSweep(source) {
   }
 }
 
-var { startJobQueue, stopJobQueue, scheduleSlaSweep, scheduleAiCanary, scheduleClassifierLearning, scheduleAttentionSweep } = require('./job_queue');
+var { startJobQueue, stopJobQueue, scheduleSlaSweep, scheduleAiCanary, scheduleClassifierLearning, scheduleAttentionSweep, scheduleFxRates } = require('./job_queue');
 
 // Boot: wait for DB migration before starting workers
 _dbReady.then(async function() {
@@ -1420,6 +1420,29 @@ _dbReady.then(async function() {
   // rather than silent.
   try { await scheduleAttentionSweep(); } catch (e) {
     logMajor('Attention sweep schedule FAILED — intake doors are unwatched: ' + e.message);
+  }
+  // FX (launch eve 2026-09-24) — daily pull of the rates behind the
+  // international EGP charge into fx_rates, plus one pull now. Every instance
+  // also reloads its in-memory copy from the table at boot and every
+  // fx.RATES_TTL_MS, so the job's rates reach instances that did not run it.
+  // A failure here leaves the last good rates in force (the seeded table at
+  // worst) and the staleness alert in services/fx_rates_job says so.
+  try { await scheduleFxRates(); } catch (e) {
+    logMajor('FX rates pull schedule failed — rates will not refresh: ' + e.message);
+  }
+  try {
+    var _fx = require('./fx');
+    await _fx.refreshRatesFromDb();
+    var fxRefreshIntervalId = setInterval(function () {
+      _fx.refreshRatesFromDb();
+      // Staleness watch that does not depend on the job running
+      // (services/fx_rates_job.fxStalenessWatchTick). Never throws.
+      require('./services/fx_rates_job').fxStalenessWatchTick();
+    }, _fx.RATES_TTL_MS);
+    if (fxRefreshIntervalId.unref) fxRefreshIntervalId.unref();
+    intervalIds.push(fxRefreshIntervalId);
+  } catch (e) {
+    logMajor('FX rates load failed — using the built-in fallback table: ' + e.message);
   }
   // LEARNING LOOP 2026-08-25 — nightly aggregation of
   // specialty_classification_overrides into candidate corrections. Produces a

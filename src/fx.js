@@ -9,11 +9,17 @@
  * so the amount_mismatch verifier — which trusts orders.price blindly — can never
  * drift against what Paymob actually charged.
  *
- * RATES_TO_EGP: 1 unit of <currency> = N EGP.
+ * Rates: 1 unit of <currency> = N EGP.
  *
- * ⚠️ RATES ARE MANUALLY MAINTAINED — as of 2026-07-29. UPDATE MONTHLY:
- *    stale rates mischarge international cards. When you update them, only NEW
- *    orders are affected — existing orders keep their locked-in orders.price.
+ * LIVE SINCE LAUNCH EVE (2026-09-24). Rates come from the fx_rates table
+ * (migration 118), refreshed daily by the 'fx-rates-pull' pg-boss job
+ * (services/fx_rates_job.js ← open.er-api.com, free and keyless). This module
+ * keeps an in-memory copy so toEgp stays synchronous; the copy is reloaded
+ * from the table at boot, every RATES_TTL_MS, and after each pull, so every
+ * web instance converges on the job's rates within minutes. RATES_TO_EGP
+ * below is now only the FALLBACK — used when the table is empty or unreadable
+ * (and per currency, for any currency the table lacks). Only NEW orders are
+ * affected by a rate change; existing orders keep their locked-in price.
  *
  * Country → currency mapping is owned by ../country-currency.js (the canonical
  * map, also used by routes/patient.js). We import getCurrencyForCountry from
@@ -23,7 +29,8 @@
 
 const { getCurrencyForCountry } = require('./country-currency');
 
-// 1 unit of the key currency = this many EGP. EGP is the identity lane.
+// FALLBACK table (was the only table until 2026-09-24; seeded into fx_rates by
+// migration 118). 1 unit of the key currency = this many EGP.
 const RATES_TO_EGP = Object.freeze({
   EGP: 1,
   USD: 50.5,
@@ -36,13 +43,81 @@ const RATES_TO_EGP = Object.freeze({
   OMR: 131.3,
 });
 
+// The market currencies the job pulls — the fallback table minus the identity.
+const MARKET_CURRENCIES = Object.freeze(Object.keys(RATES_TO_EGP).filter((c) => c !== 'EGP'));
+
+const RATES_TTL_MS = 10 * 60 * 1000;
+
+// The live copy toEgp reads. Starts as the fallback so a request served before
+// the first DB load prices exactly as the code always has.
+let _live = {
+  rates: Object.assign({}, RATES_TO_EGP),
+  source: 'fallback',          // 'db' | 'fallback'
+  freshestFetchedAt: null,     // Date of the newest DB row, when source = 'db'
+  loadedAt: 0
+};
+
+function _rateFor(ccy) {
+  return Object.prototype.hasOwnProperty.call(_live.rates, ccy) ? _live.rates[ccy] : undefined;
+}
+
+/**
+ * Reload the live copy from fx_rates. Never throws: on a failed or empty read
+ * it keeps whatever it had (the last good DB load, or the fallback table).
+ *
+ * @param {{ queryAllFn?: Function }} [opts] — injectable for tests
+ * @returns {Promise<{ source: string, freshestFetchedAt: (Date|null) }>}
+ */
+async function refreshRatesFromDb(opts) {
+  try {
+    const queryAll = (opts && opts.queryAllFn) || require('./pg').queryAll;
+    const rows = await queryAll(
+      "SELECT base, rate, fetched_at FROM fx_rates WHERE quote = 'EGP'"
+    );
+    const next = Object.assign({}, RATES_TO_EGP);
+    let freshest = null;
+    let used = 0;
+    for (const r of rows || []) {
+      const ccy = String(r.base || '').trim().toUpperCase();
+      const rate = Number(r.rate);
+      if (!ccy || ccy === 'EGP' || !Number.isFinite(rate) || rate <= 0) continue;
+      next[ccy] = rate;
+      used++;
+      const at = r.fetched_at ? new Date(r.fetched_at) : null;
+      if (at && !Number.isNaN(at.getTime()) && (!freshest || at > freshest)) freshest = at;
+    }
+    if (used > 0) {
+      _live = { rates: next, source: 'db', freshestFetchedAt: freshest, loadedAt: Date.now() };
+    } else {
+      // Empty table: the hardcoded rates, exactly as before migration 118.
+      _live = Object.assign({}, _live, { loadedAt: Date.now() });
+    }
+  } catch (e) {
+    // Keep the last good copy; retry after the TTL rather than on every call.
+    _live = Object.assign({}, _live, { loadedAt: Date.now() });
+    console.warn('[fx] rate reload failed — keeping the ' + _live.source + ' rates:', e && e.message);
+  }
+  return { source: _live.source, freshestFetchedAt: _live.freshestFetchedAt };
+}
+
+/** Reload if the live copy is older than RATES_TTL_MS. Cheap when fresh. */
+async function ensureFreshRates(opts) {
+  if (Date.now() - _live.loadedAt < RATES_TTL_MS) return;
+  await refreshRatesFromDb(opts);
+}
+
+/** Where the current rates came from, for health checks and tests. */
+function ratesStatus() {
+  return { source: _live.source, freshestFetchedAt: _live.freshestFetchedAt, rates: Object.assign({}, _live.rates) };
+}
+
 /**
  * True if we can charge this currency (i.e. we hold an EGP rate for it).
  * @param {string} currency
  */
 function hasRate(currency) {
   const ccy = String(currency || '').trim().toUpperCase();
-  return ccy === 'EGP' || Object.prototype.hasOwnProperty.call(RATES_TO_EGP, ccy);
+  return ccy === 'EGP' || _rateFor(ccy) !== undefined;
 }
 
 /**
@@ -66,7 +141,7 @@ function toEgp(localAmount, currency) {
   }
   const ccy = String(currency || '').trim().toUpperCase();
   if (ccy === 'EGP') return amt;               // identity — already EGP, no rounding
-  const rate = RATES_TO_EGP[ccy];
+  const rate = _rateFor(ccy);
   if (!rate) {
     throw new Error(
       'fx.toEgp: no EGP rate for currency "' + ccy + '" — refusing to charge a foreign amount as EGP'
@@ -119,6 +194,11 @@ function egpChargeFromLocal(localBase, localCurrency) {
 
 module.exports = {
   RATES_TO_EGP,
+  MARKET_CURRENCIES,
+  RATES_TTL_MS,
+  refreshRatesFromDb,
+  ensureFreshRates,
+  ratesStatus,
   toEgp,
   toEgpForCountry,
   hasRate,

@@ -452,6 +452,48 @@ async function scheduleClassifierLearning() {
 }
 
 // ---------------------------------------------------------------------------
+// FX rates — daily pull into fx_rates (launch eve 2026-09-24)
+// ---------------------------------------------------------------------------
+
+/**
+ * Non-throwing, like the other scheduled handlers: a failed pull keeps the
+ * previous rates and is reported by the staleness alert inside
+ * services/fx_rates_job, not by a pg-boss retry storm.
+ */
+async function handleFxRatesPull() {
+  try {
+    var result = await require('./services/fx_rates_job').runFxRatesPull();
+    logMajor('[job-queue] fx-rates-pull: ' + (result.ok
+      ? 'updated ' + result.written.join(',')
+      : 'FAILED (' + result.error + ') — previous rates kept') +
+      '; freshest ' + result.freshestFetchedAt + (result.stale ? ' — STALE, alerted' : ''));
+  } catch (e) {
+    logMajor('[job-queue] fx-rates-pull failed: ' + (e && e.message ? e.message : e));
+  }
+}
+
+/**
+ * Daily at 03:10 UTC (override FX_RATES_CRON), plus one pull at boot so a
+ * deploy replaces the seeded 2026-07-29 rates straight away instead of
+ * tomorrow. The boot send is singleton for an hour, so a restart loop or
+ * several instances booting together pull once.
+ *
+ * @returns {boolean} true if scheduled via pg-boss, false if boss unavailable
+ */
+async function scheduleFxRates() {
+  if (!boss) return false;
+  // pg-boss throws on work()/send()/schedule() against a queue nothing created
+  // (tests/lint/pgboss-queues-are-created.test.js). This function owns it.
+  await boss.createQueue('fx-rates-pull');
+  await boss.work('fx-rates-pull', { teamSize: 1, teamConcurrency: 1 }, handleFxRatesPull);
+  var cron = process.env.FX_RATES_CRON || '10 3 * * *';
+  await boss.schedule('fx-rates-pull', cron, {}, { singletonKey: 'fx-rates-pull' });
+  await boss.send('fx-rates-pull', {}, { singletonKey: 'fx-rates-boot', singletonSeconds: 3600 });
+  logMajor('[job-queue] fx rates pull scheduled via pg-boss (' + cron + ', singleton) + one at boot');
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Graceful shutdown
 // ---------------------------------------------------------------------------
 async function stopJobQueue() {
@@ -472,6 +514,7 @@ module.exports = {
   scheduleAttentionSweep: scheduleAttentionSweep,
   scheduleAiCanary: scheduleAiCanary,
   scheduleClassifierLearning: scheduleClassifierLearning,
+  scheduleFxRates: scheduleFxRates,
   enqueueCaseIntelligence: enqueueCaseIntelligence,
   enqueueCaseReprocess: enqueueCaseReprocess,
   enqueueAutoAssign: enqueueAutoAssign,
