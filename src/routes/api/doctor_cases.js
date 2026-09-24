@@ -34,6 +34,7 @@
 const express = require('express');
 const { requireJWT, requireRole } = require('../../middleware/requireJWT');
 const caseLifecycle = require('../../case_lifecycle');
+const reportSubmission = require('../../services/report_submission');
 const {
   CASE_ACCESS,
   doctorCaseAccess,
@@ -188,6 +189,78 @@ module.exports = function (db, helpers) {
       case: redactPatientIdentity(order),
       files: mapped,
     });
+  });
+
+  // ─── POST /cases/:id/submit ───────────────────────────────
+  // Deliver the report. This is the SAME call the portal's submit button
+  // makes (routes/doctor.js handlePortalDoctorGenerateReport →
+  // services/report_submission.submitDoctorReport), so a report submitted
+  // from the phone completes the case, renders the identical PDF, settles
+  // the earnings and notifies the patient exactly the way the web does — in
+  // one atomic transaction, gated by a conditional completion UPDATE, so a
+  // retry from a flaky connection produces one report and one notification.
+  //
+  // Nothing about the case is decided here. This handler validates the body,
+  // calls the service, and maps its result codes onto HTTP. The app must not
+  // send its own patient notification: the service already does, and only
+  // from the submission that won the completion race.
+  router.post('/cases/:id/submit', async (req, res) => {
+    const doctorId = meId(req);
+    const orderId = String(req.params.id || '');
+    if (!doctorId || !orderId) return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+
+    const body = req.body || {};
+    const text = (v) => (typeof v === 'string' ? v.trim() : '');
+
+    const result = await reportSubmission.submitDoctorReport({
+      orderId,
+      doctorId,
+      diagnosisText: text(body.findings ?? body.diagnosis ?? body.diagnosis_text),
+      impressionText: text(body.impression ?? body.impression_text),
+      recommendationsText: text(body.recommendation ?? body.recommendations ?? body.recommendation_text),
+      via: 'doctor_app_report',
+    });
+
+    if (result.ok) {
+      const earnings = result.earnings || null;
+      const earned =
+        earnings && Number.isFinite(Number(earnings.earnedAmount)) ? Number(earnings.earnedAmount) : null;
+      return res.ok({
+        completed: true,
+        // A retry of a submit that already landed: no side effects ran, and
+        // the app should treat it as success, not as a failure to explain.
+        already_completed: !!result.alreadyCompleted,
+        report_url: result.reportUrl || null,
+        earned_amount: earned,
+        completed_at: new Date().toISOString(),
+      });
+    }
+
+    switch (result.code) {
+      case 'invalid_request':
+        return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+      case 'not_found':
+      case 'forbidden':
+        // One refusal shape for "not yours" and "does not exist", as GET does.
+        return res.fail('Case not available', 404, 'CASE_NOT_AVAILABLE');
+      case 'report_empty':
+        // Findings and impression are the load-bearing sections; the text is
+        // already saved as a draft, so nothing the doctor typed is lost.
+        return res.fail('Report incomplete', 422, 'REPORT_INCOMPLETE');
+      case 'case_not_open':
+        // Cancelled, refunded or otherwise closed under the doctor.
+        return res.fail('Case is not open', 409, 'CASE_NOT_OPEN');
+      case 'report_save_failed':
+        return res.fail('Report could not be saved', 500, 'REPORT_SAVE_FAILED');
+      case 'report_pdf_failed':
+        // Text saved, case still open, retryable.
+        return res.fail('Report PDF could not be generated', 502, 'REPORT_PDF_FAILED');
+      case 'report_complete_failed':
+        // Text and PDF saved; the atomic completion rolled back whole.
+        return res.fail('Report could not be completed', 500, 'REPORT_COMPLETE_FAILED');
+      default:
+        return res.fail('Report submission failed', 500, 'REPORT_SUBMIT_FAILED');
+    }
   });
 
   return router;
