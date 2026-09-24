@@ -1,0 +1,232 @@
+<%
+  // Manual payment block — InstaPay / bank transfer (launch contingency,
+  // 2026-09-24; src/services/manual_payment.js, MANUAL_PAY_CONTRACT.md).
+  //
+  // Rendered by patient_payment_required.ejs ONLY when MANUAL_PAYMENT_ENABLED
+  // is on and a destination is configured; with the flag off this file is
+  // never included and the pay page is byte-identical to before.
+  //
+  // Locals: mp (the service's buildManualInfo() shape + flash/errorCode/
+  // formValues), isAr, cardEnabled, cardAddons (the page offers card-only
+  // add-on checkboxes), orderId, csrfField/cspNonce from the page.
+  //
+  // Honesty rules for this copy: a transfer claim does NOT mark the case paid.
+  // Nothing here may say or imply "paid" until a human has confirmed it.
+  var __a = !!isAr;
+  function L(en, ar) { return __a ? ar : en; }
+  var __mp = mp || {};
+  var __claim = __mp.claim || null;
+  var __pending = !!(__claim && __claim.status === 'pending');
+  var __rejected = !!(__claim && __claim.status === 'rejected');
+  var __fv = (__mp.formValues && typeof __mp.formValues === 'object') ? __mp.formValues : {};
+  var __amountLabel = Number(__mp.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  var __amountCopy = String(__mp.amount != null ? __mp.amount : '');
+  var __defaultMethod = __fv.method || (__claim && __claim.method) || (__mp.instapay ? 'instapay' : 'bank');
+  var __errMap = {
+    reference_invalid: L('Please enter the transfer reference (3 to 80 characters) exactly as your banking app shows it.', 'اكتب مرجع التحويل (من 3 إلى 80 حرفًا) كما يظهر في تطبيق البنك.'),
+    method_invalid: L('Please choose how you paid.', 'اختر طريقة الدفع التي استخدمتها.'),
+    method_unavailable: L('That payment method is not available right now. Please choose another.', 'طريقة الدفع هذه غير متاحة حاليًا. اختر طريقة أخرى.'),
+    sender_invalid: L('The sender name is too long (80 characters at most).', 'اسم المُرسِل طويل جدًا (80 حرفًا كحد أقصى).'),
+    generic: L('We could not save your transfer details. Please try again.', 'تعذّر حفظ بيانات التحويل. حاول مرة أخرى.')
+  };
+  var __err = __mp.errorCode ? (__errMap[__mp.errorCode] || __errMap.generic) : null;
+  var __when = '';
+  try {
+    if (__claim && __claim.submittedAt) {
+      __when = new Date(__claim.submittedAt).toLocaleString(__a ? 'ar-EG' : 'en-GB', { timeZone: 'Africa/Cairo', dateStyle: 'medium', timeStyle: 'short' });
+    }
+  } catch (_) { __when = ''; }
+  var __labelStyle = 'font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;';
+  var __valStyle = 'font-size:14px;color:var(--ink);font-weight:600;word-break:break-all;';
+%>
+<div class="p-card mp-transfer" id="transfer" style="border-color:var(--rule-strong);">
+  <div class="p-card__header">
+    <div class="p-card__title" style="text-align:start;">
+      <%= cardEnabled ? L('Prefer to pay by transfer?', 'تفضّل الدفع بالتحويل؟') : L('Pay by InstaPay or bank transfer', 'ادفع بإنستاباي أو تحويل بنكي') %>
+    </div>
+  </div>
+  <div class="p-card__body" style="display:flex;flex-direction:column;gap:14px;">
+
+    <% if (__mp.flash === 'submitted') { %>
+      <div role="status" style="padding:10px 12px;background:var(--accent-tint);border:1px solid var(--accent-light);border-radius:8px;font-size:12.5px;line-height:1.5;color:var(--ink-2);">
+        <%= L('Thank you — we have your transfer reference.', 'شكرًا — وصلنا مرجع التحويل.') %>
+      </div>
+    <% } %>
+
+    <!-- Amount: the same figure the card flow charges -->
+    <div>
+      <div style="<%= __labelStyle %>"><%= L('Amount to send', 'المبلغ المطلوب تحويله') %></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
+        <span style="font-family:var(--font-display);font-size:28px;font-weight:500;color:var(--accent-dark);line-height:1;" dir="ltr"><%= __amountLabel %> <span style="font-size:14px;font-family:var(--font-sans);color:var(--muted);font-weight:600;"><%= __mp.currency || 'EGP' %></span></span>
+        <button type="button" class="p-btn p-btn--ghost p-btn--sm" data-mp-copy="<%= __amountCopy %>"><%= L('Copy', 'نسخ') %></button>
+      </div>
+      <div style="font-size:12px;color:var(--ink-2);margin-top:4px;line-height:1.5;">
+        <%= L('Please send exactly this amount so we can match it to your case.', 'من فضلك حوّل هذا المبلغ بالضبط حتى نتمكن من مطابقته مع حالتك.') %>
+      </div>
+      <% if (cardAddons) { %>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px;line-height:1.5;">
+          <%= L('Optional extras ticked on this page are only added when you pay by card.', 'الخيارات الإضافية المحددة في هذه الصفحة تُضاف فقط عند الدفع بالبطاقة.') %>
+        </div>
+      <% } %>
+    </div>
+
+    <!-- Order reference for the transfer note -->
+    <div>
+      <div style="<%= __labelStyle %>"><%= L('Your reference', 'رقم المرجع') %></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
+        <span style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--ink);" dir="ltr"><%= __mp.reference %></span>
+        <button type="button" class="p-btn p-btn--ghost p-btn--sm" data-mp-copy="<%= __mp.reference %>"><%= L('Copy', 'نسخ') %></button>
+      </div>
+      <div style="font-size:12px;color:var(--ink-2);margin-top:4px;line-height:1.5;">
+        <%= L('Write this in the transfer note or comment, so we know the money is for your case.', 'اكتبه في ملاحظة أو تعليق التحويل، حتى نعرف أن المبلغ يخص حالتك.') %>
+      </div>
+    </div>
+
+    <% if (__mp.instapay) { %>
+      <div style="border-top:1px solid var(--rule);padding-top:12px;">
+        <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:6px;"><%= L('InstaPay', 'إنستاباي') %></div>
+        <% if (__mp.instapay.handle) { %>
+          <div style="<%= __labelStyle %>"><%= L('InstaPay address', 'عنوان إنستاباي') %></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
+            <span style="<%= __valStyle %>" dir="ltr"><%= __mp.instapay.handle %></span>
+            <button type="button" class="p-btn p-btn--ghost p-btn--sm" data-mp-copy="<%= __mp.instapay.handle %>"><%= L('Copy', 'نسخ') %></button>
+          </div>
+        <% } %>
+        <% if (__mp.instapay.link) { %>
+          <a class="p-btn p-btn--secondary p-btn--sm p-btn--block" href="<%= __mp.instapay.link %>" target="_blank" rel="noopener noreferrer" style="margin-top:8px;">
+            <%= L('Open InstaPay', 'افتح إنستاباي') %>
+          </a>
+        <% } %>
+      </div>
+    <% } %>
+
+    <% if (__mp.bank) { %>
+      <div style="border-top:1px solid var(--rule);padding-top:12px;display:flex;flex-direction:column;gap:8px;">
+        <div style="font-size:13px;font-weight:700;color:var(--ink);"><%= L('Bank transfer', 'تحويل بنكي') %></div>
+        <% if (__mp.bank.bankName) { %>
+          <div><div style="<%= __labelStyle %>"><%= L('Bank', 'البنك') %></div><div style="<%= __valStyle %>"><%= __mp.bank.bankName %></div></div>
+        <% } %>
+        <div><div style="<%= __labelStyle %>"><%= L('Account name', 'اسم الحساب') %></div><div style="<%= __valStyle %>"><%= __mp.bank.accountName %></div></div>
+        <% if (__mp.bank.accountNumber) { %>
+          <div>
+            <div style="<%= __labelStyle %>"><%= L('Account number', 'رقم الحساب') %></div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span style="<%= __valStyle %>font-family:var(--font-mono);" dir="ltr"><%= __mp.bank.accountNumber %></span>
+              <button type="button" class="p-btn p-btn--ghost p-btn--sm" data-mp-copy="<%= __mp.bank.accountNumber %>"><%= L('Copy', 'نسخ') %></button>
+            </div>
+          </div>
+        <% } %>
+        <% if (__mp.bank.iban) { %>
+          <div>
+            <div style="<%= __labelStyle %>">IBAN</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span style="<%= __valStyle %>font-family:var(--font-mono);" dir="ltr"><%= __mp.bank.iban %></span>
+              <button type="button" class="p-btn p-btn--ghost p-btn--sm" data-mp-copy="<%= __mp.bank.iban %>"><%= L('Copy', 'نسخ') %></button>
+            </div>
+          </div>
+        <% } %>
+      </div>
+    <% } %>
+
+    <% if (__mp.relationshipNote) { %>
+      <div style="font-size:12.5px;color:var(--ink-2);line-height:1.5;"><%= __mp.relationshipNote %></div>
+    <% } %>
+
+    <div style="border-top:1px solid var(--rule);padding-top:12px;">
+    <% if (__pending) { %>
+      <div role="status" style="padding:12px 14px;background:var(--surface-2);border:1px solid var(--rule-strong);border-radius:10px;">
+        <div style="font-size:13.5px;font-weight:700;color:var(--ink);margin-bottom:4px;">
+          <%= L('We have your transfer reference and are checking it.', 'وصلنا مرجع التحويل ونقوم بمراجعته.') %>
+        </div>
+        <div style="font-size:12.5px;color:var(--ink-2);line-height:1.5;">
+          <%= __claim.method === 'bank' ? L('Bank transfer', 'تحويل بنكي') : L('InstaPay', 'إنستاباي') %> ·
+          <span dir="ltr" style="font-family:var(--font-mono);"><%= __claim.reference %></span><% if (__when) { %> · <%= __when %><% } %>
+        </div>
+        <div style="font-size:12.5px;color:var(--ink-2);line-height:1.5;margin-top:6px;">
+          <%= __mp.confirmNote %>
+        </div>
+      </div>
+      <details style="margin-top:10px;">
+        <summary style="cursor:pointer;font-size:12.5px;color:var(--ink-2);"><%= L('Sent the wrong reference? Update it', 'أرسلت مرجعًا خاطئًا؟ عدّله') %></summary>
+    <% } else if (__rejected) { %>
+      <div role="alert" style="padding:12px 14px;background:var(--warn-bg);border:1px solid #E6C7A8;border-radius:10px;color:var(--warn);margin-bottom:12px;">
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">
+          <%= L('We could not match your last transfer.', 'لم نتمكن من مطابقة آخر تحويل أرسلته.') %>
+        </div>
+        <% if (__claim.rejectionReason) { %>
+          <div style="font-size:12.5px;color:var(--ink-2);line-height:1.5;"><%= L('Reason:', 'السبب:') %> <%= __claim.rejectionReason %></div>
+        <% } %>
+        <div style="font-size:12.5px;color:var(--ink-2);line-height:1.5;margin-top:4px;">
+          <%= L('Your case is still saved. Please check the details and send the reference again.', 'حالتك لا تزال محفوظة. راجع التفاصيل وأرسل المرجع مرة أخرى.') %>
+        </div>
+      </div>
+    <% } %>
+
+      <% if (!__pending) { %>
+        <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:6px;"><%= L('Already sent it? Tell us', 'حوّلت المبلغ؟ أخبرنا') %></div>
+      <% } %>
+      <% if (__err) { %>
+        <div role="alert" style="margin:6px 0 10px;padding:10px 12px;background:var(--accent-tint);border:1px solid var(--accent-light);border-radius:8px;font-size:12.5px;line-height:1.5;color:var(--ink-2);"><%= __err %></div>
+      <% } %>
+      <form method="post" action="/portal/patient/pay/<%= encodeURIComponent(orderId || '') %>/transfer-claim" style="display:flex;flex-direction:column;gap:10px;margin-top:6px;">
+        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+        <% if (__mp.instapay && __mp.bank) { %>
+          <fieldset style="border:0;padding:0;margin:0;display:flex;gap:14px;flex-wrap:wrap;">
+            <legend class="p-field__label" style="margin-bottom:4px;"><%= L('How did you pay?', 'كيف دفعت؟') %></legend>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input type="radio" name="method" value="instapay" <%= __defaultMethod === 'instapay' ? 'checked' : '' %> /> <%= L('InstaPay', 'إنستاباي') %></label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input type="radio" name="method" value="bank" <%= __defaultMethod === 'bank' ? 'checked' : '' %> /> <%= L('Bank transfer', 'تحويل بنكي') %></label>
+          </fieldset>
+        <% } else { %>
+          <input type="hidden" name="method" value="<%= __mp.instapay ? 'instapay' : 'bank' %>" />
+        <% } %>
+        <div class="p-field">
+          <label class="p-field__label" for="mp_reference"><%= L('Transfer reference', 'مرجع التحويل') %></label>
+          <input class="p-field__input" id="mp_reference" name="reference" type="text" required minlength="3" maxlength="80" dir="ltr" autocomplete="off"
+                 value="<%= __fv.reference != null ? __fv.reference : '' %>"
+                 placeholder="<%= L('The reference number your banking app shows', 'الرقم المرجعي الظاهر في تطبيق البنك') %>" />
+        </div>
+        <div class="p-field">
+          <label class="p-field__label" for="mp_sender"><%= L('Name on the sending account (optional)', 'اسم صاحب الحساب المُحوِّل (اختياري)') %></label>
+          <input class="p-field__input" id="mp_sender" name="sender_name" type="text" maxlength="80" autocomplete="name"
+                 value="<%= __fv.sender_name != null ? __fv.sender_name : '' %>" />
+        </div>
+        <button type="submit" class="p-btn p-btn--primary p-btn--block"><%= L('I have sent the transfer', 'أرسلت التحويل') %></button>
+        <div style="font-size:12px;color:var(--muted);line-height:1.5;">
+          <%= L('This does not mark your case as paid. We check that the money has arrived first.', 'هذا لا يعني أن حالتك أصبحت مدفوعة. سنتأكد أولًا من وصول المبلغ.') %>
+          <%= __mp.confirmNote %>
+        </div>
+      </form>
+    <% if (__pending) { %>
+      </details>
+    <% } %>
+    </div>
+
+  </div>
+</div>
+<style>
+  /* The summary card above is position:sticky on desktop; with this block
+     beneath it the sticky card would slide over the transfer details. Only
+     applies when this block is rendered. */
+  .p-pay-cols .stack > .p-card[style*="position:sticky"] { position: static !important; top: auto !important; }
+</style>
+<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+(function () {
+  var copied = <%- JSON.stringify(L('Copied', 'تم النسخ')) %>;
+  document.querySelectorAll('[data-mp-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = btn.getAttribute('data-mp-copy') || '';
+      var orig = btn.textContent;
+      function done() { btn.textContent = copied; setTimeout(function () { btn.textContent = orig; }, 1500); }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () {});
+      } else {
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'absolute'; ta.style.left = '-9999px';
+          document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done();
+        } catch (_) {}
+      }
+    });
+  });
+})();
+</script>

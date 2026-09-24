@@ -99,23 +99,6 @@
   const __videoEgp = (typeof videoConsultationPriceEgp !== 'undefined') ? (Number(videoConsultationPriceEgp) || 0) : 0;
   const __slaEgp = (typeof sla24hrPriceEgp !== 'undefined') ? (Number(sla24hrPriceEgp) || 0) : 0;
   const __rxEgp = (typeof prescriptionPriceEgp !== 'undefined') ? (Number(prescriptionPriceEgp) || 0) : 0;
-
-  // MANUAL PAYMENT PATH (2026-09-24) — src/services/manual_payment.js.
-  // cardEnabled: CARD_PAYMENT_ENABLED (default true). false hides the Paymob
-  // button/summary card and the card-only add-on picker. manualPayment: the
-  // transfer block's data, or null when MANUAL_PAYMENT_ENABLED is off. Every
-  // markup hook below is placed INSIDE an existing line, so with both flags at
-  // their defaults this page renders byte-identical to before
-  // (tests/core/manual-payment-pay-page.test.js pins that).
-  const __cardEnabled = (typeof cardEnabled === 'undefined') ? true : (cardEnabled !== false);
-  const __mp = (typeof manualPayment !== 'undefined' && manualPayment) ? manualPayment : null;
-  const __mpBlock = __mp ? include('partials/patient/manual-payment-block', {
-    mp: __mp,
-    isAr: __isAr,
-    cardEnabled: __cardEnabled,
-    cardAddons: __cardEnabled && hasAddons,
-    orderId: __order.id || ''
-  }) : '';
 %>
 <%- include('partials/patient/head', {
   active: 'cases',
@@ -249,7 +232,7 @@
     </div>
 
     <!-- Add-ons (only when service offers them) -->
-    <% if (hasAddons && __cardEnabled) { %>
+    <% if (hasAddons) { %>
       <div class="p-card">
         <div class="p-card__header">
           <div class="p-card__title"><%= tt('Enhance your consultation', 'Enhance your consultation', 'خيارات إضافية') %></div>
@@ -343,7 +326,7 @@
 
   <!-- ── RIGHT COLUMN: Payment summary ───────────────────────────── -->
   <div class="stack">
-    <% if (!__cardEnabled) { %><% } else if (hasAddons) { %>
+    <% if (hasAddons) { %>
       <!-- ADD-ON FLOW: itemized summary -->
       <div class="p-card" style="position:sticky;top:96px;background:var(--surface-2);border-color:var(--rule-strong);">
         <div class="p-card__header">
@@ -469,7 +452,7 @@
       </div>
     <% } %>
 
-    <%- __mpBlock %><%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
+    <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
   </div>
 
 </div>

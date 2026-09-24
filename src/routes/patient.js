@@ -26,6 +26,8 @@ const { getThresholds } = require('../services/admin_settings');
 const { isAllowedFileUrl } = require('../services/file_url_allowlist');
 
 const caseLifecycle = require('../case_lifecycle');
+// Manual payment path (InstaPay / bank transfer) — see the service header.
+const manualPayment = require('../services/manual_payment');
 // App funnel 2026-09-23 — fire-and-forget PostHog funnel events (never awaited).
 const { captureFunnel } = require('../services/analytics');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
@@ -3752,6 +3754,37 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
     paymentFailed: !!(req.query && req.query.failed),
   };
 
+  // MANUAL PAYMENT PATH (2026-09-24) — services/manual_payment.js. Both flags
+  // are read per request. At their defaults (card on, manual off) this adds
+  // no query and the view renders byte-identical to before. The transfer
+  // amount comes from the service's transferAmountForOrder — the same
+  // owedCentsForOrder(price, persisted addons_json) the Paymob mint charges.
+  payRenderCommon.cardEnabled = manualPayment.isCardPaymentEnabled();
+  payRenderCommon.manualPayment = null;
+  if (manualPayment.isManualPaymentEnabled()) {
+    try {
+      const mpOrder = await queryOne(
+        `SELECT id, status, payment_status, price, currency, addons_json, reference_id
+           FROM orders_active WHERE id = $1 AND patient_id = $2`,
+        [orderId, patientId]
+      );
+      const mpInfo = await manualPayment.buildManualInfo({ order: mpOrder, patientId, lang });
+      if (mpInfo) {
+        const q = req.query || {};
+        const errCode = String(q.claim_error || '').replace(/[^a-z_]/g, '').slice(0, 40);
+        payRenderCommon.manualPayment = Object.assign(mpInfo, {
+          flash: String(q.claim || '') === 'submitted' ? 'submitted' : null,
+          errorCode: errCode || null,
+          formValues: null
+        });
+      }
+    } catch (mpErr) {
+      // The transfer block is additive: if it cannot be built the page still
+      // renders exactly as it would with the flag off.
+      logErrorToDb(mpErr, { context: 'patient.pay_page.manual_payment', orderId, userId: patientId, category: 'payment' });
+    }
+  }
+
   // If payment link is missing OR is only the internal fallback OR the service
   // has add-ons, we render the create-intention button instead of an external link.
   if (!rawPaymentLink || isInternalFallback || serviceHasAddons) {
@@ -3766,6 +3799,73 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
     paymentLink: copyLink,
   }));
 });
+
+// ── MANUAL-PAY-CLAIM-ROUTE BEGIN ────────────────────────────────────────────
+// POST /portal/patient/pay/:id/transfer-claim — the patient tells us they sent
+// an InstaPay / bank transfer.
+//
+// THE RULE: this records an UNVERIFIED claim and notifies staff. It never
+// writes payment_status, never changes status, never touches the payment
+// lifecycle and never triggers assignment — only a superadmin who has seen the
+// money (POST /superadmin/orders/:id/mark-paid) does that.
+// tests/core/manual-payment-claims.test.js pins this block by source-grep.
+//
+// Per-patient limiter, same shape as the other patient POSTs in this file.
+const transferClaimLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  validate: false,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user && req.user.id) ? 'user:' + String(req.user.id) : 'ip:' + req.ip,
+  skip: () => !NEWCASE_RL_IS_PROD && String(process.env.RATE_LIMIT_DISABLED || '').toLowerCase() === 'true',
+  message: 'Too many attempts. Please wait 15 minutes and try again.'
+});
+
+router.post('/portal/patient/pay/:id/transfer-claim', requireRole('patient'), transferClaimLimiter, async (req, res) => {
+  const orderId = String(req.params.id || '');
+  const patientId = req.user.id;
+  const back = '/portal/patient/pay/' + encodeURIComponent(orderId);
+
+  const cfg = manualPayment.readManualPaymentConfig();
+  if (!cfg.enabled) return res.redirect(back);
+
+  const order = await queryOne(
+    `SELECT id, status, payment_status, price, currency, addons_json, reference_id
+       FROM orders_active WHERE id = $1 AND patient_id = $2`,
+    [orderId, patientId]
+  );
+  if (!order) return res.redirect('/dashboard');
+  if (String(order.payment_status || '').toLowerCase() === 'paid') {
+    return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId));
+  }
+  if (!caseLifecycle.isPayableStatus(order.status)) return res.redirect(back);
+
+  const v = manualPayment.validateClaimInput(req.body || {}, cfg);
+  if (!v.ok) return res.redirect(back + '?claim_error=' + encodeURIComponent(v.code) + '#transfer');
+
+  try {
+    await manualPayment.submitClaim({
+      order,
+      patientId,
+      patientName: req.user.name || '',
+      claim: v.value,
+      source: 'web'
+    });
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'patient.transfer_claim',
+      requestId: req.requestId,
+      userId: patientId,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'payment'
+    });
+    return res.redirect(back + '?claim_error=generic#transfer');
+  }
+  return res.redirect(back + '?claim=submitted#transfer');
+});
+// ── MANUAL-PAY-CLAIM-ROUTE END ──────────────────────────────────────────────
 
 // loadReportContentForPatient — moved to src/helpers/load-report-content.js.
 // Both this route file and routes/reports.js (the legacy /portal/case/:caseId
