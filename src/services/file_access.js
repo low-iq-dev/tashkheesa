@@ -124,6 +124,20 @@ async function resolveFileAccess(fileId, user, deps) {
   return out;
 }
 
+// THE annotatable set (launch-eve follow-up, 2026-09-25). The annotator's
+// byte route (routes/annotations.js) serves exactly these types and 415s the
+// rest (HEIC, TIFF, DICOM, PDF…); the doctor case page shows the Annotate
+// button for exactly these extensions. One list, so a button can never lead to
+// a file the route refuses.
+const ANNOTATABLE_MIME = Object.freeze(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp']);
+const ANNOTATABLE_EXTENSIONS = Object.freeze(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp']);
+
+/** True when a file NAME has an annotatable raster extension. */
+function isAnnotatableName(name) {
+  const m = /\.([a-z0-9]+)\s*$/i.exec(String(name || ''));
+  return !!m && ANNOTATABLE_EXTENSIONS.indexOf(m[1].toLowerCase()) !== -1;
+}
+
 /** Sniff the common raster formats from magic bytes. '' when unknown. */
 function mimeFromBytes(buf) {
   if (!buf || buf.length < 12) return '';
@@ -136,4 +150,4 @@ function mimeFromBytes(buf) {
   return '';
 }
 
-module.exports = { resolveFileAccess, mimeFromBytes };
+module.exports = { resolveFileAccess, mimeFromBytes, isAnnotatableName, ANNOTATABLE_MIME, ANNOTATABLE_EXTENSIONS };

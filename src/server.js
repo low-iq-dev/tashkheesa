@@ -309,6 +309,9 @@ var app = express();
 // available to every view (partials/urgent-window-note.ejs, faq.ejs). Built
 // from the same window constants the intake gate uses.
 app.locals.urgentWindowNote = require('./services/urgency_window').urgentWindowNote;
+// Annotate button gate (portal_doctor_case.ejs) — the same raster set the
+// annotator's byte route serves (services/file_access.js).
+app.locals.isAnnotatableName = require('./services/file_access').isAnnotatableName;
 
 require('express-async-errors');
 

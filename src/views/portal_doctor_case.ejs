@@ -709,8 +709,10 @@
 
                   Images only: the annotator loads the file into a fabric.js
                   canvas via fabric.Image.fromURL, which cannot render a PDF. %>
-              <% var _annExt = String(f.name || '').split('.').pop().toLowerCase();
-                 if (['jpg','jpeg','png','gif','webp','bmp','tif','tiff'].indexOf(_annExt) !== -1) { %>
+              <%# Launch-eve follow-up 2026-09-25: exactly the raster set
+                  /api/annotations/:id/source serves (services/file_access.js).
+                  TIFF was on the old list and 415'd; HEIC/DICOM never show. %>
+              <% if (typeof isAnnotatableName === 'function' && isAnnotatableName(f.name)) { %>
                 <a class="v2-btn v2-btn--ghost v2-btn--sm"
                    href="/annotator.html?imageId=<%= encodeURIComponent(f.id) %>&caseId=<%= _orderIdEnc %>&lang=<%= _isAr ? 'ar' : 'en' %>&csrf=<%= encodeURIComponent(typeof csrfToken !== 'undefined' && csrfToken ? csrfToken : '') %>"
                    target="_blank" rel="noopener"

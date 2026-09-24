@@ -127,6 +127,23 @@ function check(name, fn) {
     }
   });
 
+  await check('the Annotate button shows for exactly the raster set the route serves', () => {
+    const yes = ['a.jpg', 'B.JPEG', 'x.png', 'x.gif', 'x.webp', 'x.bmp'];
+    const no = ['scan.heic', 'scan.HEIF', 'img.tif', 'img.tiff', 'IM0001.dcm', 'IM0001', 'report.pdf', 'png', ''];
+    for (const n of yes) if (!fileAccess.isAnnotatableName(n)) throw new Error(n + ' should be annotatable');
+    for (const n of no) if (fileAccess.isAnnotatableName(n)) throw new Error(n + ' should NOT show the button');
+    const exts = fileAccess.ANNOTATABLE_EXTENSIONS.map((e) => 'image/' + (e === 'jpg' ? 'jpeg' : e));
+    for (const m of new Set(exts)) if (fileAccess.ANNOTATABLE_MIME.indexOf(m) === -1) throw new Error('button allows ' + m + ' but the route 415s it');
+  });
+
+  await check('portal_doctor_case gates the button on isAnnotatableName, and the route on the shared mime set', () => {
+    const view = read('src/views/portal_doctor_case.ejs');
+    if (!/isAnnotatableName\(f\.name\)[\s\S]{0,400}annotator\.html\?imageId=/.test(view)) throw new Error('view not gated on isAnnotatableName');
+    if (/'tif','tiff'/.test(view)) throw new Error('old extension list still in the view');
+    if (!/app\.locals\.isAnnotatableName = require\('\.\/services\/file_access'\)\.isAnnotatableName/.test(read('src/server.js'))) throw new Error('not on app.locals');
+    if (!/new Set\(require\('\.\.\/services\/file_access'\)\.ANNOTATABLE_MIME\)/.test(read('src/routes/annotations.js'))) throw new Error('route has its own copy of the set');
+  });
+
   await check('doctor guides no longer promise "measurements"', () => {
     for (const rel of ['src/views/portal_doctor_guide.ejs', 'src/views/help_doctor_guide.ejs']) {
       if (/measurements|وقياسات/.test(read(rel))) throw new Error(rel);

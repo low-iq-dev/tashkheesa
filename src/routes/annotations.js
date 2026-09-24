@@ -97,7 +97,8 @@ async function userCanViewCase(user, caseId) {
 // Raster images only. This route puts PHI bytes on our origin, so it refuses
 // anything a browser could execute there (SVG, HTML, …) and sends nosniff +
 // a sandboxing CSP in case a stored key lies about its type.
-const ANNOTATABLE_MIME = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp']);
+// The set lives in services/file_access.js, shared with the Annotate button.
+const ANNOTATABLE_MIME = new Set(require('../services/file_access').ANNOTATABLE_MIME);
 
 function makeAnnotationSourceHandler(deps) {
   const d = deps || {};
