@@ -437,6 +437,14 @@
               <%= currencyCode %>
             </div>
           </div>
+          <%
+            // Launch eve 2026-09-24: the Urgent off-hours rule where the money is taken.
+            // Shown for Urgent orders (or when the tier is unknown), hidden for Standard/VIP.
+            const __uwTier = String(__order.urgency_tier || __order.tier || '').toLowerCase();
+          %>
+          <% if (!__uwTier || __uwTier === 'urgent') { %>
+            <%- include('partials/urgent-window-note', { style: 'font-size:12.5px;color:var(--muted);margin:-8px 0 14px;line-height:1.5;text-align:center;' }) %>
+          <% } %>
 
           <% if (safePaymentUrl) { %>
             <form id="addonForm" method="GET" action="<%= safePaymentUrl %>">

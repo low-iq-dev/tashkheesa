@@ -3655,7 +3655,9 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
 
   // Get service and resolve multi-currency add-on prices
   const service = await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id]);
-  const countryCode = getUserCountryCode(req);
+  // Launch eve 2026-09-24: same account-country rule as the wizard (T5), so the
+  // pay page can never quote a different country than the case was priced in.
+  const countryCode = await getPricingCountryCode(req, 'pay');
   const countryCurrency = getCountryCurrency(countryCode);
   // ALWAYS-CHARGE-EGP: add-ons are CHARGED in EGP (payments.js resolves them at
   // order.currency='EGP'), so price + display them in EGP too — never the local
