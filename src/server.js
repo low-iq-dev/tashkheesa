@@ -762,99 +762,22 @@ app.get('/files/:fileId', async function(req, res) {
     return res.redirect('/login?next=' + next);
   }
 
-  // ── Lookup chain (stop at first match) ────────────────────────────────
-  var source = null;       // 'order_files' | 'messages' | 'order_additional_files'
-  var fileUrl = '';        // legacy HTTP URL (any table)
-  var fileKey = '';        // R2 key (messages + order_additional_files only post-C2.A)
-  var fileLabel = '';      // for Content-Disposition
-  var order = null;        // populated for order_files + order_additional_files
-  var conversation = null; // populated for messages
+  // ── Lookup + per-source auth ─────────────────────────────────────────
+  // Moved verbatim to services/file_access.js (launch eve 2026-09-24) so the
+  // annotator's same-origin byte route (/api/annotations/:imageId/source)
+  // applies exactly this rule. The table walk, the per-source auth and the
+  // 404-vs-403 policy are documented there.
+  var access = await require('./services/file_access').resolveFileAccess(fileId, req.user, { safeGet: safeGet });
+  var source = access.source;
+  var fileUrl = access.fileUrl;
+  var fileKey = access.fileKey;
+  var fileLabel = access.fileLabel;
 
-  // 1. order_files (canonical — highest traffic, fastest path)
-  var ofRow = await safeGet('SELECT id, order_id, url, label FROM order_files WHERE id = $1 LIMIT 1', [fileId], null);
-  if (ofRow) {
-    source = 'order_files';
-    fileUrl = String(ofRow.url || '').trim();
-    fileLabel = ofRow.label || '';
-    order = await safeGet('SELECT id, patient_id, doctor_id, accepted_at, status FROM orders_active WHERE id = $1 LIMIT 1', [ofRow.order_id], null);
-  }
-
-  // 2. messages (post-C2.A has file_key column; pre-C2.A only file_url)
-  if (!source) {
-    var msgRow = await safeGet(
-      'SELECT id, conversation_id, file_url, file_key, file_name FROM messages ' +
-      'WHERE id = $1 AND (file_url IS NOT NULL OR file_key IS NOT NULL) LIMIT 1',
-      [fileId], null
-    );
-    if (msgRow) {
-      source = 'messages';
-      fileUrl = String(msgRow.file_url || '').trim();
-      fileKey = String(msgRow.file_key || '').trim();
-      fileLabel = msgRow.file_name || '';
-      conversation = await safeGet('SELECT id, patient_id, doctor_id FROM conversations WHERE id = $1 LIMIT 1', [msgRow.conversation_id], null);
-    }
-  }
-
-  // 3. order_additional_files (post-C2.A has file_key column; pre-C2.A only file_url)
-  if (!source) {
-    var adfRow = await safeGet('SELECT id, order_id, file_url, file_key, label FROM order_additional_files WHERE id = $1 LIMIT 1', [fileId], null);
-    if (adfRow) {
-      source = 'order_additional_files';
-      fileUrl = String(adfRow.file_url || '').trim();
-      fileKey = String(adfRow.file_key || '').trim();
-      fileLabel = adfRow.label || '';
-      order = await safeGet('SELECT id, patient_id, doctor_id, accepted_at, status FROM orders_active WHERE id = $1 LIMIT 1', [adfRow.order_id], null);
-    }
-  }
-
-  if (!source) {
+  if (access.status === 404) {
     return sendErrorResponse(res, 404, 'File not found: ' + fileId, req.originalUrl, req.method, req.requestId);
   }
-
-  // ── Per-source auth ───────────────────────────────────────────────────
-  var role = String(req.user.role || '').toLowerCase();
-  var userId = String(req.user.id || '');
-  var allowed = false;
-
-  // Response-code policy (per THEME_13_C2_FIX_PLAN.md §8 Q-B):
-  //   - 404 → reserved strictly for "fileId does not exist in any of the
-  //     three tables" (handled by the !source branch above).
-  //   - 403 → every auth-failure case AND every parent-row-missing case
-  //     (no order for order_files / order_additional_files, no conversation
-  //     for messages). Uniform response code prevents leaking row-existence
-  //     details to attackers.
-  if (role === 'superadmin' || role === 'admin') {
-    allowed = true;
-  } else if (source === 'messages') {
-    // Admin already handled above. Patient/doctor must be a conversation member.
-    // Conversation lookup may fail if the message references a deleted convo —
-    // falls through to 403 below (the `if (conversation)` guard never sets
-    // allowed=true so the default `allowed = false` stays).
-    //
-    // INVARIANT: conversations cannot exist before the doctor's
-    // accepted_at is set (enforced by case_lifecycle.js).
-    // If this invariant changes (e.g. pre-acceptance messaging is
-    // added), restore an accepted_at gate here for doctor access.
-    if (conversation) {
-      allowed = (userId === String(conversation.patient_id || '')) || (userId === String(conversation.doctor_id || ''));
-    }
-  } else {
-    // order_files OR order_additional_files: same auth model as pre-C2.E.
-    // Missing order row falls through to 403 (the `if (order)` guard never
-    // sets allowed=true so the default `allowed = false` stays).
-    if (order) {
-      if (role === 'patient') {
-        allowed = !!order.patient_id && String(order.patient_id) === userId;
-      } else if (role === 'doctor') {
-        var isAssigned = !!order.doctor_id && String(order.doctor_id) === userId;
-        var isAccepted = !!order.accepted_at;
-        allowed = isAssigned && isAccepted;
-      }
-    }
-  }
-
-  if (!allowed) {
-    logMajor('[FILES] blocked role=' + role + ' user=' + userId + ' source=' + source + ' file=' + fileId + ' req=' + req.requestId);
+  if (access.status !== 200) {
+    logMajor('[FILES] blocked role=' + String(req.user.role || '').toLowerCase() + ' user=' + String(req.user.id || '') + ' source=' + source + ' file=' + fileId + ' req=' + req.requestId);
     return res.status(403).type('text/plain').send('Forbidden');
   }
 

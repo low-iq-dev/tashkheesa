@@ -77,6 +77,90 @@ async function userCanViewCase(user, caseId) {
   return false;
 }
 
+// ── GET /api/annotations/:imageId/source ────────────────
+//
+// Launch eve 2026-09-24 (T8). The ORIGINAL image bytes, served from our own
+// origin, for public/annotator.html.
+//
+// The annotator used to load /files/:fileId, which 302s to an R2 signed URL.
+// fabric loads that with crossOrigin:'anonymous', so unless the bucket carries
+// a CORS rule the image never appears; drop crossOrigin and the canvas is
+// tainted, so toDataURL() — the save — throws. Streaming the bytes same-origin
+// removes the dependency on bucket CORS entirely.
+//
+// Authorisation is EXACTLY /files/:fileId's: services/file_access is the one
+// implementation both routes call (doctor assigned AND accepted_at set;
+// patient owns the order; admin/superadmin always; message files by
+// conversation membership). Rate-limited by the same fileDownloadLimiter
+// (src/middleware.js).
+//
+// Raster images only. This route puts PHI bytes on our origin, so it refuses
+// anything a browser could execute there (SVG, HTML, …) and sends nosniff +
+// a sandboxing CSP in case a stored key lies about its type.
+const ANNOTATABLE_MIME = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp']);
+
+function makeAnnotationSourceHandler(deps) {
+  const d = deps || {};
+  return async function annotationSourceHandler(req, res) {
+    const imageId = String((req.params && req.params.imageId) || '').trim();
+    if (!imageId) return res.status(400).json({ ok: false, error: 'Missing imageId' });
+
+    const fileAccess = d.fileAccess || require('../services/file_access');
+    const access = await fileAccess.resolveFileAccess(imageId, req.user);
+    if (access.status === 404) return res.status(404).json({ ok: false, error: 'Not found' });
+    if (access.status !== 200) {
+      logMajor('[annotations/source] blocked role=' + String((req.user && req.user.role) || '') +
+        ' user=' + String((req.user && req.user.id) || '') + ' file=' + imageId);
+      return res.status(403).json({ ok: false, error: 'Access denied' });
+    }
+
+    let buf;
+    try {
+      const url = String(access.fileUrl || '');
+      if (/^https?:\/\//i.test(url)) {
+        // Legacy Uploadcare-era row: fetch it server-side, but only from our
+        // own file hosts — the same allowlist /files enforces before its 302.
+        const { isAllowedFileUrl } = require('../services/file_url_allowlist');
+        if (!isAllowedFileUrl(url)) return res.status(404).json({ ok: false, error: 'Not found' });
+        const fetchFn = d.fetch || fetch;
+        const r = await fetchFn(url, { signal: AbortSignal.timeout(20000) });
+        if (!r.ok) throw new Error('upstream ' + r.status);
+        buf = Buffer.from(await r.arrayBuffer());
+      } else {
+        const key = access.fileKey || url;
+        if (!key) return res.status(404).json({ ok: false, error: 'File missing' });
+        const storage = d.storage || require('../storage');
+        buf = await storage.getFileBuffer(key);
+      }
+    } catch (err) {
+      logMajor('[annotations/source] read failed file=' + imageId + ' err=' + (err && err.message));
+      return res.status(502).json({ ok: false, error: 'File temporarily unavailable' });
+    }
+
+    // Type from the BYTES only. Every format in ANNOTATABLE_MIME has a magic
+    // number, so a file that does not sniff as one is refused — a stored key
+    // ending in .png is not evidence the object is a PNG.
+    const type = fileAccess.mimeFromBytes(buf);
+    if (!ANNOTATABLE_MIME.has(type)) {
+      return res.status(415).json({ ok: false, error: 'Not an annotatable image' });
+    }
+
+    res.set({
+      'Content-Type': type,
+      'Content-Length': String(buf.length),
+      // PHI: never in a shared cache; the browser may keep it briefly.
+      'Cache-Control': 'private, max-age=300',
+      'Vary': 'Cookie',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'Content-Disposition': 'inline'
+    });
+    return res.status(200).end(buf);
+  };
+}
+
+router.get('/api/annotations/:imageId/source', requireAuth(), makeAnnotationSourceHandler());
+
 // ── POST /api/annotations/save ──────────────────────────
 // Save or update annotation data for a specific image in a case
 router.post(
@@ -338,3 +422,4 @@ router.delete(
 );
 
 module.exports = router;
+module.exports.makeAnnotationSourceHandler = makeAnnotationSourceHandler;

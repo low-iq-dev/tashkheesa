@@ -158,6 +158,9 @@ function baseMiddlewares(app) {
     }
   });
   app.use('/files', fileDownloadLimiter);
+  // Launch eve 2026-09-24 — the annotator's same-origin image bytes are the
+  // same PHI as /files and get the same budget (routes/annotations.js).
+  app.use(/^\/api\/annotations\/[^/]+\/source\/?$/, fileDownloadLimiter);
 
   // Rate limit internal/admin endpoints to prevent DoS
   const internalLimiter = rateLimit({

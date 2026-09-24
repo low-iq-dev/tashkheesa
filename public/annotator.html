@@ -32,8 +32,12 @@
         return;
       }
 
-      // Determine image URL — the /files/:fileId endpoint requires auth
-      var imageUrl = '/files/' + encodeURIComponent(imageId);
+      // Same-origin image bytes (routes/annotations.js, launch eve 2026-09-24).
+      // NOT /files/:fileId — that 302s to an R2 signed URL, which fabric's
+      // crossOrigin:'anonymous' load cannot read without a bucket CORS rule
+      // (and without crossOrigin the canvas is tainted and save fails). Same
+      // authorisation as /files; cookies still travel same-origin.
+      var imageUrl = '/api/annotations/' + encodeURIComponent(imageId) + '/source';
 
       // Check for existing annotations
       fetch('/api/annotations/' + encodeURIComponent(imageId))
