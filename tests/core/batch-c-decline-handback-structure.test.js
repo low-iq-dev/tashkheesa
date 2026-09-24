@@ -142,10 +142,12 @@ check('C5: migration 112 enables RLS on deleted_users, email_delivery_events, em
   }
 });
 
-// ── C1 storage: migration 110 ──
+// ── C1 storage: migration 116 ──
+// (Written as 110; main renumbered it 110 -> 116 to clear the duplicate with
+// 110_orders_is_practice.sql, commit 94607e6. Same file, same assertions.)
 
-check('C1: migration 110 creates user_sessions with the unique refresh_token index, seeds legacy rows, enables RLS', () => {
-  const m = read('src/migrations/110_user_sessions.sql');
+check('C1: migration 116 creates user_sessions with the unique refresh_token index, seeds legacy rows, enables RLS', () => {
+  const m = read('src/migrations/116_user_sessions.sql');
   assert.ok(m.includes('CREATE TABLE IF NOT EXISTS user_sessions'));
   assert.ok(m.includes('CREATE UNIQUE INDEX IF NOT EXISTS uniq_user_sessions_refresh_token'));
   assert.ok(/INSERT INTO user_sessions[\s\S]*FROM users u\s*WHERE u\.refresh_token IS NOT NULL/.test(m), 'legacy seed missing');
