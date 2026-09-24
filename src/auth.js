@@ -125,7 +125,13 @@ function attachUser(req, res, next) {
         payload.lang ||
         'en';
       const lang = String(chosenLang).toLowerCase() === 'ar' ? 'ar' : 'en';
-      if (res && res.locals) res.locals.lang = lang;
+      // Launch eve 2026-09-24 (T4) — never OVERWRITE a language already
+      // resolved for this request. src/middleware.js resolves once (with this
+      // same precedence, token last) and builds t/tt/dir/formatters from it;
+      // replacing only `lang` here afterwards is what split the page into an
+      // Arabic frame around English text. This is the fallback for an app that
+      // did not run baseMiddlewares.
+      if (res && res.locals && !res.locals.lang) res.locals.lang = lang;
     } else {
       // Fall back to cookie lang even if not logged in
       const lang = ((req.cookies && req.cookies.lang) || 'en').toString().toLowerCase() === 'ar' ? 'ar' : 'en';

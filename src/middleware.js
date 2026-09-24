@@ -2,7 +2,7 @@ const { addNonceMiddleware } = require('./middleware-nonce-fix');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const { rateLimit } = require('express-rate-limit');
-const { verify } = require('./auth');
+const { verify, getTokenFromRequest } = require('./auth');
 const { t: translate } = require('./i18n');
 const { normalizeLang, getDir } = require('./utils/lang');
 const fmt = require('./utils/formatNumber');
@@ -272,11 +272,33 @@ function baseMiddlewares(app) {
     // exactly as before.
     const urlLang = (res.locals.langPrefix !== undefined) ? res.locals.lang : null;
 
-    // Priority: explicit ?lang= > session > cookie > default
+    // Priority: explicit ?lang= > session > cookie > the signed-in user's
+    // token language > default.
+    //
+    // Launch eve 2026-09-24 (T4) — THE one resolution for the request. The
+    // token's lang used to be applied later, by auth.attachUser, which
+    // overwrote res.locals.lang AFTER everything below had been built from
+    // this value: t/tt, dir, formatX and publicLinkPrefix stayed in one
+    // language while `lang` (→ isAr → <html dir>, the sidebar, the article
+    // cards) flipped to the other. With no lang cookie on the request and an
+    // 'ar' token that rendered English text in an Arabic right-to-left frame.
+    // The token is now the last resort HERE, so every local agrees, and the
+    // toggle's cookie (/lang/:code) still outranks it.
+    // The token is read the way auth.attachUser reads it (Bearer header or
+    // session cookie), so a Bearer request keeps the language it had when
+    // attachUser used to set it.
+    let tokenUser = user;
+    if (!tokenUser) {
+      try {
+        const t = getTokenFromRequest(req);
+        tokenUser = t ? verify(t) : null;
+      } catch (_) { tokenUser = null; }
+    }
     const lang = urlLang ? normalizeLang(urlLang) : normalizeLang(
       (req.query && req.query.lang) ||
       (req.session && req.session.lang) ||
       (req.cookies && req.cookies.lang) ||
+      (tokenUser && typeof tokenUser === 'object' && tokenUser.lang) ||
       'en'
     );
 
