@@ -5,6 +5,30 @@
   var _methods = (typeof methods !== 'undefined' && methods) ? methods : [];
   var methodOpts = _methods.map(function(m) { return { value: m, label: String(m).replace(/_/g, ' ') }; });
   var currentMethod = _order.payment_method || (methodOpts.length > 0 ? methodOpts[0].value : '');
+  var currentReference = String(_order.payment_reference || '');
+
+  // Manual payment path (migration 116): the patient's InstaPay/bank transfer
+  // claim, if any. A PENDING claim pre-fills the mark-paid form below — the
+  // operator still has to check the statement and press the button.
+  var _claim = (typeof claim !== 'undefined' && claim) ? claim : null;
+  var _claimPending = !!(_claim && _claim.status === 'pending');
+  var _amt = (typeof transferAmount !== 'undefined' && transferAmount) ? transferAmount : null;
+  var _flash = (typeof claimFlash !== 'undefined' && claimFlash) ? claimFlash : null;
+  var _cerr = (typeof claimError !== 'undefined' && claimError) ? claimError : null;
+  if (_claimPending) {
+    currentMethod = (_claim.method === 'bank') ? 'bank_transfer' : 'instapay';
+    currentReference = _claim.reference || currentReference;
+  }
+  function _fmtWhen(iso) {
+    try { return new Date(iso).toLocaleString('en-GB', { timeZone: 'Africa/Cairo', dateStyle: 'medium', timeStyle: 'short' }) + ' Cairo'; }
+    catch (_) { return iso || '—'; }
+  }
+  var _cerrText = {
+    reason_required: 'Give the patient a reason — they will see it.',
+    reason_too_long: 'Keep the reason under 500 characters.',
+    not_pending: 'That claim is no longer pending (already resolved, or superseded).',
+    failed: 'Could not reject the claim. Try again.'
+  };
 %>
 <%- include('partials/superadmin/header', {
       title: 'Mark payment',
@@ -39,13 +63,56 @@
     </div>
   <%- include('partials/superadmin/c_card_close') %>
 
+  <% if (_flash === 'rejected') { %>
+    <div class="c-alert" role="status" style="margin-top:14px;padding:10px 14px;border:1px solid var(--line, #ddd);border-radius:8px;font-size:12.5px;">
+      Transfer claim rejected. The case stays unpaid and the patient has been told why.
+    </div>
+  <% } %>
+  <% if (_cerr) { %>
+    <div class="c-alert" role="alert" style="margin-top:14px;padding:10px 14px;border:1px solid #E6C7A8;border-radius:8px;font-size:12.5px;color:#7a4a1a;">
+      <%= _cerrText[_cerr] || _cerrText.failed %>
+    </div>
+  <% } %>
+
+  <% if (_claim) { %>
+  <div style="margin-top:14px;">
+    <%- include('partials/superadmin/c_card_open', { title: 'Patient transfer claim' }) %>
+      <div style="display:grid;grid-template-columns:repeat(2, 1fr);gap:12px;font-size:12.5px;">
+        <div><div style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;">Status</div><div><%- include('partials/superadmin/c_chip', { label: _claim.status, tone: (_claim.status === 'pending' ? 'amber' : (_claim.status === 'confirmed' ? 'green' : 'red')) }) %></div></div>
+        <div><div style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;">Method</div><div><%= _claim.method === 'bank' ? 'Bank transfer' : 'InstaPay' %></div></div>
+        <div><div style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;">Reference (as typed by patient)</div><div class="mono"><%= _claim.reference %></div></div>
+        <div><div style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;">Sender name</div><div><%= _claim.senderName || '—' %></div></div>
+        <div><div style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;">Submitted</div><div><%= _fmtWhen(_claim.submittedAt) %></div></div>
+        <div><div style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;">Amount expected</div><div class="tabular" style="font-weight:600;"><%= _amt ? (_amt.currency + ' ' + Number(_amt.amount).toLocaleString('en-US')) : '—' %></div></div>
+        <% if (_claim.rejectionReason) { %>
+          <div style="grid-column:1 / -1;"><div style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;">Rejection reason</div><div><%= _claim.rejectionReason %></div></div>
+        <% } %>
+      </div>
+      <% if (_claimPending) { %>
+        <p style="font-size:12px;color:var(--fg-3);margin:12px 0 0;">
+          This is the patient's word, not proof. Check the bank / InstaPay statement for this amount and reference.
+          If it has arrived, use <strong>Save &amp; mark as paid</strong> below (pre-filled from this claim) — that confirms the claim.
+          If it has not, reject it with a reason the patient will see.
+        </p>
+        <form method="post" action="/superadmin/orders/<%= _order.id %>/payment-claims/<%= encodeURIComponent(_claim.id) %>/reject" style="max-width:520px;margin-top:12px;">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <%- include('partials/superadmin/c_form_field', { name: 'rejection_reason', label: 'Reason (shown to the patient)', type: 'textarea', rows: 2, required: true, placeholder: 'e.g. No transfer with this reference has reached our account.' }) %>
+          <div style="display:flex;gap:8px;justify-content:flex-end;">
+            <button type="submit" class="btn">Reject claim — money not found</button>
+          </div>
+        </form>
+      <% } %>
+    <%- include('partials/superadmin/c_card_close') %>
+  </div>
+  <% } %>
+
   <div style="margin-top:14px;">
     <%- include('partials/superadmin/c_card_open', { title: 'Record payment' }) %>
       <form method="post" action="/superadmin/orders/<%= _order.id %>/mark-paid" style="max-width:520px;">
         <%- (typeof csrfField === 'function') ? csrfField() : '' %>
         <div class="c-form-row">
           <%- include('partials/superadmin/c_form_field', { name: 'payment_method', label: 'Method', type: 'select', required: true, value: currentMethod, options: methodOpts }) %>
-          <%- include('partials/superadmin/c_form_field', { name: 'payment_reference', label: 'Reference', value: String(_order.payment_reference || ''), placeholder: 'Paymob ID, bank ref, etc.' }) %>
+          <%- include('partials/superadmin/c_form_field', { name: 'payment_reference', label: 'Reference', value: currentReference, placeholder: 'Paymob ID, bank ref, etc.' }) %>
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end;">
           <a class="btn" href="/superadmin/orders/<%= _order.id %>">Cancel</a>

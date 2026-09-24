@@ -1,0 +1,96 @@
+<%
+  // InstaPay / bank transfer claims (manual payment path, migration 116).
+  // Locals: claims[] (services/manual_payment.listClaims), status, loadError.
+  // Read-only list: every action lives on the per-case payment page, beside
+  // the mark-paid form.
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var _claims = (typeof claims !== 'undefined' && Array.isArray(claims)) ? claims : [];
+  var _status = (typeof status !== 'undefined' && status) ? status : 'pending';
+  function fmtWhen(iso) {
+    try { return new Date(iso).toLocaleString('en-GB', { timeZone: 'Africa/Cairo', dateStyle: 'medium', timeStyle: 'short' }); }
+    catch (_) { return iso || '—'; }
+  }
+  function fmtAge(iso) {
+    var t = iso ? new Date(iso).getTime() : NaN;
+    if (!Number.isFinite(t)) return '';
+    var mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+    if (mins < 60) return mins + 'm';
+    var hrs = Math.round(mins / 60);
+    return hrs < 48 ? hrs + 'h' : Math.round(hrs / 24) + 'd';
+  }
+  var tabs = [
+    { key: 'pending', label: 'To verify' },
+    { key: 'confirmed', label: 'Confirmed' },
+    { key: 'rejected', label: 'Rejected' }
+  ];
+%>
+<%- include('partials/superadmin/header', {
+      title: 'Transfer claims',
+      currentSection: 'orders',
+      user: user,
+      lang: (typeof lang !== 'undefined' && lang) ? lang : 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: (typeof cspNonce !== 'undefined') ? cspNonce : ''
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: 'Bank / InstaPay transfer claims',
+      subtitle: 'Patients who say they paid by transfer. A claim is not payment — check the statement, then mark paid or reject on the case payment page.',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: 'Transfer claims' }
+      ]
+    }) %>
+
+<div class="page-body">
+  <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+    <% tabs.forEach(function (tb) { %>
+      <a class="btn<%= tb.key === _status ? ' primary' : '' %>" href="/superadmin/payment-claims?status=<%= tb.key %>"><%= tb.label %></a>
+    <% }) %>
+  </div>
+
+  <%- include('partials/superadmin/c_card_open', { title: (_status === 'pending' ? 'To verify' : (_status === 'confirmed' ? 'Confirmed' : 'Rejected')) + ' (' + _claims.length + ')' }) %>
+    <% if (typeof loadError !== 'undefined' && loadError) { %>
+      <p style="font-size:12.5px;color:#7a4a1a;">Could not load claims (has migration 116 run?).</p>
+    <% } else if (!_claims.length) { %>
+      <p style="font-size:12.5px;color:var(--fg-3);">Nothing here.</p>
+    <% } else { %>
+      <div style="overflow-x:auto;">
+        <table class="c-table" style="width:100%;font-size:12.5px;border-collapse:collapse;">
+          <thead>
+            <tr style="text-align:start;">
+              <th style="text-align:start;padding:6px;">Case</th>
+              <th style="text-align:start;padding:6px;">Patient</th>
+              <th style="text-align:start;padding:6px;">Method</th>
+              <th style="text-align:start;padding:6px;">Reference</th>
+              <th style="text-align:start;padding:6px;">Sender</th>
+              <th style="text-align:start;padding:6px;">Amount</th>
+              <th style="text-align:start;padding:6px;">Submitted</th>
+              <th style="padding:6px;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% _claims.forEach(function (c) { %>
+              <tr style="border-top:1px solid var(--line, #eee);">
+                <td style="padding:6px;" class="mono"><%= c.orderReference || String(c.orderId).slice(0, 8) %></td>
+                <td style="padding:6px;"><bdi><%= (c.patient && c.patient.name) || '—' %></bdi></td>
+                <td style="padding:6px;"><%= c.method === 'bank' ? 'Bank' : 'InstaPay' %></td>
+                <td style="padding:6px;" class="mono"><%= c.reference %></td>
+                <td style="padding:6px;"><bdi><%= c.senderName || '—' %></bdi></td>
+                <td style="padding:6px;" class="tabular"><%= c.currency %> <%= Number(c.amount || 0).toLocaleString('en-US') %></td>
+                <td style="padding:6px;"><%= fmtWhen(c.submittedAt) %><% if (_status === 'pending') { %> <span style="color:var(--fg-3);">(<%= fmtAge(c.submittedAt) %>)</span><% } %></td>
+                <td style="padding:6px;"><a class="btn" href="/superadmin/orders/<%= encodeURIComponent(c.orderId) %>/payment"><%= _status === 'pending' ? 'Verify' : 'Open' %></a></td>
+              </tr>
+              <% if (c.rejectionReason) { %>
+                <tr><td colspan="8" style="padding:0 6px 8px;color:var(--fg-3);">Reason: <%= c.rejectionReason %></td></tr>
+              <% } %>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+</div>
+
+<%- include('partials/superadmin/footer', { isAr: isAr }) %>

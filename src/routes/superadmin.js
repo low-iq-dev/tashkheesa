@@ -21,6 +21,8 @@ const { randomUUID: uuidv4 } = require('crypto');
 const { safeAll, safeGet, tableExists } = require('../sql-utils');
 const { ensureConversation } = require('./messaging');
 const caseLifecycle = require('../case_lifecycle');
+// Manual payment path (InstaPay / bank transfer claims) — migration 116.
+const manualPayment = require('../services/manual_payment');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
 const emailService = require('../services/emailService');
 const { logAdminAudit } = require('../services/admin_audit');
@@ -5079,8 +5081,30 @@ router.post('/superadmin/services/:id/edit', requireSuperadmin, async (req, res)
 router.get('/superadmin/orders/:id/payment', requireSuperadmin, async (req, res) => {
   const order = await loadOrderWithPatient(req.params.id);
   if (!order) return res.redirect('/superadmin');
-  const methods = ['cash', 'card', 'bank_transfer', 'online_link'];
-  res.render('superadmin_order_payment', { user: req.user, order, methods });
+  // 'instapay' added for the manual payment path (migration 116); the other
+  // four are unchanged.
+  const methods = ['cash', 'card', 'bank_transfer', 'instapay', 'online_link'];
+  // The patient's transfer claim, if any — shown beside the mark-paid form,
+  // which it pre-fills. getCurrentClaim never throws (null before 116 runs).
+  const claimRow = await manualPayment.getCurrentClaim(order.id);
+  const claim = manualPayment.claimDto(claimRow);
+  let transferAmount = null;
+  if (claim) {
+    try {
+      const amtRow = await queryOne('SELECT price, currency, addons_json FROM orders_active WHERE id = $1', [order.id]);
+      if (amtRow) transferAmount = manualPayment.transferAmountForOrder(amtRow);
+    } catch (_) { transferAmount = null; }
+  }
+  const q = req.query || {};
+  res.render('superadmin_order_payment', {
+    user: req.user,
+    order,
+    methods,
+    claim,
+    transferAmount,
+    claimFlash: String(q.claim || '').replace(/[^a-z_]/g, '').slice(0, 30) || null,
+    claimError: String(q.claim_error || '').replace(/[^a-z_]/g, '').slice(0, 30) || null
+  });
 });
 
 router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, res) => {
@@ -5292,6 +5316,12 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
   // case_sla_worker.runCaseSlaSweep runs every 5 min via pg-boss and
   // picks up post-payment state changes naturally on the next tick.
 
+  // Manual payment path (migration 116): the order is now paid, so its
+  // pending InstaPay/bank transfer claim (if any) is closed as confirmed.
+  // Runs AFTER every write above and touches only payment_claims — the
+  // mark-paid behaviour itself is unchanged. Never throws.
+  await manualPayment.confirmPendingClaimForOrder(orderId, req.user && req.user.id);
+
   // A8 — report honestly. If the lifecycle transition failed the money moved
   // but the case never entered assignment, so the operator is told to re-route
   // it by hand (a distinct code the order page renders), not that it worked.
@@ -5299,6 +5329,56 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
     return res.redirect(`/superadmin/orders/${orderId}?payment=paid_but_unrouted`);
   }
   return res.redirect(`/superadmin/orders/${orderId}?payment=paid`);
+});
+
+// ── Manual payment path (migration 116) ─────────────────────────────────────
+// Reject a patient's InstaPay/bank transfer claim: the money could not be
+// matched. The ORDER IS NOT TOUCHED — it stays unpaid — and the patient is
+// told why (in-app + email, bilingual). Superadmin-only; CSRF via the global
+// middleware like every other form here.
+router.post('/superadmin/orders/:id/payment-claims/:claimId/reject', requireSuperadmin, async (req, res) => {
+  const orderId = String((req.params && req.params.id) || '').trim();
+  const claimId = String((req.params && req.params.claimId) || '').trim();
+  const back = '/superadmin/orders/' + encodeURIComponent(orderId) + '/payment';
+  if (!orderId || !claimId) return res.redirect('/superadmin');
+  let result;
+  try {
+    result = await manualPayment.rejectClaim({
+      orderId,
+      claimId,
+      reason: req.body && (req.body.rejection_reason || req.body.reason),
+      actorId: req.user && req.user.id
+    });
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.payment_claim_reject',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'payment'
+    });
+    return res.redirect(back + '?claim_error=failed');
+  }
+  if (!result || !result.ok) {
+    return res.redirect(back + '?claim_error=' + encodeURIComponent((result && result.code) || 'failed'));
+  }
+  return res.redirect(back + '?claim=rejected');
+});
+
+// Transfer claims waiting on a human (the dashboard attention item links here).
+router.get('/superadmin/payment-claims', requireSuperadmin, async (req, res) => {
+  const status = String((req.query && req.query.status) || 'pending').toLowerCase();
+  const st = ['pending', 'confirmed', 'rejected'].indexOf(status) >= 0 ? status : 'pending';
+  let claims = [];
+  let loadError = false;
+  try {
+    claims = await manualPayment.listClaims({ status: st });
+  } catch (err) {
+    loadError = true;
+    logErrorToDb(err, { context: 'superadmin.payment_claims_list', userId: req.user?.id, category: 'payment' });
+  }
+  res.render('superadmin_payment_claims', { user: req.user, claims, status: st, loadError });
 });
 
 router.post('/superadmin/orders/:id/mark-unpaid', requireSuperadmin, async (req, res) => {

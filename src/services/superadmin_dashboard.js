@@ -199,7 +199,7 @@ async function getStatusPills() {
 
 async function getAttentionItems() {
   return getCached('attention', 30_000, async () => {
-    const [breachedNow, urgentUnassigned, doctorsPending, refundsPending, fileReqsPending, manualQueue] = await Promise.all([
+    const [breachedNow, urgentUnassigned, doctorsPending, refundsPending, fileReqsPending, manualQueue, transferClaims] = await Promise.all([
       // SLA breached now (active, past deadline)
       safeGet(
         `SELECT COUNT(*) AS cnt
@@ -242,12 +242,26 @@ async function getAttentionItems() {
           WHERE completed_at IS NULL
             AND assignment_status = 'manual_queue'`,
         [], { cnt: 0 }
-      ).catch(() => ({ cnt: 0 }))
+      ).catch(() => ({ cnt: 0 })),
+      // Manual payment path (migration 116) — InstaPay/bank transfer claims a
+      // superadmin has not yet confirmed (mark paid) or rejected. Unpaid orders
+      // only: a claim on a case that has since been paid by card is moot.
+      tableExists('payment_claims').then(exists => exists
+        ? safeGet(
+            `SELECT COUNT(*) AS cnt
+               FROM payment_claims pc
+               JOIN orders_active o ON o.id = pc.order_id
+              WHERE pc.status = 'pending'
+                AND COALESCE(o.payment_status, '') <> 'paid'`,
+            [], { cnt: 0 }
+          )
+        : { cnt: 0 }).catch(() => ({ cnt: 0 }))
     ]);
 
     const items = [];
     if (Number(breachedNow.cnt) > 0) items.push({ key: 'breached', label: 'cases SLA-breached now', value: Number(breachedNow.cnt), href: '/superadmin/orders?filter=breached' });
     if (Number(urgentUnassigned.cnt) > 0) items.push({ key: 'urgent', label: 'urgent cases unassigned', value: Number(urgentUnassigned.cnt), href: '/superadmin/orders?filter=unassigned' });
+    if (Number(transferClaims.cnt) > 0) items.push({ key: 'transferClaims', label: 'bank/InstaPay transfers to verify', value: Number(transferClaims.cnt), href: '/superadmin/payment-claims' });
     if (Number(manualQueue.cnt) > 0) items.push({ key: 'manualQueue', label: 'cases awaiting manual triage', value: Number(manualQueue.cnt), href: '/superadmin/manual-queue' });
     if (Number(doctorsPending.cnt) > 0) items.push({ key: 'doctors', label: 'doctors pending approval', value: Number(doctorsPending.cnt), href: '/superadmin/doctors?status=pending' });
     if (Number(refundsPending.cnt) > 0) items.push({ key: 'refunds', label: 'refunds pending review', value: Number(refundsPending.cnt), href: '/superadmin/refunds' });
