@@ -2862,6 +2862,26 @@ module.exports = function (db, helpers, deploy, deps) {
     }
   });
 
+  // ─── GET /payment-claims (InstaPay / bank transfer claims to verify) ────────
+  // Manual payment path (migration 116). READ-ONLY: resolution happens on the
+  // web superadmin payment page (/superadmin/orders/:id/payment — mark paid or
+  // reject). ?status=pending (default) | confirmed | rejected. Oldest first.
+  // requireJWT + requireRole('superadmin') inherited from the router gate.
+  router.get('/payment-claims', async (req, res) => {
+    const status = String((req.query && req.query.status) || 'pending').toLowerCase();
+    if (['pending', 'confirmed', 'rejected'].indexOf(status) === -1) {
+      return res.fail("status must be 'pending', 'confirmed' or 'rejected'", 400, 'BAD_REQUEST');
+    }
+    try {
+      const { listClaims } = require('../../services/manual_payment');
+      const claims = await listClaims({ status });
+      return res.ok({ claims, count: claims.length });
+    } catch (err) {
+      console.error('[admin/payment-claims] failed:', err && err.message);
+      return res.fail('Failed to load payment claims', 500, 'PAYMENT_CLAIMS_ERROR');
+    }
+  });
+
   // ─── POST /payment-events/:id/review (mark an amount_mismatch reviewed) ─────
   // Marks a payment_event reviewed with an optional note. UPSERT on the overlay
   // (re-review updates note + reviewed_at in place). No status machine and no
