@@ -1251,6 +1251,39 @@ function getDisplayCountryCode(req) {
   }
 }
 
+// T5 (launch eve 2026-09-24) — the country the web funnel PRICES from: the
+// account's users.country (read fresh; the JWT's country_code is not the
+// users.country column), with getDisplayCountryCode's header/IP guess as the
+// advisory "client" value — used only when the account has no country. Same
+// rule and same helper as the app and draft paths
+// (case_intake_pricing.resolvePricingCountry). Every web pricing site — the
+// wizard display, the Step-4 persist and the legacy create — must use this,
+// or the wizard would show one price and persist another.
+async function getPricingCountryCode(req, context) {
+  const client = getDisplayCountryCode(req);
+  try {
+    const r = await require('../services/case_intake_pricing').resolvePricingCountry({
+      userId: req && req.user && req.user.id,
+      clientCountry: client,
+      context: context || 'web'
+    });
+    return normalizeCountryCode(r.country) || client;
+  } catch (e) {
+    // A failed users read must not take the wizard down; this is the pre-T5
+    // behaviour for this one request.
+    logErrorToDb(e, {
+      context: 'patient.pricing_country',
+      requestId: req && req.requestId,
+      userId: req && req.user && req.user.id,
+      url: req && req.originalUrl,
+      method: req && req.method,
+      category: 'patient_case'
+    });
+    console.warn('[PRICING] account country read failed — using the request country', e && e.message);
+    return client;
+  }
+}
+
 async function servicesVisibleClause(alias) {
   // tolerate older/newer DB schemas
   if (!(await ensureServicesVisibilityColumn())) return '1=1';
@@ -1745,7 +1778,7 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
   // display_price/display_currency. The charge itself always stays EGP (each
   // write site FX-converts + pins currency 'EGP'). getUserCountryCode would clamp
   // to EG and show EGP prices that then mismatch the stored intl display fields.
-  const countryCode = getDisplayCountryCode(req);
+  const countryCode = await getPricingCountryCode(req, 'web.wizard');
   const countryCurrency = getCountryCurrency(countryCode);
 
   // Resolve draft + step.
@@ -2592,7 +2625,7 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
   // overrides win over platform defaults inside computeOrderPricing.
   // Coming Soon guard (§4.5): re-validate at the pay/tier step so a service that
   // flipped to coming_soon between step3 and step4 cannot be paid for.
-  const countryCode = getDisplayCountryCode(req);
+  const countryCode = await getPricingCountryCode(req, 'web.step4');
   const bookableClause = servicesBookableClause('sv');
   const service = await safeGet(
     () => `SELECT sv.id, sv.vip_multiplier, sv.urgent_multiplier,
@@ -2648,7 +2681,11 @@ router.post('/patient/new-case/step4/urgency-resolve', requireRole('patient'), a
     return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=urgent_outside_window');
   }
 
-  const countryCode = getUserCountryCode(req);
+  // T5 (launch eve 2026-09-24): the same pricing country as Step 4. This read
+  // getUserCountryCode, which clamps every non-launch market to EG — so a GB
+  // patient who hit the Urgent cut-off and picked wait/downgrade was re-priced
+  // from the Egyptian list here after Step 4 had priced them from GB.
+  const countryCode = await getPricingCountryCode(req, 'web.urgency_resolve');
   // Coming Soon guard (§4.5): urgency-resolve is still a wizard write step — a
   // service that became coming_soon between step3 and here must not proceed.
   const bookableClause = servicesBookableClause('sv');
@@ -3027,7 +3064,7 @@ router.get('/patient/new-case/:id/files.json', requireRole('patient'), async (re
 // Create new case (UploadCare)
 router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
   const patientId = req.user.id;
-  const countryCode = getDisplayCountryCode(req);   // real market → local price; charge stays EGP via egpChargeFromLocal
+  const countryCode = await getPricingCountryCode(req, 'web.new_case');   // real market → local price; charge stays EGP via egpChargeFromLocal
   const countryCurrency = getCountryCurrency(countryCode);
   const { specialty_id, service_id, notes, file_urls, sla_type } = req.body || {};
 

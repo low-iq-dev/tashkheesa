@@ -320,18 +320,73 @@ async function priceCaseForMarket({ service, country, urgencyTier }) {
 }
 
 /**
+ * The country a case is PRICED from (launch eve 2026-09-24, T5).
+ *
+ * The client used to set its own price: POST /api/v1/cases validates
+ * body('country') and priced from it, so a patient registered in GB could
+ * send 'EG' and pay the Egyptian list. The authenticated account's
+ * users.country is now the pricing country; the client's value is advisory.
+ * When they disagree, a warning names both and the account wins. A NULL
+ * account country (only test fixtures today) falls back to the client value.
+ *
+ * Comparison is on normaliseCountry() forms ('Egypt' and 'EG' agree) — NOT
+ * launch-market coerceCountry, which clamps every non-launch market to EG and
+ * would under-charge a GB patient at the Egyptian price.
+ *
+ * @param {{ userId?: string, clientCountry?: string, context?: string, queryOneFn?: Function }} p
+ * @returns {Promise<{ country: (string|null), source: 'account'|'client', accountCountry: (string|null), clientCountry: (string|null) }>}
+ */
+async function resolvePricingCountry({ userId, clientCountry, context, queryOneFn } = {}) {
+  const norm = (v) => {
+    const raw = String(v == null ? '' : v).trim();
+    if (!raw) return null;
+    return normaliseCountry(raw) || raw.toUpperCase();
+  };
+  const client = norm(clientCountry);
+  let account = null;
+  if (userId) {
+    const q = queryOneFn || queryOne;
+    const row = await q('SELECT country FROM users WHERE id = $1', [userId]);
+    const rawAccount = String((row && row.country) || '').trim();
+    // The ACCOUNT side must be a real ISO-2 code once normalised. An
+    // unrecognisable value ('EGY', 'Cairo') used raw would miss every price
+    // list and fall through to the proxy (the US list, ~4× the Egyptian
+    // price) — and would now override a correct client value. Treated as
+    // missing, exactly like NULL, and said out loud.
+    const upper = rawAccount.toUpperCase();
+    account = normaliseCountry(rawAccount) || (/^[A-Z]{2}$/.test(upper) ? upper : null);
+    if (rawAccount && !account) {
+      console.warn(
+        '[PRICING] account country %j for user %s is not a recognisable ISO-2 code — pricing from the client country %s (%s)',
+        rawAccount, userId, client, context || 'intake'
+      );
+    }
+  }
+  if (!account) return { country: client, source: 'client', accountCountry: null, clientCountry: client };
+  if (client && client !== account) {
+    console.warn(
+      '[PRICING] client country %s differs from the account country %s (user %s, %s) — pricing from the account',
+      client, account, userId, context || 'intake'
+    );
+  }
+  return { country: account, source: 'account', accountCountry: account, clientCountry: client };
+}
+
+/**
  * The whole intake decision in one call: validate the service, reconcile the
  * specialty, check the urgent window, and price it.
  *
  * Every case-birth path should call THIS rather than the pieces, so a future
  * step added to intake cannot be added to two of the three paths.
  */
-async function resolveAndPriceIntake({ serviceId, specialtyId, country, urgencyTier, urgent }) {
+async function resolveAndPriceIntake({ serviceId, specialtyId, country, urgencyTier, urgent, userId, context }) {
   const tier = normalizeTier(urgencyTier, urgent);
   const service = await resolveServiceForBooking(serviceId);
   const resolvedSpecialtyId = resolveSpecialtyId(service, specialtyId);
   assertUrgentWindowOpen(tier);
-  const priced = await priceCaseForMarket({ service, country, urgencyTier: tier });
+  // T5: the account's registered country, not the client's claim.
+  const pricingCountry = (await resolvePricingCountry({ userId, clientCountry: country, context })).country;
+  const priced = await priceCaseForMarket({ service, country: pricingCountry, urgencyTier: tier });
   return { service, resolvedSpecialtyId, ...priced };
 }
 
@@ -342,5 +397,6 @@ module.exports = {
   resolveSpecialtyId,
   assertUrgentWindowOpen,
   priceCaseForMarket,
+  resolvePricingCountry,
   resolveAndPriceIntake
 };

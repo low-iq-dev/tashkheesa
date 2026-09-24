@@ -385,8 +385,11 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     // 500 below. A genuinely bad service id still gets its 400.
     let intake;
     try {
+      // T5 (launch eve 2026-09-24): body.country is advisory — the price
+      // comes from the account's users.country (resolvePricingCountry).
       intake = await resolveAndPriceIntake({
-        specialtyId, serviceId, country, urgencyTier: rawTier, urgent
+        specialtyId, serviceId, country, urgencyTier: rawTier, urgent,
+        userId: req.user.id, context: 'api.cases'
       });
     } catch (err) {
       if (err instanceof IntakeError) {

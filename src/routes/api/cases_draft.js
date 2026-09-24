@@ -666,8 +666,11 @@ router.post('/:id/submit', async (req, res) => {
     }
 
     // Validate + price. Throws IntakeError for anything the patient can fix.
+    // T5 (launch eve 2026-09-24): priced from the account's users.country;
+    // the draft/body country is advisory.
     const intake = await resolveAndPriceIntake({
-      serviceId, specialtyId, country, urgencyTier, urgent: false
+      serviceId, specialtyId, country, urgencyTier, urgent: false,
+      userId: req.user.id, context: 'api.cases_draft'
     });
 
     // ── Override audit, best effort ──
