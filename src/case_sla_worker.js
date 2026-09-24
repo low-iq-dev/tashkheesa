@@ -383,7 +383,7 @@ async function handlePreBreach(candidate) {
 
   await logCaseEvent(candidate.case_id, 'SLA pre-breach alert');
 
-  const { queueNotification, notifyAdmins } = require('./notify');
+  const { notifyAdmins } = require('./notify');
 
   // Theme 7b Phase 1: superadmin fan-out delegated to the canonical
   // notifyAdmins helper. The dedupeKey passed here ('sla:prebreach:
@@ -420,21 +420,11 @@ async function handlePreBreach(candidate) {
     });
   } catch (_) { /* the sweep must never throw */ }
 
-  // Notify the assigned doctor (port of server.js:runSlaReminderJob's
-  // 60-min reminder loop, replacing the orders.sla_reminder_sent column
-  // flag with per-(case, doctor) dedupe_key).
-  if (candidate.doctor_id) {
-    try {
-      await queueNotification({
-        orderId: candidate.case_id,
-        toUserId: candidate.doctor_id,
-        channel: 'internal',
-        template: 'sla_reminder_doctor',
-        status: 'queued',
-        dedupe_key: 'sla:prebreach:' + candidate.case_id + ':doctor'
-      });
-    } catch (e) { /* best-effort */ }
-  }
+  // The assigned doctor is NOT messaged here any more (launch-eve follow-up,
+  // 2026-09-25). This used to queue the doctor reminder 60 minutes before the
+  // deadline — a fixed offset on top of the proportional 50% / 80% reminders
+  // in runDoctorNudges. The doctor's set is now 25% (no draft), 50%, 80% and
+  // the breach. Superadmins still get the pre-breach alert above.
 
   return 1;
 }

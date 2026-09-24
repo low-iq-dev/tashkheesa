@@ -60,8 +60,11 @@ try {
   if (!/template:\s*['"]order_sla_prebreach['"]/.test(worker)) {
     throw new Error('handlePreBreach does not queue order_sla_prebreach to superadmins');
   }
-  if (!/template:\s*['"]sla_reminder_doctor['"]/.test(worker)) {
-    throw new Error('handlePreBreach does not queue sla_reminder_doctor to assigned doctor');
+  // Launch-eve follow-up 2026-09-25: the doctor leg of the pre-breach is
+  // RETIRED — doctors get the proportional runDoctorNudges reminders instead.
+  // The superadmin leg above stays.
+  if (/template:\s*['"]sla_reminder_doctor['"]/.test(worker)) {
+    throw new Error('handlePreBreach still queues the retired fixed-offset sla_reminder_doctor');
   }
   if (!/SLA pre-breach alert/.test(worker)) {
     throw new Error("handlePreBreach does not log 'SLA pre-breach alert' for dedupe");

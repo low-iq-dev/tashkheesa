@@ -488,25 +488,13 @@ async function dispatchSlaReminders(caseIdOrRow, opts = {}, client) {
 
   const sent = [];
   for (const t of activeThresholds) {
-    // Doctor
-    if (toDoctorId) {
-      sent.push(await queueSlaReminder({
-        caseId,
-        level: t.level,
-        toUserId: toDoctorId,
-        channel: 'whatsapp',
-        role: 'doctor',
-        secondsRemaining
-      }));
-      sent.push(await queueSlaReminder({
-        caseId,
-        level: t.level,
-        toUserId: toDoctorId,
-        channel: 'email',
-        role: 'doctor',
-        secondsRemaining
-      }));
-    }
+    // Doctor — RETIRED (launch-eve follow-up, 2026-09-25). The doctor's
+    // reminders are now proportional to the case's own window
+    // (case_sla_worker.runDoctorNudges: 25% no-draft, 50%, 80%) plus the
+    // breach. With these fixed 24h/6h/1h offsets still firing on top, a 4h
+    // Urgent case produced ~6 doctor messages. toDoctorId is deliberately
+    // unused here now.
+    void toDoctorId;
 
     // Patient
     if (toPatientId) {

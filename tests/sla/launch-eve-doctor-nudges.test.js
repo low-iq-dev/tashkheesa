@@ -205,6 +205,18 @@ module.exports = (async function run() {
     }
   });
 
+  await check('legacy fixed-offset doctor reminders are retired (24h/6h/1h and the 60-min pre-breach)', () => {
+    const fs = require('fs');
+    const lc = fs.readFileSync(require.resolve('../../src/case_lifecycle'), 'utf8');
+    const dispatch = lc.slice(lc.indexOf('async function dispatchSlaReminders('), lc.indexOf('let _slaReminderSweepRunning'));
+    if (/role:\s*'doctor'/.test(dispatch)) throw new Error('dispatchSlaReminders still queues a doctor reminder');
+    if (!/role:\s*'patient'/.test(dispatch)) throw new Error('patient reminders were removed too — out of scope');
+    const w = fs.readFileSync(require.resolve('../../src/case_sla_worker'), 'utf8');
+    const pre = w.slice(w.indexOf('async function handlePreBreach'), w.indexOf('async function fetchDoctorTimeouts'));
+    if (/toUserId:\s*candidate\.doctor_id|sla_reminder_doctor/.test(pre)) throw new Error('handlePreBreach still messages the doctor');
+    if (!/order_sla_prebreach/.test(pre)) throw new Error('superadmin pre-breach alert removed — out of scope');
+  });
+
   await check('the sweep runs the nudges on its own clock', () => {
     const src = require('fs').readFileSync(require.resolve('../../src/case_sla_worker'), 'utf8');
     if (!/const nudges = await runDoctorNudges\(now\);/.test(src)) throw new Error('runCaseSlaSweep does not call runDoctorNudges(now)');
