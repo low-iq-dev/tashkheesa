@@ -6684,13 +6684,60 @@ module.exports._computeReadyBannerFlag = _computeReadyBannerFlag;
 module.exports._queue = {
   buildPortalCases,
   buildPortalCasesUnassigned,
+  buildPortalCasesPaged,
+  buildQueueNewCasesPaged,
+  countQueueNewCases,
   countPortalCasesByStatuses,
   countPortalCasesUnassigned,
   countAssignedPendingCases,
   countActiveCasesForDoctor,
   readDoctorSlaTiersRaw,
+  readDoctorTiers,
   mapPortalCaseItem,
   enrichOrders,
+  stripPricingFields,
+  findNextAvailableDoctor,
+  poolAcceptRefusalCode,
+  getAdditionalFilesRequestState,
   ACCEPTED_STATUSES,
   UNACCEPTED_STATUSES,
+  DOCTOR_SLA_TIERS,
+  DOCTOR_DECLINE_REASONS,
+  MAX_ACTIVE_CASES,
+};
+
+// ─── The three audited case actions, for the mobile doctor API ─────────────
+//
+// accept / decline / reject-files carry the platform's safety gates (payment,
+// anti-steal, specialty, account state, tier, capacity, the atomic
+// transitionCase) and are guarded by source-level tests that read THESE
+// handler bodies. Rather than copy them into the API and drift, the API runs
+// the very same handler functions with a response shim that captures the
+// redirect and maps it to a JSON code (routes/api/doctor_cases.js). One body,
+// two doors — the same technique the (4b) accept harness test uses.
+function _routeHandler(method, routePath) {
+  for (const layer of router.stack) {
+    if (layer.route && layer.route.path === routePath && layer.route.methods[method]) {
+      const st = layer.route.stack;
+      return st[st.length - 1].handle;
+    }
+  }
+  return null;
+}
+module.exports._actions = {
+  accept: _routeHandler('post', '/portal/doctor/case/:caseId/accept'),
+  decline: _routeHandler('post', '/portal/doctor/case/:caseId/decline'),
+  rejectFiles: _routeHandler('post', '/portal/doctor/case/:caseId/reject-files'),
+  handback: _routeHandler('post', '/portal/doctor/case/:caseId/handback'),
+};
+
+// The doctor's alert feed, same helpers the web /portal/doctor/alerts page
+// uses — exported for the same reason as _queue: one answer, not a copy.
+module.exports._alerts = {
+  fetchDoctorNotifications,
+  normalizeDoctorNotification,
+  markDoctorNotificationRead,
+  markAllDoctorNotificationsRead,
+  countDoctorUnseenNotifications,
+  deriveAlertSeverity,
 };

@@ -521,6 +521,235 @@ async function getClawbackSummaryByPolicy({ fromCairoSql }) {
   }));
 }
 
+
+// ── Doctor app additions (routes/api/doctor_money.js, 2026-09-24) ──────────
+// Same four disciplines as everything above: Cairo month by completion date,
+// MONEY_ROWS only, reassigned earns 0, every figure through money().
+
+// The 'YYYY-MM' key of a completion instant — the same expression
+// markMonthEndPaid stamps by, so a statement month and a payout month can
+// never disagree.
+const MONTH_KEY_DE = `to_char(date_trunc('month', ${COMPLETION_CAIRO_DE}), 'YYYY-MM')`;
+const MONTH_KEY_AE = `to_char(date_trunc('month', ${COMPLETION_CAIRO_AE}), 'YYYY-MM')`;
+const MONTH_KEY_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+function isMonthKey(v) {
+  return MONTH_KEY_RE.test(String(v || ''));
+}
+
+// Current Cairo business month as 'YYYY-MM', computed in JS for callers that
+// need the key without a round-trip (defaults, labels). Intl is DST-aware;
+// Egypt observes DST again since 2023, so offset arithmetic is not safe here.
+function currentCairoMonth(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: BUSINESS_TZ, year: 'numeric', month: '2-digit'
+  }).formatToParts(now);
+  const pick = (t) => (parts.find((p) => p.type === t) || {}).value;
+  return `${pick('year')}-${pick('month')}`;
+}
+
+// A statement `month` cell (date_trunc(...)::date) arrives as a JS Date
+// (node-postgres parses DATE at LOCAL midnight) or, under a custom type
+// parser, as 'YYYY-MM-DD'. Local getters are correct for the former; a UTC
+// conversion of a local midnight could roll into the previous month.
+function monthKeyOf(v) {
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}`;
+  }
+  const s = String(v || '');
+  return isMonthKey(s.slice(0, 7)) ? s.slice(0, 7) : null;
+}
+
+/**
+ * Per-component breakdown of one Cairo month (default: current) for the app's
+ * earnings summary. Sums to getDoctorMonthSummary(...).total for the same
+ * month: same rows (MONEY_ROWS, status pending|paid), same completion-month
+ * bucket.
+ *
+ * Main rows are split back into base vs uplift by inverting the writer's
+ * arithmetic (earnings_writer.writePendingForCase / settleCaseEarningsOnCompletion:
+ * earned = doctor_fee + round2(urgency_uplift_amount x pct/100)): the uplift
+ * share is whatever the settled amount exceeds orders.doctor_fee by, the base
+ * is the rest. Two cases fold entirely into service_fees with uplift 0,
+ * deliberately:
+ *   - rows with clawback_applied_at set: recomputeOnRefund overwrites
+ *     earned_amount in place with full x (1 - 0.9 x ratio) and the ratio is
+ *     not stored, so the post-clawback base/uplift split is NOT derivable
+ *     (a breach write-down leaves earned == doctor_fee, which the formula
+ *     would also read as uplift 0 — same answer). The TOTAL stays exact.
+ *   - rows whose order cannot be joined (legacy): no doctor_fee to split by.
+ * Standalone video-appointment rows ('earn-<uuid>', 'earn-noshow-%') are
+ * 'video'. Add-on rows are keyed by addon_services.type through order_addons;
+ * only video_consult and prescription add-ons ever write addon_earnings
+ * (services/addons/*.onComplete), so any other type is reported under 'other'
+ * rather than silently folded into a named bucket.
+ */
+async function getDoctorMonthBreakdown(doctorId, month) {
+  const key = isMonthKey(month) ? String(month) : currentCairoMonth();
+  const UPLIFT_PART =
+    `CASE WHEN ${KIND_MAIN} AND o.id IS NOT NULL AND de.clawback_applied_at IS NULL
+          THEN GREATEST(de.earned_amount - COALESCE(o.doctor_fee, 0), 0)
+          ELSE 0 END`;
+  const main = await queryOne(
+    `SELECT COUNT(*) FILTER (WHERE ${KIND_MAIN})::int AS report_count,
+            COALESCE(SUM(de.earned_amount) FILTER (WHERE ${KIND_MAIN}), 0) AS report_total,
+            COALESCE(SUM(${UPLIFT_PART}), 0) AS uplift_total,
+            COUNT(*) FILTER (WHERE ${UPLIFT_PART} > 0)::int AS uplift_count,
+            COUNT(*) FILTER (WHERE NOT (${KIND_MAIN}))::int AS video_count,
+            COALESCE(SUM(de.earned_amount) FILTER (WHERE NOT (${KIND_MAIN})), 0) AS video_total
+       FROM doctor_earnings de ${COMPLETION_JOIN}
+      WHERE de.doctor_id = $1
+        AND ${MONEY_ROWS}
+        AND de.status IN ('pending','paid')
+        AND ${MONTH_KEY_DE} = $2`,
+    [doctorId, key]
+  );
+  const addons = await queryAll(
+    `SELECT COALESCE(ads.type, 'unknown') AS addon_type,
+            COUNT(*)::int AS n,
+            COALESCE(SUM(ae.earned_amount_egp), 0) AS amount
+       FROM addon_earnings ae
+       JOIN order_addons oa ON oa.id = ae.order_addon_id
+       LEFT JOIN addon_services ads ON ads.id = oa.addon_service_id
+      WHERE ae.doctor_id = $1
+        AND ae.status IN ('pending','paid')
+        AND ${MONTH_KEY_AE} = $2
+      GROUP BY 1`,
+    [doctorId, key]
+  );
+
+  const reportTotal = money(main && main.report_total);
+  const upliftTotal = money(main && main.uplift_total);
+  const buckets = {
+    service_fees: { count: intOr0(main && main.report_count), amount: money(reportTotal - upliftTotal) },
+    uplift_share: { count: intOr0(main && main.uplift_count), amount: upliftTotal },
+    video: { count: intOr0(main && main.video_count), amount: money(main && main.video_total) },
+    prescription: { count: 0, amount: 0 },
+    other: { count: 0, amount: 0 }
+  };
+  const ADDON_KEY = { video_consult: 'video', prescription: 'prescription' };
+  (addons || []).forEach((r) => {
+    const k = ADDON_KEY[String(r.addon_type)] || 'other';
+    buckets[k].count += intOr0(r.n);
+    buckets[k].amount = money(buckets[k].amount + money(r.amount));
+  });
+  const breakdown = ['service_fees', 'uplift_share', 'video', 'prescription']
+    .map((k) => ({ key: k, count: buckets[k].count, amount: buckets[k].amount }));
+  if (buckets.other.count > 0) {
+    breakdown.push({ key: 'other', count: buckets.other.count, amount: buckets.other.amount });
+  }
+  return { month: key, breakdown };
+}
+
+/**
+ * One line per ledger row in a Cairo month (default: current) — every
+ * doctor_earnings money row (main and standalone video) and every
+ * addon_earnings row — for the app's earnings detail list. Money is the
+ * stored figure: a clawback is applied IN PLACE by recomputeOnRefund /
+ * recomputeOnBreach (earned_amount overwritten, clawback_applied_at stamped;
+ * there is no separate negative row and the clawed-back amount is not stored
+ * — see getClawbackSummaryByPolicy), so a clawed-back line carries its
+ * post-clawback amount (>= 0) plus the stamp and reason, never an invented
+ * negative. A 'reassigned' main row is listed at 0 with its reason: the fact
+ * belongs on the statement even though it is never money.
+ *
+ * `ref` is orders.reference_id (or null when the order is gone) — never a
+ * patient name. Month bucketing uses COMPLETION_JOIN (plain orders, include-
+ * deleted-ok, like every sum here) so lines reconcile to the totals; the
+ * display fields come from orders_active so a soft-deleted order shows no
+ * reference.
+ */
+async function getDoctorEarningLines(doctorId, month) {
+  const key = isMonthKey(month) ? String(month) : currentCairoMonth();
+  const mainRows = await queryAll(
+    `SELECT de.id,
+            CASE WHEN ${KIND_MAIN} THEN 'report' ELSE 'video' END AS kind,
+            oa.reference_id,
+            oa.urgency_tier AS tier,
+            de.earned_amount AS amount,
+            de.status,
+            de.clawback_reason,
+            de.clawback_applied_at,
+            de.reassignment_reason,
+            de.paid_at,
+            COALESCE(o.completed_at, de.created_at::timestamptz) AS completed_at
+       FROM doctor_earnings de ${COMPLETION_JOIN}
+       LEFT JOIN orders_active oa ON oa.id = de.appointment_id AND ${KIND_MAIN}
+      WHERE de.doctor_id = $1
+        AND ${MONEY_ROWS}
+        AND ${MONTH_KEY_DE} = $2
+      ORDER BY 11 DESC, de.id ASC`,
+    [doctorId, key]
+  );
+  const addonRows = await queryAll(
+    `SELECT ae.id,
+            CASE WHEN ads.type = 'prescription' THEN 'prescription' ELSE 'video' END AS kind,
+            o.reference_id,
+            o.urgency_tier AS tier,
+            ae.earned_amount_egp AS amount,
+            ae.status,
+            ae.paid_at,
+            ae.created_at AS completed_at
+       FROM addon_earnings ae
+       JOIN order_addons oda ON oda.id = ae.order_addon_id
+       LEFT JOIN addon_services ads ON ads.id = oda.addon_service_id
+       LEFT JOIN orders_active o ON o.id = oda.order_id
+      WHERE ae.doctor_id = $1
+        AND ${MONTH_KEY_AE} = $2
+      ORDER BY ae.created_at DESC, ae.id ASC`,
+    [doctorId, key]
+  );
+  const norm = (r, src) => ({
+    id: String(r.id),
+    source: src,
+    kind: r.kind,
+    reference_id: r.reference_id || null,
+    tier: r.tier || null,
+    amount: money(r.amount),
+    status: String(r.status || 'pending'),
+    clawback_reason: r.clawback_reason || null,
+    clawback_applied_at: r.clawback_applied_at || null,
+    reassignment_reason: r.reassignment_reason || null,
+    paid_at: r.paid_at || null,
+    completed_at: r.completed_at || null
+  });
+  const lines = (mainRows || []).map((r) => norm(r, 'doctor_earnings'))
+    .concat((addonRows || []).map((r) => norm(r, 'addon_earnings')));
+  lines.sort((a, b) => {
+    const ta = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+    const tb = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+    return tb - ta;
+  });
+  return { month: key, lines };
+}
+
+/**
+ * When each Cairo month's payout landed: the latest paid_at across both
+ * ledgers, keyed by completion month — the companion of
+ * getDoctorMonthlyStatement for a statement's paid_at column. Returns
+ * { 'YYYY-MM': <timestamp> } for months that have at least one paid row.
+ */
+async function getDoctorStatementPaidAt(doctorId, { limitMonths = 24 } = {}) {
+  const rows = await queryAll(
+    `SELECT month, MAX(paid_at) AS paid_at FROM (
+        SELECT ${MONTH_KEY_DE} AS month, de.paid_at
+          FROM doctor_earnings de ${COMPLETION_JOIN}
+         WHERE de.doctor_id = $1 AND ${MONEY_ROWS} AND de.status = 'paid' AND de.paid_at IS NOT NULL
+        UNION ALL
+        SELECT ${MONTH_KEY_AE} AS month, ae.paid_at
+          FROM addon_earnings ae
+         WHERE ae.doctor_id = $1 AND ae.status = 'paid' AND ae.paid_at IS NOT NULL
+      ) p
+      GROUP BY month
+      ORDER BY month DESC
+      LIMIT $2`,
+    [doctorId, limitMonths]
+  );
+  const map = {};
+  (rows || []).forEach((r) => { if (r.month) map[String(r.month)] = r.paid_at; });
+  return map;
+}
+
 module.exports = {
   getDoctorMonthSummary,
   getDoctorMonthlyStatement,
@@ -533,6 +762,13 @@ module.exports = {
   getGlobalOwedTotals,
   getOwedForDoctorIds,
   getClawbackSummaryByPolicy,
+  // Doctor app additions (2026-09-24)
+  getDoctorMonthBreakdown,
+  getDoctorEarningLines,
+  getDoctorStatementPaidAt,
+  currentCairoMonth,
+  monthKeyOf,
+  isMonthKey,
   // Exported for tests and for the writer's month-end stamp, so the payout
   // action and every reader share one definition of the boundary.
   BUSINESS_TZ,

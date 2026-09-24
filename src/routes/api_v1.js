@@ -123,7 +123,18 @@ module.exports = function (db, helpers, deploy) {
   // own queue builders and access rule rather than restating them, so the
   // app and the portal cannot disagree about what a doctor may see or do.
   const doctorCaseRoutes = require('./api/doctor_cases')(db, helpers);
-  router.use('/doctor', apiLimiter, doctorCaseRoutes);
+  router.use('/doctor', doctorCaseRoutes);
+
+  // ─── The rest of the doctor app's surface ──────────────────
+  // Inbox (conversations, alerts, annotations), money (earnings, statements,
+  // reviews, analytics) and the doctor's own settings (profile, services,
+  // tiers, signature, phrases, feedback). Same rule as above: every handler
+  // reuses a portal function or the portal's own SQL; none restates a rule.
+  // apiLimiter already applies to every /api/v1 path at the top of this file;
+  // a second application here counted each doctor request twice.
+  router.use('/doctor', require('./api/doctor_inbox')(db, helpers));
+  router.use('/doctor', require('./api/doctor_money')(db, helpers));
+  router.use('/doctor', require('./api/doctor_me')(db, helpers));
 
   // ─── Protected Routes (JWT required) ───────────────────────
 

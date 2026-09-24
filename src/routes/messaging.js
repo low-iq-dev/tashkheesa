@@ -541,3 +541,6 @@ module.exports = router;
 module.exports.ensureConversation = ensureConversation;
 module.exports.closeStaleConversations = closeStaleConversations;
 module.exports.computeDoctorStreakCount = computeDoctorStreakCount;
+// The ownership check the web thread page applies — the doctor API reuses it
+// rather than re-deriving who may read a conversation.
+module.exports.getConversationForUser = getConversationForUser;
