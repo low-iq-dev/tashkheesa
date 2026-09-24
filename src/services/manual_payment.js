@@ -196,7 +196,7 @@ function claimDto(row) {
 /**
  * The claim to show for an order: the pending one if any, else the newest.
  * Returns null (never throws) when the table is not there yet — a deploy that
- * boots before migration 116 has run must still render the pay page.
+ * boots before migration 117 has run must still render the pay page.
  */
 async function getCurrentClaim(orderId) {
   try {

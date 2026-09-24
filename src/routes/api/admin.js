@@ -2863,7 +2863,7 @@ module.exports = function (db, helpers, deploy, deps) {
   });
 
   // ─── GET /payment-claims (InstaPay / bank transfer claims to verify) ────────
-  // Manual payment path (migration 116). READ-ONLY: resolution happens on the
+  // Manual payment path (migration 117). READ-ONLY: resolution happens on the
   // web superadmin payment page (/superadmin/orders/:id/payment — mark paid or
   // reject). ?status=pending (default) | confirmed | rejected. Oldest first.
   // requireJWT + requireRole('superadmin') inherited from the router gate.

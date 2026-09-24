@@ -274,7 +274,7 @@ function moneyWrites(sqlList) {
       restoreDeps();
       restoreDeps = mpSvc.__setTestDeps({ pg: function () { return { queryOne: async function () { throw new Error('relation "payment_claims" does not exist'); } }; } });
       ok(await mpSvc.confirmPendingClaimForOrder('ord-1', 'sa-1') === null && await mpSvc.getCurrentClaim('ord-1') === null,
-        'confirm/getCurrentClaim never throw before migration 116 has run');
+        'confirm/getCurrentClaim never throw before migration 117 has run');
       restoreDeps(); restoreDeps = function () {};
     }
 

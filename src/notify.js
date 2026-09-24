@@ -688,7 +688,7 @@ function renderNotificationMessage(template, payload, lang) {
         ? `We have received your refund request for ${money}. We will review it and come back to you.`
         : 'We have received your refund request. We will review it and come back to you.';
 
-    // ── Manual payment path (migration 116). ──
+    // ── Manual payment path (migration 117). ──
     case 'admin_payment_claim_received': {
       const how = p.method === 'bank' ? 'bank transfer' : 'InstaPay';
       const howAr = p.method === 'bank' ? 'تحويل بنكي' : 'إنستاباي';

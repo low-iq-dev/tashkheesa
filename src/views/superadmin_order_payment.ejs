@@ -7,7 +7,7 @@
   var currentMethod = _order.payment_method || (methodOpts.length > 0 ? methodOpts[0].value : '');
   var currentReference = String(_order.payment_reference || '');
 
-  // Manual payment path (migration 116): the patient's InstaPay/bank transfer
+  // Manual payment path (migration 117): the patient's InstaPay/bank transfer
   // claim, if any. A PENDING claim pre-fills the mark-paid form below — the
   // operator still has to check the statement and press the button.
   var _claim = (typeof claim !== 'undefined' && claim) ? claim : null;

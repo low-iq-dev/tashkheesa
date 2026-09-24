@@ -1,5 +1,5 @@
 -- ============================================================================
--- 116 — payment_claims: a patient's "I paid by transfer" is a CLAIM, not money
+-- 117 — payment_claims: a patient's "I paid by transfer" is a CLAIM, not money
 --
 -- Launch contingency (2026-09-24). Paymob card payments have failed every
 -- transaction since June, so the portal offers InstaPay / bank transfer as a
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS payment_claims (
 COMMENT ON TABLE payment_claims IS
   'Patient-submitted InstaPay/bank transfer claims. UNVERIFIED — never marks an '
   'order paid. Resolved by a superadmin (confirmed via mark-paid, or rejected '
-  'with a reason). See migration 116.';
+  'with a reason). See migration 117.';
 
 CREATE UNIQUE INDEX IF NOT EXISTS payment_claims_one_pending_per_order
   ON payment_claims (order_id) WHERE status = 'pending';
@@ -151,6 +151,6 @@ WHERE pc.status = 'pending'
 
 COMMENT ON VIEW v_needs_attention IS
   'Every person waiting on a human reply, across all intake doors, plus '
-  'patients waiting for a bank/InstaPay transfer to be confirmed (116). One '
+  'patients waiting for a bank/InstaPay transfer to be confirmed (117). One '
   'definition, read by the attention sweep, /ops, the Command app and Tash. '
   'See migration 114 for the three silent failures that produced it.';

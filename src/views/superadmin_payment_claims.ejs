@@ -1,5 +1,5 @@
 <%
-  // InstaPay / bank transfer claims (manual payment path, migration 116).
+  // InstaPay / bank transfer claims (manual payment path, migration 117).
   // Locals: claims[] (services/manual_payment.listClaims), status, loadError.
   // Read-only list: every action lives on the per-case payment page, beside
   // the mark-paid form.
@@ -52,7 +52,7 @@
 
   <%- include('partials/superadmin/c_card_open', { title: (_status === 'pending' ? 'To verify' : (_status === 'confirmed' ? 'Confirmed' : 'Rejected')) + ' (' + _claims.length + ')' }) %>
     <% if (typeof loadError !== 'undefined' && loadError) { %>
-      <p style="font-size:12.5px;color:#7a4a1a;">Could not load claims (has migration 116 run?).</p>
+      <p style="font-size:12.5px;color:#7a4a1a;">Could not load claims (has migration 117 run?).</p>
     <% } else if (!_claims.length) { %>
       <p style="font-size:12.5px;color:var(--fg-3);">Nothing here.</p>
     <% } else { %>

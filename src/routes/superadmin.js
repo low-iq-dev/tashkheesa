@@ -21,7 +21,7 @@ const { randomUUID: uuidv4 } = require('crypto');
 const { safeAll, safeGet, tableExists } = require('../sql-utils');
 const { ensureConversation } = require('./messaging');
 const caseLifecycle = require('../case_lifecycle');
-// Manual payment path (InstaPay / bank transfer claims) — migration 116.
+// Manual payment path (InstaPay / bank transfer claims) — migration 117.
 const manualPayment = require('../services/manual_payment');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
 const emailService = require('../services/emailService');
@@ -5081,7 +5081,7 @@ router.post('/superadmin/services/:id/edit', requireSuperadmin, async (req, res)
 router.get('/superadmin/orders/:id/payment', requireSuperadmin, async (req, res) => {
   const order = await loadOrderWithPatient(req.params.id);
   if (!order) return res.redirect('/superadmin');
-  // 'instapay' added for the manual payment path (migration 116); the other
+  // 'instapay' added for the manual payment path (migration 117); the other
   // four are unchanged.
   const methods = ['cash', 'card', 'bank_transfer', 'instapay', 'online_link'];
   // The patient's transfer claim, if any — shown beside the mark-paid form,
@@ -5316,7 +5316,7 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
   // case_sla_worker.runCaseSlaSweep runs every 5 min via pg-boss and
   // picks up post-payment state changes naturally on the next tick.
 
-  // Manual payment path (migration 116): the order is now paid, so its
+  // Manual payment path (migration 117): the order is now paid, so its
   // pending InstaPay/bank transfer claim (if any) is closed as confirmed.
   // Runs AFTER every write above and touches only payment_claims — the
   // mark-paid behaviour itself is unchanged. Never throws.
@@ -5331,7 +5331,7 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
   return res.redirect(`/superadmin/orders/${orderId}?payment=paid`);
 });
 
-// ── Manual payment path (migration 116) ─────────────────────────────────────
+// ── Manual payment path (migration 117) ─────────────────────────────────────
 // Reject a patient's InstaPay/bank transfer claim: the money could not be
 // matched. The ORDER IS NOT TOUCHED — it stays unpaid — and the patient is
 // told why (in-app + email, bilingual). Superadmin-only; CSRF via the global

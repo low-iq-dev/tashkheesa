@@ -243,7 +243,7 @@ async function getAttentionItems() {
             AND assignment_status = 'manual_queue'`,
         [], { cnt: 0 }
       ).catch(() => ({ cnt: 0 })),
-      // Manual payment path (migration 116) — InstaPay/bank transfer claims a
+      // Manual payment path (migration 117) — InstaPay/bank transfer claims a
       // superadmin has not yet confirmed (mark paid) or rejected. Unpaid orders
       // only: a claim on a case that has since been paid by card is moot.
       tableExists('payment_claims').then(exists => exists
