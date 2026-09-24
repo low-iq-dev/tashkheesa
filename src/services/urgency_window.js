@@ -72,10 +72,9 @@ function nextSevenAmCairoUtc(now) {
   return target;
 }
 
-// "7:00 AM" / "7:00 صباحاً" for a whole Cairo hour.
-function _clock(hour, lang) {
+// "7:00 AM" for a whole Cairo hour.
+function _clock(hour) {
   const h12 = (hour % 12) || 12;
-  if (lang === 'ar') return h12 + ':00 ' + (hour < 12 ? 'صباحاً' : 'مساءً');
   return h12 + ':00 ' + (hour < 12 ? 'AM' : 'PM');
 }
 
@@ -97,13 +96,15 @@ function urgentWindowNote(lang) {
   const start = URGENT_WINDOW_START_HOUR;
   const end = URGENT_WINDOW_END_HOUR;
   if (String(lang || '').toLowerCase() === 'ar') {
-    return 'الخدمة العاجلة (4 ساعات) متاحة من ' + _clock(start, 'ar') + ' حتى ' + _clock(end, 'ar') +
-      ' بتوقيت القاهرة، والحالة العاجلة التي يُؤكَّد دفعها خارج هذه المواعيد تبدأ ساعاتها الأربع من الساعة ' +
-      _clock(start, 'ar') + '.';
+    // Egyptian dialect, like every public page (Ziad's wording, 2026-09-25).
+    // Hour numbers still come from the window constants.
+    const h12 = (h) => (h % 12) || 12;
+    return 'لو دفعت حالة عاجلة بعد ' + h12(end) + ' بالليل أو قبل ' + h12(start) +
+      ' الصبح، الـ4 ساعات بتبدأ من ' + h12(start) + ' الصبح اللي بعدها.';
   }
-  return 'Urgent (4 hours) runs ' + _clock(start, 'en') + ' – ' + _clock(end, 'en') +
+  return 'Urgent (4 hours) runs ' + _clock(start) + ' – ' + _clock(end) +
     ' Cairo time; an Urgent case whose payment is confirmed outside those hours starts its 4 hours at ' +
-    _clock(start, 'en') + '.';
+    _clock(start) + '.';
 }
 
 module.exports = {

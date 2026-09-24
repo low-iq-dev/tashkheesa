@@ -44,11 +44,9 @@ function check(name, fn) {
     if (/fast.?track|24h|72h/i.test(s)) throw new Error('retired wording');
   });
 
-  await check('AR sentence states the window and the 07:00 start', () => {
-    const s = uw.urgentWindowNote('ar');
-    for (const bit of ['7:00 صباحاً', '7:00 مساءً', 'بتوقيت القاهرة', 'العاجلة', 'تبدأ ساعاتها الأربع']) {
-      if (!s.includes(bit)) throw new Error('missing "' + bit + '" in: ' + s);
-    }
+  await check('AR sentence is the Egyptian-dialect wording, exactly', () => {
+    const want = 'لو دفعت حالة عاجلة بعد 7 بالليل أو قبل 7 الصبح، الـ4 ساعات بتبدأ من 7 الصبح اللي بعدها.';
+    if (uw.urgentWindowNote('ar') !== want) throw new Error('got: ' + uw.urgentWindowNote('ar'));
   });
 
   await check('the partial renders the sentence in the page language', async () => {
