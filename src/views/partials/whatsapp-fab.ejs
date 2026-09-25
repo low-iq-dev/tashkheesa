@@ -1,0 +1,79 @@
+<%#
+  Floating WhatsApp button — the Tashkheesa number (+20 110 200 9886), the
+  same one Tash answers on. Rendered at the end of the public site chrome
+  (partials/footer.ejs) and of the patient portal chrome
+  (partials/patient/foot.ejs). Never on the doctor or admin frames: doctors
+  already have the number in their portal footer and reach a different agent
+  on it; staff do not need a support button on the console.
+
+  Soft launch 2026-09-25. The prefilled text is deliberately NOT a question we
+  put in the patient's mouth: it names the page they tapped from (and the case
+  reference when there is one) and leaves the ask to them. Two reasons —
+  Tash gets context without being handed a routing job, and every tap tells
+  us WHERE in the funnel people need help, in their own words. The page tag
+  is the insight; count it in the gateway's inbound log.
+
+  Locals: isAr (bool), lang ('en'|'ar'), user (session user, optional),
+  currentUrl (set on res.locals by server.js), order (optional, patient pages).
+  Self-contained: inline CSS with the page's nonce so it needs no stylesheet
+  change; the glyph is the same path partials/patient/icon.ejs draws.
+%>
+<%
+  const __wfUser = (typeof user !== 'undefined' && user) ? user
+    : ((typeof locals !== 'undefined' && locals && locals.user) ? locals.user : null);
+  const __wfRole = String((__wfUser && __wfUser.role) || '').toLowerCase();
+  const __wfSkip = (__wfRole === 'doctor' || __wfRole === 'admin' || __wfRole === 'superadmin');
+  const __wfIsAr = (typeof isAr !== 'undefined') ? !!isAr
+    : (String((typeof lang !== 'undefined' && lang) || (typeof locals !== 'undefined' && locals && locals.lang) || 'en').toLowerCase() === 'ar');
+  const __wfNonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) || ''
+  );
+  // Where they tapped from. Path only — never the query string (it can carry
+  // tokens), never anything read off the user.
+  const __wfPath = String((typeof currentUrl !== 'undefined' && currentUrl)
+    || (typeof locals !== 'undefined' && locals && locals.currentUrl) || '/').split('?')[0].replace(/^\/(ar|en)(?=\/|$)/, '') || '/';
+  const __wfPages = [
+    [/^\/portal\/patient\/pay\//,            ['the payment page', 'صفحة الدفع']],
+    [/^\/portal\/patient\/(new|case\/new)/,   ['the new-case form', 'صفحة إنشاء الحالة']],
+    [/^\/portal\/patient\/case\//,           ['my case page', 'صفحة حالتي']],
+    [/^\/portal\/patient\/messages/,          ['the messages page', 'صفحة الرسائل']],
+    [/^\/portal\/patient/,                     ['my account', 'حسابي']],
+    [/^\/(login|magic-login|set-password|reset-password|forgot)/, ['the sign-in page', 'صفحة تسجيل الدخول']],
+    [/^\/(register|signup)/,                   ['the sign-up page', 'صفحة إنشاء الحساب']],
+    [/^\/services/,                            ['the services page', 'صفحة الخدمات']],
+    [/^\/(pricing|prices)/,                    ['the prices page', 'صفحة الأسعار']],
+    [/^\/(how-it-works|about)/,                ['the how-it-works page', 'صفحة طريقة العمل']],
+    [/^\/doctors/,                             ['the consultants page', 'صفحة الاستشاريين']],
+    [/^\/contact/,                             ['the contact page', 'صفحة التواصل']],
+    [/^\/?$/,                                  ['the home page', 'الصفحة الرئيسية']]
+  ];
+  let __wfPage = null;
+  for (const [re, names] of __wfPages) { if (re.test(__wfPath)) { __wfPage = names[__wfIsAr ? 1 : 0]; break; } }
+  if (!__wfPage) __wfPage = (__wfIsAr ? 'صفحة ' : 'page ') + __wfPath;
+  const __wfOrder = (typeof order !== 'undefined' && order) ? order : null;
+  const __wfRef = (__wfOrder && __wfOrder.reference_id) ? String(__wfOrder.reference_id) : '';
+  const __wfPrefill = __wfIsAr
+    ? ('مرحباً تشخيصة 👋 أنا في ' + __wfPage + (__wfRef ? ' (الحالة ' + __wfRef + ')' : '') + ' وعندي سؤال:')
+    : ('Hi Tashkheesa 👋 I am on ' + __wfPage + (__wfRef ? ' (case ' + __wfRef + ')' : '') + ' and I have a question:');
+  const __wfHref = 'https://wa.me/201102009886?text=' + encodeURIComponent(__wfPrefill);
+  const __wfLabel = __wfIsAr ? 'اسألنا على واتساب' : 'Ask us on WhatsApp';
+%>
+<% if (!__wfSkip) { %>
+<style<%- __wfNonce ? ' nonce="' + __wfNonce + '"' : '' %>>
+  .tk-wa-fab{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom,0px));inset-inline-end:20px;z-index:60;display:flex;align-items:center;gap:10px;height:52px;padding:0 18px 0 14px;border-radius:26px;background:#25D366;color:#fff;font:600 14px/1 var(--font-sans,system-ui,sans-serif);text-decoration:none;box-shadow:0 6px 20px rgba(0,0,0,.18);transition:transform .15s ease,box-shadow .15s ease}
+  .tk-wa-fab:hover,.tk-wa-fab:focus-visible{transform:translateY(-2px);box-shadow:0 10px 26px rgba(0,0,0,.22);color:#fff;outline:none}
+  .tk-wa-fab:focus-visible{box-shadow:0 0 0 3px #fff,0 0 0 6px #25D366}
+  .tk-wa-fab svg{width:24px;height:24px;flex:0 0 auto}
+  .tk-wa-fab__t{white-space:nowrap}
+  @media (max-width:767px){
+    .tk-wa-fab{bottom:calc(var(--p-tabbar-height,0px) + 14px + env(safe-area-inset-bottom,0px));inset-inline-end:14px;height:50px;width:50px;padding:0;justify-content:center;border-radius:50%}
+    .tk-wa-fab__t{display:none}
+  }
+  @media print{.tk-wa-fab{display:none}}
+</style>
+<a class="tk-wa-fab" href="<%= __wfHref %>" target="_blank" rel="noopener noreferrer" aria-label="<%= __wfLabel %>" title="<%= __wfLabel %>">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 3.5A11 11 0 003.6 17.4L2 22l4.7-1.5A11 11 0 1020.5 3.5zM7.6 7.5c.2-.5.5-.5.7-.5h.6c.2 0 .4 0 .6.5.2.5.7 1.7.7 1.8s.1.2 0 .4l-.3.4-.3.3c-.1.1-.2.3-.1.5.1.2.6 1 1.3 1.6.9.8 1.7 1 1.9 1.1.2.1.3 0 .5-.1l.6-.7c.2-.2.3-.2.5-.1l1.6.8c.2.1.3.2.4.2 0 .1.1.5-.1 1-.2.5-1 1-1.4 1-.4 0-1 .1-3-.7-2.4-1-4-3.5-4.1-3.7-.1-.2-1-1.4-1-2.6 0-1.3.6-1.9.9-2.2z"/></svg>
+  <span class="tk-wa-fab__t"><%= __wfLabel %></span>
+</a>
+<% } %>

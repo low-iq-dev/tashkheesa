@@ -31,6 +31,7 @@
   unreadCount: __unread,
   user: (typeof user !== 'undefined' ? user : ((typeof locals !== 'undefined' && locals && locals.user) ? locals.user : {}))
 }) %>
+<%- include('../whatsapp-fab', { isAr: __isAr, user: (typeof user !== 'undefined' ? user : ((typeof locals !== 'undefined' && locals && locals.user) ? locals.user : null)) }) %>
 
 <%# Mobile More-sheet wiring — open on More-tab tap, close on backdrop tap,
     ESC key, swipe-down (light), or row-click navigation. The drawer DOM is
