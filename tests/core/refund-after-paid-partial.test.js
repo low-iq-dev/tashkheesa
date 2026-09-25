@@ -133,7 +133,9 @@ const order = { id: 'o1', price: 1000, base_price: 800, urgency_uplift_amount: 2
     if (!/const remainingEgp = await remainingRefundableEgp\(o, /.test(s)) return 'no remaining computed';
     if (!/else if \(remainingEgp <= 0\) \{\s*refund = null;/.test(s)) return 'no zero-remaining branch';
     if (!/Math\.min\(Number\(o\.base_price \|\| 0\) \+ Number\(o\.urgency_uplift_amount \|\| 0\), remainingEgp\)/.test(s)) return 'amount not capped';
-    if (!/price, addons_json, video_consultation_selected, video_consultation_price\s+FROM orders WHERE id = \$1 AND deleted_at IS NULL FOR UPDATE/.test(s)) return 'projection lacks the ceiling columns';
+    // Slice 1 B5 (2026-09-25): is_practice rides in the same projection so the
+    // handler can refuse training cases before any of this money logic runs.
+    if (!/price, addons_json, video_consultation_selected, video_consultation_price, is_practice\s+FROM orders WHERE id = \$1 AND deleted_at IS NULL FOR UPDATE/.test(s)) return 'projection lacks the ceiling columns';
   });
 
   check('sla_breach.js: only an OPEN row blocks the uplift obligation', () => {

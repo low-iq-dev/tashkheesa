@@ -62,12 +62,21 @@ async function issueRefund(client, opts) {
     // maxRefundableEgp — the refund ceiling is what the patient was CHARGED
     // (price + add-ons), not base_price + uplift. See check (5) below.
     const order = (await client.query(
+      // practice-ok: write path, by id — read so the guard below can REFUSE
+      // a practice case (slice-1 launch-week policy, 409 PRACTICE_CASE).
       `SELECT id, patient_id, payment_status, base_price, urgency_uplift_amount,
-              price, addons_json, video_consultation_selected, video_consultation_price
+              price, addons_json, video_consultation_selected, video_consultation_price, is_practice
          FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
       [orderId]
     )).rows[0];
     if (!order) throw af('Case not found', 404, 'ORDER_NOT_FOUND');
+
+    // (1b) Slice 1 B5 — a practice case's "payment" is training scenery
+    // (prod has 27 paid practice orders): refunding one would mint a REAL
+    // pending payout obligation against money that never existed.
+    if (order.is_practice === true) {
+      throw af('This is a doctor-training practice case — it has no real money to refund', 409, 'PRACTICE_CASE');
+    }
 
     // (2) must be paid
     if (String(order.payment_status || '').toLowerCase() !== 'paid') {

@@ -358,3 +358,24 @@ test('§4.6: onboarding-incomplete + service-less doctors are skipped, not assig
   assert.equal(r3.counts.assigned, 1);
   assert.equal(pick(r3.assigned, c3).doctorId, good);
 });
+
+// ── Slice 1 B5 (2026-09-25): practice rows are skipped, reason practice_case ──
+test('practice exclusion: a paid practice case with an available doctor is skipped (practice_case), writes nothing', async () => {
+  const spec = await mkSpec();
+  const svc = uid('svc');
+  await mkDoctor(spec, { services: [svc] }); // eligible and free — the ONLY thing keeping the practice case out is the flag
+  const real = await mkCase(spec, { service: svc });
+  const practice = await mkCase(spec, { service: svc });
+  await q('UPDATE orders SET is_practice = true WHERE id = $1', [practice]);
+
+  const r = await run([real, practice]);
+
+  assert.equal(r.assigned.length, 1, 'the real case still assigns');
+  assert.equal(r.assigned[0].caseId, real);
+  const skip = pick(r.skipped, practice);
+  assert.ok(skip, 'the practice case is in skipped');
+  assert.equal(skip.reason, 'practice_case');
+  const row = await dbOrder(practice);
+  assert.equal(row.doctor_id, null, 'no doctor written');
+  assert.equal(await assignCount(practice), 0, 'no doctor_assignments row');
+});

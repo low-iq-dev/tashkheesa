@@ -82,9 +82,11 @@ async function bulkAutoAssign(client, opts) {
       // `tier || urgency_tier` (acceptance_window.acceptanceMinutesForOrder);
       // without `tier` in the projection, a broadcast case whose tier lives in
       // that column only fell through to the sla_hours bucket.
+      // practice-ok: write path, by ids — read so the skip below can refuse
+      // practice rows (slice-1 launch-week policy, reason 'practice_case').
       `SELECT id, reference_id, doctor_id, status, payment_status, paid_at,
               specialty_id, service_id, tier, urgency_tier, sla_hours, assignment_status,
-              deadline_at, created_at
+              deadline_at, created_at, is_practice
          FROM orders
         WHERE id = ANY($1::text[]) AND deleted_at IS NULL
         ORDER BY (LOWER(COALESCE(urgency_tier,'standard')) = 'urgent') DESC,
@@ -100,6 +102,11 @@ async function bulkAutoAssign(client, opts) {
       const sp = 'sp_bulk_' + (i++);
 
       // ── case-level validations (single-assign's rules, first-assign only) ──
+      // Slice 1 B5 — a training case is routed by the onboarding flow, never
+      // by an operator batch. Checked FIRST: being practice trumps every
+      // other reason a row might be skipped.
+      if (c.is_practice === true) { skipped.push({ caseId: c.id, reference: ref, reason: 'practice_case' }); continue; }
+
       if (c.doctor_id) { skipped.push({ caseId: c.id, reference: ref, reason: 'already_assigned' }); continue; }
 
       const paid = !!c.paid_at && (String(c.payment_status || '').toLowerCase() === 'paid'

@@ -292,6 +292,44 @@ async function paidRefundedEgp(orderId, exec) {
 }
 
 /**
+ * The remaining-refundable arithmetic, in cents, in ONE place: what the
+ * write path (remainingRefundableEgp below) enforces and what the Command
+ * API's batched list read shows must be the same expression, or the app's
+ * refund sheet offers amounts the server 409s — the exact slice-0 finding
+ * (#10) this exists to close.
+ */
+function remainingFromCeilingEgp(ceilingEgp, paidEgp) {
+  const cents = Math.round((Number(ceilingEgp) || 0) * 100) - Math.round((Number(paidEgp) || 0) * 100);
+  return cents > 0 ? cents / 100 : 0;
+}
+
+/**
+ * paidRefundedEgp for a PAGE of orders in one query — the Command API's case
+ * list would otherwise pay one refunds query per row. Same SUM, same COALESCE
+ * chain, grouped. Returns a plain object { [orderId]: egp }; ids with no paid
+ * refund are simply absent (read them as 0). Throws on a DB error so callers
+ * fail closed, like remainingRefundableEgp.
+ */
+async function paidRefundedEgpByOrders(orderIds, exec) {
+  const ids = (orderIds || []).map(String).filter(Boolean);
+  if (!ids.length) return {};
+  const run = typeof exec === 'function' ? exec : queryAll;
+  const rows = await run(
+    `SELECT order_id, COALESCE(SUM(COALESCE(amount_egp, approved_amount, requested_amount, 0)), 0) AS total
+       FROM refunds
+      WHERE order_id = ANY($1::text[]) AND status = 'paid'
+      GROUP BY order_id`,
+    [ids]
+  );
+  const out = {};
+  (rows || []).forEach((r) => {
+    const total = Number(r.total);
+    out[String(r.order_id)] = Number.isFinite(total) && total > 0 ? Math.round(total * 100) / 100 : 0;
+  });
+  return out;
+}
+
+/**
  * What may STILL be refunded on an order: maxRefundableEgp minus everything
  * already paid back, floored at 0. This — not maxRefundableEgp — is the
  * ceiling every create path checks an amount against and the default a form
@@ -302,8 +340,7 @@ async function remainingRefundableEgp(order, exec) {
   if (!order || !order.id) return 0;
   const ceiling = maxRefundableEgp(order);
   const paid = await paidRefundedEgp(order.id, exec);
-  const cents = Math.round(ceiling * 100) - Math.round(paid * 100);
-  return cents > 0 ? cents / 100 : 0;
+  return remainingFromCeilingEgp(ceiling, paid);
 }
 
 module.exports = {
@@ -311,6 +348,8 @@ module.exports = {
   maxRefundableEgp,
   consumedVideoAddonCents,
   remainingRefundableEgp,
+  remainingFromCeilingEgp,
   paidRefundedEgp,
+  paidRefundedEgpByOrders,
   OPEN_REFUND_STATUSES
 };

@@ -490,18 +490,33 @@ async function confirmPendingClaimForOrder(orderId, actorId) {
   }
 }
 
+/** Patient age in whole years from date_of_birth; null when unknown/absurd. */
+function ageYears(dob) {
+  if (!dob) return null;
+  const t = Date.parse(String(dob));
+  if (Number.isNaN(t)) return null;
+  const yrs = Math.floor((Date.now() - t) / (365.25 * 24 * 3600 * 1000));
+  return (yrs >= 0 && yrs < 130) ? yrs : null;
+}
+
 /** Superadmin/Command list of claims (default: pending), oldest first. */
 async function listClaims({ status } = {}) {
+  const { realCaseSql } = require('../practice_cases');
   const st = STATUSES.indexOf(String(status || 'pending')) >= 0 ? String(status || 'pending') : 'pending';
   const rows = await pg().queryAll(
+    // Slice 1 (2026-09-25): urgency_tier + date_of_birth added for the
+    // Command queue card (additive), and the operator-list practice guard
+    // (slice-0 doctrine — a training case's claim, should one ever exist,
+    // is not an operator work item).
     `SELECT pc.id, pc.order_id, pc.patient_id, pc.method, pc.reference, pc.sender_name,
             pc.status, pc.rejection_reason, pc.created_at, pc.updated_at, pc.resolved_at, pc.resolved_by,
-            o.reference_id, o.price, o.currency, o.addons_json, o.payment_status,
-            u.name AS patient_name, u.email AS patient_email, u.phone AS patient_phone
+            o.reference_id, o.price, o.currency, o.addons_json, o.payment_status, o.urgency_tier,
+            u.name AS patient_name, u.email AS patient_email, u.phone AS patient_phone, u.date_of_birth
        FROM payment_claims pc
        JOIN orders_active o ON o.id = pc.order_id
        LEFT JOIN users u ON u.id = pc.patient_id
       WHERE pc.status = $1
+        AND ${realCaseSql('o.')}
         -- A pending claim on a case since paid by card is moot: hide it.
         AND ($1 <> 'pending' OR COALESCE(o.payment_status, '') <> 'paid')
       ORDER BY pc.updated_at ASC
@@ -514,11 +529,20 @@ async function listClaims({ status } = {}) {
       orderId: String(r.order_id),
       orderReference: r.reference_id || null,
       orderPaymentStatus: r.payment_status || null,
+      // The amount OWED on the order (owedCentsForOrder — what the card flow
+      // would charge). A claim carries no amount of its own; migration 117
+      // records method + reference + sender only.
       amount: amt.amount,
       currency: amt.currency,
+      urgencyTier: r.urgency_tier || null,
       createdAt: toIso(r.created_at),
       resolvedAt: toIso(r.resolved_at),
-      patient: { name: r.patient_name || null, email: r.patient_email || null, phone: r.patient_phone || null }
+      patient: {
+        name: r.patient_name || null,
+        email: r.patient_email || null,
+        phone: r.patient_phone || null,
+        age: ageYears(r.date_of_birth)
+      }
     });
   });
 }

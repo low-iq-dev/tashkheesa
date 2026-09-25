@@ -137,14 +137,24 @@ function handlerBody(startMarker, endMarker) {
   return adminCode.slice(a, b === -1 ? adminCode.length : b);
 }
 
-check('GET /cases/:id exposes maxRefundable from the server-enforced ceiling', function () {
+check('GET /cases/:id exposes maxRefundable as the number the refund WRITE enforces', function () {
   const body = handlerBody("router.get('/cases/:id'", "router.get('/cases/:id/candidates'");
-  if (!/maxRefundable:\s*maxRefundableEgp\(row\)/.test(body)) {
+  // Slice 1 B6 (2026-09-25): the write path caps at remainingRefundableEgp
+  // (ceiling MINUS refunds already paid — Part B item 8), so the read must
+  // ship THAT number. The old pin (`maxRefundableEgp(row)`, the bare ceiling)
+  // was the slice-0 finding #10 bug: after a paid partial refund the app
+  // offered amounts the server 409'd.
+  if (!/const remainingRefundable = await remainingRefundableEgp\(row/.test(body)) {
     throw new Error(
-      'The case-detail payment payload does not expose `maxRefundable: maxRefundableEgp(row)`. ' +
-      'Without it the app has to guess the refund ceiling from grandTotal — and the two are ' +
-      'legitimately different on a case whose video consultation the patient has already claimed, ' +
-      'so the app would offer a refund the server then rejects.'
+      'The case-detail handler no longer derives its refund cap from remainingRefundableEgp(row, …) ' +
+      '— the number services/admin_refund.js enforces. Shipping any other number makes the app offer ' +
+      'refunds the server rejects (or under-offer what it would accept).'
+    );
+  }
+  if (!/maxRefundable:\s*remainingRefundable/.test(body) || !/remainingRefundableEgp:\s*remainingRefundable/.test(body)) {
+    throw new Error(
+      'The case-detail payment payload does not expose `maxRefundable` (and its additive alias ' +
+      '`remainingRefundableEgp`) from the write-enforced remaining figure.'
     );
   }
   if (!/grandTotal:\s*chargedEgpForOrder\(row\)/.test(body)) {
@@ -152,15 +162,25 @@ check('GET /cases/:id exposes maxRefundable from the server-enforced ceiling', f
   }
 });
 
-check('GET /cases rows expose the real charge and the same ceiling', function () {
+check('GET /cases rows expose the real charge and the same write-enforced cap', function () {
   const body = handlerBody("router.get('/cases'", "router.get('/cases/:id'");
   if (!/grandTotal:\s*chargedEgpForOrder\(r\)/.test(body)) {
     throw new Error('The /cases queue row grandTotal is not chargedEgpForOrder(r).');
   }
-  if (!/maxRefundable:\s*maxRefundableEgp\(r\)/.test(body)) {
+  // Slice 1 B6: same rule as the detail — the queue row's cap must be the
+  // remaining figure (ceiling minus paid refunds), batched for the page via
+  // paidRefundedEgpByOrders + remainingFromCeilingEgp so both derive from the
+  // same arithmetic the write path runs.
+  if (!/remainingFromCeilingEgp\(maxRefundableEgp\(r\),/.test(body) || !/paidRefundedEgpByOrders\(/.test(body)) {
     throw new Error(
-      'The /cases queue row does not expose maxRefundable. A refund started from the queue would ' +
-      'cap on a different number from one started from the detail screen.'
+      'The /cases queue rows no longer derive maxRefundable from ' +
+      'remainingFromCeilingEgp(maxRefundableEgp(r), <paid-back sum>) — the write-enforced number.'
+    );
+  }
+  if (!/maxRefundable:\s*remainingRefundable/.test(body) || !/remainingRefundableEgp:\s*remainingRefundable/.test(body)) {
+    throw new Error(
+      'The /cases queue row does not expose maxRefundable (and remainingRefundableEgp). A refund ' +
+      'started from the queue would cap on a different number from one started from the detail screen.'
     );
   }
 });

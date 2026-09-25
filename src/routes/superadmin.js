@@ -1580,9 +1580,14 @@ async function countOpenCasesForDoctor(doctorId) {
   const inSql = sqlIn('status', openStatuses, 2);
 
   const row = await queryOne(
+    // Slice 1 B5 (2026-09-25, closes slice-0 finding #5) — the reassign
+    // picker's load count now agrees with doctorLoadSql: a practice case is
+    // training scenery, not load, so it must not push a doctor down the
+    // alternate-picker ranking here while counting as nothing everywhere else.
     `SELECT COUNT(*) as c
      FROM orders_active
      WHERE doctor_id = $1
+       AND ${realCaseSql('')}
        AND ${inSql.clause}`,
     [doctorId, ...inSql.params]
   );

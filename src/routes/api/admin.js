@@ -176,7 +176,7 @@ const { realCaseSql } = require('../../practice_cases');
 // (services/admin_refund.js enforces it), exposed so the app caps on exactly the
 // number the server will accept rather than a number it derives itself.
 const { chargedEgpSql, chargedEgpForOrder } = require('../../services/order_pricing');
-const { maxRefundableEgp, remainingRefundableEgp } = require('../../services/refund_eligibility');
+const { maxRefundableEgp, remainingRefundableEgp, remainingFromCeilingEgp, paidRefundedEgpByOrders } = require('../../services/refund_eligibility');
 const { paidRefundedSql, refundFigures, maskNumber, last4: refundLast4 } = require('../../services/refund_summary');
 const { bulkAutoAssign } = require('../../services/admin_bulk_assign');
 const { issueRefund } = require('../../services/admin_refund');
@@ -528,6 +528,21 @@ module.exports = function (db, helpers, deploy, deps) {
   // POST /manual-queue/:id/approve. Not injected: it runs on the txn client or
   // through helpers.safeRun, and those are the seams.
   const { insertCaseEventOrThrow, CASE_ROUTING_RESET_EVENT } = require('../../case_lifecycle');
+  // Slice 1 (2026-09-25) — transfer-claim verify/reject. The atomic verify
+  // service owns the txn; the three post-commit collaborators are the web
+  // mark-paid path's own (canonical payment boundary, the patient's paid
+  // notice, the on-call alert). All injectable so the route tests stay
+  // hermetic; the real modules are the defaults.
+  const verifyPaymentClaim = assignDeps.verifyPaymentClaim
+    || require('../../services/admin_verify_claim').verifyPaymentClaim;
+  const rejectPaymentClaim = assignDeps.rejectPaymentClaim
+    || require('../../services/manual_payment').rejectClaim;
+  const markCasePaid = assignDeps.markCasePaid
+    || require('../../case_lifecycle').markCasePaid;
+  const queueNotification = assignDeps.queueNotification
+    || require('../../notify').queueNotification;
+  const sendCriticalAlert = assignDeps.sendCriticalAlert
+    || require('../../critical-alert').sendCriticalAlert;
 
   // ─── POST /auth/login (public) ─────────────────────────────
   // Generic 401 INVALID_CREDENTIALS for every failure mode — no account
@@ -680,6 +695,40 @@ module.exports = function (db, helpers, deploy, deps) {
   // ─── Everything below is superadmin-gated ──────────────────
   router.use(requireJWT);
   router.use(requireRole('superadmin'));
+
+  // ─── POST /auth/logout (revoke THIS device's session) ──────
+  // Slice 1 (2026-09-25, closes slice-0 finding #1): the Command app's
+  // sign-out had nothing to call, so every refresh token stayed redeemable
+  // until expiry — one phone had 3 live rows. Mirrors the patient logout
+  // (routes/api/auth.js POST /logout): the `sid` in the SIGNED access token
+  // names the caller's own session row; revokeById's user_id clause makes
+  // cross-user revocation structurally impossible. On top of revokeById
+  // (which also clears the users.* transition mirrors when attributable),
+  // the revoked row's own push token is nulled so the sign-out leaves no
+  // registration behind anywhere.
+  //
+  // Deliberately NOT the patient route's no-sid branch: an admin token with
+  // no sid (pre-C1) gets 200 and a NO-OP, because that branch nulls
+  // users.push_token for the whole account and would silence the other
+  // still-signed-in Command devices. Idempotent: a second call finds the row
+  // already revoked (rowCount 0) and still answers 200 — the client is
+  // signing out regardless, same doctrine as the patient route.
+  router.post('/auth/logout', async (req, res) => {
+    try {
+      const sid = req.user && req.user.sid ? String(req.user.sid) : '';
+      if (sid) {
+        await sessionStore.revokeById(sid, req.user.id);
+        await safeRun(
+          'UPDATE user_sessions SET push_token = NULL WHERE id = $1 AND user_id = $2',
+          [sid, req.user.id]
+        );
+      }
+    } catch (err) {
+      // Never fail a logout — the client is signing out regardless.
+      console.error('[admin/auth-logout] failed:', err && err.message);
+    }
+    return res.ok({ message: 'Signed out' });
+  });
 
   // ─── GET /health ───────────────────────────────────────────
   // Aggregates the Pulse status strip: API reachable, DB connected, the two
@@ -1361,8 +1410,21 @@ module.exports = function (db, helpers, deploy, deps) {
         breached += Number(f.breached || 0);
       });
 
+      // Slice 1 B6 (2026-09-25, closes slice-0 finding #10) — maxRefundable
+      // must be the number the refund WRITE enforces, which since Part B
+      // item 8 is remainingRefundableEgp (ceiling MINUS refunds already
+      // paid), not the bare ceiling. One batched SUM for the whole page,
+      // through the same COALESCE chain the write path reads, then the same
+      // cents arithmetic (remainingFromCeilingEgp). mustAll: a page of money
+      // figures degrades to a 500, never to an overstated cap.
+      const paidBackByOrder = await paidRefundedEgpByOrders(
+        (rows || []).map((r) => r.id),
+        (sql, p) => mustAll(sql, p)
+      );
+
       const cases = (rows || []).map((r) => {
         const norm = normalizeStatus(r.status);
+        const remainingRefundable = remainingFromCeilingEgp(maxRefundableEgp(r), paidBackByOrder[String(r.id)] || 0);
         return {
           id: r.id, // raw orders.id — the routing key for /cases/:id
           reference: r.reference_id || null,
@@ -1385,10 +1447,14 @@ module.exports = function (db, helpers, deploy, deps) {
           // Money (additive). base = base_price; price = the case fee (urgency
           // uplift included); grandTotal = what the patient was ACTUALLY charged
           // = price + every selected add-on = order_pricing.owedCentsForOrder,
-          // the number Paymob was asked for. maxRefundable is the server's own
-          // refund ceiling (services/refund_eligibility.maxRefundableEgp) — the
-          // same number services/admin_refund.js enforces, so a refund sheet
-          // capped on it can never be rejected for exceeding the cap.
+          // the number Paymob was asked for. maxRefundable is the number the
+          // refund WRITE enforces (services/refund_eligibility
+          // .remainingRefundableEgp, applied by services/admin_refund.js): the
+          // ceiling minus refunds already PAID back — so a refund sheet capped
+          // on it can never be rejected for exceeding the cap, including after
+          // a paid partial refund (slice-0 finding #10; the bare ceiling was
+          // the bug). remainingRefundableEgp carries the same value under the
+          // web queue's own name for it, additively.
           //
           // AUDIT-ADDONS-IN-ADMIN (2026-08-29) — grandTotal was
           // COALESCE(total_price_with_addons, price), and NOTHING WRITES THAT
@@ -1397,7 +1463,8 @@ module.exports = function (db, helpers, deploy, deps) {
           basePrice: n(r.base_price),
           price: n(r.price),
           grandTotal: chargedEgpForOrder(r),
-          maxRefundable: maxRefundableEgp(r),
+          maxRefundable: remainingRefundable,
+          remainingRefundableEgp: remainingRefundable,
         };
       });
 
@@ -1490,6 +1557,12 @@ module.exports = function (db, helpers, deploy, deps) {
 
       if (!row) return res.fail('Case not found', 404, 'NOT_FOUND');
 
+      // Slice 1 B6 (2026-09-25, closes slice-0 finding #10) — the number the
+      // refund write enforces: ceiling minus refunds already paid back.
+      // mustAll as the executor: a failed refunds read must 500 (fail closed),
+      // never fall back to an overstated cap the write would then 409.
+      const remainingRefundable = await remainingRefundableEgp(row, (sql, p) => mustAll(sql, p));
+
       const norm = normalizeStatus(row.status);
 
       const files = [];
@@ -1535,14 +1608,19 @@ module.exports = function (db, helpers, deploy, deps) {
           // and the refund sheet, which caps on this number, REFUSED to refund
           // the 300 the patient had actually paid.
           grandTotal: chargedEgpForOrder(row),
-          // maxRefundable is the ceiling the SERVER enforces
-          // (services/refund_eligibility.maxRefundableEgp, applied by
+          // maxRefundable is the number the SERVER's refund write enforces
+          // (services/refund_eligibility.remainingRefundableEgp, applied by
           // services/admin_refund.js). It is grandTotal MINUS a video
-          // consultation the patient has already claimed and still holds — so it
-          // is legitimately SMALLER than grandTotal on those cases and the app
-          // must cap on THIS field, not on grandTotal, or the server will reject
-          // the refund it just offered.
-          maxRefundable: maxRefundableEgp(row),
+          // consultation the patient has already claimed and still holds MINUS
+          // refunds already PAID back (slice-0 finding #10: it used to be the
+          // bare ceiling, so after a paid partial refund the app offered
+          // amounts the write 409'd) — so it is legitimately SMALLER than
+          // grandTotal and the app must cap on THIS field, not on grandTotal,
+          // or the server will reject the refund it just offered.
+          // remainingRefundableEgp: the same value under the web queue's own
+          // name for it, additively.
+          maxRefundable: remainingRefundable,
+          remainingRefundableEgp: remainingRefundable,
           paidAt: toIso(row.paid_at),
           method: row.payment_method || null,
           createdAt: toIso(row.created_at),
@@ -1830,12 +1908,17 @@ module.exports = function (db, helpers, deploy, deps) {
         // window from `tier || urgency_tier`, and `tier` is what
         // notify/broadcast.js writes. Selecting only urgency_tier silently
         // demoted every broadcast case to the sla_hours fallback bucket.
-        // practice-ok: write path, by id (routing on practice cases: see slice-0 audit).
-        `SELECT id, doctor_id, status, payment_status, paid_at, specialty_id, service_id, tier, urgency_tier, sla_hours
+        // practice-ok: write path, by id — read so the guard below can REFUSE
+        // a practice case (slice-1 launch-week policy, 409 PRACTICE_CASE).
+        `SELECT id, doctor_id, status, payment_status, paid_at, specialty_id, service_id, tier, urgency_tier, sla_hours, is_practice
            FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
         [id]
       )).rows[0];
       if (!o) af('Case not found', 404, 'NOT_FOUND');
+      // Slice 1 B5 (2026-09-25, per slice-0 needs-Ziad #2) — a training case
+      // is routed by the doctor-onboarding flow, never by an operator: an
+      // operator assign would hand a real doctor a fake case as real work.
+      if (o.is_practice === true) af('This is a doctor-training practice case — it is not operator-assignable', 409, 'PRACTICE_CASE');
 
       const paid = !!o.paid_at && (String(o.payment_status || '').toLowerCase() === 'paid'
         || (!o.payment_status && String(o.status || '').toLowerCase() === 'paid'));
@@ -2207,13 +2290,17 @@ module.exports = function (db, helpers, deploy, deps) {
       client = await db.connect();
       await client.query('BEGIN');
 
-      // practice-ok: write path, by id.
+      // practice-ok: write path, by id — read so the guard below can REFUSE
+      // a practice case (slice-1 launch-week policy, 409 PRACTICE_CASE).
       const o = (await client.query(
-        `SELECT id, status, accepted_at, deadline_at, sla_hours, sla_paused_at, breached_at
+        `SELECT id, status, accepted_at, deadline_at, sla_hours, sla_paused_at, breached_at, is_practice
            FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
         [id]
       )).rows[0];
       if (!o) af('Case not found', 404, 'NOT_FOUND');
+      // Slice 1 B5 — a practice case's SLA is training scenery, not a promise
+      // to a patient; extending it is meaningless and pollutes the audit trail.
+      if (o.is_practice === true) af('This is a doctor-training practice case — its SLA is not operable', 409, 'PRACTICE_CASE');
 
       const status = normalizeStatus(o.status);
       if (['completed', 'cancelled', 'refunded', 'expired_unpaid'].includes(status)) {
@@ -2900,9 +2987,17 @@ module.exports = function (db, helpers, deploy, deps) {
   });
 
   // ─── GET /payment-claims (InstaPay / bank transfer claims to verify) ────────
-  // Manual payment path (migration 117). READ-ONLY: resolution happens on the
-  // web superadmin payment page (/superadmin/orders/:id/payment — mark paid or
-  // reject). ?status=pending (default) | confirmed | rejected. Oldest first.
+  // Manual payment path (migration 117). Resolution now lives beside it:
+  // POST /payment-claims/:id/verify and /reject below (slice 1) — the web
+  // superadmin payment page remains the other surface for both.
+  // ?status=pending (default) | confirmed | rejected. Oldest first.
+  // Slice 1 B3 (additive): `tier` (normalized like GET /cases) and
+  // patient.age ride on top of the service rows; no existing field changes.
+  // NOTE for the app: a claim carries NO amount of its own (migration 117 has
+  // no amount column) — `amount`+`currency` ARE the amount owed, the same
+  // owedCentsForOrder figure the card flow charges. There is no transfer
+  // screenshot anywhere in the platform: the claim is method + reference +
+  // sender name, and the human checks the bank statement.
   // requireJWT + requireRole('superadmin') inherited from the router gate.
   router.get('/payment-claims', async (req, res) => {
     const status = String((req.query && req.query.status) || 'pending').toLowerCase();
@@ -2911,11 +3006,275 @@ module.exports = function (db, helpers, deploy, deps) {
     }
     try {
       const { listClaims } = require('../../services/manual_payment');
-      const claims = await listClaims({ status });
+      const claims = (await listClaims({ status })).map((c) => Object.assign({}, c, {
+        tier: normalizeTier(c.urgencyTier),
+      }));
       return res.ok({ claims, count: claims.length });
     } catch (err) {
       console.error('[admin/payment-claims] failed:', err && err.message);
       return res.fail('Failed to load payment claims', 500, 'PAYMENT_CLAIMS_ERROR');
+    }
+  });
+
+  // ─── POST /payment-claims/:id/verify (money-path WRITE — atomic core) ──────
+  // Slice 1 B1 — "the claim checks out: mark the order paid", from the phone.
+  // The web path this mirrors is POST /superadmin/orders/:id/mark-paid +
+  // confirmPendingClaimForOrder; the semantics live in
+  // services/admin_verify_claim.js (atomic core: payment facts + claim
+  // confirmation + both audit rows in ONE txn) and in the SAME post-commit
+  // collaborators the web fires, in the web's order:
+  //   1. caseLifecycle.markCasePaid — canonical boundary (PAID transition,
+  //      sla_hours lock, urgent-window deferral, auto-assign + broadcast).
+  //      Its failure CANNOT unsay the payment (the money is recorded), so it
+  //      is reported honestly: routed=false + error_logs + on-call alert —
+  //      the API spelling of the web's ?payment=paid_but_unrouted.
+  //   2. The add-ons awaiting-settlement flag (mark-paid confirms the BASE
+  //      fee only; an add-on is settled by a human on the web order page).
+  //   3. The patient's "payment confirmed" in-app notice.
+  // Body (what the web mark-paid form accepts): { method?, reference? } —
+  // defaults are the claim's own method/reference, which is what the operator
+  // just verified against the statement. Idempotent: a second call replays
+  // the same result and writes/fires nothing. 404 unknown claim/order,
+  // 409 CLAIM_ALREADY_DECIDED (rejected), 409 PRACTICE_CASE,
+  // 409 ORDER_ALREADY_PAID (card raced the transfer — a refund conversation).
+  router.post('/payment-claims/:id/verify', async (req, res) => {
+    const claimId = req.params.id;
+    const body = req.body || {};
+    const method = body.method != null ? String(body.method).trim() : '';
+    const reference = body.reference != null ? String(body.reference).trim() : '';
+    if (method.length > 80) return res.fail('method must be at most 80 characters', 400, 'BAD_REQUEST');
+    if (reference.length > 100) return res.fail('reference must be at most 100 characters', 400, 'BAD_REQUEST');
+
+    let client;
+    let verified;
+    try {
+      client = await db.connect();
+      verified = await verifyPaymentClaim(client, { claimId, actorId: req.user.id, method, reference });
+    } catch (err) {
+      // verifyPaymentClaim already rolled back before re-throwing; map known rejects.
+      if (err && err.http) return res.fail(err.message, err.http, err.code);
+      console.error('[admin/payment-claim-verify] failed:', err && err.message);
+      return res.fail('Verify failed', 500, 'CLAIM_VERIFY_ERROR');
+    } finally {
+      if (client && client.release) client.release();
+    }
+
+    // The double-tap: everything below already ran (or is running) for the
+    // call that actually confirmed the claim — replay the facts, fire nothing.
+    if (verified.alreadyVerified) {
+      return res.ok({
+        claim: verified.claim,
+        order: verified.order,
+        alreadyVerified: true,
+        routed: null,
+        notifications: { patient: 'not_attempted' },
+      });
+    }
+
+    const orderId = verified.order.id;
+
+    // ── Post-commit, the web mark-paid's own sequence ────────────────────────
+    // 1) Canonical payment boundary. Failure handling mirrors the web route
+    // verbatim: benign re-entry is a timeline note; anything else is
+    // error_logs + on-call alert + routed=false (money recorded, case NOT in
+    // the assignment pipeline — the operator must re-route by hand).
+    let routed = true;
+    try {
+      await markCasePaid(orderId);
+    } catch (e) {
+      const msg = String(e && e.message ? e.message : e);
+      const benign = /already\s+(paid|assigned|processed)|idempotent|no[-\s]?op/i.test(msg);
+      try {
+        await safeRun(
+          `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
+             VALUES ($1, $2, $3, $4, NOW(), $5, 'superadmin')`,
+          [randomUUID(), orderId,
+            benign
+              ? 'Payment lifecycle transition skipped (idempotent)'
+              : 'Payment lifecycle transition FAILED — case may not have entered the pipeline',
+            JSON.stringify({ error: msg, benign, source: 'command_api_claim_verify' }),
+            req.user.id]
+        );
+      } catch (_) { /* the timeline note is itself best-effort */ }
+      if (!benign) {
+        routed = false;
+        try {
+          logErrorToDb(e, {
+            context: 'admin.payment_claim_verify.markCasePaid',
+            orderId,
+            userId: req.user && req.user.id,
+            category: 'payment',
+            payment_captured: true,
+          });
+        } catch (_) {}
+        try {
+          sendCriticalAlert(
+            'markCasePaid FAILED for order ' + orderId + ' after a Command-app claim verify: ' +
+            msg.slice(0, 300) + ' — case is paid but is not in the assignment queue',
+            'markcasepaid_failed'
+          );
+        } catch (_) {}
+      }
+    }
+
+    // 2) Add-ons: record as outstanding, do NOT settle — the web mark-paid's
+    // block, verbatim in effect. Verifying the base-fee transfer says nothing
+    // about add-on money; the Settle button on the web order page is a human
+    // asserting THOSE lines arrived.
+    try {
+      const { parseSelectedAddons } = require('../../services/order_pricing');
+      // practice-ok: by id — the case just verified (the txn refused practice).
+      const _o = await safeGet('SELECT addons_json, video_consultation_selected FROM orders WHERE id = $1 AND deleted_at IS NULL', [orderId]);
+      const _sel = parseSelectedAddons(_o || {});
+      const _pending = [];
+      if (_sel.video_consultation) _pending.push('video_consult');
+      if (_sel.prescription) _pending.push('prescription');
+      if (_pending.length) {
+        const _existing = await safeAll('SELECT addon_service_id FROM order_addons WHERE order_id = $1', [orderId]);
+        const _have = new Set((_existing || []).map((r) => String(r.addon_service_id)));
+        const _outstanding = _pending.filter((x) => !_have.has(x));
+        if (_outstanding.length) {
+          await safeRun(
+            `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
+               VALUES ($1, $2, 'Add-ons awaiting settlement', $3, NOW(), $4, 'superadmin')`,
+            [randomUUID(), orderId,
+              JSON.stringify({ addons: _outstanding, reason: 'marked paid without amount verification', via: 'command_api_claim_verify' }),
+              req.user.id]
+          );
+        }
+      }
+    } catch (e) {
+      try { logErrorToDb(e, { context: 'admin.payment_claim_verify.flag_addons', orderId }); } catch (_) {}
+    }
+
+    // 3) The patient's paid notice — the web's queueNotification, same
+    // template, same single internal channel.
+    const notifications = { patient: 'skipped_no_patient' };
+    if (verified.patientId) {
+      try {
+        await queueNotification({
+          orderId,
+          toUserId: verified.patientId,
+          channel: 'internal',
+          template: 'payment_marked_paid_patient',
+          status: 'queued',
+        });
+        notifications.patient = 'queued';
+      } catch (e) {
+        notifications.patient = 'failed';
+        console.error('[admin/payment-claim-verify] patient notice failed:', e && e.message);
+      }
+    }
+
+    return res.ok({
+      claim: verified.claim,
+      order: verified.order,
+      alreadyVerified: false,
+      routed,
+      notifications,
+    });
+  });
+
+  // ─── POST /payment-claims/:id/reject (WRITE — the claim only) ──────────────
+  // Slice 1 B2 — "this transfer could not be matched", from the phone. Calls
+  // THE SAME service function the web reject route calls
+  // (manual_payment.rejectClaim): claim → rejected with the reason, the ORDER
+  // IS NOT TOUCHED (it stays unpaid), and the patient is told why through the
+  // existing bilingual template (in-app + email), queued inside the service.
+  // Body: { reason } — REQUIRED, 1–500 chars, the patient reads it verbatim.
+  // Same guards as verify: 404 unknown, 409 CLAIM_ALREADY_DECIDED (confirmed),
+  // 409 PRACTICE_CASE. Idempotent: re-rejecting an already-rejected claim
+  // replays the stored decision (the stored reason stands) and writes nothing.
+  router.post('/payment-claims/:id/reject', async (req, res) => {
+    const claimId = req.params.id;
+    const reason = String((req.body && (req.body.reason != null ? req.body.reason : req.body.rejection_reason)) || '')
+      .replace(/\s+/g, ' ').trim();
+    if (!reason) return res.fail('reason is required — the patient reads it', 400, 'REASON_REQUIRED');
+    if (reason.length > 500) return res.fail('reason must be at most 500 characters', 400, 'REASON_TOO_LONG');
+
+    // The claim's DTO shape for replays and responses (claimDto + resolution
+    // stamps — the same shape verify answers with).
+    const shape = (row) => ({
+      id: String(row.id),
+      status: String(row.status),
+      method: String(row.method),
+      reference: String(row.reference || ''),
+      senderName: row.sender_name ? String(row.sender_name) : null,
+      submittedAt: toIso(row.updated_at || row.created_at),
+      rejectionReason: row.rejection_reason ? String(row.rejection_reason) : null,
+      createdAt: toIso(row.created_at),
+      resolvedAt: toIso(row.resolved_at),
+    });
+
+    try {
+      // The claim + the facts the guards need. mustGet: a DB blip must be a
+      // 500, never a fabricated 404 on a write path. LEFT JOIN: a claim on a
+      // soft-deleted order is still rejectable (the web allows it too) — the
+      // rejection is bookkeeping, not money.
+      const row = await mustGet(
+        // practice-ok: by claim id — read only to REFUSE a practice case
+        // (slice-1 launch-week policy, 409 PRACTICE_CASE).
+        `SELECT pc.id, pc.order_id, pc.patient_id, pc.method, pc.reference, pc.sender_name,
+                pc.status, pc.rejection_reason, pc.created_at, pc.updated_at, pc.resolved_at,
+                o.is_practice, o.payment_status, o.reference_id
+           FROM payment_claims pc
+           LEFT JOIN orders o ON o.id = pc.order_id AND o.deleted_at IS NULL
+          WHERE pc.id = $1`,
+        [claimId]
+      );
+      if (!row) return res.fail('Claim not found', 404, 'CLAIM_NOT_FOUND');
+      if (row.is_practice === true) {
+        return res.fail('This is a doctor-training practice case — its payment state is not operable', 409, 'PRACTICE_CASE');
+      }
+      if (String(row.status) === 'rejected') {
+        return res.ok({
+          claim: shape(row),
+          order: { id: String(row.order_id), reference: row.reference_id || null, paymentStatus: String(row.payment_status || 'unpaid').toLowerCase() },
+          alreadyRejected: true,
+        });
+      }
+      if (String(row.status) === 'confirmed') {
+        return res.fail('This claim was already verified', 409, 'CLAIM_ALREADY_DECIDED');
+      }
+
+      const result = await rejectPaymentClaim({
+        orderId: String(row.order_id),
+        claimId,
+        reason,
+        actorId: req.user.id,
+      });
+      if (!result || !result.ok) {
+        const code = (result && result.code) || 'failed';
+        if (code === 'reason_required') return res.fail('reason is required — the patient reads it', 400, 'REASON_REQUIRED');
+        if (code === 'reason_too_long') return res.fail('reason must be at most 500 characters', 400, 'REASON_TOO_LONG');
+        // not_pending: another operator decided it between the read and the
+        // write. Re-read for the honest answer: a reject that raced a reject
+        // replays; a reject that raced a verify is a decided claim.
+        const now = await mustGet(
+          `SELECT id, order_id, method, reference, sender_name, status, rejection_reason,
+                  created_at, updated_at, resolved_at
+             FROM payment_claims WHERE id = $1`,
+          [claimId]
+        );
+        if (now && String(now.status) === 'rejected') {
+          return res.ok({
+            claim: shape(now),
+            order: { id: String(row.order_id), reference: row.reference_id || null, paymentStatus: String(row.payment_status || 'unpaid').toLowerCase() },
+            alreadyRejected: true,
+          });
+        }
+        return res.fail('This claim was already decided', 409, 'CLAIM_ALREADY_DECIDED');
+      }
+
+      return res.ok({
+        claim: shape(result.claim),
+        // Pinned fact, not decoration: reject NEVER touches the order.
+        order: { id: String(row.order_id), reference: row.reference_id || null, paymentStatus: String(row.payment_status || 'unpaid').toLowerCase() },
+        alreadyRejected: false,
+      });
+    } catch (err) {
+      console.error('[admin/payment-claim-reject] failed:', err && err.message);
+      return res.fail('Reject failed', 500, 'CLAIM_REJECT_ERROR');
     }
   });
 
@@ -3582,13 +3941,17 @@ module.exports = function (db, helpers, deploy, deps) {
       client = await db.connect();
       await client.query('BEGIN');
 
-      // practice-ok: write path, by id.
+      // practice-ok: write path, by id — read so the guard below can REFUSE
+      // a practice case (slice-1 launch-week policy, 409 PRACTICE_CASE).
       const o = (await client.query(
-        `SELECT id, patient_id, assignment_status, payment_status, specialty_id, service_id
+        `SELECT id, patient_id, assignment_status, payment_status, specialty_id, service_id, is_practice
            FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
         [id]
       )).rows[0];
       if (!o) af('Case not found', 404, 'NOT_FOUND');
+      // Slice 1 B5 — practice cases are routed by the onboarding flow, never
+      // through the operator queue actions.
+      if (o.is_practice === true) af('This is a doctor-training practice case — it is not operator-routable', 409, 'PRACTICE_CASE');
       // 2026-08-25 — manual_pending accepted alongside manual_queue.
       //
       // The LIST query was widened earlier today to include manual_pending (see
@@ -3955,15 +4318,19 @@ module.exports = function (db, helpers, deploy, deps) {
       client = await db.connect();
       await client.query('BEGIN');
 
-      // practice-ok: write path, by id.
+      // practice-ok: write path, by id — read so the guard below can REFUSE
+      // a practice case (slice-1 launch-week policy, 409 PRACTICE_CASE).
       const o = (await client.query(
         `SELECT id, patient_id, assignment_status, status, payment_status,
                 base_price, urgency_uplift_amount,
-                price, addons_json, video_consultation_selected, video_consultation_price
+                price, addons_json, video_consultation_selected, video_consultation_price, is_practice
            FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
         [id]
       )).rows[0];
       if (!o) af('Case not found', 404, 'NOT_FOUND');
+      // Slice 1 B5 — cancelling a training case (and opening a refund row for
+      // fake money) is never an operator action; the onboarding flow owns it.
+      if (o.is_practice === true) af('This is a doctor-training practice case — it is not operator-cancellable', 409, 'PRACTICE_CASE');
       // 2026-08-25 — manual_pending accepted alongside manual_queue.
       //
       // The LIST query was widened earlier today to include manual_pending (see
