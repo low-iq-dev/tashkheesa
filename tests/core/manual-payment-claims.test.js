@@ -232,11 +232,19 @@ function moneyWrites(sqlList) {
       ok(orderWrites.length === 2 && orderWrites.every(function (s) { return /^UPDATE orders SET updated_at = \$1 WHERE id = \$2$/.test(s.trim()); }),
         'the only orders write is touching updated_at (restarts the unpaid TTL clock), once per submit', orderWrites.join(' | '));
       ok(w.orders['ord-1'].payment_status === 'unpaid' && w.orders['ord-1'].status === 'SUBMITTED', 'order stays unpaid and SUBMITTED');
-      ok(w.adminAlerts.length === 2 && w.adminAlerts.every(function (a) { return a.template === 'admin_payment_claim_received' && a.orderId === 'ord-1'; }) &&
-         w.adminAlerts[0].dedupeKey !== w.adminAlerts[1].dedupeKey,
-        'superadmins alerted via notifyAdmins on each distinct submission');
+      // Soft launch 2026-09-25: each submission alerts superadmins TWICE — the
+      // in-app queue row (channel internal, the original) and a WhatsApp
+      // (channel whatsapp), with distinct dedupe keys so neither collapses
+      // the other. Two submissions → four alerts.
+      const internalAlerts = w.adminAlerts.filter(function (a) { return !a.channel || a.channel === 'internal'; });
+      const waAlerts = w.adminAlerts.filter(function (a) { return a.channel === 'whatsapp'; });
+      ok(w.adminAlerts.length === 4 && w.adminAlerts.every(function (a) { return a.template === 'admin_payment_claim_received' && a.orderId === 'ord-1'; }) &&
+         internalAlerts.length === 2 && waAlerts.length === 2 &&
+         new Set(w.adminAlerts.map(function (a) { return a.dedupeKey; })).size === 4,
+        'superadmins alerted via notifyAdmins on each distinct submission — in-app AND WhatsApp, distinct dedupe keys');
       ok(w.pushes.length === 2 && w.pushes[0].kind === 'payment_claim', 'Command push fired via pushOpsEvent');
-      ok(w.adminAlerts[1].payload.amount === 1600 && w.adminAlerts[1].payload.transferReference === 'BNK-222', 'alert carries amount + reference');
+      ok(waAlerts[1].payload.amount === 1600 && waAlerts[1].payload.transferReference === 'BNK-222' &&
+         internalAlerts[1].payload.amount === 1600 && internalAlerts[1].payload.transferReference === 'BNK-222', 'alert carries amount + reference (both channels)');
       ok(w.events.map(function (e) { return e.label; }).join(',') === 'payment_claim_submitted,payment_claim_updated', 'audit events written');
 
       // Race on insert → falls back to updating the winner.

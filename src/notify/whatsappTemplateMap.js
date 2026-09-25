@@ -181,6 +181,17 @@ const whatsappTemplateMap = {
     }),
   },
 
+  // Manual payment claim → superadmin. Same reuse as sla_breach_superadmin
+  // above: no ops-worded HSM exists, so the Meta path borrows the approved
+  // breach template rather than becoming an unmapped (permanently failing)
+  // event. OpenClaw — the live transport — composes its own body.
+  admin_payment_claim_received: {
+    templateNames: { en: 'sla_breached_en', ar: null },
+    paramBuilder: (data) => ({
+      case_ref: data.caseReference || data.case_id || '',
+    }),
+  },
+
   doctor_approved: {
     templateNames: { en: 'doctor_welcome_en', ar: null },
     paramBuilder: (data) => ({

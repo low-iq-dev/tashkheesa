@@ -323,6 +323,16 @@ const OPENCLAW_TEMPLATES = {
     en: (v) => `SLA BREACHED — case ${v.caseReference}${v.doctorName ? ` (Dr. ${v.doctorName})` : ''} is past its deadline and needs escalation or reassignment: ${opsOrderUrl(v.orderId)}\n— Tashkheesa`,
     ar: (v) => `تم تجاوز المهلة — حالة ${v.caseReference}${v.doctorName ? ` (د. ${v.doctorName})` : ''} تجاوزت موعد التسليم وتحتاج تصعيدًا أو إعادة إسناد: ${opsOrderUrl(v.orderId)}\n— تشخيصة`
   },
+  // Soft launch 2026-09-25 — a patient submitted an InstaPay / bank transfer
+  // claim. Fanned to every active superadmin on WhatsApp (manual_payment.js
+  // notifyStaffOfClaim), alongside the in-app queue row. The ops action is to
+  // check the statement, then Mark as paid or Reject — the CTA is the queue.
+  // `transferReference` / `method` / `senderName` ride the raw vars, so they
+  // are read defensively here rather than added to the shared enrichment.
+  admin_payment_claim_received: {
+    en: (v) => `TRANSFER TO VERIFY — ${v.patientName ? v.patientName + ' says they paid ' : 'a patient says they paid '}${v.money ? v.money + ' ' : ''}for case ${v.caseReference}${v.transferReference ? ` (ref: ${v.transferReference})` : ''}. Check the statement, then mark paid or reject: ${appUrl()}/superadmin/payment-claims\n— Tashkheesa`,
+    ar: (v) => `تحويل بانتظار التحقق — ${v.patientName ? v.patientName + ' بيقول إنه دفع ' : 'مريض بيقول إنه دفع '}${v.money ? v.money + ' ' : ''}للحالة ${v.caseReference}${v.transferReference ? ` (مرجع: ${v.transferReference})` : ''}. راجع كشف الحساب ثم أكّد الدفع أو ارفض: ${appUrl()}/superadmin/payment-claims\n— تشخيصة`
+  },
   doctor_approved: {
     en: (v) => `Your Tashkheesa specialist account is approved. Sign in to view available cases: ${appUrl()}/portal/doctor\n— Tashkheesa`,
     ar: (v) => `تم اعتماد حسابك كطبيب على تشخيصة. لتسجيل الدخول ومتابعة الحالات المتاحة: ${appUrl()}/portal/doctor\n— تشخيصة`
@@ -522,7 +532,10 @@ function getOpenClawBody(eventName, lang, rawVars, opts) {
     cancelledBy: vars.cancelled_by || vars.cancelledBy || '',
     appointmentId: vars.appointment_id || vars.appointmentId || '',
     link: vars.link || patientOrderUrl(orderId),
-    orderId: orderId || ''
+    orderId: orderId || '',
+    // Manual payment claim (admin_payment_claim_received).
+    transferReference: vars.transferReference || vars.transfer_reference || '',
+    senderName: vars.senderName || vars.sender_name || ''
   };
 
   const composer = lang === 'ar' ? entry.ar : entry.en;

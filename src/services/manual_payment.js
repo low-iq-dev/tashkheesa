@@ -369,6 +369,33 @@ function notifyStaffOfClaim({ order, claimRow, patientName, created }) {
     })).catch(function () { /* logged inside notify */ });
   } catch (_) { /* fan-out failure must not block the claim */ }
 
+  // Soft launch 2026-09-25: the in-app row above is only seen by someone who
+  // is already looking at the console. The money path is now InstaPay, so a
+  // claim is the moment a human has to act — it goes to the superadmins'
+  // WhatsApp too, exactly the way dispatchSlaBreach reaches them. Separate
+  // dedupe suffix so the two channels never collapse into one row.
+  try {
+    const { notifyAdmins } = D.notify();
+    Promise.resolve(notifyAdmins({
+      template: 'admin_payment_claim_received',
+      payload: {
+        case_id: orderId,
+        caseReference: caseReference,
+        claim_id: claimRow.id,
+        method: claimRow.method,
+        transferReference: claimRow.reference,
+        senderName: claimRow.sender_name || null,
+        amount: amount,
+        currency: currency,
+        patientName: patientName || '',
+        resubmitted: !created
+      },
+      dedupeKey: 'payment_claim:' + claimRow.id + ':' + stamp + ':sa:wa',
+      orderId,
+      channel: 'whatsapp'
+    })).catch(function () { /* logged inside notify */ });
+  } catch (_) { /* fan-out failure must not block the claim */ }
+
   try {
     const { pushOpsEvent } = D.opsPush();
     Promise.resolve(pushOpsEvent({
