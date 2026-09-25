@@ -39,6 +39,7 @@ const {
   requireJWT,
 } = require('../../middleware/requireJWT');
 const { verifyOtpCode } = require('../../services/twilio_verify');
+const storeReview = require('../../services/store_review_login');
 
 // Lazy-load express-validator — same boot-time reasoning as api/auth.js.
 let _ev;
@@ -76,6 +77,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
    * the routing SQL). Returns null when sign-in is allowed.
    */
   function doctorStateAnswer(user) {
+    // The store-review account is inactive by design (out of routing and
+    // every count); only the inactive answer is waived, only for that id.
+    const reviewAccount = storeReview.isReviewDoctor(user.id);
     if (user.pending_approval === true) {
       return {
         status: 403, code: 'ACCOUNT_PENDING_APPROVAL',
@@ -88,7 +92,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
         message: 'Your application was not approved. Contact support if you believe this is a mistake.',
       };
     }
-    if (user.is_active === false) {
+    if (user.is_active === false && !reviewAccount) {
       return {
         status: 403, code: 'ACCOUNT_INACTIVE',
         message: 'This account is not active. Please contact support.',
@@ -113,6 +117,12 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       }
       const { phone, countryCode } = req.body;
       const fullPhone = `${countryCode}${phone}`.replace(/\s/g, '');
+
+      // Store review number: its code is fixed (services/store_review_login),
+      // so nothing is stored and no SMS goes out. Same answer as a real send.
+      if (storeReview.isReviewPhone(phone, countryCode)) {
+        return res.ok({ message: 'OTP sent to your phone.' });
+      }
 
       const otp = String(randomInt(100000, 1000000)).padStart(6, '0');
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
@@ -167,6 +177,31 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
 
       // Same two-source OTP check as the patient door: Twilio Verify when
       // configured, otp_codes fallback otherwise.
+      // Store review sign-in: the fixed code on the review number signs in as
+      // the App Review sample consultant — never a phone lookup, never another
+      // account. See services/store_review_login.js.
+      if (storeReview.isReviewPhone(phone, countryCode)) {
+        if (!storeReview.isReviewCode(phone, countryCode, otp)) {
+          return res.fail('Invalid or expired OTP.', 401, 'INVALID_OTP');
+        }
+        const reviewer = await safeGet(
+          "SELECT * FROM users WHERE id = $1 AND role = 'doctor'",
+          [storeReview.reviewConfig().doctorId]
+        );
+        if (!reviewer) {
+          return res.fail(
+            'This number is not registered as a consultant. To join Tashkheesa, apply at tashkheesa.com/apply.',
+            403,
+            'NOT_A_DOCTOR'
+          );
+        }
+        const blockedReviewer = doctorStateAnswer(reviewer);
+        if (blockedReviewer) {
+          return res.fail(blockedReviewer.message, blockedReviewer.status, blockedReviewer.code);
+        }
+        return await openSession(req, res, reviewer);
+      }
+
       const useTwilioVerify = !!(process.env.TWILIO_VERIFY_SERVICE_SID && process.env.TWILIO_ACCOUNT_SID);
       let codeValid = false;
       if (useTwilioVerify) {
@@ -254,26 +289,30 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
         return res.fail(blocked.message, blocked.status, blocked.code);
       }
 
-      // C1 — this device gets its own session row; 12h refresh lifetime.
-      const sessionId = sessions.newSessionId();
-      const tokens = generateDoctorTokens(user, sessionId);
-      const { deviceId, deviceName } = deviceInfo(req);
-      await sessions.createSession({
-        id: sessionId,
-        userId: user.id,
-        refreshToken: tokens.refreshToken,
-        client: 'doctor_app',
-        deviceId,
-        deviceName,
-      });
-
-      return res.ok({
-        user: sanitizeDoctor(user),
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-      });
+      return await openSession(req, res, user);
     }
   );
+
+  // C1 — this device gets its own session row; 12h refresh lifetime.
+  async function openSession(req, res, user) {
+    const sessionId = sessions.newSessionId();
+    const tokens = generateDoctorTokens(user, sessionId);
+    const { deviceId, deviceName } = deviceInfo(req);
+    await sessions.createSession({
+      id: sessionId,
+      userId: user.id,
+      refreshToken: tokens.refreshToken,
+      client: 'doctor_app',
+      deviceId,
+      deviceName,
+    });
+
+    return res.ok({
+      user: sanitizeDoctor(user),
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    });
+  }
 
   // ─── POST /refresh ───────────────────────────────────────
   // Same envelope and REFRESH_REVOKED contract as the patient endpoint: a

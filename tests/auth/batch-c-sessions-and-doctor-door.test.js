@@ -551,6 +551,62 @@ async function check(name, fn) {
     assert.strictEqual(r.body.data.user.role, 'patient');
   });
 
+  // ════ Store-review sign-in (services/store_review_login.js) ════
+
+  function seedReviewer(over = {}) {
+    return seedDoctor({ id: 'demo-consultant-appreview', phone: null, email: 'appreview.consultant@tashkheesa.invalid', is_active: false, ...over });
+  }
+  function reviewOn() { process.env.STORE_REVIEW_PHONE = '+201550000000'; process.env.STORE_REVIEW_OTP = '246810'; }
+  function reviewOff() { delete process.env.STORE_REVIEW_PHONE; delete process.env.STORE_REVIEW_OTP; delete process.env.STORE_REVIEW_DOCTOR_ID; }
+
+  await check('REVIEW: env unset → the review number is an ordinary number (code stored, fixed code refused)', async () => {
+    resetState(); reviewOff(); seedReviewer();
+    const q = await post('/doctor/auth/otp/request', { phone: '01550000000', countryCode: '+20' });
+    assert.strictEqual(q.status, 200, JSON.stringify(q.body));
+    assert.strictEqual(state.otps.length, 1);
+    const r = await post('/doctor/auth/otp/verify', { phone: '01550000000', countryCode: '+20', otp: '246810' });
+    assert.strictEqual(r.status, 401, JSON.stringify(r.body));
+  });
+
+  await check('REVIEW: on → request stores and sends nothing; wrong code is INVALID_OTP', async () => {
+    resetState(); reviewOn(); seedReviewer();
+    const q = await post('/doctor/auth/otp/request', { phone: '1550000000', countryCode: '+20' });
+    assert.strictEqual(q.status, 200, JSON.stringify(q.body));
+    assert.strictEqual(state.otps.length, 0);
+    const r = await post('/doctor/auth/otp/verify', { phone: '01550000000', countryCode: '+20', otp: '135791' });
+    assert.strictEqual(r.status, 401);
+    assert.strictEqual(r.body.code, 'INVALID_OTP');
+  });
+
+  await check('REVIEW: fixed code signs in as the (inactive) review consultant, 12h session, and refresh keeps it alive', async () => {
+    resetState(); reviewOn(); seedReviewer();
+    const r = await post('/doctor/auth/otp/verify', { phone: '01550000000', countryCode: '+20', otp: '246810' });
+    assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+    assert.strictEqual(r.body.data.user.id, 'demo-consultant-appreview');
+    assert.strictEqual(liveSessions('demo-consultant-appreview').length, 1);
+    const f = await post('/doctor/auth/refresh', { refreshToken: r.body.data.refreshToken });
+    assert.strictEqual(f.status, 200, JSON.stringify(f.body));
+    assert.strictEqual(state.userInserts, 0);
+  });
+
+  await check('REVIEW: the inactive waiver is id-scoped — any other inactive doctor is still ACCOUNT_INACTIVE', async () => {
+    resetState(); reviewOn(); seedDoctor({ is_active: false });
+    seedOtp('+2001007801095', '777777');
+    const r = await post('/doctor/auth/otp/verify', { phone: '01007801095', countryCode: '+20', otp: '777777' });
+    assert.strictEqual(r.status, 403);
+    assert.strictEqual(r.body.code, 'ACCOUNT_INACTIVE');
+  });
+
+  await check('REVIEW: rejected still answers ACCOUNT_REJECTED on the review door; no review account → NOT_A_DOCTOR', async () => {
+    resetState(); reviewOn(); seedReviewer({ rejection_reason: 'closed' });
+    const r = await post('/doctor/auth/otp/verify', { phone: '01550000000', countryCode: '+20', otp: '246810' });
+    assert.strictEqual(r.body.code, 'ACCOUNT_REJECTED', JSON.stringify(r.body));
+    resetState();
+    const n = await post('/doctor/auth/otp/verify', { phone: '01550000000', countryCode: '+20', otp: '246810' });
+    assert.strictEqual(n.body.code, 'NOT_A_DOCTOR', JSON.stringify(n.body));
+    reviewOff();
+  });
+
   server.close();
 })().catch((e) => {
   t.fail('batch-c auth test harness crashed', e);
