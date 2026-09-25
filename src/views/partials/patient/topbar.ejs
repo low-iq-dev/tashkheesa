@@ -26,10 +26,13 @@
         <button type="button" class="p-btn p-btn--ghost p-btn--sm p-bell-btn"
                 aria-label="<%= __topbarIsAr ? 'الإشعارات' : 'Notifications' %>"
                 aria-haspopup="menu" aria-expanded="false"
-                style="padding:8px;border-radius:10px;position:relative;">
-          <%- include('icon', { name: 'bell', size: 18 }) %>
-          <span class="p-bell-dot" data-unread="0" aria-hidden="true"
-                style="display:none;position:absolute;top:6px;inset-inline-end:6px;min-width:8px;height:8px;border-radius:999px;background:var(--accent);box-shadow:0 0 0 2px #FFFEFB;font-size:9px;line-height:1;color:var(--on-accent);font-weight:700;text-align:center;padding:0 3px;"></span>
+>
+          <%- include('icon', { name: 'bell', size: 22 }) %>
+          <%# Sizing lives in patient-portal-v2.css (.p-bell-btn / .p-bell-dot,
+              2026-09-25): the old 8px inline dot sat on top of an 18px icon
+              and the "9+" count covered the bell entirely. data-mode is set
+              by setDot() in foot.ejs: none | dot | count. %>
+          <span class="p-bell-dot" data-unread="0" data-mode="none" aria-hidden="true"></span>
         </button>
         <div class="p-bell-dropdown" data-state="closed"
              style="display:none;position:absolute;top:calc(100% + 6px);inset-inline-end:0;z-index:60;"></div>

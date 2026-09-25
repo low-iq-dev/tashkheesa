@@ -52,24 +52,29 @@
     } catch (e) { return String(iso); }
   }
 %>
+<% const __vcSoon = (typeof videoComingSoon !== 'undefined' && videoComingSoon); %>
 <%- include('partials/patient/head', {
   active: 'appointments',
-  title: tt('My Appointments', 'My Appointments', 'مواعيدي'),
+  title: tt('Video consultations', 'Video consultations', 'استشارات الفيديو'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
-  bodyClass: 'p-page-appointments',
+  bodyClass: 'p-page-appointments' + (__vcSoon ? ' p-page-vc-soon' : ''),
   cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>
 
 <%- include('partials/patient/topbar', {
-  title: tt('My Appointments', 'My Appointments', 'مواعيدي'),
-  sub:   tt('All your scheduled appointments.', 'All your scheduled appointments.', 'جميع مواعيدك المحجوزة.'),
+  title: tt('Video consultations', 'Video consultations', 'استشارات الفيديو'),
+  sub:   __vcSoon
+    ? tt('Face-to-face time with your consultant — opening soon.', 'Face-to-face time with your consultant — opening soon.', 'وقت وجهاً لوجه مع استشاريك — قريباً.')
+    : tt('Your scheduled video consultations.', 'Your scheduled video consultations.', 'استشارات الفيديو المحجوزة.'),
   serif: false,
   isAr:  __isAr,
   hideBell: false
 }) %>
 
-<% if (!_appointments || _appointments.length === 0) { %>
+<% if (__vcSoon) { %>
+  <%- include('partials/patient/vc-coming-soon', { isAr: __isAr }) %>
+<% } else if (!_appointments || _appointments.length === 0) { %>
   <div class="p-card" style="text-align:center;padding:3rem 1.5rem;">
     <div style="margin-bottom:1rem;">
       <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -79,22 +84,10 @@
         <line x1="3" y1="10" x2="21" y2="10"/>
       </svg>
     </div>
-    <%# COMING SOON 2026-08-25 - the empty state has to say WHICH kind of empty
-        it is. "You have no scheduled appointments yet" reads as a feature that
-        works and simply has nothing in it; while video consultation is held
-        back that is misleading. The nav entry that leads here carries a Soon
-        badge and this page now agrees with it.
-        See src/services/video_flag.js. %>
-    <% if (typeof videoComingSoon !== 'undefined' && videoComingSoon) { %>
-      <span style="display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:#E8E5DD;color:#5b5b53;text-transform:uppercase;letter-spacing:0.3px;margin-bottom:10px;">
-        <%= tt('Coming soon', 'Coming soon', 'قريباً') %>
-      </span>
-      <h3 style="color:var(--ink-2);margin:0 0 0.25rem;"><%= tt('Video consultations', 'Video consultations', 'استشارات الفيديو') %></h3>
-      <p style="color:var(--muted);margin:0;font-size:0.85rem;"><%= tt('Speaking to your doctor face to face is not open yet. We will let you know the moment it is.', 'Speaking to your doctor face to face is not open yet. We will let you know the moment it is.', 'التحدث مع طبيبك وجهاً لوجه غير متاح بعد. سنخبرك فور توفره.') %></p>
-    <% } else { %>
-      <h3 style="color:var(--ink-2);margin:0 0 0.25rem;"><%= tt('No Appointments', 'No Appointments', 'لا توجد مواعيد') %></h3>
-      <p style="color:var(--muted);margin:0;font-size:0.85rem;"><%= tt('You have no scheduled appointments yet.', 'You have no scheduled appointments yet.', 'لا توجد مواعيد محجوزة حالياً.') %></p>
-    <% } %>
+    <%# 2026-09-25: the coming-soon state moved to partials/patient/vc-coming-soon.ejs
+        (a blurred preview of the call screen behind the announcement). %>
+      <h3 style="color:var(--ink-2);margin:0 0 0.25rem;"><%= tt('No video consultations yet', 'No video consultations yet', 'لا توجد استشارات فيديو بعد') %></h3>
+      <p style="color:var(--muted);margin:0;font-size:0.85rem;"><%= tt('When you book one, it will appear here.', 'When you book one, it will appear here.', 'عند حجز استشارة ستظهر هنا.') %></p>
   </div>
 <% } else { %>
   <div style="display:grid;gap:0.75rem;">

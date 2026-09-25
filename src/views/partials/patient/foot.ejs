@@ -137,16 +137,13 @@
 
   function setDot(unread) {
     var n = Number(unread) || 0;
-    if (n <= 0) { dot.style.display = 'none'; dot.textContent = ''; dot.style.minWidth = '8px'; dot.style.height = '8px'; dot.setAttribute('data-unread', '0'); return; }
-    dot.style.display = 'inline-flex'; dot.style.alignItems = 'center'; dot.style.justifyContent = 'center';
-    dot.setAttribute('data-unread', String(n));
+    dot.setAttribute('data-unread', String(Math.max(n, 0)));
+    if (n <= 0) { dot.setAttribute('data-mode', 'none'); dot.textContent = ''; return; }
     if (n < 9) {
       // Pure dot — no numeric counts under 9. Anxiety reduction.
-      dot.textContent = ''; dot.style.minWidth = '8px'; dot.style.height = '8px'; dot.style.padding = '0';
+      dot.setAttribute('data-mode', 'dot'); dot.textContent = '';
     } else {
-      dot.textContent = '9+';
-      dot.style.minWidth = '18px'; dot.style.height = '14px'; dot.style.padding = '0 4px';
-      dot.style.fontSize = '10px';
+      dot.setAttribute('data-mode', 'count'); dot.textContent = '9+';
     }
   }
 

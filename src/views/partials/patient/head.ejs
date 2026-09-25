@@ -68,7 +68,40 @@
   <!-- Patient v2 design system (load order matters: fonts → tokens → components) -->
   <link rel="stylesheet" href="/css/fonts.css" />
   <link rel="stylesheet" href="/css/patient-tokens.css" />
-  <link rel="stylesheet" href="/css/patient-portal-v2.css" />
+  <link rel="stylesheet" href="/css/patient-portal-v2.css?v=20260925b" />
+  <%# Sidebar collapse (2026-09-25). Runs in <head> so a remembered collapsed
+      state is applied before first paint — no flash of the wide sidebar.
+      The click handler is delegated so it works whichever view renders the
+      sidebar. After the width animation, a resize event lets anything that
+      measures itself (charts, the annotator, chat panes) re-fit. %>
+  <script<% if (__nonce) { %> nonce="<%= __nonce %>"<% } %>>
+  (function () {
+    var KEY = 'tk_p_side', root = document.documentElement;
+    try { if (localStorage.getItem(KEY) === 'c') root.classList.add('p-side-collapsed'); } catch (e) {}
+    function sync(btn) {
+      var c = root.classList.contains('p-side-collapsed');
+      var label = btn.getAttribute(c ? 'data-label-expand' : 'data-label-collapse') || '';
+      btn.setAttribute('aria-expanded', c ? 'false' : 'true');
+      btn.setAttribute('aria-label', label);
+      btn.setAttribute('title', label);
+    }
+    document.addEventListener('DOMContentLoaded', function () {
+      var btn = document.querySelector('.p-side-toggle');
+      if (btn) sync(btn);
+    });
+    document.addEventListener('click', function (e) {
+      var btn = e.target && e.target.closest ? e.target.closest('.p-side-toggle') : null;
+      if (!btn) return;
+      root.classList.add('p-side-anim');
+      var c = root.classList.toggle('p-side-collapsed');
+      try { localStorage.setItem(KEY, c ? 'c' : 'o'); } catch (err) {}
+      sync(btn);
+      setTimeout(function () {
+        try { window.dispatchEvent(new Event('resize')); } catch (err) {}
+      }, 260);
+    });
+  })();
+  </script>
 </head>
 <body class="p-portal<%= __bodyClass %>">
 <div class="p-app<%= __variant === 'light' ? ' p-app--light' : '' %>">

@@ -34,26 +34,59 @@
   --p-tabbar-height: 0px;
 }
 
+/* 2026-09-25: patient-tokens.css styles `.p-portal body`, which never
+   matches — .p-portal is ON <body>. So the browser's default 8px body margin
+   survived, framing the whole portal in cream and (with the full-height
+   sidebar) forcing a stray scrollbar. Also: links styled as buttons or as the
+   brand lock-up should never carry the default underline. */
+body.p-portal { margin: 0; }
+.p-portal a.p-btn,
+.p-portal .p-sidebar__brand { text-decoration: none; color: inherit; }
+.p-portal a.p-btn--primary { color: var(--on-primary); }
+.p-portal a.p-btn--ghost, .p-portal a.p-btn--secondary { color: var(--primary); }
+.p-portal a.p-btn--brass { color: var(--on-accent); }
+
 /* ---------- APP LAYOUT ---------- */
+/* 2026-09-25: sidebar width is a variable so the collapse toggle (and the
+   tablet breakpoint) change one number, and the grid reflows the page.
+   min-height is 100vh (was 100%, which resolved to the content height — on
+   short pages the green sidebar stopped halfway down the screen). */
 .p-app {
+  --p-side-w: 268px;
   display: grid;
-  grid-template-columns: 240px 1fr;
-  min-height: 100%;
+  grid-template-columns: var(--p-side-w) minmax(0, 1fr);
+  min-height: 100vh;
+  min-height: 100dvh;
   background: var(--bg);
 }
 .p-app--light {
-  grid-template-columns: 260px 1fr;
+  --p-side-w: 276px;
 }
+html.p-side-anim .p-app { transition: grid-template-columns 240ms var(--ease); }
 
 /* ---------- SIDEBAR (clarity variant: dark teal) ---------- */
+/* The aside is sticky and exactly one viewport tall, so it always runs the
+   full height of the screen; its content scrolls inside .p-sidebar__scroll
+   if the window is short. The collapse toggle hangs off the aside's edge,
+   outside the scroller, so it is never clipped. */
 .p-sidebar {
   background: linear-gradient(180deg, #0B6B5F 0%, #053D37 100%);
   color: var(--on-primary);
-  padding: 22px 14px 16px;
-  display: flex; flex-direction: column; gap: 2px;
-  position: relative;
+  position: sticky; top: 0;
+  height: 100vh;
+  height: 100dvh;
+  z-index: 20;
   border-inline-end: 1px solid rgba(0,0,0,0.1);
 }
+.p-sidebar__scroll {
+  height: 100%;
+  overflow-y: auto; overflow-x: hidden;
+  padding: 22px 14px 16px;
+  display: flex; flex-direction: column; gap: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.18) transparent;
+}
+.p-sidebar--light .p-sidebar__scroll { scrollbar-color: var(--rule) transparent; }
 .p-sidebar__brand {
   display: flex; align-items: center; gap: 10px;
   padding: 2px 8px 24px;
@@ -127,6 +160,8 @@ a.p-sidebar__lang-btn:hover { color: #F2E4C7; background: rgba(255,255,255,0.06)
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 .p-nav:hover { background: rgba(255,255,255,0.06); color: #FFF; }
+.p-nav > svg { flex-shrink: 0; }
+.p-nav__label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .p-nav.active {
   background: #053D37;
   color: #FFF; font-weight: 500;
@@ -250,7 +285,8 @@ html[dir="rtl"] .p-sidebar--light .p-nav.active {
 .p-tabbar__item svg { width: 20px; height: 20px; }
 
 /* ---------- MAIN ---------- */
-.p-main { padding: 28px 36px; max-width: 1240px; margin: 0 auto; width: 100%; }
+.p-main { padding: 28px 36px; max-width: 1240px; margin: 0 auto; width: 100%; min-width: 0; }
+html.p-side-anim .p-main { transition: max-width 240ms var(--ease); }
 .p-topbar { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 22px; }
 .p-topbar__title { font-size: 26px; font-weight: 600; letter-spacing: -0.012em; flex: 1; }
 .p-topbar__title-serif {
@@ -754,8 +790,8 @@ html[dir="rtl"] .p-crumbs svg.chev { transform: scaleX(-1); }
 
 /* Tablet & narrow desktop (768–1023px) */
 @media (max-width: 1023px) {
-  .p-app { grid-template-columns: 200px 1fr; }
-  .p-app--light { grid-template-columns: 220px 1fr; }
+  .p-app { --p-side-w: 216px; }
+  .p-app--light { --p-side-w: 224px; }
   .p-main { padding: 24px 24px; }
   .p-hero { padding: 56px 32px 40px; gap: 32px; }
 }
@@ -1064,4 +1100,374 @@ body.messages-view .p-main {
 body.messages-view .msg-shell {
   height: 100%;
   max-height: 100%;
+}
+
+
+/* =========================================================================
+   SIDEBAR COLLAPSE (2026-09-25)
+   The edge toggle hides the sidebar down to an icon rail; the chevron flips
+   to point the way the rail will move next. State lives on <html> as
+   .p-side-collapsed (set before first paint by the inline script in
+   partials/patient/head.ejs, remembered in localStorage). The page reflows
+   through the --p-side-w grid column; .p-main gets a wider cap so the extra
+   room is used rather than left as margin. Desktop/tablet only — on phones
+   the sidebar is replaced by the bottom tab bar.
+   ========================================================================= */
+.p-side-toggle {
+  position: absolute;
+  top: 30px;
+  inset-inline-end: -14px;
+  z-index: 30;
+  width: 28px; height: 28px;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: #FFFEFB;
+  color: var(--primary-dark);
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(5, 61, 55, 0.18);
+  transition: background var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.p-side-toggle:hover { background: var(--primary-light); box-shadow: 0 3px 12px rgba(5, 61, 55, 0.26); }
+.p-side-toggle:active { transform: scale(0.94); }
+.p-side-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.p-side-toggle svg { width: 14px; height: 14px; transition: transform 240ms var(--ease); }
+/* Chevron is drawn pointing to the inline-start side ("<" in English). */
+html[dir="rtl"] .p-side-toggle svg { transform: scaleX(-1); }
+html.p-side-collapsed .p-side-toggle svg { transform: rotate(180deg); }
+html[dir="rtl"].p-side-collapsed .p-side-toggle svg { transform: scaleX(-1) rotate(180deg); }
+
+@media (min-width: 768px) {
+  html.p-side-collapsed .p-app,
+  html.p-side-collapsed .p-app--light { --p-side-w: 76px; }
+  html.p-side-collapsed .p-main { max-width: 1440px; }
+
+  html.p-side-collapsed .p-sidebar__scroll { padding: 22px 10px 16px; align-items: stretch; }
+  html.p-side-collapsed .p-sidebar__brand { justify-content: center; padding: 2px 0 20px; }
+  html.p-side-collapsed .p-sidebar__brand-text { display: none; }
+
+  /* Language: show only the switch-to link, centred. */
+  html.p-side-collapsed .p-sidebar__lang { justify-content: center; padding: 0 0 10px; }
+  html.p-side-collapsed .p-sidebar__lang-sep,
+  html.p-side-collapsed .p-sidebar__lang-btn.is-active { display: none; }
+
+  /* Section headings become hairlines. */
+  html.p-side-collapsed .p-nav-sec {
+    font-size: 0; padding: 0; height: 1px; margin: 12px 14px 8px;
+    background: rgba(255,255,255,0.14);
+  }
+  html.p-side-collapsed .p-sidebar--light .p-nav-sec { background: var(--rule); }
+
+  html.p-side-collapsed .p-nav { justify-content: center; padding: 11px 0; position: relative; }
+  html.p-side-collapsed .p-nav__label { display: none; }
+  html.p-side-collapsed .p-nav__count {
+    position: absolute; top: 3px; inset-inline-end: 8px;
+    margin: 0; padding: 0 5px; min-width: 17px; height: 17px; line-height: 17px;
+    font-size: 10px; text-align: center; background: var(--accent); color: var(--on-accent); box-shadow: none;
+  }
+  /* "Soon" pill shrinks to a brass dot. */
+  html.p-side-collapsed .p-nav__soon {
+    position: absolute; top: 8px; inset-inline-end: 14px;
+    margin: 0; padding: 0; width: 7px; height: 7px; font-size: 0;
+    background: #D9B56B; box-shadow: none;
+  }
+  html.p-side-collapsed .p-sidebar__trust { display: none; }
+  html.p-side-collapsed .p-sidebar__me { justify-content: center; padding: 12px 0 2px; margin-top: auto; }
+  html.p-side-collapsed .p-sidebar__me-text { display: none; }
+}
+@media (max-width: 767px) {
+  .p-side-toggle { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.p-side-anim .p-app, html.p-side-anim .p-main, .p-side-toggle svg { transition: none !important; }
+}
+@media print {
+  .p-side-toggle { display: none !important; }
+  .p-sidebar { position: static; height: auto; }
+}
+
+/* Pages that render .p-app without a sidebar (404, 500, showSidebar:false)
+   put <main> first — span the whole grid instead of the sidebar column. */
+.p-app > .p-main:first-child { grid-column: 1 / -1; }
+
+/* =========================================================================
+   NOTIFICATION BELL (2026-09-25)
+   Bigger target, bigger icon, and the badge sits on the button's corner —
+   not on top of the bell glyph.
+   ========================================================================= */
+.p-bell-btn {
+  width: 44px; height: 44px; min-height: 44px;
+  padding: 0 !important;
+  border-radius: 12px;
+  background: #FFFEFB;
+  border: 1px solid var(--rule);
+  color: var(--primary-dark);
+  position: relative;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.p-bell-btn:hover { background: var(--primary-light); border-color: transparent; }
+.p-bell-btn[aria-expanded="true"] { background: var(--primary-light); border-color: var(--primary); }
+.p-bell-btn > svg { width: 22px; height: 22px; }
+.p-bell-dot {
+  display: none;
+  position: absolute;
+  border-radius: 999px;
+  background: #C2410C;           /* warm alert orange — reads as "new" against brass/teal chrome */
+  color: #FFF;
+  box-shadow: 0 0 0 2px var(--bg);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  align-items: center; justify-content: center;
+  pointer-events: none;
+}
+.p-bell-dot[data-mode="dot"] {
+  display: block;
+  top: 7px; inset-inline-end: 8px;
+  width: 10px; height: 10px;
+}
+.p-bell-dot[data-mode="count"] {
+  display: inline-flex;
+  top: -7px; inset-inline-end: -7px;
+  min-width: 21px; height: 21px;
+  padding: 0 5px;
+  font-size: 10.5px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .p-bell-dot[data-mode="dot"], .p-bell-dot[data-mode="count"] { animation: p-bell-pop 260ms var(--ease) both; }
+}
+@keyframes p-bell-pop { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* =========================================================================
+   VIDEO CONSULTATIONS — COMING SOON (2026-09-25)
+   partials/patient/vc-coming-soon.ejs. A blurred mock of the future call
+   screen fills the panel; a frosted announcement card sits on top.
+   ========================================================================= */
+.vc-soon {
+  position: relative;
+  isolation: isolate;
+  min-height: 620px;
+  border-radius: 22px;
+  overflow: hidden;
+  background: #0A2F2A;
+  display: grid;
+  place-items: center start;
+  padding: 44px 40px;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.05), 0 18px 48px -24px rgba(5,61,55,0.45);
+}
+.vc-soon__stage {
+  position: absolute; inset: 0;
+  padding: 22px;
+  filter: blur(2.5px) saturate(1.05);
+  transform: scale(1.03);
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+.vc-call { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; height: 100%; }
+.vc-call__main {
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 34%, #2A7F73 0%, #125148 42%, #07231F 100%);
+}
+.vc-call__top {
+  position: absolute; top: 16px; inset-inline: 16px;
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; font-weight: 700; color: #F2E4C7; letter-spacing: 0.04em;
+}
+.vc-live, .vc-enc {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: rgba(0,0,0,0.28); padding: 6px 11px; border-radius: 999px;
+}
+.vc-live i { width: 8px; height: 8px; border-radius: 999px; background: #EF4444; display: inline-block; }
+.vc-enc svg { width: 13px; height: 13px; }
+
+/* Abstract figures — shapes only, no faces. */
+/* The consultant + call controls live in the inline-end part of the tile so
+   they stay visible beside the announcement card (which sits inline-start). */
+.vc-call__focus { position: absolute; top: 0; bottom: 0; inset-inline-end: 0; width: 56%; }
+.vc-person { position: absolute; left: 50%; transform: translateX(-50%); }
+.vc-person__head {
+  border-radius: 999px;
+  background: linear-gradient(180deg, #D4A98A 0%, #B98B6C 100%);
+  margin: 0 auto;
+  position: relative;
+}
+.vc-person__head::before {           /* hair */
+  content: ""; position: absolute; inset: -4% -3% 52% -3%;
+  border-radius: 999px 999px 40% 40%;
+  background: #2B211C;
+}
+.vc-person__body { margin: 10px auto 0; border-radius: 48% 48% 0 0; position: relative; }
+.vc-person--doc { bottom: 0; width: 340px; }
+.vc-person--doc .vc-person__head { width: 118px; height: 132px; }
+.vc-person--doc .vc-person__body {
+  width: 340px; height: 230px;
+  background:
+    linear-gradient(90deg, transparent 43%, #0E5A51 43%, #0E5A51 57%, transparent 57%) top / 100% 46% no-repeat,
+    linear-gradient(180deg, #F3F4F1 0%, #DADDD7 100%);
+}
+.vc-person__steth {
+  position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+  width: 150px; height: 110px;
+  border: 6px solid #3B4A55; border-top: none;
+  border-radius: 0 0 80px 80px;
+}
+.vc-person__steth::after {
+  content: ""; position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%);
+  width: 26px; height: 26px; border-radius: 999px; background: #9AA6AE; border: 5px solid #3B4A55;
+}
+.vc-call__name {
+  position: absolute; bottom: 92px; inset-inline-start: 18px;
+  display: flex; flex-direction: column; gap: 2px;
+  background: rgba(0,0,0,0.32); color: #FFF; padding: 8px 12px; border-radius: 10px;
+  font-size: 13px;
+}
+.vc-call__name span { font-size: 11px; color: rgba(255,255,255,0.72); }
+.vc-pip {
+  position: absolute; top: 64px; inset-inline-end: 18px;
+  width: 168px; height: 118px; border-radius: 14px; overflow: hidden;
+  background: linear-gradient(160deg, #3C4F5A 0%, #1E2A31 100%);
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.55);
+}
+.vc-pip > span {
+  position: absolute; bottom: 7px; inset-inline-start: 9px;
+  font-size: 11px; font-weight: 700; color: #FFF;
+}
+.vc-person--pt { bottom: 0; width: 110px; }
+.vc-person--pt .vc-person__head { width: 44px; height: 50px; }
+.vc-person--pt .vc-person__head::before { inset: -6% -4% 45% -4%; background: #1B1512; }
+.vc-person--pt .vc-person__body { width: 110px; height: 54px; margin-top: 5px; background: #B38B3E; }
+.vc-controls {
+  position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 12px;
+  background: rgba(0,0,0,0.3); padding: 10px 14px; border-radius: 999px;
+}
+.vc-ctl {
+  width: 46px; height: 46px; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.16); color: #FFF;
+}
+.vc-ctl svg { width: 20px; height: 20px; }
+.vc-ctl--end { width: 64px; background: #DC2626; }
+
+.vc-call__side {
+  border-radius: 18px;
+  background: #FFFEFB;
+  padding: 18px;
+  display: flex; flex-direction: column; gap: 12px;
+  overflow: hidden;
+}
+.vc-side__head { display: flex; flex-direction: column; gap: 2px; font-size: 14px; color: var(--ink); }
+.vc-side__head span { font-size: 11.5px; color: var(--muted); }
+.vc-scan {
+  position: relative; height: 170px; border-radius: 12px; flex-shrink: 0;
+  background:
+    radial-gradient(ellipse 34% 40% at 46% 52%, #9CA3A8 0%, #5D666C 55%, transparent 72%),
+    radial-gradient(ellipse 60% 70% at 50% 50%, #3A4247 0%, #1B2125 70%),
+    #0B0F12;
+}
+.vc-scan__ring {
+  position: absolute; top: 34%; left: 56%;
+  width: 38px; height: 38px; border-radius: 999px;
+  border: 2.5px solid #F59E0B; box-shadow: 0 0 0 4px rgba(245,158,11,0.25);
+}
+.vc-finding {
+  display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start;
+  padding: 10px; border-radius: 10px; background: #F4F1EA;
+}
+.vc-finding b {
+  width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center;
+  background: #E3DCCB; color: #6B5426; font-size: 12px;
+}
+.vc-finding.is-active { background: var(--primary-light); box-shadow: inset 0 0 0 1.5px var(--primary); }
+.vc-finding.is-active b { background: var(--primary); color: #FFF; }
+.vc-finding div { display: flex; flex-direction: column; gap: 6px; padding-top: 3px; }
+.vc-finding i { display: block; height: 7px; border-radius: 999px; background: #D8D3C7; }
+.vc-bubble {
+  margin-top: auto; align-self: flex-end;
+  background: var(--primary); color: #FFF;
+  font-size: 12.5px; padding: 9px 13px; border-radius: 14px 14px 4px 14px;
+  max-width: 88%;
+}
+html[dir="rtl"] .vc-bubble { border-radius: 14px 14px 14px 4px; }
+
+.vc-soon__veil {
+  position: absolute; inset: 0; z-index: 1;
+  background:
+    radial-gradient(ellipse 60% 70% at 50% 50%, rgba(10,47,42,0.30) 0%, rgba(10,47,42,0.10) 60%, rgba(10,47,42,0) 100%);
+}
+
+.vc-soon__card {
+  position: relative; z-index: 2;
+  width: 100%; max-width: 500px;
+  background: rgba(255, 254, 251, 0.90);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,0.7);
+  border-radius: 20px;
+  padding: 30px 32px 24px;
+  box-shadow: 0 24px 60px -20px rgba(3, 30, 27, 0.55);
+  color: var(--ink);
+}
+.vc-soon__pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: #F7EEDC; color: #8E6C2C;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 5px 12px; border-radius: 999px;
+}
+html[dir="rtl"] .vc-soon__pill { letter-spacing: 0; }
+.vc-soon__pill i { width: 7px; height: 7px; border-radius: 999px; background: #B38B3E; position: relative; }
+.vc-soon__pill i::after {
+  content: ""; position: absolute; inset: -4px; border-radius: 999px;
+  border: 2px solid #B38B3E; opacity: 0;
+}
+.vc-soon__card h2 {
+  font-family: var(--font-display);
+  font-size: 34px; font-weight: 500; line-height: 1.12; letter-spacing: -0.005em;
+  margin: 14px 0 10px; color: var(--primary-dark);
+}
+html[dir="rtl"] .vc-soon__card h2 { font-family: inherit; font-size: 27px; font-weight: 700; line-height: 1.35; }
+.vc-soon__lead { font-size: 14.5px; line-height: 1.6; color: var(--ink-2); margin: 0 0 18px; }
+.vc-soon__list { list-style: none; margin: 18px 0 22px; padding: 0; display: grid; gap: 12px; }
+.vc-soon__list li { display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start; font-size: 13.5px; line-height: 1.5; color: var(--ink-2); }
+.vc-soon__list b { color: var(--ink); font-weight: 600; }
+.vc-soon__ico {
+  width: 34px; height: 34px; border-radius: 10px;
+  display: grid; place-items: center;
+  background: var(--primary-light); color: var(--primary-dark);
+}
+.vc-soon__ico svg { width: 18px; height: 18px; }
+.vc-soon__actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.p-portal .vc-soon__note { margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--rule); font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .vc-soon__pill i::after { animation: vc-ping 1.8s var(--ease) infinite; }
+  .vc-live i { animation: vc-blink 1.6s ease-in-out infinite; }
+}
+@keyframes vc-ping { 0% { transform: scale(0.6); opacity: 0.7; } 80%, 100% { transform: scale(1.8); opacity: 0; } }
+@keyframes vc-blink { 50% { opacity: 0.35; } }
+
+@media (max-width: 1100px) {
+  .vc-call { grid-template-columns: 1fr; }
+  .vc-call__side { display: none; }
+  .vc-call__focus { width: 50%; }
+}
+@media (max-width: 900px) and (min-width: 768px) {
+  .vc-soon { place-items: center; }
+  .vc-call__focus { width: 100%; }
+}
+@media (max-width: 767px) {
+  .vc-soon { min-height: 0; padding: 230px 12px 12px; border-radius: 18px; place-items: end center; }
+  .vc-soon__stage { padding: 10px; bottom: auto; height: 250px; }
+  .vc-call__focus { width: 100%; }
+  .vc-person--doc { transform: translateX(-50%) scale(0.55); transform-origin: bottom center; }
+  .vc-pip, .vc-call__name, .vc-controls { display: none; }
+  .vc-soon__card { padding: 22px 18px 18px; border-radius: 16px; }
+  .vc-soon__card h2 { font-size: 27px; }
+  html[dir="rtl"] .vc-soon__card h2 { font-size: 22px; }
+  .vc-soon__actions .p-btn { flex: 1 1 100%; }
 }

@@ -17,7 +17,7 @@
   const __labels = __isAr
     ? {
         title:        'المزيد',
-        appointments: 'المواعيد',
+        appointments: 'استشارات الفيديو',
         prescriptions:'الوصفات الطبية',
         records:      'السجلات الطبية',
         referrals:    'الإحالات',
@@ -27,7 +27,7 @@
       }
     : {
         title:        'More',
-        appointments: 'Appointments',
+        appointments: 'Video consultations',
         prescriptions:'Prescriptions',
         records:      'Medical records',
         referrals:    'Referrals',
@@ -37,7 +37,8 @@
       };
 
   const __rows = [
-    { k: 'appointments',  icon: 'calendar', href: '/portal/patient/appointments',  label: __labels.appointments },
+    { k: 'appointments',  icon: 'video',    href: '/portal/patient/appointments',
+      label: __labels.appointments + ((typeof videoComingSoon === 'undefined' || videoComingSoon) ? (__isAr ? ' · قريباً' : ' · Soon') : '') },
     { k: 'prescriptions', icon: 'file',     href: '/portal/patient/prescriptions',
       label: __labels.prescriptions + ((typeof prescriptionsComingSoon === 'undefined' || prescriptionsComingSoon) ? (__isAr ? ' · قريباً' : ' · Soon') : '') },
     { k: 'records',       icon: 'activity', href: '/portal/patient/records',       label: __labels.records },

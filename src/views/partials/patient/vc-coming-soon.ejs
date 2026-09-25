@@ -1,0 +1,98 @@
+<%
+  // Video consultations — coming-soon state (2026-09-25).
+  // Replaces the plain "COMING SOON" card. Behind the announcement sits a
+  // blurred, non-interactive preview of what the call screen will look like
+  // (consultant on video, the patient's own tile, call controls, and their
+  // report + scan open beside the call) — a glimpse of what's coming, drawn
+  // in HTML/CSS so it is crisp, bilingual and costs no image request.
+  // Styles: .vc-soon* in public/css/patient-portal-v2.css.
+  // Locals: isAr (boolean)
+  const __ar = !!(typeof isAr !== 'undefined' && isAr);
+  const T = function (en, ar) { return __ar ? ar : en; };
+%>
+<section class="vc-soon" aria-labelledby="vc-soon-title">
+  <div class="vc-soon__stage" aria-hidden="true">
+    <div class="vc-call">
+      <div class="vc-call__main">
+        <div class="vc-call__top">
+          <span class="vc-live"><i></i><%= T('LIVE', 'مباشر') %> · 12:48</span>
+          <span class="vc-enc">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 10V7a6 6 0 0112 0v3M5 10h14v10H5z"/></svg>
+            <%= T('Encrypted call', 'اتصال مشفّر') %>
+          </span>
+        </div>
+
+        <div class="vc-call__focus">
+          <div class="vc-person vc-person--doc">
+            <div class="vc-person__head"></div>
+            <div class="vc-person__body"><span class="vc-person__steth"></span></div>
+          </div>
+          <div class="vc-call__name">
+            <b><%= T('Your consultant', 'استشاريك') %></b>
+            <span><%= T('Consultant radiologist', 'استشاري أشعة') %></span>
+          </div>
+          <div class="vc-controls">
+          <span class="vc-ctl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3zM19 10v2a7 7 0 01-14 0v-2M12 19v3"/></svg></span>
+          <span class="vc-ctl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l5-3v10l-5-3M3 7a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></span>
+          <span class="vc-ctl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h18v12H3zM8 20h8M12 16v4"/></svg></span>
+          <span class="vc-ctl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 01-8 8H5l3-3A8 8 0 1121 12z"/></svg></span>
+          <span class="vc-ctl vc-ctl--end"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15c4.5-4 11.5-4 16 0l-2 3-3-1v-2.5a9 9 0 00-6 0V17l-3 1z"/></svg></span>
+          </div>
+        </div>
+
+        <div class="vc-pip">
+          <div class="vc-person vc-person--pt">
+            <div class="vc-person__head"></div>
+            <div class="vc-person__body"></div>
+          </div>
+          <span><%= T('You', 'أنت') %></span>
+        </div>
+
+      </div>
+
+      <div class="vc-call__side">
+        <div class="vc-side__head">
+          <b><%= T('Your report', 'تقريرك') %></b>
+          <span><%= T('MRI · 3 findings', 'رنين مغناطيسي · ٣ ملاحظات') %></span>
+        </div>
+        <div class="vc-scan"><i class="vc-scan__ring"></i></div>
+        <div class="vc-finding"><b>1</b><div><i style="width:88%"></i><i style="width:64%"></i></div></div>
+        <div class="vc-finding is-active"><b>2</b><div><i style="width:92%"></i><i style="width:70%"></i></div></div>
+        <div class="vc-finding"><b>3</b><div><i style="width:80%"></i><i style="width:52%"></i></div></div>
+        <div class="vc-bubble"><%= T('Can we go over finding 2?', 'هل يمكن أن نراجع الملاحظة الثانية؟') %></div>
+      </div>
+    </div>
+  </div>
+  <div class="vc-soon__veil" aria-hidden="true"></div>
+
+  <div class="vc-soon__card">
+    <span class="vc-soon__pill"><i></i><%= T('Coming soon', 'قريباً') %></span>
+    <h2 id="vc-soon-title"><%= T('Talk your report through, face to face', 'ناقش تقريرك مع استشاريك وجهاً لوجه') %></h2>
+    <p class="vc-soon__lead"><%= T(
+      'Soon you’ll be able to book a video call with the consultant who reviewed your case — to ask your questions and look at your scans together.',
+      'قريباً ستتمكن من حجز مكالمة فيديو مع الاستشاري الذي راجع حالتك — لتطرح أسئلتك وتراجعا صورك الطبية معاً.'
+    ) %></p>
+    <ul class="vc-soon__list">
+      <li>
+        <span class="vc-soon__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12h8M8 8h5M21 12a8 8 0 01-8 8H5l3-3A8 8 0 1121 12z"/></svg></span>
+        <span><b><%= T('Ask anything', 'اسأل عن أي شيء') %></b> — <%= T('your consultant explains the findings in plain words.', 'يشرح لك الاستشاري النتائج بكلمات بسيطة.') %></span>
+      </li>
+      <li>
+        <span class="vc-soon__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 100-6 3 3 0 000 6z"/></svg></span>
+        <span><b><%= T('See your scans together', 'راجعا الأشعة معاً') %></b> — <%= T('they point out exactly what they found.', 'يوضّح لك بالضبط ما لاحظه.') %></span>
+      </li>
+      <li>
+        <span class="vc-soon__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16v14H4zM8 2v4M16 2v4M4 10h16"/></svg></span>
+        <span><b><%= T('At a time that suits you', 'في الوقت الذي يناسبك') %></b> — <%= T('from your phone or laptop.', 'من هاتفك أو حاسوبك.') %></span>
+      </li>
+    </ul>
+    <div class="vc-soon__actions">
+      <a class="p-btn p-btn--primary" href="/patient/new-case?fresh=1"><%= T('Start a written second opinion', 'ابدأ رأياً ثانياً مكتوباً') %></a>
+      <a class="p-btn p-btn--ghost" href="/patient/cases"><%= T('My cases', 'حالاتي') %></a>
+    </div>
+    <p class="vc-soon__note"><%= T(
+      'Available today: a written second opinion from a consultant. We’ll let you know the moment video opens.',
+      'المتاح الآن: رأي ثانٍ مكتوب من استشاري. سنخبرك فور إطلاق استشارات الفيديو.'
+    ) %></p>
+  </div>
+</section>

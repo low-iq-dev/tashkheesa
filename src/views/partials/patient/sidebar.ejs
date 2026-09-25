@@ -39,13 +39,13 @@
   const __labels = __isAr
     ? {
         dashboard: 'الرئيسية', new_case: 'حالة جديدة', cases: 'حالاتي',
-        messages: 'الرسائل',   appointments: 'المواعيد', prescriptions: 'الوصفات الطبية',
+        messages: 'الرسائل',   appointments: 'استشارات الفيديو', prescriptions: 'الوصفات الطبية',
         records: 'السجلات الطبية', referrals: 'الإحالات', reviews: 'التقييمات',
         profile: 'الملف الشخصي', notifications: 'الإشعارات', signout: 'تسجيل الخروج'
       }
     : {
         dashboard: 'Home', new_case: 'New case', cases: 'My cases',
-        messages: 'Messages', appointments: 'Appointments', prescriptions: 'Prescriptions',
+        messages: 'Messages', appointments: 'Video consultations', prescriptions: 'Prescriptions',
         records: 'Medical records', referrals: 'Referrals', reviews: 'Reviews',
         profile: 'Profile', notifications: 'Notifications', signout: 'Sign out'
       };
@@ -60,7 +60,11 @@
     { k: 'new_case',      icon: 'plus',     href: '/patient/new-case?fresh=1',  label: __labels.new_case  }, /* side issue #84 — ?fresh=1 bypasses the auto-resume gate so the sidebar always offers a fresh case */
     { k: 'cases',         icon: 'case',     href: '/patient/cases',             label: __labels.cases,    badge: __caseCount > 0 ? String(__caseCount) : null },
     { k: 'messages',      icon: 'message',  href: '/portal/messages',           label: __labels.messages, badge: __unread > 0 ? String(__unread) : null },
-    { k: 'appointments',  icon: 'calendar', href: '/portal/patient/appointments', label: __labels.appointments },
+    /* 2026-09-25: renamed from "Appointments" — every appointment here is a
+       video consultation, and the feature is held back (src/services/video_flag.js),
+       so it carries the same Soon pill as Prescriptions until it opens. */
+    { k: 'appointments',  icon: 'video',    href: '/portal/patient/appointments', label: __labels.appointments,
+      pill: (typeof videoComingSoon === 'undefined' || videoComingSoon) ? (__isAr ? 'قريباً' : 'Soon') : null },
     /* Coming soon (2026-08-24) — kept in the nav on purpose. A patient who was
        told their consultant might prescribe should see the feature coming, not
        find it absent. See src/services/prescriptions_flag.js. */
@@ -89,10 +93,20 @@
       ];
   const __trustCount = __trust === 'light' ? 0 : __trust === 'heavy' ? 3 : 2;
 %>
-<aside class="p-sidebar<%= __variant === 'light' ? ' p-sidebar--light' : '' %>" aria-label="<%= __isAr ? 'القائمة الجانبية' : 'Patient navigation' %>">
+<aside class="p-sidebar<%= __variant === 'light' ? ' p-sidebar--light' : '' %>" id="p-sidebar" aria-label="<%= __isAr ? 'القائمة الجانبية' : 'Patient navigation' %>">
+  <%# Collapse toggle (2026-09-25). Wired by the inline script in head.ejs;
+      aria-expanded / aria-label are corrected there on load. %>
+  <button type="button" class="p-side-toggle" aria-controls="p-sidebar" aria-expanded="true"
+          data-label-collapse="<%= __isAr ? 'إخفاء القائمة' : 'Collapse menu' %>"
+          data-label-expand="<%= __isAr ? 'إظهار القائمة' : 'Expand menu' %>"
+          aria-label="<%= __isAr ? 'إخفاء القائمة' : 'Collapse menu' %>"
+          title="<%= __isAr ? 'إخفاء القائمة' : 'Collapse menu' %>">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+  </button>
+  <div class="p-sidebar__scroll">
   <a class="p-sidebar__brand" href="/dashboard">
     <%- include('../brand/logo', { mode: 'compact', theme: 'patient', size: 34, decorative: true }) %>
-    <div>
+    <div class="p-sidebar__brand-text">
       <div class="p-sidebar__wordmark">Tashkheesa</div>
       <div class="p-sidebar__tag"><%= __isAr ? 'الرأي الثاني' : 'Second opinions' %></div>
     </div>
@@ -118,9 +132,9 @@
 
   <div class="p-nav-sec"><%= __navYourCare %></div>
   <% __items.forEach(function(i) { %>
-    <a class="p-nav<%= __active === i.k ? ' active' : '' %>" href="<%= i.href %>"<%= __active === i.k ? ' aria-current="page"' : '' %>>
+    <a class="p-nav<%= __active === i.k ? ' active' : '' %>" href="<%= i.href %>" title="<%= i.label %><%= i.pill ? ' · ' + i.pill : '' %>"<%= __active === i.k ? ' aria-current="page"' : '' %>>
       <%- include('icon', { name: i.icon, size: 16 }) %>
-      <span><%= i.label %></span>
+      <span class="p-nav__label"><%= i.label %></span>
       <% if (i.badge) { %><span class="p-nav__count"><%= i.badge %></span><% } %>
       <% if (i.pill) { %><span class="p-nav__soon"><%= i.pill %></span><% } %>
     </a>
@@ -128,9 +142,9 @@
 
   <div class="p-nav-sec"><%= __navAccount %></div>
   <% __accountItems.forEach(function(i) { %>
-    <a class="p-nav<%= __active === i.k ? ' active' : '' %>" href="<%= i.href %>"<%= __active === i.k ? ' aria-current="page"' : '' %>>
+    <a class="p-nav<%= __active === i.k ? ' active' : '' %>" href="<%= i.href %>" title="<%= i.label %>"<%= __active === i.k ? ' aria-current="page"' : '' %>>
       <%- include('icon', { name: i.icon, size: 16 }) %>
-      <span><%= i.label %></span>
+      <span class="p-nav__label"><%= i.label %></span>
     </a>
   <% }); %>
 
@@ -147,9 +161,10 @@
 
   <div class="p-sidebar__me">
     <div class="p-sidebar__avatar" aria-hidden="true"><%= __initials %></div>
-    <div>
+    <div class="p-sidebar__me-text">
       <div class="p-sidebar__me-name"><%= __displayName %></div>
       <% if (__email) { %><div class="p-sidebar__me-sub"><%= __email %></div><% } %>
     </div>
   </div>
+  </div><%# /.p-sidebar__scroll %>
 </aside>
