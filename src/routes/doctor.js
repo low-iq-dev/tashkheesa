@@ -99,6 +99,20 @@ const ACCEPTED_STATUSES = CASE_ACCEPTED_STATUSES;
 // Also treat 'assigned/accepted' as NOT accepted yet (acceptance is when `accepted_at` is set).
 const UNACCEPTED_STATUSES = CASE_UNACCEPTED_STATUSES;
 
+// LAUNCH-DAY 2026-09-25 — the open pool is PAID work only.
+//
+// The four pool queries (countPortalCasesUnassigned, buildPortalCasesUnassigned,
+// countQueueNewCases, buildQueueNewCasesPaged — the web dashboard, the queue and
+// the doctor app's /offers all read them) selected unassigned rows whose status
+// was in UNACCEPTED_STATUSES, which includes 'new' and 'submitted'. A submitted
+// case is one the patient has been shown a price for and not yet paid, and it is
+// held for 7 days (UNPAID_CASE_TTL) so the patient can pay late. For all of that
+// window it sat in every doctor's pool for its specialty, and Accept was then
+// refused by the case-access payment gate (isPaidForReview) — TSH-2026-000014,
+// 22–25 Sep, Dr Yomna x5. Same spelling as isPaidForReview so the list and the
+// accept gate cannot disagree. Practice cases are stamped paid, so unaffected.
+const POOL_PAID_SQL = "LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured')";
+
 // ---- Doctor capacity guardrails ----
 // A4/A5 (fix plan 2026-09-15): the accept gate and the case-page offer rule
 // now enforce the PER-DOCTOR, tier-aware cap (users.max_active_cases /
@@ -5498,6 +5512,7 @@ async function countPortalCasesUnassigned(doctorSpecialtyId, doctorSlaTiers, sta
      WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
        AND ${specClause}
        AND ${tierClause}
+       AND ${POOL_PAID_SQL}
        AND (
              LOWER(o.status) IN (${statusPlaceholders})
              OR (
@@ -5563,6 +5578,7 @@ async function buildPortalCasesUnassigned(doctorSpecialtyId, doctorSlaTiers, sta
      WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
        AND ${specClause}
        AND ${tierClause}
+       AND ${POOL_PAID_SQL}
        AND (
              LOWER(o.status) IN (${statusPlaceholders})
              OR (
@@ -5705,6 +5721,7 @@ async function countQueueNewCases(doctorId, doctorSpecialtyId, doctorSlaTiers, s
        WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
          AND ${specClause}
          AND ${tierClause}
+         AND ${POOL_PAID_SQL}
          AND (
                LOWER(o.status) IN (${statusPlaceholders})
                OR (
@@ -5761,6 +5778,7 @@ async function buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, doctorSlaTie
        WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
          AND ${specClause}
          AND ${tierClause}
+         AND ${POOL_PAID_SQL}
          AND (
                LOWER(o.status) IN (${statusPlaceholders})
                OR (
