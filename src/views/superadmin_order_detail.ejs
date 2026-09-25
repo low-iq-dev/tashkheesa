@@ -135,6 +135,10 @@
       ? 'The doctor was NOT changed. The doctor you picked is not currently eligible for this case (inactive, paused, awaiting approval, not onboarded, or not registered for this service).'
       : (_paymentNotice === 'paid_but_unrouted'
           ? 'Payment recorded, but the case did NOT enter the assignment pipeline. Route it by hand from the manual queue.'
+          : _paymentNotice === 'not_payable'
+          ? 'NOT marked paid — this case is cancelled, expired or refunded. If the patient sent money, reject their transfer claim and refund it.'
+          : _paymentNotice === 'failed'
+          ? 'NOT marked paid — the update failed. Details are in the error log.'
           : '');
   %>
   <% if (_errMsg) { %>

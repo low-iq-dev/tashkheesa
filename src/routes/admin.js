@@ -1970,8 +1970,12 @@ router.post('/admin/orders/:id/mark-paid', requireAdmin, async (req, res) => {
   const orderId = req.params.id;
   const { payment_method, payment_reference } = req.body || {};
 
-  const order = await queryOne('SELECT id, payment_status FROM orders_active WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT id, status, payment_status FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return res.redirect('/admin');
+  // 2026-09-26 — never mark a cancelled / expired / refunded case paid.
+  if (require('../case_lifecycle').isClosedUnpayable(order.status)) {
+    return res.redirect(`/admin/orders/${orderId}?payment=not_payable`);
+  }
 
   const nowIso = new Date().toISOString();
   // AUDIT (2026-08-17) — paid_at was never written here. isPaymentConfirmed
@@ -1983,17 +1987,17 @@ router.post('/admin/orders/:id/mark-paid', requireAdmin, async (req, res) => {
     `UPDATE orders
      SET payment_status = 'paid',
          paid_at = COALESCE(paid_at, NOW()),
-         payment_method = COALESCE($1, payment_method, 'manual'),
+         payment_method = COALESCE($1, payment_method, 'bank_transfer'),
          payment_reference = COALESCE($2, payment_reference),
          updated_at = $3
      WHERE id = $4`,
-    [payment_method || 'manual', payment_reference || null, nowIso, orderId]
+    [payment_method || 'bank_transfer', payment_reference || null, nowIso, orderId]
   );
 
   logOrderEvent({
     orderId,
     label: 'payment_marked_paid_by_admin',
-    meta: JSON.stringify({ payment_method: payment_method || 'manual', payment_reference: payment_reference || null }),
+    meta: JSON.stringify({ payment_method: payment_method || 'bank_transfer', payment_reference: payment_reference || null }),
     actorUserId: req.user.id,
     actorRole: req.user.role
   });

@@ -37,6 +37,7 @@
  * Idempotent: verifying an already-confirmed claim returns the same facts
  * with alreadyVerified=true and writes nothing (the double-tap case). A
  * rejected claim is a decision already made → 409 CLAIM_ALREADY_DECIDED.
+ * A claim on a cancelled / expired / refunded case → 409 ORDER_NOT_PAYABLE.
  * A pending claim on an order that is ALREADY paid (card payment raced the
  * transfer) is refused with 409 ORDER_ALREADY_PAID rather than silently
  * confirmed: money arriving twice is a refund conversation, not a verify.
@@ -127,6 +128,12 @@ async function verifyPaymentClaim(client, opts) {
     if (!order) throw af('Case not found', 404, 'ORDER_NOT_FOUND');
     if (order.is_practice === true) {
       throw af('This is a doctor-training practice case — its payment state is not operable', 409, 'PRACTICE_CASE');
+    }
+    // 2026-09-26 — a cancelled / expired / refunded case cannot be made paid.
+    // The claim stays pending for the operator to reject (with a reason the
+    // patient reads) and the money is refunded outside this path.
+    if (require('../case_lifecycle').isClosedUnpayable(order.status)) {
+      throw af('This case is ' + String(order.status).toLowerCase() + ' — it cannot be marked paid. Reject the claim and refund the transfer.', 409, 'ORDER_NOT_PAYABLE');
     }
 
     // (3) The claim, locked and re-read under the order lock.

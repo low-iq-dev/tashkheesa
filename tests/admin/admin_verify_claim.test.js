@@ -229,6 +229,18 @@ test('reject ORDER_ALREADY_PAID — card raced the transfer; the pending claim i
   assert.equal((await getClaim(pc)).status, 'pending');
 });
 
+for (const dead of ['cancelled', 'CANCELLED', 'expired_unpaid', 'refunded']) {
+  test(`reject ORDER_NOT_PAYABLE — ${dead} case; order unpaid, claim pending, no audit rows`, async () => {
+    const ord = await mkOrder({ status: dead });
+    const pc = await mkClaim(ord);
+    await expectReject({ claimId: pc }, 'ORDER_NOT_PAYABLE');
+    assert.equal((await getOrder(ord)).payment_status, 'unpaid');
+    assert.equal((await getClaim(pc)).status, 'pending', 'left pending for the operator to reject with a reason');
+    assert.equal(await eventCount(ord), 0);
+    assert.equal(await auditCount(ord), 0);
+  });
+}
+
 // ── B4: atomicity by fault injection on EACH audit insert ─────────────────────
 test('B4 atomicity: a throw on the error_logs audit insert rolls EVERYTHING back; the retry is clean', async () => {
   const ord = await mkOrder();

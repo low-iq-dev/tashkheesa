@@ -1972,6 +1972,22 @@ function isPayableStatus(status) {
   return Array.isArray(allowed) && allowed.includes(CASE_STATUS.PAID);
 }
 
+// Closed-and-unpayable (2026-09-26, verify-claim hardening). A case in one of
+// these states must never be marked paid by an operator: money that arrives for
+// a cancelled / expired / refunded case is a refund conversation, not a verify.
+// Deliberately NARROWER than !isPayableStatus — that also refuses ASSIGNED /
+// IN_REVIEW etc., which an operator may legitimately need to repair when a case
+// progressed while its payment facts were missing. This set is only the dead ends.
+const NOT_PAYABLE_TERMINAL = Object.freeze([
+  CASE_STATUS.CANCELLED,
+  CASE_STATUS.EXPIRED_UNPAID,
+  CASE_STATUS.REFUNDED
+]);
+function isClosedUnpayable(status) {
+  if (status == null || String(status).trim() === '') return false;
+  return NOT_PAYABLE_TERMINAL.includes(normalizeStatus(status));
+}
+
 function isUnacceptedStatus(dbValue) {
   // "Unaccepted" in the doctor workflow means the case is assigned to a doctor
   // but not yet accepted/started (i.e., still in ASSIGNED state).
@@ -3621,6 +3637,8 @@ module.exports = {
   dbStatusValuesFor,
   isUnacceptedStatus,
   isPayableStatus,
+  isClosedUnpayable,
+  NOT_PAYABLE_TERMINAL,
   isTerminalStatus,
   ensureColumnCache,
   sweepSlaBreaches,

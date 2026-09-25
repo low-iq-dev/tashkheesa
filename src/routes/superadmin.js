@@ -5134,8 +5134,16 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
     return res.redirect(`/superadmin/orders/${orderId}`);
   }
 
-  // Allow setting a method/reference from the payment page form, but keep safe defaults.
-  const method = String((req.body && (req.body.method || req.body.payment_method)) || order.payment_method || 'manual').trim();
+  // 2026-09-26 — never mark a cancelled / expired / refunded case paid (the
+  // Command verify path answers 409 ORDER_NOT_PAYABLE for the same states).
+  if (require('../case_lifecycle').isClosedUnpayable(order.status)) {
+    return res.redirect(`/superadmin/orders/${orderId}?payment=not_payable`);
+  }
+
+  // Allow setting a method/reference from the payment page form, but keep safe
+  // defaults. Every manual payment on this platform is an InstaPay / bank
+  // transfer, so that is the default recorded method (was 'manual').
+  const method = String((req.body && (req.body.method || req.body.payment_method)) || order.payment_method || 'bank_transfer').trim();
   const reference = String((req.body && (req.body.reference || req.body.payment_reference)) || '').trim() || `manual_${randomUUID()}`;
 
   const pm = String((req.body && (req.body.payment_method || req.body.method)) || '').trim() || null;
