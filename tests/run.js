@@ -154,6 +154,13 @@ async function drainAsyncResults({ quietMs = 2000, maxMs = 120000 }) {
       // Serialising them removes a whole class of phantom failure.
       const exported = require(file);
       if (exported && typeof exported.then === 'function') await exported;
+      // 2026-09-25 — ejs.cache is process-global. Seven view tests stub
+      // partials (header/footer/...) with ejs.cache.set so they can render one
+      // page body in isolation, and most never remove the stub. Every later
+      // file that rendered a real page (seo-titles-meta, seo-internal-links)
+      // then got an empty <head> and failed ~46 assertions that pass alone.
+      // Clear it between files so no file can leak a stub into the next.
+      try { require('ejs').clearCache(); } catch (_) { /* ejs optional */ }
     } catch (err) {
       // If it's a SQLite/legacy error, skip gracefully
       if (err.message && (err.message.includes('better-sqlite3') || err.message.includes('sqlite3') || err.message.includes('portal.db'))) {

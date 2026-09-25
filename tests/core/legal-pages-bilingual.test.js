@@ -123,3 +123,14 @@ PAGES.forEach(function (p) {
   assert(delAr.indexOf(BUSINESS_INFO.businessHours_ar) !== -1,
     'delivery [ar] interpolates BUSINESS_INFO.businessHours_ar', 'businessHours_ar not used in AR delivery');
 }
+
+// ── Clean up the ejs.cache stubs (2026-09-25) ──
+// ejs.cache is process-global and tests/run.js runs every file in one process.
+// Left in place, the empty header/footer stubs above were served to every later
+// render of those partials — tests/core/seo-titles-meta and seo-internal-links
+// then saw pages with no <head>, no <title>, no canonical and no footer, and
+// failed 40+ assertions that pass alone. Remove exactly what this file added.
+['partials/header', 'partials/footer'].forEach(function (p) {
+  ejs.cache.remove(path.join(VIEWS, p + '.ejs'));
+});
+for (let i = 1; i <= __rc; i++) ejs.cache.remove(path.join(VIEWS, '__legaltest_' + i + '.ejs'));

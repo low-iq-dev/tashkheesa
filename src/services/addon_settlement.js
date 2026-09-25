@@ -231,6 +231,7 @@ async function settleAddonsForPaidOrder({
   let ord = order;
   if (!ord) {
     try {
+      // include-deleted-ok: by-id read of an order a payment path has just marked paid; settlement must see it whatever its trash state.
       ord = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
     } catch (_) {
       ord = null;

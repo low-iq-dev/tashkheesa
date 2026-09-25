@@ -2077,6 +2077,7 @@ router.post('/admin/orders/:id/mark-paid', requireAdmin, async (req, res) => {
   // the money for THOSE LINES arrived, recorded against their user id.
   try {
     const { parseSelectedAddons } = require('../services/order_pricing');
+    // include-deleted-ok: by-id re-read of the order this handler just marked paid (add-on flag check only).
     const _o = await queryOne('SELECT addons_json, video_consultation_selected FROM orders WHERE id = $1', [orderId]);
     const _sel = parseSelectedAddons(_o || {});
     const _pending = [];

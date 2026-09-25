@@ -133,11 +133,17 @@ assert(/UPDATE\s+orders[\s\S]{0,80}addons_json\s*=\s*\$1[\s\S]{0,120}video_consu
   'selection not persisted server-side before the intention');
 
 // ── B6: add-ons fulfilled from persisted state, NOT dead query params ──────
-assert(/const\s+selectedAddons\s*=\s*parseSelectedAddons\(order\)/.test(payments),
-  'webhook derives the selection via parseSelectedAddons(order)', 'no parseSelectedAddons(order) in webhook');
-assert(/if\s*\(\s*selectedAddons\.video_consultation\s*\)/.test(payments),
+// 3f3d636 moved the settlement out of the webhook into
+// services/addon_settlement.js (called from every payment path), so the
+// persisted-selection pins follow the logic there; the webhook must call it.
+const addonSettlement = read('src/services/addon_settlement.js');
+assert(/await\s+settleAddonsForPaidOrder\(\{[\s\S]{0,120}verifiedBy:\s*'gateway_amount_check'/.test(payments),
+  'webhook settles add-ons through settleAddonsForPaidOrder (gateway-verified)', 'webhook no longer calls settleAddonsForPaidOrder');
+assert(/const\s+selected\s*=\s*parseSelectedAddons\(ord\)/.test(addonSettlement),
+  'settlement derives the selection via parseSelectedAddons(order)', 'no parseSelectedAddons(ord) in addon_settlement');
+assert(/if\s*\(\s*selected\.video_consultation\s*\)/.test(addonSettlement),
   'video fulfillment is gated on the persisted selection', 'video branch not gated on persisted selection');
-assert(/if\s*\(\s*selectedAddons\.prescription\s*\)/.test(payments),
+assert(/if\s*\(\s*selected\.prescription\s*\)/.test(addonSettlement),
   'prescription fulfillment is gated on the persisted selection', 'prescription branch not gated on persisted selection');
 assert(!/req\.query\?\.addon_video_consultation/.test(payments) && !/req\.query\?\.addon_prescription/.test(payments),
   'the dead addon_* query-param gates are gone from the webhook',

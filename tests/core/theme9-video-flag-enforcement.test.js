@@ -151,25 +151,27 @@ try {
   t.fail(fileTag + ': C2/C3/C4 video.js gates', e);
 }
 
-// ── C5: payments.js addon-video-consultation gate ────────────────────────────
+// ── C5: add-on video-consultation gate ────────────────────────────────────────
+// 3f3d636 moved add-on settlement out of the payments.js webhook into
+// services/addon_settlement.js (shared by webhook, mark-paid and claim verify).
+// The gate follows it: settlement must check the persisted selection, call
+// isVideoEnabled(), and record the not-settled event when the flag is off.
 try {
-  const src = read(ROUTE_PAY);
-  // The addon branch must check isVideoEnabled() and log a skip event when the flag is off.
-  // B6 (launch audit): the video add-on branch is now gated on the PERSISTED
-  // selection (order.addons_json via parseSelectedAddons → selectedAddons.video_consultation)
-  // instead of the dead `addon_video_consultation` query param that never
-  // reached the server-to-server webhook. The isVideoEnabled() kill-switch and
-  // the skip-log below are unchanged.
-  if (!/selectedAddons\.video_consultation/.test(src)) {
-    throw new Error('src/routes/payments.js no longer gates the video add-on branch on selectedAddons.video_consultation — has the addon branch been removed?');
+  const pay = read(ROUTE_PAY);
+  if (!/settleAddonsForPaidOrder\(/.test(pay)) {
+    throw new Error('src/routes/payments.js no longer calls settleAddonsForPaidOrder — add-ons are not settled on the webhook path.');
+  }
+  const src = read(path.join(ROOT, 'src', 'services', 'addon_settlement.js'));
+  if (!/selected\.video_consultation/.test(src)) {
+    throw new Error('addon_settlement.js no longer gates the video add-on branch on the persisted selection.');
   }
   if (!/isVideoEnabled\s*\(\s*\)/.test(src)) {
-    throw new Error('src/routes/payments.js does not call isVideoEnabled() — addon branch is unguarded.');
+    throw new Error('addon_settlement.js does not call isVideoEnabled() — addon branch is unguarded.');
   }
-  if (!/video_consultation_addon_skipped_feature_disabled/.test(src)) {
-    throw new Error("src/routes/payments.js does not log 'video_consultation_addon_skipped_feature_disabled' — ops loses the audit trail for skipped addon charges.");
+  if (!/Video consultation add-on NOT settled — feature disabled/.test(src)) {
+    throw new Error('addon_settlement.js does not log the feature-disabled skip — ops loses the audit trail.');
   }
-  t.pass(fileTag + ': payments.js addon-video-consultation branch skips when isVideoEnabled() is false + logs the skip (C5)');
+  t.pass(fileTag + ': add-on video settlement is gated on isVideoEnabled() and logs the skip (C5)');
 } catch (e) {
-  t.fail(fileTag + ': C5 payments.js addon gate', e);
+  t.fail(fileTag + ': C5 add-on video gate', e);
 }
