@@ -154,6 +154,13 @@ const {
   doctorLoadSql,
   slaHitRatioSql,
 } = require('./_assign_helpers');
+// PRACTICE-CASES (2026-09-25) — the one "real case" predicate (src/practice_cases.js).
+// activeCaseSql and every predicate built on it already carry it; the reads
+// below that do not go through those (revenue, the case list's default scope,
+// awaiting-review, the activity feed) interpolate it directly. By-id and write
+// reads carry a `practice-ok:` marker instead — tests/auth/
+// practice-cases-operator-views.test.js fails the build on a read with neither.
+const { realCaseSql } = require('../../practice_cases');
 // ─── AUDIT-ADDONS-IN-ADMIN (2026-08-29) — one definition of "what was charged" ─
 //
 // Every money figure on these surfaces used to read
@@ -464,6 +471,7 @@ module.exports = function (db, helpers, deploy, deps) {
                 r.instapay_handle, o.price, ${REFUND_FIGURE_COLS}
            FROM refunds r
            -- include-deleted-ok: refunds exist only on paid orders (see GET /refunds).
+           -- practice-ok: by refund id — decorates the refund the caller just acted on.
            JOIN orders o ON o.id = r.order_id
           WHERE r.id = $1`,
         [refund.id]
@@ -778,7 +786,7 @@ module.exports = function (db, helpers, deploy, deps) {
         mustGet(
           `SELECT
               COUNT(*) FILTER (WHERE ${activeCaseSql('')}) AS active_cases,
-              COUNT(*) FILTER (WHERE completed_at IS NULL AND doctor_id IS NOT NULL AND ${ST} IN ('in_progress','in_review','assigned')) AS awaiting_review,
+              COUNT(*) FILTER (WHERE completed_at IS NULL AND doctor_id IS NOT NULL AND ${ST} IN ('in_progress','in_review','assigned') AND ${realCaseSql('')}) AS awaiting_review,
               COUNT(*) FILTER (WHERE ${unassignedCaseSql('')}) AS pending_assignment,
               COUNT(*) FILTER (WHERE ${breachedCaseSql('')}) AS sla_breached,
               COUNT(*) FILTER (WHERE ${activeCaseSql('')} AND deadline_at IS NULL) AS no_sla_timer,
@@ -829,6 +837,9 @@ module.exports = function (db, helpers, deploy, deps) {
              -- reference of an expired case is correct, and the LEFT JOIN
              -- means filtering would change nothing anyway.
              LEFT JOIN orders o ON o.id = e.order_id
+            -- A training case's events are not operational activity. NULL o
+            -- (an event with no order) stays: realCaseSql COALESCEs to real.
+            WHERE ${realCaseSql('o.')}
             ORDER BY e.at DESC
             LIMIT 8`,
           []
@@ -914,6 +925,9 @@ module.exports = function (db, helpers, deploy, deps) {
 
       // One row's columns — shared across the three buckets. Patient via the
       // order; reference_id is the display ref (NULL in prod → app falls back).
+      // practice-ok: ROW is driven by refunds, i.e. money that moved. A practice
+      // case is never paid for, so it has no refund row (prod 2026-09-25: 0);
+      // if one ever existed it would be real money and belongs on this screen.
       const ROW = `r.id, r.order_id, r.amount_egp, r.requested_amount, r.approved_amount,
                    r.status, r.reason, r.instapay_handle, r.instapay_reference,
                    r.refunded_at, r.reviewed_at, r.paid_at,
@@ -990,7 +1004,8 @@ module.exports = function (db, helpers, deploy, deps) {
              COALESCE(SUM(${CHARGED_EGP}) FILTER (WHERE ${COLLECTED_AT_CAIRO} >= date_trunc('day', ${NOW_CAIRO})), 0) AS collected_today,
              COALESCE(SUM(${CHARGED_EGP}) FILTER (WHERE ${COLLECTED_AT_CAIRO} >= date_trunc('month', ${NOW_CAIRO})), 0) AS collected_mtd
            FROM orders_active
-           WHERE payment_status IN ('paid','captured')`
+           WHERE payment_status IN ('paid','captured')
+             AND ${realCaseSql('')}`
         ),
         // refundedMTD (committed) + refundsOwed (the operational obligation), one pass.
         //
@@ -1108,6 +1123,7 @@ module.exports = function (db, helpers, deploy, deps) {
            LEFT JOIN users p     ON p.id = o.patient_id
            LEFT JOIN services sv ON sv.id = o.service_id
           WHERE LOWER(COALESCE(o.payment_status,'')) IN ('paid','captured')
+            AND ${realCaseSql('o.')}
             AND ${COLLECTED_AT_CAIRO_O} >= date_trunc($1, ${NOW_CAIRO})
           ORDER BY COALESCE(o.paid_at, o.created_at) DESC`,
         [unit]
@@ -1227,7 +1243,10 @@ module.exports = function (db, helpers, deploy, deps) {
       const n = (v) => Number(v) || 0;
 
       // Parameterized dynamic WHERE.
-      const cond = [];
+      // PRACTICE-CASES — always first, whatever the filters: a training case
+      // is never in the operator's queue (no escape hatch in this slice;
+      // GET /cases/:id still answers for one, flagged isPractice).
+      const cond = [realCaseSql('o.')];
       const params = [];
       const ph = () => '$' + params.length;
 
@@ -1285,6 +1304,8 @@ module.exports = function (db, helpers, deploy, deps) {
         ? 'ORDER BY o.created_at DESC'
         : 'ORDER BY (o.deadline_at IS NULL), o.deadline_at::timestamptz ASC, o.created_at DESC';
 
+      // practice-ok: every use of fromJoins is followed by ${where}, whose first
+      // condition is realCaseSql (cond[0] above) — pinned by the practice test.
       const fromJoins = `
           FROM orders_active o
           LEFT JOIN users p ON p.id = o.patient_id
@@ -1323,7 +1344,7 @@ module.exports = function (db, helpers, deploy, deps) {
           `SELECT LOWER(o.status) AS s, COUNT(*) AS n,
                   COUNT(*) FILTER (WHERE ${unassignedCaseSql('o.')}) AS unassigned,
                   COUNT(*) FILTER (WHERE ${breachedCaseSql('o.')}) AS breached
-             FROM orders_active o GROUP BY LOWER(o.status)`,
+             FROM orders_active o WHERE ${realCaseSql('o.')} GROUP BY LOWER(o.status)`,
           []
         ),
       ]);
@@ -1409,7 +1430,7 @@ module.exports = function (db, helpers, deploy, deps) {
                   -- with (see MONEY_COLS_O at the top of this file).
                   ${MONEY_COLS_O},
                   o.created_at, o.completed_at, o.accepted_at, o.deadline_at, o.sla_hours,
-                  o.doctor_id, o.specialty_id, o.service_id,
+                  o.doctor_id, o.specialty_id, o.service_id, o.is_practice,
                   o.diagnosis_text, o.impression_text, o.recommendation_text, o.clinical_question, o.report_url,
                   COALESCE(p.name,'—') AS patient_name, p.gender, p.date_of_birth,
                   d.name AS doctor_name, sp.name AS specialty, sv.name AS service, dsp.name AS doctor_specialty,
@@ -1420,6 +1441,8 @@ module.exports = function (db, helpers, deploy, deps) {
              LEFT JOIN specialties sp ON sp.id = o.specialty_id
              LEFT JOIN services sv ON sv.id = o.service_id
              LEFT JOIN specialties dsp ON dsp.id = d.specialty_id
+            -- practice-ok: by id. A practice case still opens; the payload says
+            -- isPractice: true so the app can label it.
             WHERE o.id = $1`,
           [id]
         ),
@@ -1458,6 +1481,7 @@ module.exports = function (db, helpers, deploy, deps) {
                   (SELECT ${slaHitRatioSql('o.')}
                      FROM orders_active o WHERE o.doctor_id = u.id) AS sla_hit,
                   (SELECT AVG(rating)::numeric(3,1) FROM reviews r WHERE r.doctor_id = u.id) AS rating
+             -- practice-ok: the inner read is by id (whose doctor is on this case).
              FROM users u WHERE u.id = (SELECT doctor_id FROM orders_active WHERE id = $1)`,
           [id]
         ),
@@ -1484,6 +1508,10 @@ module.exports = function (db, helpers, deploy, deps) {
         id: row.id,
         reference: row.reference_id || null,
         status: norm,
+        // PRACTICE-CASES (2026-09-25, additive) — true for a doctor-onboarding
+        // training case (orders.is_practice). Such a case is excluded from every
+        // list and metric on this API; it is reachable here only by id.
+        isPractice: row.is_practice === true,
         patient: { name: row.patient_name, ageSex: deriveAgeSex(row.date_of_birth, row.gender), gender: row.gender || null },
         routing: { specialty: row.specialty || '—', service: row.service || '—', tier: normalizeTier(row.urgency_tier) },
         sla: {
@@ -1588,6 +1616,7 @@ module.exports = function (db, helpers, deploy, deps) {
     try {
       const c = await mustGet(
         `SELECT o.id, o.specialty_id, o.service_id, o.urgency_tier, o.doctor_id, COALESCE(sp.name,'—') AS specialty
+           -- practice-ok: by id — the case the picker was opened for.
            FROM orders_active o LEFT JOIN specialties sp ON sp.id = o.specialty_id WHERE o.id = $1`,
         [req.params.id]
       );
@@ -1801,6 +1830,7 @@ module.exports = function (db, helpers, deploy, deps) {
         // window from `tier || urgency_tier`, and `tier` is what
         // notify/broadcast.js writes. Selecting only urgency_tier silently
         // demoted every broadcast case to the sla_hours fallback bucket.
+        // practice-ok: write path, by id (routing on practice cases: see slice-0 audit).
         `SELECT id, doctor_id, status, payment_status, paid_at, specialty_id, service_id, tier, urgency_tier, sla_hours
            FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
         [id]
@@ -2009,6 +2039,7 @@ module.exports = function (db, helpers, deploy, deps) {
       try {
         const meta = await safeGet(
           `SELECT o.patient_id, o.reference_id, p.email AS patient_email, p.name AS patient_name
+             -- practice-ok: by id — addressing the notification for the case just assigned.
              FROM orders o LEFT JOIN users p ON p.id = o.patient_id WHERE o.id = $1 AND o.deleted_at IS NULL`,
           [id]
         );
@@ -2176,6 +2207,7 @@ module.exports = function (db, helpers, deploy, deps) {
       client = await db.connect();
       await client.query('BEGIN');
 
+      // practice-ok: write path, by id.
       const o = (await client.query(
         `SELECT id, status, accepted_at, deadline_at, sla_hours, sla_paused_at, breached_at
            FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
@@ -2586,6 +2618,7 @@ module.exports = function (db, helpers, deploy, deps) {
         // Refunds only exist for paid orders, which are never soft-deleted;
         // and if one somehow were, you would still want to tell the patient
         // about their money.
+        // practice-ok: by id — the patient on the refund's own order.
         const ord = await safeGet('SELECT patient_id FROM orders WHERE id = $1', [refund.orderId]);
         const patientUserId = ord && ord.patient_id ? ord.patient_id : null;
         notification = await safeQueue({
@@ -2658,6 +2691,7 @@ module.exports = function (db, helpers, deploy, deps) {
         // Refunds only exist for paid orders, which are never soft-deleted;
         // and if one somehow were, you would still want to tell the patient
         // about their money.
+        // practice-ok: by id — the patient on the refund's own order.
         const ord = await safeGet('SELECT patient_id FROM orders WHERE id = $1', [refund.orderId]);
         const patientUserId = ord && ord.patient_id ? ord.patient_id : null;
         notification = await safeQueue({
@@ -2758,6 +2792,7 @@ module.exports = function (db, helpers, deploy, deps) {
         // Refunds only exist for paid orders, which are never soft-deleted;
         // and if one somehow were, you would still want to tell the patient
         // about their money.
+        // practice-ok: by id — the patient on the refund's own order.
         const ord = await safeGet('SELECT patient_id FROM orders WHERE id = $1', [refund.orderId]);
         const patientUserId = ord && ord.patient_id ? ord.patient_id : null;
         notification = await safeQueue({
@@ -2816,6 +2851,8 @@ module.exports = function (db, helpers, deploy, deps) {
            FROM payment_events pe
            -- include-deleted-ok: mismatches on soft-deleted orders MUST stay
            -- visible for accounting, so this LEFT JOINs orders, not orders_active.
+           -- practice-ok: driven by gateway events. A practice case never goes
+           -- through Paymob (prod 2026-09-25: 0 events), so none can appear.
            LEFT JOIN orders o ON o.id = pe.order_id
            LEFT JOIN users u ON u.id = o.patient_id
            LEFT JOIN payment_event_reviews rev ON rev.payment_event_id = pe.id
@@ -3123,6 +3160,8 @@ module.exports = function (db, helpers, deploy, deps) {
                -- include-deleted-ok: driven by refunds. The money moved
                -- whether or not the order was later soft-deleted; excluding
                -- those rows would understate what breaches cost.
+               -- practice-ok: refund-driven, and (1) above has no orders join —
+               -- filtering here alone would break "the parts sum to the total".
                JOIN orders o ON o.id = r.order_id
                LEFT JOIN specialties sp ON sp.id = o.specialty_id
               WHERE ${isBreach} AND ${inPeriod}
@@ -3140,6 +3179,8 @@ module.exports = function (db, helpers, deploy, deps) {
                -- include-deleted-ok: driven by refunds. The money moved
                -- whether or not the order was later soft-deleted; excluding
                -- those rows would understate what breaches cost.
+               -- practice-ok: refund-driven, and (1) above has no orders join —
+               -- filtering here alone would break "the parts sum to the total".
                JOIN orders o ON o.id = r.order_id
                LEFT JOIN users d ON d.id = o.doctor_id
               WHERE ${isBreach} AND ${inPeriod}
@@ -3158,6 +3199,8 @@ module.exports = function (db, helpers, deploy, deps) {
                -- include-deleted-ok: driven by refunds. The money moved
                -- whether or not the order was later soft-deleted; excluding
                -- those rows would understate what breaches cost.
+               -- practice-ok: refund-driven, and (1) above has no orders join —
+               -- filtering here alone would break "the parts sum to the total".
                JOIN orders o ON o.id = r.order_id
               WHERE ${isBreach} AND ${inPeriod}
               GROUP BY 1`
@@ -3174,6 +3217,7 @@ module.exports = function (db, helpers, deploy, deps) {
                     to_char(${from}, 'YYYY-MM-DD"T"HH24:MI:SS') AS period_start_cairo
                FROM orders_active o
               WHERE LOWER(COALESCE(o.payment_status,'')) IN ('paid','captured')
+                AND ${realCaseSql('o.')}
                 AND ${COLLECTED_AT_CAIRO_O} >= ${from}`
           ),
           // (6) Doctor-earnings clawback in the window — BATCH B (B1): through
@@ -3352,7 +3396,8 @@ module.exports = function (db, helpers, deploy, deps) {
             -- contents are permanently two un-actionable rows is a queue the
             -- operator stops opening. Drafts and expired-unpaid carts are
             -- excluded; genuinely stuck paid work is not.
-            AND LOWER(COALESCE(o.status, '')) NOT IN ('draft', 'expired_unpaid', 'cancelled', 'refunded')`;
+            AND LOWER(COALESCE(o.status, '')) NOT IN ('draft', 'expired_unpaid', 'cancelled', 'refunded')
+            AND ${realCaseSql('o.')}`;
 
       const [rows, totalRow, paidRow] = await Promise.all([
         mustAll(
@@ -3537,6 +3582,7 @@ module.exports = function (db, helpers, deploy, deps) {
       client = await db.connect();
       await client.query('BEGIN');
 
+      // practice-ok: write path, by id.
       const o = (await client.query(
         `SELECT id, patient_id, assignment_status, payment_status, specialty_id, service_id
            FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
@@ -3909,6 +3955,7 @@ module.exports = function (db, helpers, deploy, deps) {
       client = await db.connect();
       await client.query('BEGIN');
 
+      // practice-ok: write path, by id.
       const o = (await client.query(
         `SELECT id, patient_id, assignment_status, status, payment_status,
                 base_price, urgency_uplift_amount,

@@ -12,6 +12,12 @@
 // near-live but doesn't re-run every aggregation per page load.
 
 const { safeAll, safeGet, tableExists } = require('../sql-utils');
+// PRACTICE-CASES (2026-09-25) — every orders read in this file is an operator
+// metric or list, so every one reads the practice-free relation instead of the
+// raw view (src/practice_cases.js). Doctor-onboarding training cases are real
+// rows in orders_active but are not business: before this, 27 paid practice
+// orders against 1 real one made every tile on /superadmin ~96% training data.
+const { REAL_ORDERS_ACTIVE } = require('../practice_cases');
 // BATCH B (B1): every doctor-money figure this dashboard shows reads through
 // the shared earnings reader.
 const earningsReader = require('./earnings_reader');
@@ -112,7 +118,7 @@ async function getStatusPills() {
         `SELECT
             COUNT(*) FILTER (WHERE completed_at::timestamptz <= deadline_at::timestamptz) AS on_time,
             COUNT(*) AS total
-         FROM orders_active
+         FROM ${REAL_ORDERS_ACTIVE} orders_active
          WHERE completed_at IS NOT NULL
            AND deadline_at IS NOT NULL
            AND completed_at >= NOW() - INTERVAL '7 days'`,
@@ -203,7 +209,7 @@ async function getAttentionItems() {
       // SLA breached now (active, past deadline)
       safeGet(
         `SELECT COUNT(*) AS cnt
-           FROM orders_active
+           FROM ${REAL_ORDERS_ACTIVE} orders_active
           WHERE completed_at IS NULL
             AND deadline_at IS NOT NULL
             AND deadline_at::timestamptz < NOW()`,
@@ -212,7 +218,7 @@ async function getAttentionItems() {
       // Urgent unassigned
       safeGet(
         `SELECT COUNT(*) AS cnt
-           FROM orders_active
+           FROM ${REAL_ORDERS_ACTIVE} orders_active
           WHERE doctor_id IS NULL
             AND completed_at IS NULL
             -- A7 fix round 2026-09-20: fast_track ≡ VIP (migration 031), so a
@@ -238,7 +244,7 @@ async function getAttentionItems() {
       // Theme 14 Phase 5 — orders parked for manual ops review.
       safeGet(
         `SELECT COUNT(*) AS cnt
-           FROM orders_active
+           FROM ${REAL_ORDERS_ACTIVE} orders_active
           WHERE completed_at IS NULL
             AND assignment_status = 'manual_queue'`,
         [], { cnt: 0 }
@@ -250,7 +256,7 @@ async function getAttentionItems() {
         ? safeGet(
             `SELECT COUNT(*) AS cnt
                FROM payment_claims pc
-               JOIN orders_active o ON o.id = pc.order_id
+               JOIN ${REAL_ORDERS_ACTIVE} o ON o.id = pc.order_id
               WHERE pc.status = 'pending'
                 AND COALESCE(o.payment_status, '') <> 'paid'`,
             [], { cnt: 0 }
@@ -277,7 +283,7 @@ async function getSidebarBadges() {
   return getCached('sidebar_badges', 30_000, async () => {
     const [cases, video, doctors, alerts, instagram, opsAttn, hltAttn, docAttn, finAttn, manualQueue] = await Promise.all([
       // Active cases (not completed)
-      safeGet(`SELECT COUNT(*) AS cnt FROM orders_active WHERE completed_at IS NULL`, [], { cnt: 0 }),
+      safeGet(`SELECT COUNT(*) AS cnt FROM ${REAL_ORDERS_ACTIVE} orders_active WHERE completed_at IS NULL`, [], { cnt: 0 }),
       // Upcoming video calls today
       tableExists('appointments').then(exists => exists
         ? safeGet(
@@ -304,7 +310,7 @@ async function getSidebarBadges() {
       // Per-tab attention counts
       safeGet(
         `SELECT COUNT(*) AS cnt
-           FROM orders_active
+           FROM ${REAL_ORDERS_ACTIVE} orders_active
           WHERE completed_at IS NULL
             AND deadline_at IS NOT NULL
             AND deadline_at::timestamptz < NOW() + INTERVAL '4 hours'`,
@@ -321,7 +327,7 @@ async function getSidebarBadges() {
       // sidebar badge (alertOn red dot at >0). Defensive .catch so a missing
       // column on an unmigrated env doesn't kill the whole badges payload.
       safeGet(
-        `SELECT COUNT(*) AS cnt FROM orders_active
+        `SELECT COUNT(*) AS cnt FROM ${REAL_ORDERS_ACTIVE} orders_active
           WHERE completed_at IS NULL AND assignment_status = 'manual_queue'`,
         [], { cnt: 0 }
       ).catch(() => ({ cnt: 0 }))
@@ -360,7 +366,7 @@ async function getOperationsTabData({ range = '7d' } = {}) {
             COUNT(*) FILTER (WHERE LOWER(COALESCE(urgency_tier,'standard')) = 'urgent' AND completed_at IS NULL) AS urgent_active,
             COUNT(*) FILTER (WHERE LOWER(COALESCE(urgency_tier,'standard')) IN ('vip','fast_track') AND completed_at IS NULL) AS vip_active,
             COUNT(*) FILTER (WHERE created_at::date = CURRENT_DATE) AS today_total
-         FROM orders_active`,
+         FROM ${REAL_ORDERS_ACTIVE} orders_active`,
         [], { in_flight: 0, breached_now: 0, unassigned: 0, urgent_active: 0, vip_active: 0, today_total: 0 }
       ),
       // SLA risk buckets (3 buckets by hours-remaining)
@@ -372,7 +378,7 @@ async function getOperationsTabData({ range = '7d' } = {}) {
                 WHEN EXTRACT(EPOCH FROM (deadline_at::timestamptz - NOW())) / 3600 < 4 THEN 'amber'
                 ELSE 'green'
               END AS tier
-           FROM orders_active
+           FROM ${REAL_ORDERS_ACTIVE} orders_active
            WHERE completed_at IS NULL
              AND deadline_at IS NOT NULL
              AND EXTRACT(EPOCH FROM (deadline_at::timestamptz - NOW())) / 3600 >= 0
@@ -394,7 +400,7 @@ async function getOperationsTabData({ range = '7d' } = {}) {
             o.deadline_at,
             o.completed_at,
             EXTRACT(EPOCH FROM (o.deadline_at::timestamptz - NOW())) / 3600 AS hours_remaining
-         FROM orders_active o
+         FROM ${REAL_ORDERS_ACTIVE} o
          LEFT JOIN users p ON p.id = o.patient_id
          LEFT JOIN users d ON d.id = o.doctor_id
          LEFT JOIN specialties sp ON sp.id = o.specialty_id
@@ -413,7 +419,7 @@ async function getOperationsTabData({ range = '7d' } = {}) {
             COUNT(o.id) FILTER (WHERE o.completed_at IS NULL AND o.doctor_id = u.id) AS active_cases
          FROM users u
          LEFT JOIN specialties sp ON sp.id = u.specialty_id
-         LEFT JOIN orders_active o ON o.doctor_id = u.id
+         LEFT JOIN ${REAL_ORDERS_ACTIVE} o ON o.doctor_id = u.id
          WHERE u.role = 'doctor'
            AND u.is_active = true
            AND u.pending_approval = false
@@ -428,7 +434,7 @@ async function getOperationsTabData({ range = '7d' } = {}) {
         `SELECT
             created_at::date AS d,
             COUNT(*) AS n
-         FROM orders_active
+         FROM ${REAL_ORDERS_ACTIVE} orders_active
          WHERE created_at >= NOW() - INTERVAL '7 days'
          GROUP BY d
          ORDER BY d ASC`,
@@ -547,7 +553,7 @@ async function getFinanceTabData({ range = '7d' } = {}) {
             COALESCE(SUM(price - COALESCE(doctor_fee, 0)) FILTER (WHERE created_at >= date_trunc('month', NOW()) AND ${COLLECTED}), 0) AS gross_profit_mtd,
             COALESCE(AVG(price) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND price > 0 AND ${COLLECTED}), 0) AS avg_order_30d,
             COUNT(*) FILTER (WHERE created_at >= date_trunc('month', NOW())) AS orders_mtd
-         FROM orders_active`,
+         FROM ${REAL_ORDERS_ACTIVE} orders_active`,
         [], { rev_today: 0, rev_mtd: 0, gross_profit_mtd: 0, avg_order_30d: 0, orders_mtd: 0 }
       ),
       // Urgency tier breakdown for selected range
@@ -556,7 +562,7 @@ async function getFinanceTabData({ range = '7d' } = {}) {
             COALESCE(o.urgency_tier, 'standard') AS tier,
             COUNT(*) AS cases,
             COALESCE(SUM(o.urgency_uplift_amount), 0) AS uplift
-         FROM orders_active o
+         FROM ${REAL_ORDERS_ACTIVE} o
          WHERE ${rangeFilter(range).clause}
          GROUP BY COALESCE(o.urgency_tier, 'standard')`,
         [], []
@@ -567,7 +573,7 @@ async function getFinanceTabData({ range = '7d' } = {}) {
             COALESCE(o.country, 'EG') AS country,
             COUNT(*) AS cases,
             COALESCE(SUM(o.price) FILTER (WHERE ${COLLECTED_O}), 0) AS rev
-         FROM orders_active o
+         FROM ${REAL_ORDERS_ACTIVE} o
          WHERE ${rangeFilter(range).clause}
          GROUP BY country
          ORDER BY rev DESC
@@ -622,7 +628,7 @@ async function getFinanceTabData({ range = '7d' } = {}) {
             sp.name AS specialty_name,
             COUNT(o.id) AS cases,
             COALESCE(SUM(o.price) FILTER (WHERE ${COLLECTED_O}), 0) AS revenue
-         FROM orders_active o
+         FROM ${REAL_ORDERS_ACTIVE} o
          LEFT JOIN specialties sp ON sp.id = o.specialty_id
          WHERE ${rangeFilter(range).clause}
          GROUP BY sp.name
@@ -723,7 +729,7 @@ async function getDoctorsTabData({ range = '7d' } = {}) {
             (SELECT AVG(rating)::numeric(3,1) FROM reviews r WHERE r.doctor_id = u.id) AS rating
          FROM users u
          LEFT JOIN specialties sp ON sp.id = u.specialty_id
-         LEFT JOIN orders_active o ON o.doctor_id = u.id AND o.created_at >= NOW() - INTERVAL '30 days'
+         LEFT JOIN ${REAL_ORDERS_ACTIVE} o ON o.doctor_id = u.id AND o.created_at >= NOW() - INTERVAL '30 days'
          WHERE u.role = 'doctor' AND u.is_active = true AND u.pending_approval = false
          GROUP BY u.id, u.name, sp.name
          HAVING COUNT(o.id) > 0
@@ -885,10 +891,10 @@ async function getPatientsTabData({ range = '7d' } = {}) {
     const repeatRow = await safeGet(
       `SELECT
           COUNT(DISTINCT patient_id) FILTER (WHERE patient_id IN (
-            SELECT patient_id FROM orders_active GROUP BY patient_id HAVING COUNT(*) >= 2
+            SELECT patient_id FROM ${REAL_ORDERS_ACTIVE} orders_active GROUP BY patient_id HAVING COUNT(*) >= 2
           )) AS repeat_patients,
           COUNT(DISTINCT patient_id) AS total_patients
-       FROM orders_active
+       FROM ${REAL_ORDERS_ACTIVE} orders_active
        WHERE patient_id IS NOT NULL`,
       [], { repeat_patients: 0, total_patients: 0 }
     );
@@ -966,7 +972,7 @@ async function getMarketingTabData({ range = '7d' } = {}) {
                 COALESCE(SUM(o.price) FILTER (WHERE ${COLLECTED_O}), 0) AS rev
               FROM referral_codes rc
               LEFT JOIN referral_redemptions rr ON rr.referral_code_id = rc.id
-              LEFT JOIN orders_active o ON o.referral_code = rc.code
+              LEFT JOIN ${REAL_ORDERS_ACTIVE} o ON o.referral_code = rc.code
               GROUP BY rc.code
               HAVING COUNT(rr.id) > 0
               ORDER BY uses DESC
@@ -985,7 +991,7 @@ async function getMarketingTabData({ range = '7d' } = {}) {
         : { pending: 0, published: 0 }),
       // Conversions in 7d: orders with referral code OR known campaign source
       safeGet(
-        `SELECT COUNT(*) AS cnt FROM orders_active
+        `SELECT COUNT(*) AS cnt FROM ${REAL_ORDERS_ACTIVE} orders_active
           WHERE referral_code IS NOT NULL
             AND created_at >= NOW() - INTERVAL '7 days'`,
         [], { cnt: 0 }

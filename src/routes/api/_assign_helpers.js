@@ -15,6 +15,8 @@
 'use strict';
 
 const { acceptanceMinutesForOrder, acceptanceDeadlineIso } = require('../../acceptance_window');
+// The one "not a practice case" predicate (src/practice_cases.js).
+const { realCaseSql } = require('../../practice_cases');
 
 // ── status normalization ───────────────────────────────────────
 // Prod stores legacy LOWERCASE statuses (e.g. 'in_progress'); case_lifecycle's
@@ -117,7 +119,7 @@ function statusExpr(p) {
 function activeCaseSql(p) {
   const c = p || '';
   return `${c}completed_at IS NULL AND ${statusExpr(c)} IN ${ACTIVE_STATUSES}`
-    + ` AND NOT COALESCE(${c}is_practice, false)`;
+    + ` AND ${realCaseSql(c)}`;
 }
 
 // Active AND past its SLA deadline. ::timestamptz makes it an INSTANT
@@ -166,7 +168,7 @@ function slaCountableCompletionSql(p) {
   // in neither the numerator nor the denominator of a doctor's SLA hit rate.
   return `${c}completed_at IS NOT NULL AND ${c}deadline_at IS NOT NULL`
     + ` AND ${statusExpr(c)} IN ${COMPLETED_STATUSES}`
-    + ` AND NOT COALESCE(${c}is_practice, false)`;
+    + ` AND ${realCaseSql(c)}`;
 }
 function slaHitRatioSql(p) {
   const c = p || '';

@@ -19,6 +19,10 @@ const { pickDoctorForOrder } = require('../assign');
 const { recalcSlaBreaches } = require('../case_lifecycle'); // sla.js deleted, use case_lifecycle shim
 const { randomUUID: uuidv4 } = require('crypto');
 const { safeAll, safeGet, tableExists } = require('../sql-utils');
+// PRACTICE-CASES (2026-09-25) — operator metrics and lists read real cases only
+// (src/practice_cases.js). buildFilters carries the predicate, so the orders
+// list, its KPIs, the CSV export and routes/admin.js's lists all inherit it.
+const { realCaseSql, REAL_ORDERS_ACTIVE } = require('../practice_cases');
 const { ensureConversation } = require('./messaging');
 const caseLifecycle = require('../case_lifecycle');
 // Manual payment path (InstaPay / bank transfer claims) — migration 117.
@@ -667,6 +671,7 @@ router.get('/superadmin/settings', requireSuperadmin, async (req, res) => {
              AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured')
              AND LOWER(COALESCE(o.status, '')) NOT IN
                  ('completed', 'cancelled', 'canceled', 'refunded', 'expired_unpaid', 'rejected')
+             AND ${realCaseSql('o.')}
          ) AS awaiting_manual`
     );
     autoAssignReadiness = r || null;
@@ -1512,7 +1517,8 @@ router.get('/superadmin/reviews', requireSuperadmin, async (req, res) => {
 
 // buildFilters: used for dashboard and CSV export
 function buildFilters(query, startIdx = 1) {
-  const where = [];
+  // PRACTICE-CASES — first, unconditionally. Every caller aliases orders as o.
+  const where = [realCaseSql('o.')];
   const params = [];
   let paramIdx = startIdx;
 
@@ -2637,6 +2643,7 @@ router.get('/superadmin/manual-queue', requireSuperadmin, async (req, res) => {
          LEFT JOIN specialties sp_pred ON sp_pred.id = sc.specialty_id
          LEFT JOIN services   sv_pred  ON sv_pred.id  = sc.service_id
         WHERE o.completed_at IS NULL
+          AND ${realCaseSql('o.')}
           AND o.assignment_status = 'manual_queue'
         ORDER BY o.created_at ASC
         LIMIT 200`,
@@ -6033,6 +6040,9 @@ router.get('/superadmin/events', requireSuperadmin, async (req, res) => {
     params.push(to.trim());
   }
 
+  // PRACTICE-CASES — a training case's events are not operational activity.
+  // NULL o (event with no live order) stays: realCaseSql COALESCEs to real.
+  where.push(realCaseSql('o.'));
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
   const events = await queryAll(
@@ -6167,17 +6177,17 @@ router.get('/superadmin/analytics', requireSuperadmin, async (req, res) => {
 
     // ── KPIs (current period) ──
     const totalCases = (await safeGet(
-      "SELECT COUNT(*) as c FROM orders_active WHERE created_at >= $1",
+      "SELECT COUNT(*) as c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE created_at >= $1",
       [startDate], { c: 0 }
     ) || {}).c || 0;
 
     const paidCases = (await safeGet(
-      "SELECT COUNT(*) as c FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1",
+      "SELECT COUNT(*) as c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1",
       [startDate], { c: 0 }
     ) || {}).c || 0;
 
     const totalRevenue = (await safeGet(
-      "SELECT COALESCE(SUM(price), 0) as t FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1",
+      "SELECT COALESCE(SUM(price), 0) as t FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1",
       [startDate], { t: 0 }
     ) || {}).t || 0;
 
@@ -6194,12 +6204,12 @@ router.get('/superadmin/analytics', requireSuperadmin, async (req, res) => {
     ) || {}).c || 0;
 
     const completedCases = (await safeGet(
-      "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND created_at >= $1",
+      "SELECT COUNT(*) as c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND created_at >= $1",
       [startDate], { c: 0 }
     ) || {}).c || 0;
 
     const onTimeCases = (await safeGet(
-      "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $1",
+      "SELECT COUNT(*) as c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $1",
       [startDate], { c: 0 }
     ) || {}).c || 0;
 
@@ -6207,12 +6217,12 @@ router.get('/superadmin/analytics', requireSuperadmin, async (req, res) => {
 
     // Previous period
     const prevCases = (await safeGet(
-      "SELECT COUNT(*) as c FROM orders_active WHERE created_at >= $1 AND created_at < $2",
+      "SELECT COUNT(*) as c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE created_at >= $1 AND created_at < $2",
       [prevStart, startDate], { c: 0 }
     ) || {}).c || 0;
 
     const prevRevenue = (await safeGet(
-      "SELECT COALESCE(SUM(price), 0) as t FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1 AND created_at < $2",
+      "SELECT COALESCE(SUM(price), 0) as t FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1 AND created_at < $2",
       [prevStart, startDate], { t: 0 }
     ) || {}).t || 0;
 
@@ -6233,33 +6243,33 @@ router.get('/superadmin/analytics', requireSuperadmin, async (req, res) => {
       1
     );
     const breachedAttention = (await safeGet(
-      `SELECT COUNT(*) as c FROM orders_active WHERE ${breachedAttentionIn.clause}`,
+      `SELECT COUNT(*) as c FROM ${REAL_ORDERS_ACTIVE} orders_active WHERE ${breachedAttentionIn.clause}`,
       breachedAttentionIn.params, { c: 0 }
     ) || {}).c || 0;
 
     const unpaidAttention = (await safeGet(
-      "SELECT COUNT(*) as c FROM orders_active WHERE payment_status = 'unpaid' AND LOWER(COALESCE(status, '')) NOT IN ('expired_unpaid','cancelled')",
+      "SELECT COUNT(*) as c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE payment_status = 'unpaid' AND LOWER(COALESCE(status, '')) NOT IN ('expired_unpaid','cancelled')",
       [], { c: 0 }
     ) || {}).c || 0;
 
     const expiredAttention = (await safeGet(
-      "SELECT COUNT(*) as c FROM orders_active WHERE LOWER(COALESCE(status, '')) = 'expired_unpaid'",
+      "SELECT COUNT(*) as c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE LOWER(COALESCE(status, '')) = 'expired_unpaid'",
       [], { c: 0 }
     ) || {}).c || 0;
 
     // Charts
     const revenueTrend = await safeAll(
-      "SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1 GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month ASC",
+      "SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1 GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month ASC",
       [startDate], []
     );
 
     const revenueByService = await safeAll(
-      "SELECT COALESCE(sv.name, 'Unknown') as name, COALESCE(SUM(o.price), 0) as revenue, COUNT(o.id) as cases FROM orders_active o LEFT JOIN services sv ON sv.id = o.service_id WHERE o.payment_status IN ('paid','captured') AND o.created_at >= $1 GROUP BY o.service_id, sv.name ORDER BY revenue DESC LIMIT 8",
+      "SELECT COALESCE(sv.name, 'Unknown') as name, COALESCE(SUM(o.price), 0) as revenue, COUNT(o.id) as cases FROM " + REAL_ORDERS_ACTIVE + " o LEFT JOIN services sv ON sv.id = o.service_id WHERE o.payment_status IN ('paid','captured') AND o.created_at >= $1 GROUP BY o.service_id, sv.name ORDER BY revenue DESC LIMIT 8",
       [startDate], []
     );
 
     const casesByStatus = await safeAll(
-      "SELECT LOWER(status) as status, COUNT(*) as count FROM orders_active WHERE created_at >= $1 GROUP BY LOWER(status) ORDER BY count DESC",
+      "SELECT LOWER(status) as status, COUNT(*) as count FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE created_at >= $1 GROUP BY LOWER(status) ORDER BY count DESC",
       [startDate], []
     );
 
@@ -6269,22 +6279,22 @@ router.get('/superadmin/analytics', requireSuperadmin, async (req, res) => {
     );
 
     const topDoctors = await safeAll(
-      "SELECT u.id, u.name, u.specialty_id, COALESCE(sp.name, '') as specialty_name, COUNT(o.id) as cases, COALESCE(SUM(o.price), 0) as revenue FROM users u LEFT JOIN orders_active o ON u.id = o.doctor_id AND o.payment_status IN ('paid','captured') AND o.created_at >= $1 LEFT JOIN specialties sp ON sp.id = u.specialty_id WHERE u.role = 'doctor' AND u.is_active = true GROUP BY u.id, u.name, u.specialty_id, sp.name ORDER BY revenue DESC LIMIT 10",
+      "SELECT u.id, u.name, u.specialty_id, COALESCE(sp.name, '') as specialty_name, COUNT(o.id) as cases, COALESCE(SUM(o.price), 0) as revenue FROM users u LEFT JOIN " + REAL_ORDERS_ACTIVE + " o ON u.id = o.doctor_id AND o.payment_status IN ('paid','captured') AND o.created_at >= $1 LEFT JOIN specialties sp ON sp.id = u.specialty_id WHERE u.role = 'doctor' AND u.is_active = true GROUP BY u.id, u.name, u.specialty_id, sp.name ORDER BY revenue DESC LIMIT 10",
       [startDate], []
     );
 
     const slaTrend = await safeAll(
-      "SELECT TO_CHAR(completed_at, 'YYYY-MM-DD') as date, COUNT(*) as total, SUM(CASE WHEN completed_at <= deadline_at THEN 1 ELSE 0 END) as on_time FROM orders_active WHERE LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND created_at >= $1 GROUP BY TO_CHAR(completed_at, 'YYYY-MM-DD') ORDER BY date ASC",
+      "SELECT TO_CHAR(completed_at, 'YYYY-MM-DD') as date, COUNT(*) as total, SUM(CASE WHEN completed_at <= deadline_at THEN 1 ELSE 0 END) as on_time FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE LOWER(COALESCE(status, '')) IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND created_at >= $1 GROUP BY TO_CHAR(completed_at, 'YYYY-MM-DD') ORDER BY date ASC",
       [startDate], []
     );
 
     const avgTat = (await safeGet(
-      "SELECT AVG(EXTRACT(EPOCH FROM (completed_at - accepted_at)) / 3600) as hours FROM orders_active WHERE completed_at IS NOT NULL AND accepted_at IS NOT NULL AND created_at >= $1",
+      "SELECT AVG(EXTRACT(EPOCH FROM (completed_at - accepted_at)) / 3600) as hours FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE completed_at IS NOT NULL AND accepted_at IS NOT NULL AND created_at >= $1",
       [startDate], { hours: 0 }
     ) || {}).hours || 0;
 
     const paymentMethods = await safeAll(
-      "SELECT COALESCE(payment_method, 'unknown') as method, COUNT(*) as count, COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as revenue FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1 GROUP BY COALESCE(payment_method, 'unknown') ORDER BY count DESC",
+      "SELECT COALESCE(payment_method, 'unknown') as method, COUNT(*) as count, COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as revenue FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1 GROUP BY COALESCE(payment_method, 'unknown') ORDER BY count DESC",
       [startDate], []
     );
 
@@ -6297,7 +6307,7 @@ router.get('/superadmin/analytics', requireSuperadmin, async (req, res) => {
     }
 
     const doctorWorkload = await safeAll(
-      "SELECT COALESCE(u.name, 'Unassigned') as name, COUNT(o.id) as cases FROM orders_active o LEFT JOIN users u ON u.id = o.doctor_id WHERE o.created_at >= $1 GROUP BY o.doctor_id, u.name HAVING COUNT(o.id) > 0 ORDER BY cases DESC LIMIT 15",
+      "SELECT COALESCE(u.name, 'Unassigned') as name, COUNT(o.id) as cases FROM " + REAL_ORDERS_ACTIVE + " o LEFT JOIN users u ON u.id = o.doctor_id WHERE o.created_at >= $1 GROUP BY o.doctor_id, u.name HAVING COUNT(o.id) > 0 ORDER BY cases DESC LIMIT 15",
       [startDate], []
     );
 
