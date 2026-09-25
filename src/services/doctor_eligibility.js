@@ -154,7 +154,7 @@ function doctorSupportsTier(slaTiers, orderTier) {
 // A cap of 0 / NULL / non-numeric means "no cap configured" and callers skip
 // the check — the same fail direction services/assign_case.js has always used.
 //
-// users.doctor_max_active_override (migration 116) is the doctor's OWN cap,
+// users.doctor_max_active_override (migration 120) is the doctor's OWN cap,
 // set from the app. It can only LOWER the platform's figure: the platform's
 // max_active_cases stays the ceiling ops control, and the doctor chooses to
 // hold fewer. Math.min against Infinity when the platform has no cap, so the

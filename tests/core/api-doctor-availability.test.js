@@ -1,6 +1,6 @@
 // tests/core/api-doctor-availability.test.js
 //
-// Doctor away dates + doctor-set cap (migration 116):
+// Doctor away dates + doctor-set cap (migration 120):
 //   routes/api/doctor_me.js   GET /availability, POST /availability/away,
 //                             DELETE /availability/away/:id,
 //                             PUT /availability/taking-cases (doctor_away lift),
@@ -172,6 +172,17 @@ function reset() {
   executeResults = [];
   applyShouldThrow = false;
   today = TODAY;
+  // tests/run.js requires every test file into ONE process, so a sibling file
+  // that stubs the same module at load time (api-doctor-me does, for the
+  // logger) owns the stub by the time these tests run. Re-point it here so
+  // each test records into its own ledger whichever file loaded last.
+  logger.logErrorToDb = async (err, ctx) => { calls.log.push({ err, ctx }); return 'err_x'; };
+  pauseMod.cairoDateString = () => today;
+  pauseMod.applyDoctorAwayPeriods = async (now) => {
+    calls.apply.push(now);
+    if (applyShouldThrow) throw new Error('sweep down');
+    return { paused: 0, lifted: 0 };
+  };
 }
 
 const USER_RE = /FROM users WHERE id = \$1 AND role = 'doctor' LIMIT 1/;

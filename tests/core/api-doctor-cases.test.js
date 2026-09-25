@@ -500,7 +500,7 @@ test('GET /cases/:id/draft splits the saved report the way the web editor does a
   const o = order({ diagnosis_text: 'Findings:\nTear\n\nImpression:\nBankart\n\nRecommendations:\nRepair', impression_text: '', recommendation_text: '' });
   const res = await drive('get', '/cases/:id/draft', { helpers: makeHelpers([[ORDER_RE, o]]), params: { id: 'ord-1' } });
   assert.equal(res.statusCode, 200);
-  // Migration 117: the Arabic half reads '' / false on a row without it.
+  // Migration 121: the Arabic half reads '' / false on a row without it.
   const noAr = { findings_ar: '', impression_ar: '', recommendation_ar: '', arabic_approved: false };
   assert.deepEqual(data(res), { order_id: 'ord-1', findings: 'Tear', impression: 'Bankart', recommendation: 'Repair', ...noAr, saved_at: iso(-1 * H) });
   // a completed case still reads its draft

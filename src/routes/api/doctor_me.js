@@ -47,7 +47,7 @@ const SIG_MAX_BYTES = 2 * 1024 * 1024;
 // the platform and only the platform lifts it.
 const SELF_PAUSE_REASON = 'doctor_self';
 // The scheduled self-pause: services/doctor_pause.applyDoctorAwayPeriods
-// sets and lifts it from doctor_away_periods (migration 116). Also the
+// sets and lifts it from doctor_away_periods (migration 120). Also the
 // doctor's own, so the app may lift it (= "back early").
 const AWAY_PAUSE_REASON = 'doctor_away';
 const SELF_PAUSE_REASONS = [SELF_PAUSE_REASON, AWAY_PAUSE_REASON];
@@ -168,7 +168,7 @@ module.exports = function (db, helpers) {
         is_available: row.is_available !== false,
         approved_at: iso(row.approved_at),
         created_at: iso(row.created_at),
-        // Ops-set (migration 116); the app only shows them. Vocabulary:
+        // Ops-set (migration 120); the app only shows them. Vocabulary:
         // 'instapay' | 'cash' | 'shifa_finance' | 'bank'.
         payout_method: row.payout_method || null,
         payout_handle: row.payout_handle || null,
@@ -280,7 +280,7 @@ module.exports = function (db, helpers) {
     });
   });
 
-  // ─── Away periods (doctor_away_periods, migration 116) ────
+  // ─── Away periods (doctor_away_periods, migration 120) ────
   // A period is a self-pause with dates. services/doctor_pause
   // .applyDoctorAwayPeriods turns "today is inside a live period" into the
   // is_paused flag every routing path already respects; the sweep runs it

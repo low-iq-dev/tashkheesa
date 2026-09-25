@@ -1,4 +1,4 @@
--- 117_doctor_push_prefs_and_arabic_report.sql
+-- 121_doctor_push_prefs_and_arabic_report.sql
 -- ============================================================================
 -- Doctor app, second wave — push preferences, quiet hours, and the Arabic
 -- report body. All additive; nothing reads these until services/doctor_push.js
@@ -65,7 +65,7 @@ ALTER TABLE orders
 -- the view (every doctor read in this codebase, rule 4 of the brief) never see
 -- the new columns. This is the 084 block verbatim: `SELECT *` rather than an
 -- explicit list so it is correct whatever columns a neighbouring migration
--- (116) appends, wrapped in its own exception block so a refusal (42P16) is a
+-- (120) appends, wrapped in its own exception block so a refusal (42P16) is a
 -- deploy-log WARNING, not a crash-loop. See 084's header for the reasoning.
 DO $$
 BEGIN
@@ -84,7 +84,7 @@ BEGIN
         EXECUTE 'REVOKE SELECT ON public.orders_active FROM authenticated';
       END IF;
     EXCEPTION WHEN OTHERS THEN
-      RAISE WARNING 'Migration 117: could NOT re-sync public.orders_active (% %). NOT FATAL, boot continues, but orders_active may be missing diagnosis_text_ar / impression_text_ar / recommendation_text_ar / report_ar_approved_at. TO FIX as the database owner: BEGIN; DROP VIEW public.orders_active CASCADE; (check pg_depend first and rebuild any dependent view) CREATE VIEW public.orders_active WITH (security_invoker = true) AS SELECT * FROM orders WHERE deleted_at IS NULL; REVOKE SELECT ON public.orders_active FROM anon, authenticated; COMMIT;',
+      RAISE WARNING 'Migration 121: could NOT re-sync public.orders_active (% %). NOT FATAL, boot continues, but orders_active may be missing diagnosis_text_ar / impression_text_ar / recommendation_text_ar / report_ar_approved_at. TO FIX as the database owner: BEGIN; DROP VIEW public.orders_active CASCADE; (check pg_depend first and rebuild any dependent view) CREATE VIEW public.orders_active WITH (security_invoker = true) AS SELECT * FROM orders WHERE deleted_at IS NULL; REVOKE SELECT ON public.orders_active FROM anon, authenticated; COMMIT;',
         SQLSTATE, SQLERRM;
     END;
   END IF;
@@ -117,9 +117,9 @@ BEGIN
 
     IF missing IS NOT NULL THEN
       IF strict_mode THEN
-        RAISE EXCEPTION 'Migration 117: orders_active is missing orders columns after re-sync: % (tashkheesa.migration_strict is on)', missing;
+        RAISE EXCEPTION 'Migration 121: orders_active is missing orders columns after re-sync: % (tashkheesa.migration_strict is on)', missing;
       ELSE
-        RAISE WARNING 'Migration 117: orders_active is MISSING orders columns after re-sync: %. Readers of orders_active cannot see these columns. NOT FATAL, boot continues. TO FIX as the database owner: BEGIN; DROP VIEW public.orders_active CASCADE; (rebuild any dependent view) CREATE VIEW public.orders_active WITH (security_invoker = true) AS SELECT * FROM orders WHERE deleted_at IS NULL; REVOKE SELECT ON public.orders_active FROM anon, authenticated; COMMIT;', missing;
+        RAISE WARNING 'Migration 121: orders_active is MISSING orders columns after re-sync: %. Readers of orders_active cannot see these columns. NOT FATAL, boot continues. TO FIX as the database owner: BEGIN; DROP VIEW public.orders_active CASCADE; (rebuild any dependent view) CREATE VIEW public.orders_active WITH (security_invoker = true) AS SELECT * FROM orders WHERE deleted_at IS NULL; REVOKE SELECT ON public.orders_active FROM anon, authenticated; COMMIT;', missing;
       END IF;
     END IF;
   END IF;

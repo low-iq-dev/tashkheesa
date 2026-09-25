@@ -126,8 +126,8 @@ async function getReportUrlColumnName() {
   ]);
 }
 
-// Migration 117 — the Arabic body of each section, and the doctor's sign-off
-// on it. Probed like the English trio so a database that has not run 117
+// Migration 121 — the Arabic body of each section, and the doctor's sign-off
+// on it. Probed like the English trio so a database that has not run 121
 // simply has no Arabic path (the write skips them, the read returns '').
 async function getDiagnosisArColumnName() {
   return await pickFirstExistingOrderColumn(['diagnosis_text_ar']);
@@ -220,10 +220,10 @@ function buildReportDraftFields(order) {
   return { findings: diagnosis.trim(), impression, recommendations };
 }
 
-// The Arabic half of the editor (migration 117). Sibling of
+// The Arabic half of the editor (migration 121). Sibling of
 // buildReportDraftFields rather than an extension of it: every existing
 // caller deep-compares the English trio, and the Arabic body has no legacy
-// combined-blob format to parse. A row from a pre-117 database has none of
+// combined-blob format to parse. A row from a pre-121 database has none of
 // these columns and reads as empty / not approved.
 function buildReportDraftFieldsAr(order) {
   const o = order || {};
@@ -309,11 +309,11 @@ const NOT_SUBMITTABLE_SQL_LIST = NOT_SUBMITTABLE_DB_STATUSES.map((s) => `'${s}'`
 // while the PDF held the winner's. Returns the affected row count; 0 means
 // the case is no longer open and the caller must not proceed.
 //
-// Migration 117: the optional Arabic fields (diagnosisTextAr, impressionTextAr,
+// Migration 121: the optional Arabic fields (diagnosisTextAr, impressionTextAr,
 // recommendationsTextAr, arabicApproved) join the SAME UPDATE — one statement,
 // one status guard — but ONLY when the caller passed them (`!== undefined`) AND
 // the column exists. An English-only save from the web editor therefore
-// never touches the Arabic text, and a pre-117 database is unaffected.
+// never touches the Arabic text, and a pre-121 database is unaffected.
 async function persistReportText({
   orderId,
   diagnosisText,
@@ -569,7 +569,7 @@ async function submitDoctorReport({
   diagnosisText,
   impressionText,
   recommendationsText,
-  // Migration 117 — optional Arabic body. Omitted (undefined) means "what is
+  // Migration 121 — optional Arabic body. Omitted (undefined) means "what is
   // stored"; a string, even '', is the doctor's latest text for that section.
   diagnosisTextAr,
   impressionTextAr,
@@ -627,19 +627,18 @@ async function submitDoctorReport({
 
   // Persist the text draft-shaped BEFORE anything that can fail.
   try {
-    const persistArgs = {
+    // Arabic fields ride along only when the caller supplied them, so a web
+    // submit (English only) is byte-for-byte the UPDATE it always was.
+    const saved = await persistReportText({
       orderId,
       diagnosisText: findings,
       impressionText: impression,
-      recommendationsText: recommendations
-    };
-    // Arabic fields ride along only when the caller supplied them, so a web
-    // submit (English only) is byte-for-byte the UPDATE it always was.
-    if (typeof diagnosisTextAr === 'string') persistArgs.diagnosisTextAr = findingsAr;
-    if (typeof impressionTextAr === 'string') persistArgs.impressionTextAr = impressionAr;
-    if (typeof recommendationsTextAr === 'string') persistArgs.recommendationsTextAr = recommendationsAr;
-    if (typeof arabicApproved === 'boolean') persistArgs.arabicApproved = arabicApproved;
-    const saved = await persistReportText(persistArgs);
+      recommendationsText: recommendations,
+      ...(typeof diagnosisTextAr === 'string' ? { diagnosisTextAr: findingsAr } : {}),
+      ...(typeof impressionTextAr === 'string' ? { impressionTextAr: impressionAr } : {}),
+      ...(typeof recommendationsTextAr === 'string' ? { recommendationsTextAr: recommendationsAr } : {}),
+      ...(typeof arabicApproved === 'boolean' ? { arabicApproved } : {})
+    });
     if (!saved) {
       // The case closed between the load above and this write (a concurrent
       // submit completed it, or an operator cancelled it). Nothing was
@@ -716,7 +715,7 @@ async function submitDoctorReport({
       findings: findings || order.diagnosis_text || '',
       impression,
       recommendations,
-      // Migration 117 — the Arabic body per section, only when approved.
+      // Migration 121 — the Arabic body per section, only when approved.
       // Empty strings render nothing (the English-only layout as always).
       findingsAr: printFindingsAr,
       impressionAr: printImpressionAr,

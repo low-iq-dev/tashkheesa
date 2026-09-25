@@ -180,7 +180,7 @@ async function checkAndAutoPauseDoctor(doctorId) {
   return { paused: true, breaches: breaches, threshold: threshold, windowDays: windowDays };
 }
 
-// ── Scheduled self-pause: doctor_away_periods (migration 116) ───────────────
+// ── Scheduled self-pause: doctor_away_periods (migration 120) ───────────────
 //
 // Away dates are NOT a second availability concept. The platform has ONE
 // mechanism every routing path already respects — users.is_paused /

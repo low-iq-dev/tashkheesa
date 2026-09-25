@@ -891,7 +891,7 @@ module.exports = function (db, helpers) {
     const ctx = await requireAcceptedCase(req, res);
     if (!ctx) return;
     const fields = reportSubmission.buildReportDraftFields(ctx.order);
-    // Migration 117 — the Arabic half of the editor, '' / false on a row (or a
+    // Migration 121 — the Arabic half of the editor, '' / false on a row (or a
     // database) that has none.
     const ar = reportSubmission.buildReportDraftFieldsAr(ctx.order);
     return res.ok({
@@ -931,7 +931,7 @@ module.exports = function (db, helpers) {
     const impressionText = pick('impression', current.impression);
     const recommendationsText = pick('recommendation', current.recommendations);
 
-    // Migration 117 — the Arabic fields are passed ONLY when the body carries
+    // Migration 121 — the Arabic fields are passed ONLY when the body carries
     // them, so an English-only save (and the web editor, which never sends
     // them) leaves the Arabic text and its approval untouched.
     const persistArgs = { orderId: ctx.orderId, diagnosisText, impressionText, recommendationsText };
@@ -1283,7 +1283,7 @@ module.exports = function (db, helpers) {
       recommendationsText: text(body.recommendation ?? body.recommendations ?? body.recommendation_text),
       via: 'doctor_app_report',
     };
-    // Migration 117 — optional Arabic body, forwarded only when sent: the
+    // Migration 121 — optional Arabic body, forwarded only when sent: the
     // service falls back to the stored Arabic draft for anything omitted, and
     // an app build that predates the Arabic editor submits exactly as before.
     const textAr = (v) => (typeof v === 'string' ? v.trim() : undefined);

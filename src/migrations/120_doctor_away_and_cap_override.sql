@@ -1,4 +1,4 @@
--- 116_doctor_away_and_cap_override.sql
+-- 120_doctor_away_and_cap_override.sql
 -- ============================================================================
 -- Doctor app availability (fix plan 2026-09-15, follow-up to 111) — three
 -- additive pieces for the /api/v1/doctor/availability and /profile surface.

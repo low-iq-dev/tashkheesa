@@ -208,7 +208,7 @@ function shouldPush({ key, prefs, quiet, nowCairoMinutes } = {}) {
 // ── Reads ──────────────────────────────────────────────────────────────────
 
 // One SELECT: role (the hook in notify.js does not know it), and the quiet
-// hours. A pre-117 database has no quiet columns; the fallback query keeps
+// hours. A pre-121 database has no quiet columns; the fallback query keeps
 // role resolution working so an old schema simply means "no quiet hours".
 async function readDoctorRow(userId) {
   try {
@@ -238,7 +238,7 @@ async function readPrefs(userId) {
     }
     return out;
   } catch (_) {
-    // Table absent (pre-117) or unreachable: every preference is enabled,
+    // Table absent (pre-121) or unreachable: every preference is enabled,
     // which is exactly what a missing row means.
     return {};
   }

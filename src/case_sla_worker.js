@@ -1361,7 +1361,7 @@ async function _runCaseSlaSweepInner(runAt = new Date()) {
     } catch (_) { /* ignore */ }
     logFatal('Stranded paid-case fetch failed', err);
   }
-  // Doctor away dates (migration 116): turn today's doctor_away_periods into
+  // Doctor away dates (migration 120): turn today's doctor_away_periods into
   // the is_paused flag before the sweep routes anything, so a doctor whose
   // leave started at midnight is not offered a case at 00:04. Best-effort and
   // never part of fetchError — availability housekeeping must not fail or

@@ -191,6 +191,9 @@ function reset() {
   pushShouldThrow = false;
   heldRows = [];
   catalogResult = { groups: [], allowedIds: new Set(), isEmpty: true };
+  // Same-process runner (tests/run.js): a sibling file may have re-stubbed
+  // the logger after this file loaded; take it back per test.
+  logger.logErrorToDb = async (err, ctx) => { calls.log.push({ err, ctx }); return 'err_x'; };
 }
 
 const USER_RE = /FROM users WHERE id = \$1 AND role = 'doctor'/;
@@ -295,7 +298,7 @@ test('GET /availability: taking_cases = NOT is_paused, tiers carry case_lifecycl
   ]);
   assert.deepEqual(d.away, []);
   assert.equal(d.self_pause_supported, true);
-  // Migration 116: away dates and a lower-only cap are live; the full
+  // Migration 120: away dates and a lower-only cap are live; the full
   // contract is pinned in api-doctor-availability.test.js.
   assert.equal(d.away_supported, true);
   assert.equal(d.max_active_editable, true);
@@ -374,7 +377,7 @@ test('PUT /availability/tiers whitelists against DOCTOR_SLA_TIERS, floors at sta
   assert.deepEqual(r.runs[0].params, ['doc_1', JSON.stringify(['standard'])]);
 });
 
-test('max-active and away are real routes now (migration 116) — a bad body is a 400, not a 501', async () => {
+test('max-active and away are real routes now (migration 120) — a bad body is a 400, not a 501', async () => {
   // Behaviour is pinned in api-doctor-availability.test.js; this only guards
   // against the 501 stubs coming back.
   let r = await drive({ method: 'put', route: '/availability/max-active', body: { max_active: 9 } });

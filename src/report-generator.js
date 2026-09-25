@@ -246,7 +246,7 @@ function buildPdf({ contentStream }) {
 
 async function generateStyledReportPdfUnicode({
   caseId, doctorName, specialty, specialtyId, createdAt, notes, patient, findings, impression, recommendations, annotations,
-  // Migration 117 — the Arabic body per section, composed by the doctor app.
+  // Migration 121 — the Arabic body per section, composed by the doctor app.
   // Accepted under both spellings the callers use; empty means "no Arabic
   // block", and the layout is then exactly what it was before.
   findingsAr, impressionAr, recommendationsAr,
@@ -646,7 +646,7 @@ async function generateStyledReportPdfUnicode({
     return out;
   }
 
-  // `opts.rtl` (migration 117, the Arabic body block): every line is drawn
+  // `opts.rtl` (migration 121, the Arabic body block): every line is drawn
   // right-aligned, whatever script it holds, so a Latin token inside an Arabic
   // paragraph — a drug name, a lab value — sits on the Arabic margin instead
   // of jumping to the left edge. Font selection stays PER LINE exactly as for
@@ -723,13 +723,13 @@ async function generateStyledReportPdfUnicode({
     }
   }
 
-  // Migration 117 — the Arabic body of a section, right under its English
+  // Migration 121 — the Arabic body of a section, right under its English
   // box. Rendered ONLY when there is Arabic text AND the Arabic face resolved:
   // without the font every glyph would encode to .notdef (a blank box), which
   // is the failure the per-line font selection above exists to prevent, and a
   // report is better English-only than English plus a page of empty squares.
   // When nothing is rendered, doc.y is untouched and the page is byte-for-
-  // byte the pre-117 layout.
+  // byte the pre-121 layout.
   function arabicBodyBox(textBody) {
     const text = String(textBody == null ? '' : textBody).trim();
     if (!text || !arabicFontPath) return false;

@@ -554,7 +554,7 @@ test('the router keeps the JWT + doctor-role guards ahead of every route', () =>
     'GET /conversations', 'GET /conversations/:id', 'POST /conversations/:id/messages', 'POST /conversations/:id/read',
     'GET /alerts', 'POST /alerts/read', 'POST /alerts/:id/read',
     'GET /annotations/:imageId', 'PUT /annotations/:imageId',
-    // Push registration + preferences (migration 117); covered in
+    // Push registration + preferences (migration 121); covered in
     // api-doctor-notifications.test.js.
     'POST /push-token', 'DELETE /push-token',
     'GET /notification-prefs', 'PUT /notification-prefs', 'PUT /quiet-hours',
