@@ -1337,8 +1337,17 @@ async function _runCaseSlaSweepInner(runAt = new Date()) {
     logFatal('Doctor timeout candidates fetch failed', err);
   }
   // Theme 7 sub-issue B: pre-breach candidates — 0–60 min before deadline.
+  //
+  // RETIRED 2026-09-25 (decision 24 Sep). The proportional 80% "at risk"
+  // alert in runDoctorNudges (admin_case_at_risk + ops push) now covers the
+  // same ground; on a 4h Urgent case the two fired 12 minutes apart. Kept
+  // behind SLA_PREBREACH_ALERT_ENABLED=true for a quick revert; off by default.
+  // Superadmins keep: 80% at-risk + the breach. Patient-facing messages are
+  // unaffected (they never lived here).
   try {
-    preBreaches = await fetchPreBreachCandidates();
+    preBreaches = String(process.env.SLA_PREBREACH_ALERT_ENABLED || '').trim().toLowerCase() === 'true'
+      ? await fetchPreBreachCandidates()
+      : [];
   } catch (err) {
     fetchError = fetchError || err;
     try {

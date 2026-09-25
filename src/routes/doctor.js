@@ -47,7 +47,8 @@ const dbStatusValuesFor = caseLifecycle.dbStatusValuesFor;
 // NOTE: case_lifecycle helpers are kept for legacy flows, but the portal doctor reject-files
 // action is implemented directly against the `orders` table to support human-friendly case IDs.
 const { generateMedicalReportPdf } = require('../report-generator');
-const { computeDoctorEarnings } = require('../services/earnings_calc');
+// computeDoctorEarnings is deliberately NOT imported here: any fee shown to a
+// doctor must come from previewCaseEarnings (below) so display and payout agree.
 // A4 (fix plan 2026-09-15): the case page's fee figure, computed by the same
 // code that writes the doctor_earnings ledger row.
 const { previewCaseEarnings } = require('../services/earnings_writer');
