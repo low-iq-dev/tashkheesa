@@ -4,7 +4,12 @@
   var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
   var _lang = (typeof lang !== 'undefined' && lang) ? lang : (_isAr ? 'ar' : 'en');
   var _order = (typeof order !== 'undefined' && order) ? order : null;
-  var _files = Array.isArray(typeof files !== 'undefined' ? files : []) ? files : [];
+  // `files` is absent (not merely undefined) on the access-denied render in
+  // routes/doctor.js renderAccessDenied, and inside EJS's with(locals) a
+  // bare `files` then throws ReferenceError. The old guard evaluated `files`
+  // in its truthy branch and crashed exactly that page (25 Sep 2026: every
+  // refused Accept showed the doctor an error instead of the reason).
+  var _files = (typeof files !== 'undefined' && Array.isArray(files)) ? files : [];
   var _accessDenied = !!(typeof accessDenied !== 'undefined' && accessDenied);
   var _reason = (typeof reason !== 'undefined' && reason) ? String(reason) : '';
   var _blurred = !!(typeof blurred !== 'undefined' && blurred);

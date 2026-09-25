@@ -2147,9 +2147,18 @@ async function transitionCase(caseId, nextStatus, data = {}, client) {
     return existing; // blocked by payment gate — return unchanged
   }
   const currentStatus = normalizeStatus(existing.status);
-  let desiredStatus = normalizeStatus(nextStatus);
-  // Validate and canonicalize status before any further checks (fail fast)
-  desiredStatus = assertCanonicalDbStatus(desiredStatus);
+  const desiredStatus = normalizeStatus(nextStatus);
+  // Validate before any further checks (fail fast). VALIDATE ONLY — never
+  // assign the return value back: since 3f9de9c assertCanonicalDbStatus
+  // returns the LOWERCASE spelling for the database, and every comparison
+  // below (=== CASE_STATUS.PAID / SLA_BREACH / IN_REVIEW) is against the
+  // UPPERCASE canonical form. Reassigning made all of them false, so a case
+  // entering IN_REVIEW got no accepted_at and no deadline_at: no SLA clock,
+  // and file_access (which gates doctors on accepted_at) 403'd the doctor's
+  // own files. Seen in production on soft-launch day, 25 Sep 2026, on the
+  // first two practice cases accepted after the deploy. updateCase lowercases
+  // on the way to the database, which is the only place that should happen.
+  assertCanonicalDbStatus(desiredStatus);
   // HARD INVARIANT: PAID cases must always have SLA hours
   if (desiredStatus === CASE_STATUS.PAID) {
     const hasSla =
