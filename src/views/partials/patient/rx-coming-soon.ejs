@@ -1,0 +1,52 @@
+<%
+  // Prescriptions — coming-soon state (2026-09-25). Sibling of
+  // vc-coming-soon.ejs and shares its .vc-soon* styles: a preview image of
+  // what's coming (the patient at home with her signed digital prescription on
+  // her phone) behind a frosted announcement card. The image was generated
+  // (Higgsfield) and the person in it is synthetic. It continues the story
+  // from the video-consultation preview (knee MRI → meniscus tear).
+  // Assets: public/assets/portal/rx-preview.jpg (2200w) + -sm (1100w, phones).
+  // Locals: isAr (boolean)
+  const __ar = !!(typeof isAr !== 'undefined' && isAr);
+  const T = function (en, ar) { return __ar ? ar : en; };
+%>
+<section class="vc-soon vc-soon--rx" aria-labelledby="rx-soon-title">
+  <div class="vc-soon__stage" aria-hidden="true">
+    <picture>
+      <source media="(max-width: 767px)" srcset="/assets/portal/rx-preview-sm.jpg?v=1" />
+      <img src="/assets/portal/rx-preview.jpg?v=1" alt="" width="2200" height="1244" decoding="async" />
+    </picture>
+  </div>
+  <div class="vc-soon__veil" aria-hidden="true"></div>
+
+  <div class="vc-soon__card">
+    <span class="vc-soon__pill"><i></i><%= T('Coming soon', 'قريباً') %></span>
+    <h2 id="rx-soon-title"><%= T('A clear prescription, signed by your consultant', 'روشتة واضحة، موقَّعة من استشاريك') %></h2>
+    <p class="vc-soon__lead"><%= T(
+      'Soon, when your consultant recommends treatment, you’ll be able to add a signed digital prescription to your case — written clearly, and always on your phone.',
+      'قريباً، عندما يوصي استشاريك بعلاج، ستتمكن من إضافة روشتة رقمية موقَّعة إلى حالتك — مكتوبة بوضوح، ومعك دائماً على هاتفك.'
+    ) %></p>
+    <ul class="vc-soon__list">
+      <li>
+        <span class="vc-soon__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 3v7c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V5zM9 12l2 2 4-4"/></svg></span>
+        <span><b><%= T('Signed by your consultant', 'موقَّعة من استشاريك') %></b> — <%= T('the same doctor who reviewed your case.', 'نفس الطبيب الذي راجع حالتك.') %></span>
+      </li>
+      <li>
+        <span class="vc-soon__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 20.5l10-10a4.95 4.95 0 10-7-7l-10 10a4.95 4.95 0 107 7zM8.5 8.5l7 7"/></svg></span>
+        <span><b><%= T('Every medicine spelled out', 'كل دواء موضَّح') %></b> — <%= T('dose, timing and how long, in plain words.', 'الجرعة والتوقيت والمدة، بكلمات بسيطة.') %></span>
+      </li>
+      <li>
+        <span class="vc-soon__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-5-5m5 5l5-5M5 21h14"/></svg></span>
+        <span><b><%= T('Always on hand', 'معك دائماً') %></b> — <%= T('view it on your phone or download the PDF any time.', 'اعرضها على هاتفك أو حمّل ملف PDF في أي وقت.') %></span>
+      </li>
+    </ul>
+    <div class="vc-soon__actions">
+      <a class="p-btn p-btn--primary" href="/patient/new-case?fresh=1"><%= T('Start a written second opinion', 'ابدأ رأياً ثانياً مكتوباً') %></a>
+      <a class="p-btn p-btn--ghost" href="/patient/cases"><%= T('My cases', 'حالاتي') %></a>
+    </div>
+    <p class="vc-soon__note"><%= T(
+      'Your written second opinion is unaffected and arrives as normal. We’ll let you know the moment prescriptions open.',
+      'تقريرك المكتوب لا يتأثر وسيصلك كالمعتاد. سنخبرك فور إتاحة الروشتة الرقمية.'
+    ) %></p>
+  </div>
+</section>
