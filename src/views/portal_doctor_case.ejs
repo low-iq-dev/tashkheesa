@@ -751,6 +751,20 @@
         <form id="report-form" method="POST" action="/portal/doctor/case/<%= _orderIdEnc %>/diagnosis">
           <%- (typeof csrfField === 'function') ? csrfField() : '' %>
           <div class="v2-card__body" style="display:flex;flex-direction:column;gap:14px;">
+            <%# 2026-09-26 — the patient's question, quoted where the doctor writes.
+                It used to live only in the case header and the brief, both far
+                above this form; by the time a doctor was writing it had scrolled
+                away, and at least one practice report answered a different
+                question from the one asked. %>
+            <% if (_ctx && _ctx.question) { %>
+              <div class="v2-report-question" data-report-question
+                   style="border-inline-start:3px solid #B38B3E;background:#FBF6EC;border-radius:10px;padding:12px 14px;">
+                <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#8E6C2C;margin-bottom:6px;">
+                  <%= tt('The patient asked — answer it in your Recommendation', 'The patient asked — answer it in your Recommendation', 'سؤال المريض — أجب عنه في التوصيات') %>
+                </div>
+                <blockquote style="margin:0;font-size:14px;line-height:1.55;color:var(--v2-ink, #0F1E2D);white-space:pre-wrap;"><%= _ctx.question %></blockquote>
+              </div>
+            <% } %>
             <div class="v2-field">
               <div class="v2-field__labelrow">
                 <label class="v2-field__label" for="rep-diag"><%= tt(_rl.findings.en, _rl.findings.en, _rl.findings.ar) %><span class="v2-field__req"><%= tt('required', 'required', 'مطلوب') %></span></label>
@@ -783,6 +797,33 @@
                 helpful half, so the doctor is told before the round-trip. %>
             <div id="report-submit-error" role="alert" hidden
                  style="font-size:13px;font-weight:600;color:var(--v2-danger);background:var(--v2-danger-bg);border-radius:10px;padding:10px 12px;"></div>
+            <%# 2026-09-26 — soft pre-submit check: the question and the doctor's
+                recommendation side by side. A soft gate, never a block — the
+                doctor can always send; validating clinical prose would only
+                produce padding, not answers. Shown once per page load. %>
+            <% if (_ctx && _ctx.question) { %>
+              <div id="report-confirm" role="dialog" aria-modal="false" aria-labelledby="report-confirm-title" hidden
+                   style="border:1px solid #B38B3E;background:#FFFEFB;border-radius:12px;padding:16px;box-shadow:0 8px 24px rgba(15,30,45,0.10);">
+                <div id="report-confirm-title" style="font-size:15px;font-weight:700;margin-bottom:12px;color:var(--v2-ink, #0F1E2D);">
+                  <%= tt('Before you send — does your recommendation answer the patient’s question?', 'Before you send — does your recommendation answer the patient’s question?', 'قبل الإرسال — هل تجيب توصيتك عن سؤال المريض؟') %>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:14px;">
+                  <div style="background:#FBF6EC;border-radius:10px;padding:10px 12px;">
+                    <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#8E6C2C;margin-bottom:6px;"><%= tt('The patient asked', 'The patient asked', 'سأل المريض') %></div>
+                    <div style="font-size:13.5px;line-height:1.55;white-space:pre-wrap;"><%= _ctx.question %></div>
+                  </div>
+                  <div style="background:#EEF6F4;border-radius:10px;padding:10px 12px;">
+                    <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#0B6B5F;margin-bottom:6px;"><%= tt('Your recommendation', 'Your recommendation', 'توصيتك') %></div>
+                    <div data-confirm-rec style="font-size:13.5px;line-height:1.55;white-space:pre-wrap;"></div>
+                    <div data-confirm-rec-empty hidden style="font-size:13px;color:#8E6C2C;font-weight:600;"><%= tt('Empty — the patient will get no recommendation.', 'Empty — the patient will get no recommendation.', 'فارغة — لن يتلقى المريض أي توصية.') %></div>
+                  </div>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;">
+                  <button type="button" class="v2-btn v2-btn--secondary" data-confirm-back><%= tt('Go back and edit', 'Go back and edit', 'العودة والتعديل') %></button>
+                  <button type="button" class="v2-btn v2-btn--brass" data-confirm-send><%= tt('Yes — submit report', 'Yes — submit report', 'نعم — أرسل التقرير') %></button>
+                </div>
+              </div>
+            <% } %>
             <div class="v2-report-actions" style="display:flex;justify-content:space-between;align-items:center;border-block-start:1px solid var(--v2-rule);padding-block-start:14px;flex-wrap:wrap;gap:8px;">
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button type="submit" class="v2-btn v2-btn--secondary" data-report-save><%= tt('Save draft', 'Save draft', 'حفظ مسودة') %></button>
@@ -1133,15 +1174,50 @@
       return !t.replace(/[\s\-—–_.·•*]+/g, '');
     }
 
+    // 2026-09-26 — soft question-vs-recommendation check (#report-confirm,
+    // rendered only when the patient wrote a question). Once confirmed, the
+    // click that triggered it is replayed on the SAME button, so its
+    // formaction (the /report submit) is preserved.
+    var panel = document.getElementById('report-confirm');
+    var confirmed = false;
+    var pendingBtn = null;
+    if (panel) {
+      var recOut = panel.querySelector('[data-confirm-rec]');
+      var recEmpty = panel.querySelector('[data-confirm-rec-empty]');
+      panel.querySelector('[data-confirm-back]').addEventListener('click', function() {
+        panel.hidden = true;
+        pendingBtn = null;
+        var rec = document.getElementById('rep-rec');
+        if (rec) { try { rec.focus(); } catch (_) {} }
+      });
+      panel.querySelector('[data-confirm-send]').addEventListener('click', function() {
+        confirmed = true;
+        panel.hidden = true;
+        if (pendingBtn) pendingBtn.click();
+      });
+    }
+
     Array.prototype.forEach.call(btns, function(btn) { btn.addEventListener('click', function(e) {
       var findings = document.getElementById('rep-diag');
       var impression = document.getElementById('rep-impr');
       var offender = isEmpty(findings) ? findings : (isEmpty(impression) ? impression : null);
       if (!offender) {
         if (box) { box.hidden = true; box.textContent = ''; }
+        if (panel && !confirmed) {
+          e.preventDefault();
+          pendingBtn = btn;
+          var rec = document.getElementById('rep-rec');
+          var recText = (rec && rec.value ? rec.value : '').trim();
+          if (recOut) recOut.textContent = recText;
+          if (recEmpty) recEmpty.hidden = !!recText;
+          panel.hidden = false;
+          try { panel.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) { panel.scrollIntoView(); }
+          try { panel.querySelector('[data-confirm-send]').focus({ preventScroll: true }); } catch (_) {}
+        }
         return;
       }
       e.preventDefault();
+      if (panel) panel.hidden = true;
       if (box) { box.textContent = MSG; box.hidden = false; }
       try { offender.focus(); } catch (_) {}
     }); });
