@@ -1192,7 +1192,18 @@
       <div class="p-card">
         <div class="p-card__header">
           <div class="p-card__title"><%= tt('Final step — payment', 'Final step — payment', 'الخطوة الأخيرة — الدفع') %></div>
+          <%
+            // Soft launch 2026-09-25: card off + transfer on → say so here,
+            // not on the next page. Locals from the route; default = card copy.
+            var __s5Card = (typeof cardEnabled === 'undefined') ? true : (cardEnabled !== false);
+            var __s5Transfer = !!(typeof transferEnabled !== 'undefined' && transferEnabled);
+            var __s5TransferOnly = !__s5Card && __s5Transfer;
+          %>
+          <% if (__s5TransferOnly) { %>
+          <div class="p-card__sub"><%= tt('Pay by InstaPay or bank transfer on the next page — three steps, about two minutes. Your case stays a private draft until we confirm the transfer, and you get a full refund if you cancel before a specialist is assigned.', 'Pay by InstaPay or bank transfer on the next page — three steps, about two minutes. Your case stays a private draft until we confirm the transfer, and you get a full refund if you cancel before a specialist is assigned.', 'الدفع بإنستاباي أو تحويل بنكي في الصفحة الجاية — ثلاث خطوات في دقيقتين. حالتك بتفضل مسودة خاصة لحد ما نأكد التحويل، واسترداد كامل لو ألغيت قبل ما يتعيّن استشاري.') %></div>
+          <% } else { %>
           <div class="p-card__sub"><%= tt('Paid upfront via secure Paymob checkout — we never see your card details. Cancel any time before a specialist is assigned for a full refund.', 'Paid upfront via secure Paymob checkout — we never see your card details. Cancel any time before a specialist is assigned for a full refund.', 'يُدفع مقدمًا عبر Paymob الآمن — إحنا مبنشوفش بيانات بطاقتك. وتقدر تلغي في أي وقت قبل تعيين أخصائي وتسترد المبلغ كامل.') %></div>
+          <% } %>
         </div>
         <div class="p-card__body">
           <% if (__tier && __totalPrice > 0) { %>
@@ -1232,9 +1243,11 @@
               <% var __showTestNotice = (typeof showPaymentTestNotice !== 'undefined') ? showPaymentTestNotice : true; %>
               <button class="p-btn p-btn--primary p-btn--lg p-btn--block" type="submit" style="font-size:15px;">
                 <%- include('partials/patient/icon', { name: 'check', size: 16 }) %>
-                <%= __showTestNotice
+                <%= __s5TransferOnly
+                    ? tt('Continue to payment', 'Continue to payment', 'متابعة للدفع')
+                    : (__showTestNotice
                     ? tt('Confirm and pay (test mode)', 'Confirm and pay (test mode)', 'تأكيد ودفع (وضع الاختبار)')
-                    : tt('Confirm and pay', 'Confirm and pay', 'تأكيد والدفع') %>
+                    : tt('Confirm and pay', 'Confirm and pay', 'تأكيد والدفع')) %>
               </button>
 
               <% if (__showTestNotice) { %>
@@ -1244,9 +1257,15 @@
               <% } %>
             </form>
 
+            <% if (__s5TransferOnly) { %>
+            <div style="margin-top:14px;text-align:center;font-size:12px;color:var(--muted);">
+              <%= tt('InstaPay · bank transfer · confirmed by our team during working hours', 'InstaPay · bank transfer · confirmed by our team during working hours', 'إنستاباي · تحويل بنكي · بيتأكد من فريقنا خلال ساعات العمل') %>
+            </div>
+            <% } else { %>
             <div style="margin-top:14px;text-align:center;font-size:12px;color:var(--muted);">
               <%= tt('Cards · Wallets · Apple Pay · Google Pay · supported by Paymob', 'Cards · Wallets · Apple Pay · Google Pay · supported by Paymob', 'بطاقات · محافظ · Apple Pay · Google Pay · عبر Paymob') %>
             </div>
+            <% } %>
           <% } else { %>
             <div style="padding:18px;background:var(--warn-bg);border:1px solid #E6C7A8;border-radius:12px;font-size:13px;color:var(--warn);">
               <strong><%= tt('Pricing unavailable.', 'Pricing unavailable.', 'التسعير غير متاح.') %></strong>
@@ -1266,22 +1285,35 @@
     </div>
 
     <div class="stack">
+      <% if (__s5TransferOnly) { %>
+      <%- include('partials/patient/reassure-card', {
+        eyebrow: tt('How payment works', 'How payment works', 'كيف يتم الدفع'),
+        title: tt('Transfer the amount by InstaPay or from your bank, tell us, and we confirm during working hours.', 'Transfer the amount by InstaPay or from your bank, tell us, and we confirm during working hours.', 'حوّل المبلغ بإنستاباي أو من بنكك، قول لنا، وإحنا بنأكد خلال ساعات العمل.'),
+        body: tt('Your review starts the moment we confirm. Full refund if you cancel before a specialist is assigned.', 'Your review starts the moment we confirm. Full refund if you cancel before a specialist is assigned.', 'مراجعتك بتبدأ فور التأكيد. واسترداد كامل لو ألغيت قبل ما يتعيّن استشاري.'),
+        isAr: __isAr
+      }) %>
+      <% } else { %>
       <%- include('partials/patient/reassure-card', {
         eyebrow: tt('How payment works', 'How payment works', 'كيف يتم الدفع'),
         title: tt('Secure payment, processed by Paymob — we never see your card details.', 'Secure payment, processed by Paymob — we never see your card details.', 'دفع آمن عبر Paymob — إحنا مبنشوفش بيانات بطاقتك.'),
         body: tt('Full refund if you cancel before a specialist is assigned.', 'Full refund if you cancel before a specialist is assigned.', 'استرداد كامل لو ألغيت قبل ما يتعيّن أخصائي لحالتك.'),
         isAr: __isAr
       }) %>
+      <% } %>
       <div class="p-card" style="padding:18px;">
         <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px;">
           <%= tt('Secure', 'Secure', 'الأمان') %>
         </div>
         <ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px;">
-          <% [
+          <% (__s5TransferOnly ? [
+            tt('You pay from your own bank or InstaPay app — we never ask for card details.', 'You pay from your own bank or InstaPay app — we never ask for card details.', 'بتدفع من بنكك أو تطبيق إنستاباي — عمرنا ما هنطلب بيانات بطاقة.'),
+            tt('Your case stays a private draft until we confirm the transfer.', 'Your case stays a private draft until we confirm the transfer.', 'حالتك بتفضل مسودة خاصة لحد ما نأكد التحويل.'),
+            tt('Keep your transfer receipt — it is your proof of payment.', 'Keep your transfer receipt — it is your proof of payment.', 'خلّي إيصال التحويل معاك — ده إثبات الدفع بتاعك.')
+          ] : [
             tt('Payment is processed by Paymob, not Tashkheesa.', 'Payment is processed by Paymob, not Tashkheesa.', 'يُعالج الدفع عبر Paymob، وليس عبر تشخيصة مباشرة.'),
             tt('We never see or store your card details.', 'We never see or store your card details.', 'نحن لا نرى أو نخزن بيانات بطاقتك.'),
             tt('Your case remains a private draft until payment confirms.', 'Your case remains a private draft until payment confirms.', 'تبقى حالتك مسودة خاصة حتى يتأكد الدفع.')
-          ].forEach(function(t) { %>
+          ]).forEach(function(t) { %>
             <li style="font-size:12.5px;color:var(--ink-2);display:flex;gap:8px;align-items:flex-start;line-height:1.45;">
               <%- include('partials/patient/icon', { name: 'shield', size: 14, color: 'var(--primary)' }) %>
               <span><%= t %></span>

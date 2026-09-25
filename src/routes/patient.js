@@ -2005,6 +2005,10 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     paymentFailed: !!(req.query && req.query.failed),
     queryErr: (req.query && typeof req.query.err === 'string') ? req.query.err : '',
     uploadedFlash: !!(req.query && req.query.uploaded),
+    // Soft launch 2026-09-25 — Step 5 must describe the payment path that is
+    // actually on. Read per request like the pay page (manual_payment.js).
+    cardEnabled: manualPayment.isCardPaymentEnabled(),
+    transferEnabled: manualPayment.isManualPaymentEnabled(),
     // Theme 14 Phase 3 — AI specialty recommendation. Populated by the
     // step===3 branch above from the latest specialty_classifications row
     // for this case; null when no classification exists (classifier failure

@@ -194,10 +194,30 @@
      data-video-price-egp="<%= __videoEgp %>"
      data-sla-price-egp="<%= __slaEgp %>"
      data-prescription-price-egp="<%= __rxEgp %>"
-     style="display:grid;grid-template-columns:<%= hasAddons ? '1fr 380px' : '1fr 340px' %>;gap:18px;align-items:start;">
+     style="display:grid;grid-template-columns:<%= (!__cardEnabled && __mp) ? '1fr 320px' : (hasAddons ? '1fr 380px' : '1fr 340px') %>;gap:18px;align-items:start;">
 
   <!-- ── LEFT COLUMN ─────────────────────────────────────────────── -->
-  <div class="stack">
+  <div class="stack"><% if (!__cardEnabled && __mp) { %>
+    <%# Soft-launch redesign 2026-09-25 — card off: the transfer flow IS the
+        page. It takes the main column; the case summary moves to the side. %>
+    <%- __mpBlock %>
+    <details class="p-card" style="padding:0;">
+      <summary style="cursor:pointer;padding:14px 18px;font-size:13.5px;font-weight:600;color:var(--ink-2);list-style:none;display:flex;justify-content:space-between;align-items:center;">
+        <span><%= tt('Have a referral code?', 'Have a referral code?', 'عندك رمز إحالة؟') %></span>
+        <span style="font-size:11.5px;color:var(--muted);font-weight:600;"><%= tt('Optional', 'Optional', 'اختياري') %></span>
+      </summary>
+      <div style="padding:0 18px 16px;display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input class="p-field__input" type="text" id="referral_code_input" maxlength="20"
+                 placeholder="<%= tt('Enter referral code (e.g. TASH-XXXXX)', 'Enter referral code (e.g. TASH-XXXXX)', 'أدخل رمز الإحالة (مثال: TASH-XXXXX)') %>"
+                 style="flex:1;text-transform:uppercase;" dir="ltr" />
+          <button type="button" id="referral_apply_btn" class="p-btn p-btn--secondary"
+                  style="white-space:nowrap;"><%= tt('Apply', 'Apply', 'تطبيق') %></button>
+        </div>
+        <div id="referral_result" style="font-size:12.5px;line-height:1.5;display:none;"></div>
+      </div>
+    </details>
+  <% } else { %>
 
     <!-- Service details -->
     <div class="p-card">
@@ -337,13 +357,77 @@
           </div>
         </div>
       </div>
-    <% } %>
+    <% } %><% } %>
 
   </div>
 
   <!-- ── RIGHT COLUMN: Payment summary ───────────────────────────── -->
   <div class="stack">
-    <% if (!__cardEnabled) { %><% } else if (hasAddons) { %>
+    <% if (!__cardEnabled) { %><% if (__mp) { %>
+      <%
+        const __tierRaw = String(__order.urgency_tier || __order.tier || 'standard').toLowerCase();
+        const __tierLabel = __tierRaw === 'urgent' ? tt('Urgent · 4 hours', 'Urgent · 4 hours', 'عاجل · ٤ ساعات')
+          : (__tierRaw === 'vip' ? tt('VIP · 18 hours', 'VIP · 18 hours', 'VIP · ١٨ ساعة') : tt('Standard · 48 hours', 'Standard · 48 hours', 'عادي · ٤٨ ساعة'));
+      %>
+      <div class="p-card">
+        <div class="p-card__header">
+          <div class="p-card__title"><%= tt('Your case', 'Your case', 'حالتك') %></div>
+          <% if (__mp.reference) { %><span class="p-card__sub" style="font-family:var(--font-mono);"><%= __mp.reference %></span><% } %>
+        </div>
+        <div class="p-card__body" style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;"><%= tt('Service', 'Service', 'الخدمة') %></div>
+            <div style="font-size:14px;color:var(--ink);font-weight:600;margin-top:3px;" dir="auto"><%= serviceName || '—' %></div>
+            <div style="font-size:12.5px;color:var(--ink-2);margin-top:2px;"><%= specialtyName %></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div>
+              <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;"><%= tt('Turnaround', 'Turnaround', 'مدة الرد') %></div>
+              <div style="font-size:13.5px;color:var(--ink);font-weight:600;margin-top:3px;"><%= __tierLabel %></div>
+            </div>
+            <div>
+              <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;"><%= tt('Status', 'Status', 'الحالة') %></div>
+              <div style="margin-top:3px;"><span class="p-chip p-chip--brass"><%= tt('Awaiting payment', 'Awaiting payment', 'بانتظار الدفع') %></span></div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:12px;border-top:1px solid var(--rule);">
+            <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em;"><%= tt('Total', 'Total', 'الإجمالي') %></span>
+            <span style="font-family:var(--font-display);font-size:26px;font-weight:500;color:var(--accent-dark);line-height:1;" dir="ltr"><%= Number(basePrice).toLocaleString('en-US') %> <span style="font-size:13px;color:var(--muted);font-family:var(--font-sans);font-weight:600;"><%= currencyCode %></span></span>
+          </div>
+          <% if (__isIntlPrice) { %>
+          <div style="font-size:11.5px;color:var(--muted);line-height:1.5;"><%= tt("You'll be billed in EGP", "You'll be billed in EGP", 'يُحصَّل بالجنيه المصري') %> (≈ <span dir="ltr"><%= Math.round(__egpBase) %> EGP</span>).</div>
+          <% } %>
+          <%
+            const __uwTierOff = String(__order.urgency_tier || __order.tier || '').toLowerCase();
+          %>
+          <% if (!__uwTierOff || __uwTierOff === 'urgent') { %>
+            <%- include('partials/urgent-window-note', { style: 'font-size:12px;color:var(--muted);margin:0;line-height:1.5;' }) %>
+          <% } %>
+        </div>
+      </div>
+
+      <div class="p-card">
+        <div class="p-card__header"><div class="p-card__title"><%= tt('What happens next', 'What happens next', 'اللي هيحصل بعد كده') %></div></div>
+        <div class="p-card__body" style="display:flex;flex-direction:column;gap:10px;">
+          <% [
+            [tt('We confirm your transfer', 'We confirm your transfer', 'بنأكد التحويل'), tt('During working hours, usually within a few hours.', 'During working hours, usually within a few hours.', 'خلال ساعات العمل، غالبًا في خلال ساعات.')],
+            [tt('A consultant takes your case', 'A consultant takes your case', 'استشاري بيستلم حالتك'), tt('You get a WhatsApp and an email the moment it starts.', 'You get a WhatsApp and an email the moment it starts.', 'هيوصلك واتساب وإيميل أول ما تبدأ.')],
+            [tt('Your written report arrives', 'Your written report arrives', 'تقريرك المكتوب بيوصل'), tt('Within your turnaround, in your account and by email.', 'Within your turnaround, in your account and by email.', 'في خلال مدة الرد، في حسابك وعلى الإيميل.')]
+          ].forEach(function (row, i) { %>
+            <div style="display:flex;gap:10px;align-items:flex-start;">
+              <span style="flex:0 0 auto;width:22px;height:22px;border-radius:50%;background:var(--surface-2);border:1px solid var(--rule-strong);font-size:11.5px;font-weight:700;color:var(--ink-2);display:flex;align-items:center;justify-content:center;"><%= i + 1 %></span>
+              <div>
+                <div style="font-size:13px;font-weight:600;color:var(--ink);line-height:1.35;"><%= row[0] %></div>
+                <div style="font-size:12px;color:var(--ink-2);line-height:1.5;margin-top:1px;"><%= row[1] %></div>
+              </div>
+            </div>
+          <% }); %>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5;padding-top:8px;border-top:1px solid var(--rule);">
+            <%= tt('Full refund if you cancel before a specialist is assigned.', 'Full refund if you cancel before a specialist is assigned.', 'استرداد كامل لو ألغيت قبل ما يتعيّن استشاري.') %>
+          </div>
+        </div>
+      </div>
+    <% } %><% } else if (hasAddons) { %>
       <!-- ADD-ON FLOW: itemized summary -->
       <div class="p-card" style="position:sticky;top:96px;background:var(--surface-2);border-color:var(--rule-strong);">
         <div class="p-card__header">
@@ -477,7 +561,7 @@
       </div>
     <% } %>
 
-    <%- __mpBlock %><%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
+    <%- __cardEnabled ? __mpBlock : '' %><%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
   </div>
 
 </div>
