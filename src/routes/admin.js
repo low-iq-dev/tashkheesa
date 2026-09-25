@@ -8,6 +8,10 @@ const { computeSla } = require('../sla_status');
 const { recalcSlaBreaches } = require('../case_lifecycle'); // P3: sla.js deleted, use case_lifecycle
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
 const { safeAll, safeGet, tableExists } = require('../sql-utils');
+// 2026-09-26 — admin-role console tiles count real cases only (practice
+// cases are training rows; see src/practice_cases.js). Superadmin and the
+// Command API were fixed on 25 Sep; this console was the one left out.
+const { REAL_ORDERS_ACTIVE } = require('../practice_cases');
 // BATCH B (B1): the payout-liability tile reads the shared earnings reader.
 const earningsReader = require('../services/earnings_reader');
 const caseLifecycle = require('../case_lifecycle');
@@ -67,24 +71,24 @@ async function getAdminDashboardStats() {
   ))?.c || 0;
 
   const openOrders = (await queryOne(
-    "SELECT COUNT(1) AS c FROM orders_active WHERE LOWER(COALESCE(status, '')) != 'completed'"
+    "SELECT COUNT(1) AS c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE LOWER(COALESCE(status, '')) != 'completed'"
   ))?.c || 0;
   const newOrders = (await queryOne(
-    "SELECT COUNT(1) AS c FROM orders_active WHERE LOWER(COALESCE(status, '')) = 'new'"
+    "SELECT COUNT(1) AS c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE LOWER(COALESCE(status, '')) = 'new'"
   ))?.c || 0;
   const acceptedOrders = (await queryOne(
-    "SELECT COUNT(1) AS c FROM orders_active WHERE LOWER(COALESCE(status, '')) = 'accepted'"
+    "SELECT COUNT(1) AS c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE LOWER(COALESCE(status, '')) = 'accepted'"
   ))?.c || 0;
   const inReviewOrders = (await queryOne(
-    "SELECT COUNT(1) AS c FROM orders_active WHERE LOWER(COALESCE(status, '')) = 'in_review'"
+    "SELECT COUNT(1) AS c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE LOWER(COALESCE(status, '')) = 'in_review'"
   ))?.c || 0;
   const completedOrders = (await queryOne(
-    "SELECT COUNT(1) AS c FROM orders_active WHERE LOWER(COALESCE(status, '')) = 'completed'"
+    "SELECT COUNT(1) AS c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE LOWER(COALESCE(status, '')) = 'completed'"
   ))?.c || 0;
 
   // Be tolerant to different naming conventions
   const breachedOrders = (await queryOne(
-    "SELECT COUNT(1) AS c FROM orders_active WHERE LOWER(COALESCE(status, '')) IN ('breached', 'breached_sla', 'delayed') OR LOWER(COALESCE(status, '')) LIKE '%breach%'"
+    "SELECT COUNT(1) AS c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE LOWER(COALESCE(status, '')) IN ('breached', 'breached_sla', 'delayed') OR LOWER(COALESCE(status, '')) LIKE '%breach%'"
   ))?.c || 0;
 
   return {
@@ -596,6 +600,7 @@ async function getPendingAdditionalFilesRequests(limit = 25) {
         o.doctor_id,
         doc.name AS doctor_name,
         o.patient_id,
+        o.is_practice,
         pat.name AS patient_name,
         req.request_event_id,
         req.requested_at,
@@ -652,6 +657,10 @@ async function getPendingAdditionalFilesRequests(limit = 25) {
       doctor_name: r.doctor_name,
       patient_id: r.patient_id,
       patient_name: r.patient_name,
+      // 2026-09-26 — practice-case requests stay in the inbox (doctor training
+      // must not stall) but carry a Practice badge so they are never mistaken
+      // for a real patient's.
+      isPractice: r.is_practice === true,
       request_event_id: r.request_event_id,
       requested_at: r.requested_at,
       decision_event_id: r.decision_event_id || null,
@@ -684,7 +693,7 @@ async function getOrderKpis(whereSql, params) {
       COUNT(*) AS total_orders,
       SUM(CASE WHEN ${completedIn.clause} THEN 1 ELSE 0 END) AS completed,
       SUM(CASE WHEN ${breachedIn.clause} THEN 1 ELSE 0 END) AS breached
-    FROM orders_active o
+    FROM ${REAL_ORDERS_ACTIVE} o
     ${whereSql}
   `;
   const kpisFallback = { total_orders: 0, completed: 0, breached: 0 };
@@ -827,7 +836,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
 
   const overdueOrders = await safeAll(
     `SELECT id, status, deadline_at, completed_at
-     FROM orders_active
+     FROM ${REAL_ORDERS_ACTIVE} orders_active
      WHERE ${notInSql.clause}
        AND completed_at IS NULL
        AND deadline_at IS NOT NULL
@@ -876,7 +885,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
 
   const revenueRow = canSeeFinancials
     ? await safeGet(
-        "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders_active WHERE LOWER(COALESCE(payment_status, '')) = 'paid'",
+        "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE LOWER(COALESCE(payment_status, '')) = 'paid'",
         [], { total: 0 }
       )
     : { total: 0 };
@@ -888,21 +897,21 @@ router.get('/admin', requireAdmin, async (req, res) => {
   const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
 
   const thisMonthOrders = await safeGet(
-    "SELECT COUNT(*) AS c FROM orders_active WHERE created_at >= $1", [thisMonthStart], { c: 0 }
+    "SELECT COUNT(*) AS c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE created_at >= $1", [thisMonthStart], { c: 0 }
   );
   const lastMonthOrders = await safeGet(
-    "SELECT COUNT(*) AS c FROM orders_active WHERE created_at >= $1 AND created_at < $2",
+    "SELECT COUNT(*) AS c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE created_at >= $1 AND created_at < $2",
     [lastMonthStart, thisMonthStart], { c: 0 }
   );
   const thisMonthRevenue = canSeeFinancials
     ? await safeGet(
-        "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders_active WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= $1",
+        "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= $1",
         [thisMonthStart], { total: 0 }
       )
     : { total: 0 };
   const lastMonthRevenue = canSeeFinancials
     ? await safeGet(
-        "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders_active WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= $1 AND created_at < $2",
+        "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= $1 AND created_at < $2",
         [lastMonthStart, thisMonthStart], { total: 0 }
       )
     : { total: 0 };
@@ -929,7 +938,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
 
   // Pending orders count (not completed, not breached)
   const pendingOrdersRow = await safeGet(
-    "SELECT COUNT(*) AS c FROM orders_active WHERE LOWER(COALESCE(status, '')) IN ('new', 'accepted', 'in_review')",
+    "SELECT COUNT(*) AS c FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE LOWER(COALESCE(status, '')) IN ('new', 'accepted', 'in_review')",
     [], { c: 0 }
   );
   const pendingOrders = (pendingOrdersRow && pendingOrdersRow.c) || 0;
@@ -1155,7 +1164,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
 
   // Feature 3.5: Financial Summary — superadmin only (P0-SEC payout lockdown).
   const monthRevenue = canSeeFinancials
-    ? await safeGet("SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as total FROM orders_active WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at > date_trunc('month', NOW())", [], { total: 0 })
+    ? await safeGet("SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as total FROM " + REAL_ORDERS_ACTIVE + " orders_active WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at > date_trunc('month', NOW())", [], { total: 0 })
     : { total: 0 };
   // 2026-08-24 — both payout ledgers. doctor_earnings holds the case fee and
   // urgency uplift; addon_earnings holds video/prescription commissions, which
@@ -2480,9 +2489,9 @@ router.get('/admin/doctors', requireAdmin, async (req, res) => {
     `SELECT u.id, u.name, u.email, u.phone, u.notify_whatsapp, u.is_active, u.specialty_id,
             u.created_at AS joined_at,
             s.name AS specialty_name,
-            (SELECT COUNT(*) FROM orders_active WHERE doctor_id = u.id AND LOWER(COALESCE(status, '')) = 'completed') AS cases_completed,
-            (SELECT COUNT(*) FROM orders_active WHERE doctor_id = u.id) AS total_cases,
-            (SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) FROM orders_active WHERE doctor_id = u.id AND LOWER(COALESCE(payment_status, '')) = 'paid') AS total_earnings
+            (SELECT COUNT(*) FROM ${REAL_ORDERS_ACTIVE} orders_active WHERE doctor_id = u.id AND LOWER(COALESCE(status, '')) = 'completed') AS cases_completed,
+            (SELECT COUNT(*) FROM ${REAL_ORDERS_ACTIVE} orders_active WHERE doctor_id = u.id) AS total_cases,
+            (SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) FROM ${REAL_ORDERS_ACTIVE} orders_active WHERE doctor_id = u.id AND LOWER(COALESCE(payment_status, '')) = 'paid') AS total_earnings
      FROM users u
      LEFT JOIN specialties s ON s.id = u.specialty_id
      WHERE u.role = 'doctor'
@@ -2675,13 +2684,13 @@ router.get('/admin/services', requireAdmin, async (req, res) => {
 
   const financialCols = canSeeFinancials
     ? `, sv.doctor_fee,
-            (SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) FROM orders_active WHERE service_id = sv.id AND LOWER(COALESCE(payment_status, '')) = 'paid') AS service_revenue`
+            (SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) FROM ${REAL_ORDERS_ACTIVE} orders_active WHERE service_id = sv.id AND LOWER(COALESCE(payment_status, '')) = 'paid') AS service_revenue`
     : '';
   const services = await safeAll(
     `SELECT sv.id, sv.name, sv.code, sv.specialty_id, sv.base_price, sv.currency,
             sp.name AS specialty_name,
             COALESCE(sv.is_visible, true) AS is_visible,
-            (SELECT COUNT(*) FROM orders_active WHERE service_id = sv.id) AS cases_count${financialCols}
+            (SELECT COUNT(*) FROM ${REAL_ORDERS_ACTIVE} orders_active WHERE service_id = sv.id) AS cases_count${financialCols}
      FROM services sv
      LEFT JOIN specialties sp ON sp.id = sv.specialty_id
      ORDER BY sp.name ASC, sv.name ASC`,

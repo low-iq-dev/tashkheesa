@@ -1672,7 +1672,7 @@ async function performSlaCheck(now = new Date()) {
 async function loadOrderWithPatient(orderId) {
   return await queryOne(
     `SELECT o.id, o.status, o.payment_status, o.payment_method, o.payment_reference, o.price, o.currency,
-            o.patient_id, u.name AS patient_name, u.email AS patient_email
+            o.patient_id, o.is_practice, u.name AS patient_name, u.email AS patient_email
      FROM orders_active o
      LEFT JOIN users u ON u.id = o.patient_id
      WHERE o.id = $1`,
@@ -1992,6 +1992,7 @@ async function getPendingAdditionalFilesRequests(limit = 20) {
         o.doctor_id,
         doc.name AS doctor_name,
         o.patient_id,
+        o.is_practice,
         pat.name AS patient_name,
         req.request_event_id,
         req.requested_at,
@@ -2041,6 +2042,10 @@ async function getPendingAdditionalFilesRequests(limit = 20) {
       doctor_name: r.doctor_name,
       patient_id: r.patient_id,
       patient_name: r.patient_name,
+      // 2026-09-26 — practice-case requests stay in the inbox (doctor training
+      // must not stall) but carry a Practice badge so they are never mistaken
+      // for a real patient's.
+      isPractice: r.is_practice === true,
 
       // Request
       request_event_id: r.request_event_id,
@@ -5134,6 +5139,12 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
     return res.redirect(`/superadmin/orders/${orderId}`);
   }
 
+  // 2026-09-26 — a doctor-training practice case has no payment state to
+  // operate (the Command API answers 409 PRACTICE_CASE for the same write).
+  if (order.is_practice === true) {
+    return res.redirect(`/superadmin/orders/${orderId}?error=practice_case`);
+  }
+
   // 2026-09-26 — never mark a cancelled / expired / refunded case paid (the
   // Command verify path answers 409 ORDER_NOT_PAYABLE for the same states).
   if (require('../case_lifecycle').isClosedUnpayable(order.status)) {
@@ -5610,6 +5621,11 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, async (req, re
   if (!order || !newDoctorId) {
     return res.redirect(`/superadmin/orders/${orderId}`);
   }
+  // 2026-09-26 — practice cases belong to the doctor they were seeded for;
+  // moving one would hand a training case to someone else (Command: 409).
+  if (order.is_practice === true) {
+    return res.redirect(`/superadmin/orders/${orderId}?error=practice_case`);
+  }
 
   const newDoctor = await queryOne(
     `SELECT id, name FROM users u
@@ -5813,6 +5829,10 @@ router.post('/superadmin/orders/:id/extend-sla', requireSuperadmin, async (req, 
   const orderId = req.params.id;
   const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return res.status(404).send('Order not found');
+  // 2026-09-26 — a practice case has no real SLA to extend (Command: 409).
+  if (order.is_practice === true) {
+    return res.redirect(`/superadmin/orders/${orderId}?error=practice_case`);
+  }
 
   const extraHours = Math.min(168, Math.max(1, parseInt(req.body.extra_hours) || 24));
   const currentDeadline = order.deadline_at ? new Date(order.deadline_at) : new Date();

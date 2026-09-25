@@ -131,6 +131,8 @@
       // operator must see that refusal, or the click reads as ignored.
       : _flashError === 'reassign_failed'
       ? 'The doctor was NOT changed. The case is in a state the assignment lifecycle refuses to (re)assign — completed, cancelled or refunded cases cannot be moved. Details are in the error log.'
+      : _flashError === 'practice_case'
+      ? 'Nothing was changed. This is a doctor-training practice case — it cannot be marked paid, reassigned or have its SLA extended.'
       : _flashError === 'reassign_ineligible'
       ? 'The doctor was NOT changed. The doctor you picked is not currently eligible for this case (inactive, paused, awaiting approval, not onboarded, or not registered for this service).'
       : (_paymentNotice === 'paid_but_unrouted'

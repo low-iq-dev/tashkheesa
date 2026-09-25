@@ -133,6 +133,7 @@
                     <tr>
                       <td>
                         <a href="/admin/orders/<%= r.orderId %>"><small><%= r.orderId %></small></a>
+                        <% if (r.isPractice) { %><span class="status-pill" style="margin-left:6px;background:#F7EEDC;color:#8E6C2C;">PRACTICE</span><% } %>
                         <% if (r.status) { %>
                           <span class="status-pill status-pill--<%= String(r.status).toLowerCase() %>" style="margin-left:6px;"><%= r.status %></span>
                         <% } %>

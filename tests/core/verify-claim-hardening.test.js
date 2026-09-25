@@ -57,3 +57,18 @@ test('superadmin order page explains the not_payable refusal', () => {
   const src = read('src/views/superadmin_order_detail.ejs');
   assert.match(src, /_paymentNotice === 'not_payable'/);
 });
+
+test('superadmin web refuses practice cases on mark-paid, reassign and extend-sla', () => {
+  const src = read('src/routes/superadmin.js');
+  for (const route of ['mark-paid', 'reassign', 'extend-sla']) {
+    const start = src.indexOf(`router.post('/superadmin/orders/:id/${route}'`);
+    assert.ok(start > 0, route);
+    const body = src.slice(start, start + 3000);
+    const guard = body.indexOf('order.is_practice === true');
+    assert.ok(guard > 0, `${route} checks is_practice`);
+    const firstWrite = body.search(/UPDATE orders|execute\(|reassignCase|assignDoctor/);
+    assert.ok(firstWrite < 0 || guard < firstWrite, `${route}: guard precedes the first write`);
+  }
+  assert.match(src, /o\.patient_id, o\.is_practice, u\.name AS patient_name/, 'loadOrderWithPatient selects is_practice');
+  assert.match(read('src/views/superadmin_order_detail.ejs'), /_flashError === 'practice_case'/);
+});

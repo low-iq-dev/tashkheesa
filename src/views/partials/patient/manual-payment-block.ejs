@@ -220,7 +220,10 @@
         <% if (__mp.instapay && __mp.bank) { %>
           <fieldset style="border:0;padding:0;margin:0;display:flex;gap:14px;flex-wrap:wrap;">
             <legend class="p-field__label" style="margin-bottom:4px;"><%= L('How did you pay?', 'كيف دفعت؟') %></legend>
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input type="radio" name="method" value="instapay" <%= __defaultMethod === 'instapay' ? 'checked' : '' %> /> <%= L('InstaPay', 'إنستاباي') %></label>
+            <%# 2026-09-26 — with no InstaPay handle configured, "InstaPay" means an
+                InstaPay transfer to the bank account below; say so, so the first
+                (default) option never points at an address that doesn't exist. %>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input type="radio" name="method" value="instapay" <%= __defaultMethod === 'instapay' ? 'checked' : '' %> /> <%= __hasHandle ? L('InstaPay', 'إنستاباي') : L('InstaPay to the bank account', 'إنستاباي على الحساب البنكي') %></label>
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input type="radio" name="method" value="bank" <%= __defaultMethod === 'bank' ? 'checked' : '' %> /> <%= L('Bank transfer', 'تحويل بنكي') %></label>
           </fieldset>
         <% } else { %>
