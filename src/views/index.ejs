@@ -563,5 +563,9 @@
 
   <script src="/site/js/site-main.js"></script>
   <script src="/site/js/site-animations.js"></script>
+<%# Soft launch 2026-09-25 — the home page closes its own body and never
+    includes partials/footer, so the floating WhatsApp button has to be
+    included here explicitly. Same partial as every other public page. %>
+<%- include('partials/whatsapp-fab') %>
 </body>
 </html>
