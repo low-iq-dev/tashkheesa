@@ -1341,3 +1341,23 @@ html[dir="rtl"] .vc-soon__card h2 { font-family: inherit; font-size: 27px; font-
   .vc-soon__actions .p-btn { flex: 1 1 100%; }
 }
 }
+
+/* Grouped notifications (26 Sep 2026) */
+.p-notif__scroll { max-height: min(62vh, 520px); overflow-y: auto; }
+.p-notif__group + .p-notif__group { border-top: 1px solid var(--rule); }
+.p-notif__group-h { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px 6px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); background: #fbfaf7; }
+html[dir="rtl"] .p-notif__group-h, [dir="rtl"] .p-notif__group-h { letter-spacing: 0; text-transform: none; font-size: 12px; }
+.p-notif__group-n { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent-light, #f3e6c4);
+  color: var(--accent-dark, #7a5a12); font-size: 10.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; letter-spacing: 0; }
+.p-notif__count { flex-shrink: 0; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 8px;
+  background: var(--primary-light, #e3efec); color: var(--primary-dark, #0f4c5c); }
+/* Alerts page groups */
+.p-alert-group { margin-bottom: 22px; }
+.p-alert-group__h { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 12px; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+[dir="rtl"] .p-alert-group__h { letter-spacing: 0; text-transform: none; font-size: 13px; }
+/* Bell rows were rendering as default browser links (blue/purple visited). */
+.p-notif a.p-notif__item, .p-notif a.p-notif__item:visited { color: var(--ink, #1c2b30); }
+.p-notif .p-notif__item-t { color: var(--ink, #1c2b30); }
+.p-notif .p-notif__item-time { color: var(--muted, #7a8588); font-weight: 600; }

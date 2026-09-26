@@ -220,6 +220,54 @@
       '</div></div>';
   }
 
+  // Grouped bell (26 Sep 2026): category sections, and repeats of the same
+  // update on the same case collapse into one line with a count.
+  // One icon per category (the old single path rendered like a currency sign).
+  var CAT_ICONS = {
+    payments: '<rect x="2.5" y="5.5" width="19" height="13" rx="2"/><path d="M2.5 10h19M6.5 15h3"/>',
+    cases:    '<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
+    messages: '<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>',
+    account:  '<path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/>'
+  };
+  function buildRow(n) {
+    var bg = n.isNew ? 'var(--accent-tint)' : '#fff';
+    var iconBg = n.isNew ? 'var(--accent-light)' : 'var(--primary-light)';
+    var iconFg = n.isNew ? 'var(--accent-dark)' : 'var(--primary-dark)';
+    var titleWeight = n.isNew ? '600' : '500';
+    var countChip = (n.count && n.count > 1)
+      ? '<span class="p-notif__count" aria-label="' + n.count + '">×' + n.count + '</span>' : '';
+    return '<a class="p-notif__item' + (n.isNew ? ' is-new' : '') + '" href="' + escapeHtml(n.href || '#') + '"' +
+           ' style="text-decoration:none;background:' + bg + ';">' +
+             '<div class="p-notif__icon" style="background:' + iconBg + ';color:' + iconFg + ';">' +
+               '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+               (CAT_ICONS[n.category] || CAT_ICONS.account) + '</svg>' +
+             '</div>' +
+             '<div style="min-width:0;">' +
+               '<div class="p-notif__item-t" style="font-weight:' + titleWeight + ';display:flex;align-items:center;gap:6px;">' +
+                 '<span style="min-width:0;">' + escapeHtml(n.title || '') + '</span>' + countChip + '</div>' +
+               (n.time ? '<div class="p-notif__item-time">' + escapeHtml(n.time) + '</div>' : '') +
+             '</div>' +
+           '</a>';
+  }
+
+  function buildGrouped(groups) {
+    if (!groups || !groups.length) return buildEmpty();
+    var body = groups.map(function(g) {
+      return '<div class="p-notif__group">' +
+               '<div class="p-notif__group-h"><span>' + escapeHtml(g.label) + '</span>' +
+                 (g.unread ? '<span class="p-notif__group-n">' + g.unread + '</span>' : '') + '</div>' +
+               g.items.slice(0, 4).map(buildRow).join('') +
+             '</div>';
+    }).join('');
+    return '<div class="p-notif" style="width:360px;max-width:calc(100vw - 32px);">' +
+      '<div class="p-notif__header"><div class="p-notif__title">' + labels.title + '</div></div>' +
+      '<div class="p-notif__scroll">' + body + '</div>' +
+      '<div class="p-notif__footer" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">' +
+        '<a href="' + viewAllUrl + '" style="font-size:12px;color:var(--primary);font-weight:600;text-decoration:none;">' + labels.viewAll + '</a>' +
+        '<span style="font-size:11px;color:var(--muted);">' + labels.footerHint + '</span>' +
+      '</div></div>';
+  }
+
   function fetchAndRender() {
     var minTime = new Promise(function(r) { setTimeout(r, 150); });
     var fetchP = fetch(pollUnreadUrl, { credentials: 'same-origin', cache: 'no-store' })
@@ -229,7 +277,7 @@
       if (!data || !data.ok) throw new Error('payload');
       var ns = Array.isArray(data.notifications) ? data.notifications : [];
       state.hadUnreadOnOpen = ns.some(function(n) { return n.isNew; });
-      dropdown.innerHTML = buildList(ns);
+      dropdown.innerHTML = Array.isArray(data.groups) ? buildGrouped(data.groups) : buildList(ns);
       setDot(Number(data.unreadCount) || 0);
       lastFetch = data;
     }).catch(function() {

@@ -1,4 +1,5 @@
 // src/routes/patient.js
+const { groupNotifications } = require('../services/notification_groups');
 const express = require('express');
 const { rateLimit } = require('express-rate-limit');
 const { requireRole, refreshTombstones } = require('../middleware');
@@ -639,8 +640,12 @@ async function fetchPatientNotifications(userId, userEmail = '', limit = 50) {
     tsCol
   ].filter(Boolean);
 
+  // Each event writes one row per channel (internal/email/whatsapp). Only the
+  // in-app row is an "update"; the others are delivery records. Showing all of
+  // them tripled every notification in the bell (26 Sep 2026).
+  const channelClause = cols.includes('channel') ? ` AND COALESCE(channel, 'internal') = 'internal'` : '';
   paramIdx++;
-  const sql = `SELECT ${selectCols.join(', ')} FROM notifications WHERE (${where.join(' OR ')}) ORDER BY ${tsCol} DESC LIMIT $${paramIdx}`;
+  const sql = `SELECT ${selectCols.join(', ')} FROM notifications WHERE (${where.join(' OR ')})${channelClause} ORDER BY ${tsCol} DESC LIMIT $${paramIdx}`;
   try {
     return await queryAll(sql, [...params, Number(limit)]);
   } catch (_) {
@@ -675,7 +680,8 @@ async function countPatientUnseenNotifications(userId, userEmail = '') {
       }
     }
 
-    const ownerClause = `(${where.join(' OR ')})`;
+    const ownerClause = `(${where.join(' OR ')})` +
+      (cols.includes('channel') ? ` AND COALESCE(channel, 'internal') = 'internal'` : '');
 
     if (cols.includes('is_read')) {
       const row = await queryOne(
@@ -851,7 +857,8 @@ router.get('/portal/patient/alerts', requireRole('patient'), async (req, res) =>
     activeTab: 'alerts',
     nextPath: '/portal/patient/alerts',
     alerts: Array.isArray(alerts) ? alerts : [],
-    notifications: Array.isArray(alerts) ? alerts : []
+    notifications: Array.isArray(alerts) ? alerts : [],
+    alertGroups: groupNotifications(Array.isArray(alerts) ? alerts : [], { isAr: isAr })
   });
 });
 
@@ -900,7 +907,10 @@ function shapeNotificationForDropdown(n, isAr) {
     title,
     body,
     time: formatRelativeTime(n.at, isAr),
-    href: n.href || ''
+    href: n.href || '',
+    template: n.template || '',
+    orderId: n.orderId || '',
+    at: n.at || ''
   };
 }
 
@@ -916,7 +926,9 @@ router.get('/portal/patient/alerts.json', requireRole('patient'), async (req, re
 
   let raw = [];
   try {
-    raw = await fetchPatientNotifications(userId, userEmail, 10);
+    // 30, not 10: repeats collapse into one grouped line, so fetch enough rows
+    // for the grouped dropdown to still show several distinct updates.
+    raw = await fetchPatientNotifications(userId, userEmail, 30);
   } catch (e) {
     logErrorToDb(e, {
       context: 'patient.alerts_json_fetch',
@@ -941,6 +953,8 @@ router.get('/portal/patient/alerts.json', requireRole('patient'), async (req, re
   return res.json({
     ok: true,
     notifications: notifications,
+    // Grouped view for the bell: category sections, repeats collapsed with a count.
+    groups: groupNotifications(notifications, { isAr: isAr }),
     unreadCount: Number(unreadCount) || 0,
     markAllUrl: '/portal/patient/alerts/mark-all-read'
   });
