@@ -135,6 +135,8 @@ const TEMPLATE_TITLES = {
   // #66: payment-reminder series. Subject lines mirror the tone
   // progression of the email bodies — soft (30m), warmer (6h),
   // informational (24h). AR uses gender-neutral phrasing.
+  signup_no_case_1h:  { en: 'Ready when you are: send your case',        ar: 'جاهزين وقت ما تحب: ابعت حالتك' },
+  signup_no_case_24h: { en: 'Your specialist review is one step away',    ar: 'مراجعة الاستشاري على بُعد خطوة' },
   payment_reminder_30m: { en: 'Reminder: complete payment for your case',     ar: 'تذكير: إكمال الدفع لحالتك' },
   payment_reminder_6h:  { en: 'Your case is still waiting for payment',       ar: 'حالتك لسة في انتظار الدفع' },
   payment_reminder_24h: { en: 'A heads-up: your case spot is closing soon',   ar: 'تنبيه: حالتك تقترب من انتهاء فترة الحفظ' },

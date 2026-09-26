@@ -131,6 +131,17 @@ const OPENCLAW_TEMPLATES = {
     ar: (v) => `روشتة إضافية تمت إضافتها لحالة ${v.caseReference}. هتيجي مع التقرير من د. ${v.doctorName}. للمتابعة: ${v.link}\n— تشخيصة`
   },
 
+  // ── Signed up, no case yet (26 Sep 2026, services/signup_nudges.js) ──
+  // Templated on purpose — no AI. Approved by Ziad 26 Sep. Two sends max.
+  signup_no_case_1h: {
+    en: (v) => `Hi${v.patientName ? ' ' + v.patientName : ''} 👋 We saw you created a Tashkheesa account but haven't sent your case yet. If you need help uploading the report or aren't sure which service to pick, just reply here and we'll help. Continue here: ${v.link}\n— The Tashkheesa team`,
+    ar: (v) => `أهلاً${v.patientName ? ' ' + v.patientName : ''} 👋 شفنا إنك عملت حساب على تشخيصة بس لسه ما بعتش حالتك. لو محتاج مساعدة في رفع التقرير أو مش متأكد تختار أنهي خدمة، رد هنا وإحنا نساعدك. تكمل من هنا: ${v.link}\n— فريق تشخيصة`
+  },
+  signup_no_case_24h: {
+    en: (v) => `Hi${v.patientName ? ' ' + v.patientName : ''} 👋 You can still send your report or scan, and a specialist consultant will reply in writing within 48 hours. Start here: ${v.link}\n— The Tashkheesa team`,
+    ar: (v) => `أهلاً${v.patientName ? ' ' + v.patientName : ''} 👋 لسه ممكن تبعت تقريرك أو أشعتك، واستشاري متخصص يرد عليك مكتوب خلال 48 ساعة. ابدأ من هنا: ${v.link}\n— فريق تشخيصة`
+  },
+
   // ── h. Payment reminders for unpaid cases (#66) ────────────────────
   // Queued by case_lifecycle.dispatchUnpaidCaseReminders at 30m / 6h /
   // 24h elapsed from order creation. The 24h variant is registered for

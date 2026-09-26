@@ -1669,6 +1669,17 @@ _dbReady.then(async function() {
     intervalIds.push(unpaidReminderInterval);
     logMajor('Payment reminders registered (every 15 min, primary-only)');
 
+    // Signed-up-no-case nudges (26 Sep 2026): two templated WhatsApp + in-app
+    // messages, no AI, quiet hours 22:00–09:00 Cairo. services/signup_nudges.js.
+    var signupNudgeInterval = setInterval(function() {
+      require('./services/signup_nudges').runSignupNudgeSweep().then(function(r) {
+        if (r && r.queued) logMajor('[signup-nudges] queued ' + r.queued);
+      }).catch(function(err) { console.error('[signup-nudges] error', err); });
+    }, 15 * 60 * 1000);
+    if (signupNudgeInterval && signupNudgeInterval.unref) signupNudgeInterval.unref();
+    intervalIds.push(signupNudgeInterval);
+    logMajor('Signup nudges registered (every 15 min, primary-only)');
+
     // Mac-mini SSH probe (P3-WORKER-N5) — was registered at module-require time
     // in routes/ops.js; now started explicitly here so it's gated and tracked.
     try {
