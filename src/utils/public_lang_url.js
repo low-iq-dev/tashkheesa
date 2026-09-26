@@ -24,7 +24,7 @@
 const PUBLIC_EXACT = new Set([
   '/', '/services', '/specialties', '/about', '/contact', '/faq', '/blog',
   '/privacy', '/terms', '/refund-policy', '/delivery-policy', '/apply',
-  '/help-me-choose', '/app', '/coming-soon',
+  '/help-me-choose', '/app', '/coming-soon', '/start',
   // Play requires the account-deletion page to work for anyone who has
   // uninstalled the app, which includes Arabic speakers who never saw an
   // English screen. Both GET and POST live under the prefix.

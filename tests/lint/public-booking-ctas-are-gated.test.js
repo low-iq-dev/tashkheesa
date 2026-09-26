@@ -39,11 +39,13 @@ const PUBLIC_VIEWS = [
   // missed once: it assigns the link in JavaScript, so the markup scan below
   // never saw it and the site was 95% shut with one live path through a chat
   // bubble. Hence the second pattern.
-  'partials/service_assistant.ejs'
+  'partials/service_assistant.ejs',
+  // Paid-ads landing page (26 Sep 2026).
+  'start.ejs'
 ];
 
 // An href into the wizard, or into registration via the submitUrl helper.
-const BOOKING_HREF = /href\s*=\s*"(?:<%=\s*(?:submitUrl|bookHref\(|__specHref)|\/patient\/new-case|\/register)/;
+const BOOKING_HREF = /href\s*=\s*"(?:<%=\s*(?:submitUrl|bookHref\(|__specHref|__startHref)|\/patient\/new-case|\/register)/;
 
 // The same link built in script: `el.href = SUBMIT_BASE + ...`, `location =`,
 // a window.open, or a data attribute a handler later reads. Markup is not the

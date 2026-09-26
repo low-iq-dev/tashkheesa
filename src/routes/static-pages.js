@@ -565,6 +565,23 @@ function setupStaticPages(opts) {
     return res.redirect(303, (res.locals && res.locals.publicLinkPrefix ? res.locals.publicLinkPrefix : '') + '/delete-account?sent=1');
   });
 
+  // /start — paid-ads landing page (26 Sep 2026). See views/start.ejs.
+  router.get('/start', async function(req, res) {
+    var isAr = !!(res.locals && res.locals.isAr);
+    var cat = null;
+    try { cat = await siteStats.getCatalogueStats(); } catch (_) { cat = null; }
+    res.render('start', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+      title: isAr ? 'رأي طبي تاني مكتوب في 48 ساعة | تشخيصة' : 'A written second opinion in 48 hours | Tashkheesa',
+      description: isAr
+        ? 'ارفع تقريرك أو أشعتك واستشاري من مستشفى الشفاء يبعتلك رأيه مكتوب خلال 48 ساعة.'
+        : 'Upload your report or scan and a Shifa Hospital consultant sends you a written opinion within 48 hours.',
+      canonical: '/start',
+      BUSINESS_INFO: BUSINESS_INFO,
+      minPrice: cat && cat.minPrice ? cat.minPrice : null
+    });
+  });
+
   router.get('/faq', function(req, res) { var isAr = !!(res.locals && res.locals.isAr); res.render('faq', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', title: isAr ? 'الأسئلة الشائعة' : 'FAQ – Frequently Asked Questions', BUSINESS_INFO: BUSINESS_INFO, description: isAr ? 'إجابات عن أكثر الأسئلة شيوعًا حول تشخيصة: كيف يعمل الرأي الطبي الثاني، ومدة المراجعة، والأسعار، والخصوصية، ووسائل الدفع.' : 'Answers to the most common questions about Tashkheesa: how second opinions work, turnaround times, pricing, privacy, and payment options.', canonical: '/faq' }); });
 
   // /blog — index + posts (P1-PUB-1 part 3).
