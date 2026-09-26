@@ -44,6 +44,14 @@
 .lp-hero__img{ border-radius:18px; overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,.35); background:#0b3b47; }
 .lp-hero__img img{ display:block; width:100%; height:auto; }
 .lp-hero__cap{ font-size:13px; color:#b9cfd3; margin-top:10px; text-align:center; }
+.lp-report{ background:#fff; color:var(--ink); border-radius:18px; padding:22px 22px 18px; box-shadow:0 24px 60px rgba(0,0,0,.35); }
+.lp-report__h{ display:flex; justify-content:space-between; align-items:center; gap:10px; font-weight:800; font-size:17px; color:var(--teal); }
+.lp-report__tag{ font-size:11px; font-weight:700; color:var(--brass); border:1px solid var(--brass); border-radius:999px; padding:2px 10px; }
+.lp-report__meta{ color:var(--muted); font-size:13px; margin:4px 0 14px; }
+.lp-report__q{ background:#f4f7f7; border-radius:10px; padding:10px 12px; font-size:14px; line-height:1.55; margin-bottom:12px; }
+.lp-report__f{ margin:0 0 12px; padding-inline-start:20px; font-size:14px; line-height:1.8; }
+.lp-report__rec{ border-inline-start:3px solid var(--brass); padding:4px 12px; font-size:14px; line-height:1.6; margin-bottom:12px; }
+.lp-report__sig{ font-size:12.5px; color:var(--teal); font-weight:700; border-top:1px dashed #e3dccd; padding-top:10px; }
 .lp-sec{ padding:56px 0; }
 .lp-sec h2{ font-size:clamp(24px,3vw,32px); margin:0 0 10px; text-align:center; color:var(--teal); }
 .lp-sec__sub{ text-align:center; color:var(--muted); margin:0 auto 34px; max-width:620px; line-height:1.6; }
@@ -102,13 +110,24 @@
         </div>
       </div>
       <div>
-        <div class="lp-hero__img">
-          <picture>
-            <source media="(max-width:820px)" srcset="/assets/portal/vc-preview-sm.jpg?v=3">
-            <img src="/assets/portal/vc-preview.jpg?v=3" width="1100" height="619" alt="<%= __isAr ? 'استشاري بيشرح تقرير الرنين للمريضة' : 'A consultant going through an MRI report with a patient' %>">
-          </picture>
+        <%# A written-report mock, not a photo: the old hero image was a video
+            call, which contradicted "no appointments". Clearly labelled as an
+            example; no real doctor's name on invented content. %>
+        <div class="lp-report" aria-label="<%= __isAr ? 'مثال لتقرير' : 'Example report' %>">
+          <div class="lp-report__h">
+            <span><%= __isAr ? 'تقرير الرأي الطبي التاني' : 'Second-opinion report' %></span>
+            <span class="lp-report__tag"><%= __isAr ? 'مثال' : 'Example' %></span>
+          </div>
+          <div class="lp-report__meta"><%= __isAr ? 'رنين مغناطيسي على الركبة اليمين · ٣ ملاحظات' : 'Knee MRI · Right knee · 3 findings' %></div>
+          <div class="lp-report__q"><b><%= __isAr ? 'سؤالك:' : 'Your question:' %></b> <%= __isAr ? 'الدكتور قال محتاج منظار. هل ده ضروري دلوقتي؟' : 'My doctor says I need arthroscopy. Is it necessary now?' %></div>
+          <ol class="lp-report__f">
+            <li><%= __isAr ? 'سائل بسيط في المفصل' : 'Small joint effusion' %></li>
+            <li><%= __isAr ? 'قطع صغير في الغضروف الهلالي الداخلي' : 'Small medial meniscus tear, posterior horn' %></li>
+            <li><%= __isAr ? 'الأربطة الصليبية سليمة' : 'ACL and PCL intact' %></li>
+          </ol>
+          <div class="lp-report__rec"><b><%= __isAr ? 'رأي الاستشاري:' : 'Consultant’s opinion:' %></b> <%= __isAr ? 'القطع صغير ومستقر. ابدأ بعلاج طبيعي ٦ أسابيع، والمنظار لو الركبة بتقفل أو الألم مستمر.' : 'The tear is small and stable. Start 6 weeks of physiotherapy; arthroscopy only if the knee locks or pain persists.' %></div>
+          <div class="lp-report__sig">✓ <%= __isAr ? 'موقّع من استشاري العظام · مستشفى الشفاء' : 'Signed by the orthopedic consultant · Shifa Hospital' %></div>
         </div>
-        <div class="lp-hero__cap"><%= __isAr ? 'تقرير مكتوب، واضح، وموقّع باسم الاستشاري' : 'A clear written report, signed with your consultant’s name' %></div>
       </div>
     </div>
   </section>
