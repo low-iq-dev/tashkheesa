@@ -43,12 +43,12 @@ const PUBLIC_VIEWS = [
 ];
 
 // An href into the wizard, or into registration via the submitUrl helper.
-const BOOKING_HREF = /href\s*=\s*"(?:<%=\s*submitUrl\s*%>|\/patient\/new-case|\/register)\b/;
+const BOOKING_HREF = /href\s*=\s*"(?:<%=\s*(?:submitUrl|bookHref\(|__specHref)|\/patient\/new-case|\/register)/;
 
 // The same link built in script: `el.href = SUBMIT_BASE + ...`, `location =`,
 // a window.open, or a data attribute a handler later reads. Markup is not the
 // only way to hand someone a link.
-const BOOKING_JS = /(?:\.href\s*=|location\s*(?:\.href)?\s*=|window\.open\s*\()[^\n;]*(?:SUBMIT_BASE|submitUrl|\/patient\/new-case|service_id=)/;
+const BOOKING_JS = /(?:\.href\s*=|location\s*(?:\.href)?\s*=|window\.open\s*\()[^\n;]*(?:SUBMIT_BASE|submitUrl|bookHref\(|\/patient\/new-case|service_id=)/;
 
 function readIfExists(rel) {
   const p = path.join(VIEWS, rel);

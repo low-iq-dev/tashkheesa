@@ -105,7 +105,10 @@
         <% } %>
         <% var __ctaOn = (typeof bookingCtaEnabled !== 'undefined') ? !!bookingCtaEnabled : false; %>
         <% if (__ctaOn) { %>
-        <a class="specd-cta" href="/patient/new-case?specialty=<%= encodeURIComponent(__sp.id || '') %><%= locals.langParam ? '&' + locals.langParam : '' %>"><%= tt('specd.cta', 'Book a case →', 'احجز حالة ←') %></a>
+        <% var __specTarget = '/patient/new-case?specialty=' + encodeURIComponent(__sp.id || '');
+           var __specHref = (locals.user && locals.user.id) ? __specTarget : '/register?next=' + encodeURIComponent(__specTarget);
+           if (locals.langParam) __specHref += '&' + locals.langParam; %>
+        <a class="specd-cta" href="<%= __specHref %>"><%= tt('specd.cta', 'Book a case →', 'احجز حالة ←') %></a>
         <% } else { %>
         <span class="specd-cta is-cta-locked" aria-disabled="true" title="<%= tt('specd.cta.locked', 'Booking opens soon', 'الحجز هيفتح قريب') %>"><%= tt('specd.cta', 'Book a case →', 'احجز حالة ←') %></span>
         <% } %>

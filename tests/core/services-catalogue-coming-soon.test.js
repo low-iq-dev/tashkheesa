@@ -75,7 +75,9 @@ function render(ctaOn) {
   }, { views: [VIEWS], filename: path.join(VIEWS, 'services.ejs') });
 }
 
-const linked = (html, id) => new RegExp('href="[^"]*service_id=' + id).test(html);
+// Logged-out links carry the wizard URL encoded inside /register?next=…, so
+// `service_id=` may appear as `service_id%3D`. Both count as a link.
+const linked = (html, id) => new RegExp('href="[^"]*service_id(?:=|%3D)' + id).test(html);
 
 // ── Gate OPEN: bookable links, unbookable does not. ──────────────────
 try {
@@ -93,7 +95,7 @@ try {
   if (linked(html, 'live_svc'))        throw new Error('with the CTA gate SHUT, no service may link into the wizard');
   if (linked(html, 'soon_svc'))        throw new Error('a coming_soon service must never be linked into the wizard');
   if (linked(html, 'hidden_spec_svc')) throw new Error('a service under a hidden specialty must never be linked into the wizard');
-  if (/href="[^"]*\/patient\/new-case/.test(html) || /href="[^"]*\/login\?next=/.test(html)) {
+  if (/href="[^"]*(?:\/|%2F)patient(?:\/|%2F)new-case/.test(html) || /href="[^"]*\/(?:login|register)\?next=/.test(html)) {
     throw new Error('with the CTA gate SHUT, no CTA may link to the wizard or its login bounce');
   }
   // A held-back CTA must not also hide the price: the price is true, and the

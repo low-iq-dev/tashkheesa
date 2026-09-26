@@ -114,7 +114,11 @@
 
 <script nonce="<%= cspNonce %>">
 (function() {
-  const SUBMIT_BASE = '/register?next=/patient/new-case';
+  const SUBMIT_LOGGED_IN = <%= (locals.user && locals.user.id) ? 'true' : 'false' %>;
+  function bookHref(serviceId) {
+    const target = '/patient/new-case?service_id=' + encodeURIComponent(serviceId);
+    return SUBMIT_LOGGED_IN ? target : '/register?next=' + encodeURIComponent(target);
+  }
   const LANG = '<%= lang || "en" %>';
   const CSRF_TOKEN = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
   let history = [];
@@ -193,7 +197,7 @@
     document.getElementById('sa-rec-name').textContent = rec.service_name || '';
     document.getElementById('sa-rec-specialty').textContent = rec.specialty || '';
     document.getElementById('sa-rec-reason').textContent = rec.reason || '';
-    document.getElementById('sa-rec-cta').href = SUBMIT_BASE + '?service_id=' + encodeURIComponent(rec.service_id);
+    document.getElementById('sa-rec-cta').href = bookHref(rec.service_id) + '&lang=' + encodeURIComponent(LANG);
     document.getElementById('sa-recommendation').style.display = 'block';
     document.getElementById('sa-messages').scrollTop = 9999;
   }

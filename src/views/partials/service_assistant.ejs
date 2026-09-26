@@ -232,9 +232,17 @@
 
 <script nonce="<%= cspNonce %>">
 (function() {
-  const SUBMIT_BASE = '<%= _saSubmitUrl.split("?")[0] %>';
+  // Logged in -> straight into the wizard; otherwise register with `next`
+  // (splitting submitUrl on '?' used to drop `next`, so the service was lost).
+  const SUBMIT_LOGGED_IN = <%= _saSubmitUrl.indexOf('/patient/new-case') === 0 ? 'true' : 'false' %>;
+  function bookHref(serviceId) {
+    const target = '/patient/new-case?service_id=' + encodeURIComponent(serviceId);
+    const base = SUBMIT_LOGGED_IN ? target : '/register?next=' + encodeURIComponent(target);
+    return base + '&lang=' + encodeURIComponent(LANG_FOR_LINK);
+  }
   const CTA_ON = <%= _saCtaOn ? 'true' : 'false' %>;
   const LANG = '<%= _saLang %>';
+  const LANG_FOR_LINK = LANG;
   const CSRF_TOKEN = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
   let history = []; // {role, content}
   let busy = false;
@@ -350,7 +358,7 @@
     // withheld. Setting no href leaves an <a> that is not a link and is not
     // focusable, which is what we want here.
     if (CTA_ON) {
-      cta.href = SUBMIT_BASE + '?service_id=' + encodeURIComponent(rec.service_id);
+      cta.href = bookHref(rec.service_id);
     } else {
       cta.removeAttribute('href');
     }

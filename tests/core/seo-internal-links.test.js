@@ -103,7 +103,8 @@ module.exports = (async function run() {
       try {
         const r = await bookApp.get(p);
         assert.strictEqual(r.status, 200, p + ' → ' + r.status);
-        const booking = anchors(r.body).filter((a) => /patient\/new-case/.test(a.href));
+        // Logged-out links go to /register?next=<encoded wizard url>, so match both spellings.
+        const booking = anchors(r.body).filter((a) => /patient(?:\/|%2F)new-case/i.test(a.href));
         assert.ok(booking.length > 0, p + ': no booking links rendered (is the CTA on?)');
         // lang must be a TOP-LEVEL parameter of the link: inside next=… the
         // login page never sees it (found live: /login?next=/patient/new-case?lang=ar).
