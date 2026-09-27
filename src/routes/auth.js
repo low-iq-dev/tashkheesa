@@ -1068,6 +1068,8 @@ router.post('/reset-password/:token', welcomeTokenIpLimiter, async (req, res) =>
 // 302 (temporary) so browsers don't cache if the canonical route ever moves.
 router.get('/signup', (req, res) => res.redirect(302, '/register'));
 
+const ARAB_COUNTRIES = ['EG', 'SA', 'AE', 'KW', 'QA', 'BH', 'OM', 'JO', 'LB', 'IQ', 'LY', 'SD', 'MA', 'TN', 'DZ', 'YE', 'SY', 'PS'];
+
 router.get('/register', (req, res) => {
   if (req.user) return res.redirect('/');
   // FUNNEL 2026-09-27 — register-page views for the daily founder digest.
@@ -1079,6 +1081,13 @@ router.get('/register', (req, res) => {
   res.locals.regNext = safeNextPath(req.query && req.query.next);
   const c = authCopy(req);
   var detectedCountry = res.locals.detectedCountry || 'EG';
+  // SHORT-SIGNUP 2026-09-27 — on Arabic pages, a non-Arab geo guess (VPNs,
+  // Meta's in-app browser egress) pre-selected e.g. "United States" for an
+  // Egyptian visitor from an Arabic ad. Arabic → default Egypt unless the
+  // guess is itself an Arab country.
+  if (c.isAr && ARAB_COUNTRIES.indexOf(String(detectedCountry).toUpperCase()) === -1) {
+    detectedCountry = 'EG';
+  }
   res.render('register', { error: null, form: { country_code: detectedCountry }, lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, copy: c });
 });
 

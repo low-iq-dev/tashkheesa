@@ -62,6 +62,7 @@ test('funnel wiring: migration, /start + /register bumps, 15-min digest interval
 test('short signup: booking-path register skips onboarding; Step 1 asks DOB + sex when missing', () => {
   const auth = read('src/routes/auth.js');
   assert.match(auth, /\/\^\\\/patient\\\/new-case\(\?:\[\/\?\]\|\$\)\/\.test\(nextAfterRegister\)/);
+  assert.match(auth, /c\.isAr && ARAB_COUNTRIES\.indexOf\(String\(detectedCountry\)\.toUpperCase\(\)\) === -1/);
   const pat = read('src/routes/patient.js');
   assert.match(pat, /async function loadDemographics\(patientId\)/);
   assert.match(pat, /validateDemographics\(body, isAr\)/);
