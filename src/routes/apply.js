@@ -133,14 +133,35 @@ module.exports = function (deps) {
 
     let client;
     let appRow;
+    let duplicate = false;
     try {
       client = await db.connect();
-      appRow = await createApplication(client, data);
+      // DEDUPE 2026-09-27 — the same doctor re-submitting (double-click, back
+      // button, or re-applying a week later) produced a second row and a second
+      // round of alerts. Same email OR same phone within 30 days → keep the
+      // first row, show the normal success page, send nothing.
+      const dup = await client.query(
+        `SELECT id FROM doctor_applications
+          WHERE (lower(email) = lower($1)
+                 OR regexp_replace(COALESCE(phone,''), '[^0-9]', '', 'g') = regexp_replace($2, '[^0-9]', '', 'g'))
+            AND created_at > NOW() - INTERVAL '30 days'
+          LIMIT 1`,
+        [String(data.email || ''), String(data.phone || '') || '__none__']
+      );
+      if (dup && dup.rows && dup.rows.length) {
+        duplicate = true;
+      } else {
+        appRow = await createApplication(client, data);
+      }
     } catch (err) {
       console.error('[apply] insert failed:', err && err.message);
       return render(req, res, 500, { errors: { _global: { msg: 'server_error' } }, old: req.body || {} });
     } finally {
       if (client && client.release) client.release();
+    }
+
+    if (duplicate) {
+      return res.redirect(303, ((res.locals && res.locals.langPrefix) || '') + '/apply?submitted=1');
     }
 
     // POST-COMMIT, best-effort. A mailer failure must NEVER throw and NEVER
@@ -180,6 +201,23 @@ module.exports = function (deps) {
       }).catch(function () { /* best-effort */ });
     } catch (pushErr) {
       console.error('[apply] ops push failed (application already saved):', pushErr && pushErr.message);
+    }
+
+    // FOUNDER WHATSAPP 2026-09-27 — the Command push above is easy to miss;
+    // a new application now also lands on the founder's WhatsApp. Not awaited.
+    try {
+      const sendFounder = deps.sendFounderWhatsApp || require('../services/founder_whatsapp').sendFounderWhatsApp;
+      const waText = 'New doctor application\n\n'
+        + (data.full_name || 'Unknown') + '\n'
+        + specialtyLabel(data)
+        + (data.years_experience ? ' · ' + data.years_experience + ' yrs' : '')
+        + (data.current_affiliation ? '\n' + data.current_affiliation : '')
+        + '\n' + (data.phone || '') + ' · ' + (data.email || '')
+        + '\n\nReview in Command → Applications.';
+      Promise.resolve(sendFounder(waText, { template: 'founder_doctor_application', ref: (appRow && appRow.id) || null }))
+        .catch(function () { /* best-effort */ });
+    } catch (waErr) {
+      console.error('[apply] founder WhatsApp failed (application already saved):', waErr && waErr.message);
     }
 
     return res.redirect(303, ((res.locals && res.locals.langPrefix) || '') + '/apply?submitted=1');

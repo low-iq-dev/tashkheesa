@@ -43,6 +43,7 @@ const ALLOWLIST = {
   RENDER_COMMIT: 'Render auto-injects (legacy alias for RENDER_GIT_COMMIT)',
   RENDER_SERVICE_NAME: 'Render auto-injects',
   RENDER_SERVICE_ID: 'Render auto-injects',
+  NODE_TEST_CONTEXT: 'Set by the node --test runner; founder_whatsapp.js uses it to never message a real phone from tests',
 
   // ── Build/runtime metadata; falls back gracefully ──
   GIT_SHA: 'set by build pipeline; falls back to git rev-parse at boot (server.js:10)',

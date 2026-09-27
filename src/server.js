@@ -1680,6 +1680,17 @@ _dbReady.then(async function() {
     intervalIds.push(signupNudgeInterval);
     logMajor('Signup nudges registered (every 15 min, primary-only)');
 
+    // FUNNEL 2026-09-27 — yesterday's funnel counts to the founder on WhatsApp,
+    // once a day at/after 09:00 Cairo (claim row makes it once-only).
+    var funnelDigestInterval = setInterval(function() {
+      require('./services/funnel_digest').runFunnelDigest().then(function(r) {
+        if (r && r.day) logMajor('[funnel-digest] sent for ' + r.day + ' (' + r.sent + ' ok, ' + r.failed + ' failed)');
+      }).catch(function(err) { console.error('[funnel-digest] error', err); });
+    }, 15 * 60 * 1000);
+    if (funnelDigestInterval && funnelDigestInterval.unref) funnelDigestInterval.unref();
+    intervalIds.push(funnelDigestInterval);
+    logMajor('Funnel digest registered (every 15 min, sends once/day after 09:00 Cairo)');
+
     // Mac-mini SSH probe (P3-WORKER-N5) — was registered at module-require time
     // in routes/ops.js; now started explicitly here so it's gated and tracked.
     try {

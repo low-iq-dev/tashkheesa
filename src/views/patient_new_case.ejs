@@ -143,6 +143,37 @@
           <%- (typeof csrfField === 'function') ? csrfField() : '' %>
           <% if (draftId) { %><input type="hidden" name="id" value="<%= draftId %>" /><% } %>
 
+          <%# SHORT-SIGNUP 2026-09-27 — booking-path signups skip onboarding, so the
+              two fields the doctor needs (age + sex change the differential) are
+              asked here, only when the account has neither on file. %>
+          <% if (typeof needsDemographics !== 'undefined' && needsDemographics) { %>
+            <% const __demo = (typeof demoForm !== 'undefined' && demoForm) ? demoForm : {}; %>
+            <div data-testid="wizard-demographics" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;">
+              <div class="p-field">
+                <label class="p-field__label" for="date_of_birth">
+                  <%= tt('Date of birth', 'Date of birth', 'تاريخ الميلاد') %> <span style="color:var(--danger);">*</span>
+                </label>
+                <input id="date_of_birth" name="date_of_birth" type="date" required class="p-field__input" dir="ltr"
+                       max="<%= new Date().toISOString().slice(0, 10) %>" value="<%= __demo.date_of_birth || '' %>"
+                       style="width:100%;padding:10px 12px;border:1px solid var(--line, #d9d4c7);border-radius:10px;font:inherit;" />
+              </div>
+              <div class="p-field">
+                <label class="p-field__label" for="gender">
+                  <%= tt('Sex', 'Sex', 'الجنس') %> <span style="color:var(--danger);">*</span>
+                </label>
+                <select id="gender" name="gender" required class="p-field__input"
+                        style="width:100%;padding:10px 12px;border:1px solid var(--line, #d9d4c7);border-radius:10px;font:inherit;background:#fff;">
+                  <option value=""><%= tt('Select', 'Select', 'اختر') %></option>
+                  <option value="female" <%= __demo.gender === 'female' ? 'selected' : '' %>><%= tt('Female', 'Female', 'أنثى') %></option>
+                  <option value="male" <%= __demo.gender === 'male' ? 'selected' : '' %>><%= tt('Male', 'Male', 'ذكر') %></option>
+                </select>
+              </div>
+              <div class="p-field__hint" style="grid-column:1 / -1;margin-top:-4px;">
+                <%= tt('Age and sex help the consultant read your results correctly. Asked once.', 'Age and sex help the consultant read your results correctly. Asked once.', 'السن والجنس يساعدان الاستشاري على قراءة نتائجك بدقة. نسألك مرة واحدة فقط.') %>
+              </div>
+            </div>
+          <% } %>
+
           <div class="p-field" style="margin-bottom:18px;">
             <label class="p-field__label" for="clinical_question">
               <%= tt('Your concern', 'Your concern', 'ما يقلقك') %>

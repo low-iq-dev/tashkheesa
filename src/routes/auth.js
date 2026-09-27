@@ -1070,6 +1070,8 @@ router.get('/signup', (req, res) => res.redirect(302, '/register'));
 
 router.get('/register', (req, res) => {
   if (req.user) return res.redirect('/');
+  // FUNNEL 2026-09-27 — register-page views for the daily founder digest.
+  try { require('../services/funnel_digest').bumpFunnelCount('register_view', req); } catch (_) {}
   setLangCookie(res, getReqLang(req));
   // A patient who clicked a service card lands on /login?next=/patient/new-case?...
   // and then taps "Create account". Carry that next through registration so the
@@ -1248,6 +1250,16 @@ router.post('/register', async (req, res) => {
   // ?next= (P0-FORM-1), so handing it the service the patient chose before
   // registering is what stops the choice being silently dropped at signup.
   const nextAfterRegister = res.locals.regNext;
+  // SHORT-SIGNUP 2026-09-27 — the booking path skips the onboarding wizard.
+  // A visitor who clicked "Start" on a service already told us what they want;
+  // four onboarding screens between signup and the case form is where the
+  // paid-traffic funnel was leaking. Phone is collected on this form (so the
+  // requirePhone gate is clear), and date of birth + sex — the only onboarding
+  // fields a doctor NEEDS — are asked inside Step 1 of the case wizard when
+  // missing (patient.js SHORT-SIGNUP). Every other signup keeps onboarding.
+  if (nextAfterRegister && /^\/patient\/new-case(?:[/?]|$)/.test(nextAfterRegister)) {
+    return res.redirect(nextAfterRegister);
+  }
   return res.redirect(nextAfterRegister
     ? '/portal/patient/onboarding?next=' + encodeURIComponent(nextAfterRegister)
     : '/portal/patient/onboarding');

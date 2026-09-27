@@ -568,6 +568,8 @@ function setupStaticPages(opts) {
   // /start — paid-ads landing page (26 Sep 2026). See views/start.ejs.
   router.get('/start', async function(req, res) {
     var isAr = !!(res.locals && res.locals.isAr);
+    // FUNNEL 2026-09-27 — top-of-funnel count for the daily founder digest.
+    try { require('../services/funnel_digest').bumpStartView(req); } catch (_) {}
     var cat = null;
     try { cat = await siteStats.getCatalogueStats(); } catch (_) { cat = null; }
     res.render('start', {

@@ -1743,6 +1743,37 @@ async function resolveDraftStep(orderRow) {
   return inferred;
 }
 
+// SHORT-SIGNUP 2026-09-27 — does this account still need date of birth + sex?
+// Fails OPEN (missing:false) on a DB error: a hiccup here must not put a
+// required field in front of a patient who already gave it.
+async function loadDemographics(patientId) {
+  try {
+    const row = await queryOne('SELECT date_of_birth, gender FROM users WHERE id = $1', [patientId]);
+    if (!row) return { missing: false };
+    return { missing: !row.date_of_birth || !row.gender };
+  } catch (_) {
+    return { missing: false };
+  }
+}
+
+// Mirrors onboarding.js POST /profile validation (AUDIT-2026-08-22 L8).
+function validateDemographics(body, isAr) {
+  const dateOfBirth = String((body && body.date_of_birth) || '').trim().slice(0, 10);
+  const gender = String((body && body.gender) || '').trim().toLowerCase();
+  if (!dateOfBirth || !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+    return { error: isAr ? 'يرجى إدخال تاريخ الميلاد.' : 'Please enter your date of birth.' };
+  }
+  const dobMs = Date.parse(dateOfBirth + 'T00:00:00Z');
+  const ageYears = Number.isNaN(dobMs) ? NaN : (Date.now() - dobMs) / (365.2425 * 24 * 60 * 60 * 1000);
+  if (Number.isNaN(dobMs) || ageYears < 0 || ageYears > 120) {
+    return { error: isAr ? 'تاريخ الميلاد غير صالح.' : 'Please enter a valid date of birth.' };
+  }
+  if (!['male', 'female'].includes(gender)) {
+    return { error: isAr ? 'يرجى اختيار الجنس.' : 'Please select your sex.' };
+  }
+  return { dateOfBirth, gender };
+}
+
 async function loadOwnedDraft(orderId, patientId) {
   if (!orderId || !patientId) return null;
   const row = await queryOne(
@@ -2003,12 +2034,18 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
   // only engages when specialtyRecommendation is non-null.
   const thresholds = await getThresholds();
 
+  // SHORT-SIGNUP 2026-09-27 — patients arriving from the booking path skip
+  // onboarding, so Step 1 asks for date of birth + sex when the account has
+  // neither on file (see loadDemographics).
+  const demographics = step === 1 ? await loadDemographics(patientId) : null;
+
   return res.render('patient_new_case', {
     user: req.user,
     lang,
     isAr,
     step,
     draft,
+    needsDemographics: !!(demographics && demographics.missing),
     files,
     specialties,
     services,
@@ -2214,7 +2251,18 @@ router.post('/patient/new-case/step1', requireRole('patient'), async (req, res) 
   const medicalHistory = String(body.medical_history || '').trim().slice(0, 4000);
   const currentMedications = String(body.current_medications || '').trim().slice(0, 4000);
 
-  if (clinicalQuestion.length < 10) {
+  // SHORT-SIGNUP 2026-09-27 — date of birth + sex, asked here only when the
+  // account has neither (booking-path signups skip onboarding). Same rules as
+  // onboarding.js (AUDIT-2026-08-22 L8): both required, age 0–120, male|female.
+  const demographics = await loadDemographics(patientId);
+  let demoError = null;
+  let demoValues = null;
+  if (demographics.missing) {
+    demoValues = validateDemographics(body, isAr);
+    if (demoValues.error) demoError = demoValues.error;
+  }
+
+  if (clinicalQuestion.length < 10 || demoError) {
     // Re-render Step 1 with the inline error.
     let draft = null;
     if (orderIdInBody) draft = await loadOwnedDraft(orderIdInBody, patientId);
@@ -2227,10 +2275,27 @@ router.post('/patient/new-case/step1', requireRole('patient'), async (req, res) 
       draft: draft || { clinical_question: clinicalQuestion, medical_history: medicalHistory, current_medications: currentMedications },
       files: [],
       countryCurrency: getCountryCurrency(getUserCountryCode(req)),
-      error: { step: 1, message: isAr
-        ? 'يرجى وصف حالتك بما لا يقل عن 10 أحرف.'
-        : 'Please describe your concern in at least 10 characters.' }
+      needsDemographics: !!demographics.missing,
+      demoForm: { date_of_birth: String(body.date_of_birth || '').slice(0, 10), gender: String(body.gender || '').slice(0, 10) },
+      error: { step: 1, message: clinicalQuestion.length < 10
+        ? (isAr
+          ? 'يرجى وصف حالتك بما لا يقل عن 10 أحرف.'
+          : 'Please describe your concern in at least 10 characters.')
+        : demoError }
     });
+  }
+
+  if (demoValues && !demoValues.error) {
+    try {
+      await execute(
+        'UPDATE users SET date_of_birth = $1, gender = $2 WHERE id = $3',
+        [demoValues.dateOfBirth, demoValues.gender, patientId]
+      );
+    } catch (e) {
+      // Not fatal to the draft — the doctor sees "Age: —" rather than the
+      // patient losing their case text. Logged so it is noticed.
+      logErrorToDb(e, { context: 'patient.new_case_step1.demographics', userId: patientId, category: 'patient_case' });
+    }
   }
 
   const nowIso = new Date().toISOString();
