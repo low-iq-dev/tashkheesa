@@ -21,16 +21,21 @@
   function _sel(v) { return _cc === v ? 'selected' : ''; }
   function _label(row) { return _ar ? row[2] : row[1]; }
 
+  // The nine markets isLaunchMarket() actually accepts (src/launch-market.js).
+  // Columns 4 and 5 are the dial code and national-number length, mirroring
+  // DIAL_CODES in src/validators/phone_identity.js — the register form reads
+  // them to prefix the phone field, so the patient types their number the way
+  // they say it out loud instead of guessing at E.164.
   var _POPULAR = [
-    ["EG", "Egypt", "مصر"],
-    ["SA", "Saudi Arabia", "المملكة العربية السعودية"],
-    ["AE", "UAE", "الإمارات العربية المتحدة"],
-    ["KW", "Kuwait", "الكويت"],
-    ["BH", "Bahrain", "البحرين"],
-    ["QA", "Qatar", "قطر"],
-    ["OM", "Oman", "عُمان"],
-    ["GB", "United Kingdom", "المملكة المتحدة"],
-    ["US", "United States", "الولايات المتحدة"]
+    ["EG", "Egypt", "مصر", "+20", 10],
+    ["SA", "Saudi Arabia", "المملكة العربية السعودية", "+966", 9],
+    ["AE", "UAE", "الإمارات العربية المتحدة", "+971", 9],
+    ["KW", "Kuwait", "الكويت", "+965", 8],
+    ["BH", "Bahrain", "البحرين", "+973", 8],
+    ["QA", "Qatar", "قطر", "+974", 8],
+    ["OM", "Oman", "عُمان", "+968", 8],
+    ["GB", "United Kingdom", "المملكة المتحدة", "+44", 10],
+    ["US", "United States", "الولايات المتحدة", "+1", 10]
   ];
   var _ALL = [
     ["AF", "Afghanistan", "أفغانستان"],
@@ -237,10 +242,24 @@
     return _collator.compare(_label(a), _label(b));
   });
 %>
+<%
+  // AUDIT-SIGNUP-DEAD-END-2026-09-29: this list offered 199 countries while
+  // POST /register accepts 9 (isLaunchMarket). Everyone else filled in the whole
+  // form — name, email, phone, password, terms — and was refused on submit with
+  // "country invalid". 26 people reached this page in the three days after
+  // launch and not one account was created. _liveOnly renders only what the
+  // server will accept, so the dead end cannot be reached.
+  var _liveOnly = (typeof _onlyLiveMarkets !== 'undefined' && _onlyLiveMarkets);
+%>
 <option value="" <%= !_cc ? 'selected' : '' %>><%= _ar ? 'اختر الدولة' : 'Select country' %></option>
+<% if (_liveOnly) { %>
+<% _POPULAR.forEach(function (c) { %>  <option value="<%= c[0] %>" data-dial="<%= c[3] %>" data-len="<%= c[4] %>" <%= _sel(c[0]) %>><%= _label(c) %> (<%= c[3] %>)</option>
+<% }); %>
+<% } else { %>
 <optgroup label="<%= _ar ? 'الأكثر شيوعاً' : 'Popular' %>">
 <% _POPULAR.forEach(function (c) { %>  <option value="<%= c[0] %>" <%= _sel(c[0]) %>><%= _label(c) %></option>
 <% }); %></optgroup>
 <optgroup label="<%= _ar ? 'كل الدول' : 'All Countries' %>">
 <% _allSorted.forEach(function (c) { %>  <option value="<%= c[0] %>" <%= _sel(c[0]) %>><%= _label(c) %></option>
 <% }); %></optgroup>
+<% } %>
