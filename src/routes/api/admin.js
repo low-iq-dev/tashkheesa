@@ -3305,6 +3305,44 @@ module.exports = function (db, helpers, deploy, deps) {
     }
   });
 
+  // ─── Notification preferences (29 Sep 2026) ─────────────────────────────────
+  //
+  // GET  /notification-prefs          every event kind with its effective mode
+  // PUT  /notification-prefs          { kind, mode }  mode: loud | quiet | off
+  //
+  // Per SUPERADMIN, not per device: the founder sets "case paid = quiet" once
+  // and it holds on every phone he signs in on. The catalogue, the defaults and
+  // the kinds that cannot be turned off live in services/ops_push_prefs.js.
+  router.get('/notification-prefs', async (req, res) => {
+    try {
+      const { listPrefs } = require('../../services/ops_push_prefs');
+      const prefs = await listPrefs(String(req.user && req.user.id));
+      return res.ok({ prefs, modes: ['loud', 'quiet', 'off'] });
+    } catch (err) {
+      console.error('[admin/notification-prefs] list failed:', err && err.message);
+      return res.fail('Could not load notification settings', 500, 'PREFS_READ_FAILED');
+    }
+  });
+
+  router.put('/notification-prefs', async (req, res) => {
+    const kind = String((req.body && req.body.kind) || '');
+    const mode = String((req.body && req.body.mode) || '').toLowerCase();
+    try {
+      const { setPref } = require('../../services/ops_push_prefs');
+      const r = await setPref(String(req.user && req.user.id), kind, mode);
+      if (!r.ok) {
+        const msg = r.code === 'LOCKED_ON'
+          ? 'This alert cannot be turned off — you are the only person who can act on it.'
+          : (r.code === 'UNKNOWN_KIND' ? 'Unknown notification type' : "mode must be 'loud', 'quiet' or 'off'");
+        return res.fail(msg, 400, r.code);
+      }
+      return res.ok({ kind, mode: r.mode });
+    } catch (err) {
+      console.error('[admin/notification-prefs] save failed:', err && err.message);
+      return res.fail('Could not save notification setting', 500, 'PREFS_WRITE_FAILED');
+    }
+  });
+
   // ─── POST /push-token (register THIS superadmin's Expo push token) ───────────
   // The Command app calls this after obtaining an Expo push token so that
   // watchdog-triggered worker-down pushes (middleware/push.notifySuperadmins)

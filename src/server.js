@@ -1691,6 +1691,21 @@ _dbReady.then(async function() {
     intervalIds.push(funnelDigestInterval);
     logMajor('Funnel digest registered (every 15 min, sends once/day after 09:00 Cairo)');
 
+    // BUSINESS PULSE 2026-09-29 — quiet Command pushes for the events that mean
+    // the business is working: signup, checkout, paid, delivered, real enquiry.
+    // services/business_pulse.js reads the columns every door stamps, so no
+    // money or auth path was edited to produce these. Every 2 minutes against a
+    // 30-minute lookback; ops_push_log dedupes per row.
+    var businessPulseInterval = setInterval(function() {
+      require('./services/business_pulse').runBusinessPulse().then(function(r) {
+        var sent = 0; Object.keys(r || {}).forEach(function(k) { if (typeof r[k] === 'number') sent += r[k]; });
+        if (sent) logMajor('[business-pulse] pushed ' + sent + ' ' + JSON.stringify(r));
+      }).catch(function(err) { console.error('[business-pulse] error', err); });
+    }, 2 * 60 * 1000);
+    if (businessPulseInterval && businessPulseInterval.unref) businessPulseInterval.unref();
+    intervalIds.push(businessPulseInterval);
+    logMajor('Business pulse registered (every 2 min, primary-only)');
+
     // Mac-mini SSH probe (P3-WORKER-N5) — was registered at module-require time
     // in routes/ops.js; now started explicitly here so it's gated and tracked.
     try {

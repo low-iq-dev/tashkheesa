@@ -30,21 +30,29 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
  * @param {string} pushToken - the Expo token to send to
  * @param {Object} notification - { title, body, data? }
  */
-async function _sendExpoPush(db, userId, pushToken, { title, body, data = {} }) {
+async function _sendExpoPush(db, userId, pushToken, { title, body, data = {} }, delivery) {
   // Validate Expo push token format
   if (!pushToken.startsWith('ExponentPushToken[') && !pushToken.startsWith('ExpoPushToken[')) {
     console.warn(`[push] Invalid push token for user ${userId}`);
     return;
   }
 
+  // `delivery` (29 Sep 2026) lets a caller say HOW the push should arrive —
+  // see services/ops_push_prefs.js deliveryFor(). Absent, the message is
+  // byte-for-byte what it always was, so every patient/doctor caller is
+  // unchanged. A null sound means "silent": the key is omitted, not sent null.
+  const d = delivery || {};
   const message = {
     to: pushToken,
     title,
     body,
     data,
-    sound: 'default',
-    priority: 'high',
+    priority: d.priority || 'high',
   };
+  const sound = (d.sound === undefined) ? 'default' : d.sound;
+  if (sound) message.sound = sound;
+  if (d.channelId) message.channelId = d.channelId;
+  if (d.interruptionLevel) message.interruptionLevel = d.interruptionLevel;
 
   const response = await fetch(EXPO_PUSH_URL, {
     method: 'POST',
@@ -158,7 +166,7 @@ async function sendPushNotification(db, userId, { title, body, data = {} }) {
  * @param {Object} db - pg Pool / better-sqlite3 handle (same shape as sendPushNotification)
  * @param {Object} notification - { title, body, data? }
  */
-async function notifySuperadmins(db, { title, body, data = {} }) {
+async function notifySuperadmins(db, { title, body, data = {}, kind = null }) {
   try {
     // C1 — every live DEVICE of every superadmin: per-device session rows
     // UNIONed with the transition-mirror column (a Command build that
@@ -189,10 +197,34 @@ async function notifySuperadmins(db, { title, body, data = {} }) {
       rows = result.rows;
     }
 
+    // 29 Sep 2026 — each superadmin's own loud / quiet / off for this kind.
+    // No kind (a legacy caller) means today's behaviour: loud, for everyone.
+    // Read through the injected `db` like every other query in this function,
+    // so it runs on the same connection and the tests' fake db can drive it.
+    // Any failure falls back to the kind's default — a push that should have
+    // been quiet arriving loud is recoverable; one that never arrives is not.
+    const prefs = kind ? require('../services/ops_push_prefs') : null;
+    const stored = {};
+    if (kind && !db.prepare) {
+      try {
+        const ids = Array.from(new Set((rows || []).map((r) => r && r.id).filter(Boolean)));
+        if (ids.length) {
+          const pr = await db.query(
+            'SELECT user_id, mode FROM admin_notification_prefs WHERE kind = $1 AND user_id = ANY($2::text[])',
+            [kind, ids]);
+          for (const r of ((pr && pr.rows) || [])) stored[r.user_id] = r.mode;
+        }
+      } catch (_) { /* table absent pre-123, or DB blip: defaults apply */ }
+    }
+
     for (const row of (rows || [])) {
       if (!row || !row.push_token) continue;
+      const mode = kind ? prefs.effectiveMode(kind, stored[row.id]) : 'loud';
+      if (mode === 'off') continue;
+      const delivery = prefs ? prefs.deliveryFor(mode) : undefined;
       try {
-        await _sendExpoPush(db, row.id, row.push_token, { title, body, data });
+        await _sendExpoPush(db, row.id, row.push_token,
+          { title, body, data: Object.assign({}, data, kind ? { mode } : {}) }, delivery);
       } catch (err) {
         // One bad recipient must not abort the rest.
         console.error(`[push] Error notifying superadmin ${row.id}:`, err.message);
