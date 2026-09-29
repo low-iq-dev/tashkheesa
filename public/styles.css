@@ -6394,3 +6394,53 @@ span.is-cta-locked {
   box-shadow: none !important;
 }
 .is-cta-locked::after { display: none !important; }
+
+/* ───────────────────────────────────────────────────────────────────────────
+   AUTH PAGES — v2 teal/brass, 2026-09-29.
+
+   Marketing moved to deep teal #0B6B5F / brass #B38B3E / warm cream #F8F5EF on
+   20 Sep. The auth pages stayed on the product blue (--primary #0066CC) with
+   blue-tinted gradients, so anyone arriving from an Instagram post landed on
+   what looked like a different company at the exact moment they were deciding
+   whether to trust us with a medical file.
+
+   Scoped to .auth-page on purpose. --primary is the whole product's blue and
+   ~1,700 lines of this file depend on it; the signed-in portal is not in
+   scope. This restyles the four pages a cold visitor actually sees —
+   register, login, forgot_password, reset_password — and nothing else.
+   ─────────────────────────────────────────────────────────────────────────── */
+.auth-page {
+  background: linear-gradient(140deg, #F8F5EF 0%, #E9F1EF 48%, #DCE9E6 100%);
+}
+
+.auth-page .auth-card {
+  background: #FFFFFF;
+  border: 1px solid #D5E3E0;
+  box-shadow: 0 18px 44px rgba(7, 75, 67, 0.14);
+}
+
+.auth-page .auth-header h1 { color: #0F1E2D; }
+
+.auth-page .btn-primary {
+  background: linear-gradient(135deg, #0B6B5F 0%, #074B43 100%);
+  box-shadow: 0 8px 20px rgba(11, 107, 95, 0.28);
+}
+.auth-page .btn-primary:hover {
+  box-shadow: 0 12px 28px rgba(11, 107, 95, 0.38);
+}
+
+.auth-page a { color: #0B6B5F; }
+.auth-page a:hover { color: #074B43; }
+
+.auth-page .form-control:focus {
+  border-color: #0B6B5F;
+  box-shadow: 0 0 0 3px rgba(11, 107, 95, 0.14);
+  outline: none;
+}
+
+/* The dial-code box beside the phone input (register.ejs). */
+.auth-page #reg-dial {
+  border-color: #D5E3E0 !important;
+  background: #F1F6F5 !important;
+  color: #074B43 !important;
+}

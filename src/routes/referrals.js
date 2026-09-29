@@ -1,3 +1,4 @@
+const REFERRAL_DISCOUNT_PCT = 15;
 // src/routes/referrals.js
 // Referral Program (Phase 9)
 
@@ -35,7 +36,7 @@ async function ensureReferralCode(userId) {
       var id = randomUUID();
       await execute(
         'INSERT INTO referral_codes (id, user_id, code, type, reward_type, reward_value, is_active, created_at) VALUES ($1, $2, $3, $4, $5, $6, true, $7)',
-        [id, userId, code, 'patient', 'discount', 10, new Date().toISOString()]
+        [id, userId, code, 'patient', 'discount', REFERRAL_DISCOUNT_PCT, new Date().toISOString()]
       );
       return code;
     }
