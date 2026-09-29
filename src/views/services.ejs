@@ -385,6 +385,16 @@
       <p class="subtitle"><%= tt('svc.hero.subtitle',
         'Expert second opinions from board-certified specialists. Detailed bilingual reports in English and Arabic, delivered in 48 hours standard, 18 hours with VIP, as fast as 4 hours with Urgent.',
         'آراء طبية تانية من دكاترة متخصصين معتمدين. تقارير مفصلة بالعربي والإنجليزي، بتوصلك في 48 ساعة قياسي، 18 ساعة مع VIP، و4 ساعات للحالات العاجلة.') %></p>
+      <%
+        // Declared here, not in the big scriptlet below: that block's consts
+        // are in the temporal dead zone at this point in the template.
+        const __heroMin = (services || []).filter(x => x && x.is_bookable && x.base_price > 0)
+          .reduce((m, x) => (m == null || x.base_price < m ? x.base_price : m), null);
+        const __heroAr = !!(typeof isAr !== 'undefined' && isAr);
+      %>
+      <% if (__heroMin) { %>
+      <div style="display:inline-block;margin-top:14px;background:#0B6B5F;color:#F8F5EF;padding:8px 18px;border-radius:50px;font-weight:700;font-size:15px;"><%= __heroAr ? ('تقارير مكتوبة تبدأ من ' + Number(__heroMin).toLocaleString('en-US') + ' جنيه') : ('Written reports from EGP ' + Number(__heroMin).toLocaleString('en-US')) %></div><br>
+      <% } %>
       <%- include('partials/urgent-window-note', { style: 'margin:10px auto 0;max-width:720px;font-size:14px;line-height:1.55;color:#475569;' }) %>
       <a href="<%= locals.publicLinkPrefix || '' %>/help-me-choose" style="display:inline-block;margin-top:16px;background:#eff6ff;color:#2563eb;border:1.5px solid #93c5fd;padding:10px 22px;border-radius:50px;font-weight:600;font-size:14px;text-decoration:none;"><%= tt('svc.hero.help_cta',
         '🩺 Not sure which service you need? Ask our assistant →',
@@ -487,6 +497,24 @@
       if (!bySpecialty[sp]) bySpecialty[sp] = [];
       bySpecialty[sp].push(s);
     });
+    // 2026-09-29 price cut: the SQL returns rows in id order, so a specialty's
+    // three preview cards were whatever sorted first alphabetically — never the
+    // new 750 entry read. Bookable first, then cheapest first, so the preview
+    // opens on the price a visitor can actually start at.
+    Object.keys(bySpecialty).forEach(sp => {
+      bySpecialty[sp].sort((a, b) =>
+        (isBookable(b) - isBookable(a)) || ((a.base_price || 0) - (b.base_price || 0)));
+    });
+    // Lowest bookable price per specialty and overall — drives the hero chip,
+    // the "from" strip and each specialty header.
+    const __fromPrice = {};
+    uniqueServices.forEach(s => {
+      if (!isBookable(s) || !(s.base_price > 0)) return;
+      const sp = s.specialty_name || 'Other';
+      if (__fromPrice[sp] == null || s.base_price < __fromPrice[sp]) __fromPrice[sp] = s.base_price;
+    });
+    const __minPrice = Object.values(__fromPrice).reduce((m, v) => (m == null || v < m ? v : m), null);
+    const __fmt = v => Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
 
     // Specialty metadata: icon + description + "star" services to feature.
     // desc_ar is the Egyptian-Arabic description; resolved via metaDesc() below.
@@ -549,29 +577,16 @@
     // represented, which is a defensible reading of "high-value" and, unlike
     // the fixed list, cannot decay. Capped at 6, which fills the row at every
     // breakpoint (the grid is minmax(220px, 1fr)).
-    const FEATURED_TARGET = 6;
-    const featuredServices = featuredIds
-      .map(id => uniqueServices.find(s => s.id === id))
-      // The page lists coming-soon services now, so a hand-picked id can
-      // resolve to one. Featured must stay orderable — it is the one panel
-      // that exists to be clicked.
-      .filter(s => s && isBookable(s));
-    if (featuredServices.length < FEATURED_TARGET) {
-      const taken = new Set(featuredServices.map(s => s.id));
-      const shown = new Set(featuredServices.map(s => s.specialty_name));
-      const topUp = Object.keys(bySpecialty).filter(__isLiveSpec)
-        .filter(sp => !shown.has(sp))
-        .map(sp => (bySpecialty[sp] || [])
-          .filter(s => !taken.has(s.id) && isBookable(s) && s.base_price > 0)
-          .sort((a, b) => (b.base_price || 0) - (a.base_price || 0))[0])
-        .filter(Boolean)
-        .sort((a, b) => (b.base_price || 0) - (a.base_price || 0));
-      for (const s of topUp) {
-        if (featuredServices.length >= FEATURED_TARGET) break;
-        featuredServices.push(s);
-      }
-    }
-
+    // 2026-09-29: the strip used to top up with the DEAREST service in each
+    // specialty, so after the price cut the first thing a visitor saw was still
+    // 2,400–3,500 and the page "looked the same". It now shows where each open
+    // specialty STARTS, cheapest first, and jumps to that specialty's section.
+    // featuredIds above is kept for reference but no longer drives the strip.
+    const FEATURED_TARGET = 8;
+    const featuredSpecs = Object.keys(__fromPrice).filter(__isLiveSpec)
+      .sort((a, b) => (__fromPrice[a] - __fromPrice[b]) || a.localeCompare(b))
+      .slice(0, FEATURED_TARGET);
+    const featuredServices = featuredSpecs; // non-empty check below
     // Display order for specialties
     const specOrder = [
       'Radiology','Cardiology','Oncology','Neurology','Pathology','Lab & Pathology',
@@ -599,32 +614,20 @@
       <%# "Most Requested" was a claim about order volume on a platform where
           no card payment has ever settled. These are a hand-picked selection
           topped up from the live catalogue, so say that instead. %>
-      <div class="featured-label"><%= tt('svc.featured.label',
-        '⭐ Featured Reviews',
-        '⭐ مراجعات مختارة') %></div>
-      <h2><%= tt('svc.featured.title',
-        'Start with what matters most',
-        'ابدأ بالأهم') %></h2>
-      <p class="featured-sub"><%= tt('svc.featured.sub',
-        'A cross-section of what our consultants review most often — one from each specialty open today',
-        'نماذج من أكتر المراجعات اللي بيعملها استشاريينا — واحدة من كل تخصص متاح دلوقتي') %></p>
+      <div class="featured-label"><%= tt('svc.from.label', 'Starting prices', 'الأسعار تبدأ من') %></div>
+      <h2><%= __isAr ? ('ابدأ من ' + __fmt(__minPrice) + ' جنيه') : ('Start from EGP ' + __fmt(__minPrice)) %></h2>
+      <p class="featured-sub"><%= tt('svc.from.sub',
+        'The entry read: a consultant reads your report and answers one question in writing. Fuller reviews in each specialty below.',
+        'قراءة تقرير: استشاري يقرا تقريرك ويجاوب على سؤال واحد كتابةً. والمراجعات الأشمل في كل تخصص تحت.') %></p>
       <div class="featured-grid">
-        <%# featuredServices is filtered to BOOKABLE only above, so there is no
-            coming-soon case to handle here — this panel exists to be clicked.
-            The only branch left is whether the site-wide booking CTA is open. %>
-        <% featuredServices.forEach(function(s) { %>
-        <% if (__ctaOn) { %>
-        <a href="<%= bookHref('service_id=' + encodeURIComponent(s.id)) %>" class="featured-card">
-        <% } else { %>
-        <div class="featured-card is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>">
-        <% } %>
-          <div class="fc-specialty"><%= __isAr && s.specialty_name_ar ? s.specialty_name_ar : s.specialty_name %></div>
-          <div class="fc-name"><%= svcName(s) %></div>
+        <% featuredSpecs.forEach(function(sp) { %>
+        <a href="#<%= sp.replace(/[^a-z0-9]/gi, '-').toLowerCase() %>" class="featured-card">
+          <div class="fc-specialty"><%= specDisplayName(sp) %></div>
+          <div class="fc-name"><%= metaDesc(specialtyMeta[sp]) %></div>
           <div class="fc-price">
-            <%= s.base_price ? formatMoney(s.base_price, 'EGP') : 'EGP —' %>
-            <span> <%= tt('svc.per_report', '/ report', '/ تقرير') %></span>
+            <span><%= tt('svc.from', 'from', 'من') %> </span><%= formatMoney(__fromPrice[sp], 'EGP') %>
           </div>
-        <% if (__ctaOn) { %></a><% } else { %></div><% } %>
+        </a>
         <% }); %>
       </div>
     </div>
@@ -653,7 +656,7 @@
           <div class="specialty-count"><%= metaDesc(meta) %> &nbsp;·&nbsp; <%
             if (__isAr) { %><%= specServices.length %> <%= tt('svc.unit.service', 'service', 'خدمة') %><% }
             else { %><%= specServices.length %> service<%= specServices.length !== 1 ? 's' : '' %><% }
-          %></div>
+          %><% if (__specIsLive && __fromPrice[specName]) { %> &nbsp;·&nbsp; <strong><%= __isAr ? ('من ' + __fmt(__fromPrice[specName]) + ' جنيه') : ('from EGP ' + __fmt(__fromPrice[specName])) %></strong><% } %></div>
         </div>
         <% if (__specIsLive && __ctaOn) { %>
         <a href="<%= bookHref('specialty=' + encodeURIComponent(specName)) %>" class="see-all-link">
