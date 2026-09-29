@@ -51,6 +51,14 @@ const COOLDOWN_MS_BY_KIND = Object.freeze({
   payment_mismatch: 5 * 60 * 1000,
   doctor_application: 30 * 60 * 1000,
   doctor_auto_paused: 60 * 60 * 1000,
+  // 29 Sep 2026 — business_pulse producers. Deduped per row id; a week-long
+  // cooldown is far longer than the pulse's lookback, so a row is announced
+  // once no matter how many sweeps see it.
+  patient_signup: 7 * 24 * 60 * 60 * 1000,
+  case_submitted: 7 * 24 * 60 * 60 * 1000,
+  case_paid: 7 * 24 * 60 * 60 * 1000,
+  report_delivered: 7 * 24 * 60 * 60 * 1000,
+  contact_enquiry: 7 * 24 * 60 * 60 * 1000,
 });
 const DEFAULT_COOLDOWN_MS = 15 * 60 * 1000;
 
@@ -92,6 +100,13 @@ const MAX_PER_KIND_PER_WINDOW = Object.freeze({
   payment_capture_failed: 5,   // money already taken — a higher ceiling is right
   chat_reported: 4,
   worker_down: 4,
+  // Good-news kinds get a generous ceiling: a burst of signups after a post is
+  // exactly the moment the founder wants to see them, and they arrive quiet.
+  patient_signup: 10,
+  case_submitted: 10,
+  case_paid: 10,
+  report_delivered: 10,
+  contact_enquiry: 6,
 });
 const DEFAULT_KIND_BUDGET = 5;
 
@@ -263,6 +278,9 @@ async function pushOpsEvent(opts) {
         title: o.title,
         body: o.body,
         data: Object.assign({ kind: o.kind }, o.data || {}),
+        // 29 Sep 2026 — lets notifySuperadmins apply each superadmin's
+        // loud / quiet / off for this kind (services/ops_push_prefs.js).
+        kind: o.kind,
       });
     } catch (err) {
       logErrorToDb(err, {
