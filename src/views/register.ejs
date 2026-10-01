@@ -99,7 +99,9 @@
   </div>
 
 
-      <script>
+      <%# CSP: inline scripts need the per-request nonce or the browser refuses them
+          (1 Oct 2026 — this one was blocked, so the dial-code prefix never appeared). %>
+      <script nonce="<%= (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '' %>">
         (function () {
           var sel = document.getElementById('reg-country');
           var dial = document.getElementById('reg-dial');
