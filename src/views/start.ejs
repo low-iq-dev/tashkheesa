@@ -90,24 +90,27 @@
     <div class="lp-wrap lp-hero__grid">
       <div>
         <span class="lp-kicker"><%= __isAr ? 'استشاريين مستشفى الشفاء · القاهرة الجديدة' : 'Shifa Hospital Group consultants · New Cairo' %></span>
-        <h1><%= __isAr ? 'رأي طبي تاني مكتوب من استشاري متخصص — خلال 48 ساعة' : 'A written second opinion from a specialist consultant — within 48 hours' %></h1>
+        <%# LEAN HERO 2026-10-01: ~0.5% of paid visitors tapped Start with the
+            four-line hero. One line of promise, the price, one button. %>
+        <h1><%= __isAr ? 'رأي طبي تاني مكتوب — خلال 48 ساعة' : 'A written second opinion — in 48 hours' %></h1>
         <p class="lp-sub"><%= __isAr
-          ? 'ارفع تقريرك أو أشعتك أو تحاليلك من البيت. استشاري في نفس التخصص يراجعها ويبعتلك رأيه مكتوب بالعربي: إيه اللي شايفه، وهل التشخيص والعلاج مناسبين، وإيه الخطوة الجاية.'
-          : 'Upload your report, scan or lab results from home. A consultant in the right specialty reviews them and sends you a written opinion: what they see, whether the diagnosis and plan make sense, and what to do next.' %></p>
+          ? 'ارفع تقريرك أو أشعتك، واستشاري من مستشفى الشفاء يبعتلك رأيه مكتوب.'
+          : 'Upload your report or scan; a Shifa Hospital consultant sends you a written opinion.' %></p>
         <div class="lp-price">
           <span><%= __isAr ? 'تبدأ من' : 'From' %> <b><%= __min %> <%= __isAr ? 'ج.م' : 'EGP' %></b></span>
           <span><b>48</b> <%= __isAr ? 'ساعة للرد' : 'hours to your report' %></span>
         </div>
         <div class="lp-ctas">
           <% if (__ctaOn) { %>
-          <a class="lp-btn lp-btn--primary" href="<%= __startHref %>" data-track="lp_start"><%= __isAr ? 'ابدأ حالتك' : 'Start my case' %></a>
+          <a class="lp-btn lp-btn--primary" href="<%= __startHref %>" data-track="lp_start" data-funnel="start_cta"><%= __isAr ? 'ابدأ حالتك' : 'Start my case' %></a>
           <% } else { %>
           <span class="lp-btn lp-btn--locked is-cta-locked" aria-disabled="true"><%= __isAr ? 'الحجز هيفتح قريب' : 'Booking opens soon' %></span>
           <% } %>
-          <a class="lp-btn lp-btn--wa" href="<%= __wa %>" target="_blank" rel="noopener" data-track="lp_whatsapp">
+          <a class="lp-btn lp-btn--wa" href="<%= __wa %>" target="_blank" rel="noopener" data-track="lp_whatsapp" data-funnel="start_wa">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.5 3.5A11.8 11.8 0 0012 0C5.4 0 .1 5.3.1 11.9c0 2.1.6 4.1 1.6 5.9L0 24l6.3-1.7a11.9 11.9 0 005.7 1.5c6.6 0 11.9-5.3 11.9-11.9 0-3.2-1.2-6.2-3.4-8.4zM12 21.8c-1.8 0-3.5-.5-5-1.4l-.4-.2-3.7 1 1-3.6-.2-.4a9.9 9.9 0 01-1.5-5.3C2.2 6.5 6.6 2.1 12 2.1c2.6 0 5.1 1 7 2.9a9.8 9.8 0 012.9 7c0 5.4-4.4 9.8-9.9 9.8zm5.4-7.4c-.3-.1-1.8-.9-2-1s-.5-.1-.7.1-.8 1-.9 1.2-.3.2-.6.1a8.1 8.1 0 01-4-3.5c-.3-.5.3-.5.9-1.6.1-.2 0-.4 0-.5l-.9-2.2c-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4s-1 1-1 2.5 1.1 2.9 1.2 3.1c.1.2 2.1 3.2 5.1 4.5 1.9.8 2.6.9 3.6.7.6-.1 1.8-.7 2-1.4s.2-1.3.2-1.4c-.1-.2-.3-.3-.6-.4z"/></svg>
             <%= __isAr ? 'اسألنا على واتساب' : 'Ask us on WhatsApp' %></a>
         </div>
+        <p style="margin:12px 0 0;font-size:14px;color:#b9cfd3;"><%= __isAr ? 'خطوة واحدة: اسمك ورقم الواتساب — وبعدها ترفع ملفاتك.' : 'One step: your name and WhatsApp number — then upload your files.' %></p>
       </div>
       <div>
         <%# A written-report mock, not a photo: the old hero image was a video
@@ -176,14 +179,38 @@
       <p><%= __isAr ? ('تبدأ من ' + __min + ' ج.م · رد خلال 48 ساعة') : ('From EGP ' + __min + ' · reply within 48 hours') %></p>
       <div class="lp-ctas">
         <% if (__ctaOn) { %>
-        <a class="lp-btn lp-btn--primary" href="<%= __startHref %>" data-track="lp_start_bottom"><%= __isAr ? 'ابدأ حالتك' : 'Start my case' %></a>
+        <a class="lp-btn lp-btn--primary" href="<%= __startHref %>" data-track="lp_start_bottom" data-funnel="start_cta"><%= __isAr ? 'ابدأ حالتك' : 'Start my case' %></a>
         <% } else { %>
         <span class="lp-btn lp-btn--locked is-cta-locked" aria-disabled="true"><%= __isAr ? 'الحجز هيفتح قريب' : 'Booking opens soon' %></span>
         <% } %>
-        <a class="lp-btn lp-btn--wa" href="<%= __wa %>" target="_blank" rel="noopener" data-track="lp_whatsapp_bottom"><%= __isAr ? 'اسألنا على واتساب' : 'Ask us on WhatsApp' %></a>
+        <a class="lp-btn lp-btn--wa" href="<%= __wa %>" target="_blank" rel="noopener" data-track="lp_whatsapp_bottom" data-funnel="start_wa"><%= __isAr ? 'اسألنا على واتساب' : 'Ask us on WhatsApp' %></a>
       </div>
     </div>
   </section>
 </main>
+
+<%# FUNNEL BEACON 2026-10-01. The server-side GET counter was inflated by Meta's
+    in-app browser preloading the page before anyone saw it (~2,500 "views" a
+    day, more than Meta's own landing-page views). A view now counts only once
+    the page has been VISIBLE for a second; CTA taps are counted too. %>
+<script nonce="<%= (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '' %>">
+(function () {
+  var src = (location.search.match(/[?&]utm_source=([^&]+)/) || [])[1] || '';
+  function hit(step) {
+    try { fetch('/f/e?s=' + encodeURIComponent(step) + (src ? '&src=' + encodeURIComponent(src) : ''), { keepalive: true, credentials: 'same-origin' }); } catch (e) {}
+  }
+  var sent = false, t = null;
+  function arm() {
+    if (sent || document.visibilityState !== 'visible') return;
+    clearTimeout(t);
+    t = setTimeout(function () { if (!sent && document.visibilityState === 'visible') { sent = true; hit('start_view'); } }, 1000);
+  }
+  document.addEventListener('visibilitychange', arm);
+  arm();
+  Array.prototype.forEach.call(document.querySelectorAll('[data-funnel]'), function (a) {
+    a.addEventListener('click', function () { hit(a.getAttribute('data-funnel')); });
+  });
+})();
+</script>
 
 <%- include('partials/footer') %>

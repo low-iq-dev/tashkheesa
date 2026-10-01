@@ -75,7 +75,7 @@ function authCopy(req) {
     reset_pw_rule: isAr ? 'يجب أن تتطابق كلمتا المرور وأن تكون كلمة المرور 8 أحرف على الأقل.' : 'Passwords must match and be at least 8 characters.',
     reset_pw_success: isAr ? 'تم تغيير كلمة المرور بنجاح. الرجاء تسجيل الدخول.' : 'Password reset successful. Please log in.',
 
-    register_required: isAr ? 'الاسم والبريد الإلكتروني وكلمة المرور والدولة مطلوبة.' : 'Name, email, password, and country are required.',
+    register_required: isAr ? 'اكتب اسمك ورقم الواتساب.' : 'Please enter your name and WhatsApp number.',
     // Same 8-character rule /set-password and /reset-password/:token enforce
     // (see reset_pw_rule), minus the "must match" clause — /register has no
     // confirm-password field, so reset_pw_rule's wording would be wrong here.
@@ -1109,17 +1109,20 @@ router.post('/register', async (req, res) => {
   const c = authCopy(req);
   const langForMsg = c.isAr ? 'ar' : 'en';
 
-  if (!email || !password || !name || !normalizedCountry) {
+  // SIGNUP-LITE 2026-10-01: name + WhatsApp number (+ country for the dial
+  // code) are the only required fields. Email and password are OPTIONAL — the
+  // web form no longer asks for them; the patient returns via phone code
+  // (/login/otp/*, find-or-create on the same number). If a client still sends
+  // them, they are validated exactly as before.
+  if (!String(name || '').trim() || !normalizedCountry || !String(phone || '').trim()) {
     return res
       .status(400)
       .render('register', { error: c.register_required, form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
   }
 
-  // Server-side password minimum. The other password-setting routes
-  // (/set-password, /reset-password/:token) both enforce >= 8; /register
-  // checked presence only, so a one-character password created a real,
-  // immediately-usable patient account holding medical records.
-  if (String(password).length < 8) {
+  // Server-side password minimum — only when a password is supplied. The other
+  // password-setting routes (/set-password, /reset-password/:token) enforce >= 8.
+  if (password && String(password).length < 8) {
     return res
       .status(400)
       .render('register', { error: c.register_pw_short, form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
@@ -1158,8 +1161,13 @@ router.post('/register', async (req, res) => {
   }
   const normalizedPhone = phoneCheck.normalized;
 
-  const normalizedEmail = String(email || '').trim().toLowerCase();
-  const exists = await queryOne('SELECT 1 FROM users WHERE email = $1', [normalizedEmail]);
+  const normalizedEmail = String(email || '').trim().toLowerCase() || null;
+  if (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    return res
+      .status(400)
+      .render('register', { error: c.isAr ? 'البريد الإلكتروني غير صحيح.' : 'That email address looks wrong.', form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
+  }
+  const exists = normalizedEmail ? await queryOne('SELECT 1 FROM users WHERE email = $1', [normalizedEmail]) : null;
   if (exists) {
     return res
       .status(400)
@@ -1167,7 +1175,7 @@ router.post('/register', async (req, res) => {
   }
 
   const id = randomUUID();
-  const passwordHash = await hash(password);
+  const passwordHash = password ? await hash(password) : null;
   const lang = c.isAr ? 'ar' : 'en';
 
   try {
@@ -1209,7 +1217,7 @@ router.post('/register', async (req, res) => {
   // The INSERT above committed (execute() is auto-commit and did not throw),
   // so this account exists. Fire-and-forget, never awaited — same shape as the
   // post-transaction pushOpsEvent in the doctor signup below.
-  captureSignup({ userId: id, signupMethod: 'password_web', role: 'patient', surface: 'web' });
+  captureSignup({ userId: id, signupMethod: passwordHash ? 'password_web' : 'phone_web', role: 'patient', surface: 'web' });
 
   const user = {
     id,
@@ -1233,8 +1241,8 @@ router.post('/register', async (req, res) => {
   });
   setLangCookie(res, lang);
 
-  // Send welcome email (fire-and-forget)
-  try {
+  // Send welcome email (fire-and-forget) — only when we have an address.
+  if (normalizedEmail) try {
     var APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
     // P1-NOTIF-4: warmed subject mirrors notification_titles.js
     // welcome_patient entry. Direct path (registration) bypasses the

@@ -249,7 +249,9 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: linear-gradient(135deg, var(--deep-blue) 0%, var(--medical-blue) 50%, var(--accent-teal) 100%);
+  /* v2 teal/cream (1 Oct 2026). This file loads AFTER styles.css, so the blue
+     gradient here was overriding the 29 Sep teal restyle of the auth pages. */
+  background: linear-gradient(140deg, #F8F5EF 0%, #E9F1EF 48%, #DCE9E6 100%);
 }
 
 .auth-card {
@@ -347,9 +349,9 @@
 
 .auth-card .form-control:focus {
   outline: none;
-  border-color: var(--medical-blue);
+  border-color: #0B6B5F;
   background-color: var(--white);
-  box-shadow: var(--ring-primary);
+  box-shadow: 0 0 0 3px rgba(11, 107, 95, 0.14);
 }
 
 /* Red is reserved for genuine validation errors only:

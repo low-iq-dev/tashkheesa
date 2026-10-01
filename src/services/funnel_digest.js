@@ -21,7 +21,7 @@
 const crypto = require('crypto');
 const { queryAll, queryOne, execute } = require('../pg');
 
-const STEPS = new Set(['start_view', 'start_view_meta', 'register_view']);
+const STEPS = new Set(['start_view', 'start_view_meta', 'register_view', 'start_cta', 'start_wa', 'wa_redirect']);
 const BOT_UA = /bot|crawl|spider|slurp|facebookexternalhit|facebookcatalog|meta-externalagent|preview|headless|lighthouse|pingdom|uptime|curl|wget|python-requests|node-fetch|axios/i;
 const SKIP_EMAIL_SQL = "COALESCE(u.email,'') !~* '@(tashkheesa\\.com|shifaegypt\\.com)$'";
 const LAUNCH_DAY = '2026-09-25';
@@ -158,6 +158,8 @@ function formatDigest(f, since) {
     'Tashkheesa funnel · ' + label + ' (Cairo)',
     '',
     'Landing /start views: ' + fmt(views) + (f.start_view_meta ? ' (Meta ' + f.start_view_meta + ')' : ''),
+    'Taps on Start: ' + fmt(f.start_cta || 0) + pct(f.start_cta || 0, views) + ' · WhatsApp taps: ' + fmt(f.start_wa || 0),
+    'WhatsApp ad clicks: ' + fmt(f.wa_redirect || 0),
     'Register page views: ' + fmt(f.register_view || 0),
     'Signups: ' + fmt(f.signups) + pct(f.signups, f.register_view),
     'Cases started: ' + fmt(f.drafts) + pct(f.drafts, f.signups),

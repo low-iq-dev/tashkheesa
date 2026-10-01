@@ -566,10 +566,37 @@ function setupStaticPages(opts) {
   });
 
   // /start — paid-ads landing page (26 Sep 2026). See views/start.ejs.
+  // FUNNEL BEACON (1 Oct 2026): tiny GET counter for steps a server cannot see
+  // (page actually visible, CTA taps). Allow-listed steps only; returns 204.
+  router.get('/f/e', function(req, res) {
+    try {
+      var fd = require('../services/funnel_digest');
+      var step = String((req.query && req.query.s) || '');
+      if (step === 'start_view') {
+        fd.bumpStartView(Object.assign(Object.create(req), { query: { utm_source: (req.query && req.query.src) || '' } }));
+      } else if (step === 'start_cta' || step === 'start_wa') {
+        fd.bumpFunnelCount(step, req);
+      }
+    } catch (_) {}
+    res.set('Cache-Control', 'no-store');
+    return res.status(204).end();
+  });
+
+  // /wa and /ar/wa — the WhatsApp ad destination: counts, then hands the
+  // visitor to Tash with a pre-filled first message (1 Oct 2026).
+  router.get('/wa', function(req, res) {
+    var isAr = !!(res.locals && res.locals.isAr);
+    try { require('../services/funnel_digest').bumpFunnelCount('wa_redirect', req); } catch (_) {}
+    var text = isAr ? 'مرحباً تشخيصة، شفت إعلانكم وعندي تقرير/أشعة ومحتاج رأي تاني' : 'Hi Tashkheesa, I saw your ad and I have a report/scan I want a second opinion on';
+    res.set('Cache-Control', 'no-store');
+    return res.redirect(302, 'https://wa.me/201102009886?text=' + encodeURIComponent(text));
+  });
+
   router.get('/start', async function(req, res) {
     var isAr = !!(res.locals && res.locals.isAr);
-    // FUNNEL 2026-09-27 — top-of-funnel count for the daily founder digest.
-    try { require('../services/funnel_digest').bumpStartView(req); } catch (_) {}
+    // FUNNEL — the view is now counted by a client beacon once the page is
+    // actually visible (GET /f/e below); a server-side GET count was inflated
+    // by Meta's in-app browser preloading the page (1 Oct 2026).
     var cat = null;
     try { cat = await siteStats.getCatalogueStats(); } catch (_) { cat = null; }
     res.render('start', {

@@ -1,16 +1,25 @@
 <%- include('partials/header', { title: tt('auth.register.title', 'Create Account', 'إنشاء حساب'), layout: "auth", showNav: false, showFooter: false }) %>
   <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
   <% const formValues = (typeof form !== 'undefined' && form) ? form : {}; %>
+  <%#
+    SIGNUP-LITE 2026-10-01. Ziad: collect at least name and number — nothing
+    more before the patient sees the case form. Email and password are gone
+    from this page: the account is created on name + WhatsApp number, the
+    patient is signed in straight away, and they come back later by phone code
+    (/login → "sign in with a code"), which find-or-creates on the same number.
+    Paid traffic reached this form 26+ times in three days and nobody finished
+    the six-field version.
+  %>
   <div class="auth-page">
     <div class="auth-card">
       <%- include('partials/auth_brand') %>
       <div class="auth-header">
-        <h1><%= tt('auth.register', 'Create account', 'اعمل حساب') %></h1>
-        <p><%= isAr ? 'ابدأ بالحصول على رأي طبي ثانٍ بأمان.' : 'Get started with secure second opinions.' %></p>
+        <h1><%= isAr ? 'خطوة واحدة وتبدأ' : 'One step to start' %></h1>
+        <p><%= isAr ? 'اسمك ورقم الواتساب بس — وبعدها ترفع ملفاتك.' : 'Just your name and WhatsApp number — then you upload your files.' %></p>
       </div>
 
       <% if (error) { %>
-        <div class="auth-actions">
+        <div class="auth-actions" role="alert">
           <p><%= error %></p>
         </div>
       <% } %>
@@ -22,63 +31,27 @@
         <% } %>
 
         <div class="form-group">
-          <label class="form-label"><%= tt('auth.name', 'Full name', 'الاسم الكامل') %></label>
-          <input class="form-control" type="text" name="name" value="<%= formValues.name || '' %>" required />
+          <label class="form-label" for="reg-name"><%= isAr ? 'الاسم' : 'Your name' %></label>
+          <input class="form-control" type="text" id="reg-name" name="name" value="<%= formValues.name || '' %>" required autocomplete="name" />
         </div>
 
         <div class="form-group">
-          <label class="form-label"><%= tt('auth.email', 'Email', 'البريد الإلكتروني') %></label>
-          <input class="form-control" type="email" name="email" value="<%= formValues.email || '' %>" required dir="ltr" />
-        </div>
-
-        <%#
-          AUDIT-SIGNUP-DEAD-END-2026-09-29. Two changes, both about the same
-          failure: 26 people reached this form in the three days after launch
-          and none finished it.
-
-          1. Country now comes BEFORE phone. It used to come after, so the
-             phone field asked for "international format" while the one piece
-             of information that makes a number unambiguous was still blank.
-             Twilio logged "Invalid parameter To: +206504992804" — a real
-             person's real number, mangled because nobody told them the shape.
-          2. The country list renders only the nine markets POST /register
-             accepts. It used to offer 199 and refuse 190 of them on submit.
-
-          The phone input now carries a visible dial-code prefix driven by the
-          country select, so the patient types the number the way they say it.
-          normalizePhone(phone, country_code) on the server already handles a
-          national number given a country — including the leading trunk zero —
-          so nothing server-side changes here.
-        %>
-        <div class="form-group">
-          <label class="form-label"><%= isAr ? 'الدولة' : 'Country' %></label>
-          <select class="form-control" id="reg-country" name="country_code" required>
-            <%- include('partials/country_options', { _selectedCountry: formValues.country_code || '', _isAr: (typeof isAr !== 'undefined' && isAr), _onlyLiveMarkets: true }) %>
-          </select>
-          <small style="color:#64748b;font-size:0.78rem;"><%= isAr ? 'دي الدول اللي الخدمة شغالة فيها دلوقتي.' : 'These are the countries the service currently covers.' %></small>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label"><%= isAr ? 'رقم الواتساب' : 'WhatsApp Number' %> <span style="color:#e53e3e;">*</span></label>
+          <label class="form-label" for="reg-phone"><%= isAr ? 'رقم الواتساب' : 'WhatsApp number' %></label>
           <div style="display:flex;gap:8px;align-items:stretch;direction:ltr;">
-            <span id="reg-dial" style="display:flex;align-items:center;padding:0 14px;border:1px solid var(--border,#d7dee6);border-radius:8px;background:#f4f6f8;color:#0F1E2D;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.95rem;white-space:nowrap;">—</span>
-            <input class="form-control" style="flex:1;" type="tel" id="reg-phone" name="phone" value="<%= formValues.phone || '' %>" placeholder="<%= isAr ? 'اختر الدولة الأول' : 'Choose your country first' %>" required inputmode="tel" dir="ltr" autocomplete="tel-national" />
+            <select class="form-control" id="reg-country" name="country_code" required aria-label="<%= isAr ? 'الدولة' : 'Country' %>" style="flex:0 0 auto;width:auto;max-width:44%;padding-inline:10px;">
+              <%- include('partials/country_options', { _selectedCountry: formValues.country_code || '', _isAr: (typeof isAr !== 'undefined' && isAr), _onlyLiveMarkets: true }) %>
+            </select>
+            <input class="form-control" style="flex:1;min-width:0;" type="tel" id="reg-phone" name="phone" value="<%= formValues.phone || '' %>" placeholder="01X XXXX XXXX" required inputmode="tel" dir="ltr" autocomplete="tel-national" />
           </div>
-          <small id="reg-phone-hint" style="color:#64748b;font-size:0.78rem;"><%= isAr ? 'رقمك زي ما بتكتبه عادي — إحنا بنضيف كود الدولة.' : 'Your number as you normally write it — we add the country code.' %></small>
+          <small id="reg-phone-hint" style="color:#64748b;font-size:0.78rem;"><%= isAr ? 'هنبعتلك تحديثات حالتك على الواتساب.' : "We'll send your case updates on WhatsApp." %></small>
         </div>
 
         <div class="form-group">
-          <label class="form-label"><%= tt('auth.password', 'Password', 'كلمة المرور') %></label>
-          <input class="form-control" type="password" name="password" required minlength="8" />
-          <small style="color:#64748b;font-size:0.78rem;"><%= isAr ? '8 أحرف على الأقل' : 'At least 8 characters' %></small>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">
-            <input type="checkbox" name="terms" required />
+          <label class="form-label" style="display:flex;gap:8px;align-items:flex-start;font-weight:500;">
+            <input type="checkbox" name="terms" required style="margin-top:4px;" />
             <span>
               <%= isAr ? 'أوافق على' : 'I agree to the' %>
-              <a href="<%= locals.publicLinkPrefix || '' %>/terms" target="_blank"><%= isAr ? 'الشروط والأحكام' : 'Terms & Conditions' %></a>
+              <a href="<%= locals.publicLinkPrefix || '' %>/terms" target="_blank"><%= isAr ? 'الشروط والأحكام' : 'Terms' %></a>
               <%= isAr ? 'و' : 'and' %>
               <a href="<%= locals.publicLinkPrefix || '' %>/privacy" target="_blank"><%= isAr ? 'سياسة الخصوصية' : 'Privacy Policy' %></a>
             </span>
@@ -86,50 +59,16 @@
         </div>
 
         <div class="auth-actions">
-          <button class="btn btn-primary btn-full" type="submit"><%= tt('auth.register', 'Create account', 'اعمل حساب') %></button>
+          <button class="btn btn-primary btn-full" type="submit"><%= isAr ? 'ابدأ حالتك' : 'Start my case' %></button>
         </div>
 
         <p class="flow-note"><%= isAr ? 'لن نشارك بياناتك مع أي طرف ثالث.' : 'We never share your data with third parties.' %></p>
 
         <div class="auth-actions">
-          <a href="/login<%= (typeof regNext !== 'undefined' && regNext) ? ('?next=' + encodeURIComponent(regNext)) : '' %>"><%= isAr ? 'لديك حساب؟' : 'Already have an account?' %></a>
+          <a href="/login<%= (typeof regNext !== 'undefined' && regNext) ? ('?next=' + encodeURIComponent(regNext)) : '' %>"><%= isAr ? 'عندك حساب؟ ادخل بكود على موبايلك' : 'Have an account? Sign in with a code' %></a>
         </div>
       </form>
     </div>
   </div>
-
-
-      <%# CSP: inline scripts need the per-request nonce or the browser refuses them
-          (1 Oct 2026 — this one was blocked, so the dial-code prefix never appeared). %>
-      <script nonce="<%= (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '' %>">
-        (function () {
-          var sel = document.getElementById('reg-country');
-          var dial = document.getElementById('reg-dial');
-          var phone = document.getElementById('reg-phone');
-          var hint = document.getElementById('reg-phone-hint');
-          if (!sel || !dial || !phone) return;
-          var isAr = <%= isAr ? 'true' : 'false' %>;
-          function sync() {
-            var o = sel.options[sel.selectedIndex];
-            var d = o && o.getAttribute('data-dial');
-            var n = o && parseInt(o.getAttribute('data-len'), 10);
-            if (!d) {
-              dial.textContent = '\u2014';
-              phone.placeholder = isAr ? 'اختر الدولة الأول' : 'Choose your country first';
-              return;
-            }
-            dial.textContent = d;
-            var sample = new Array((n || 9) + 1).join('X');
-            phone.placeholder = sample;
-            if (hint) {
-              hint.textContent = isAr
-                ? ('اكتب ' + (n || 9) + ' أرقام بعد ' + d + ' — من غير الصفر اللي في الأول.')
-                : ('Enter your ' + (n || 9) + '-digit number after ' + d + ' — no leading zero.');
-            }
-          }
-          sel.addEventListener('change', sync);
-          sync();
-        })();
-      </script>
 
 <%- include('partials/footer', { showFooter: false }) %>
