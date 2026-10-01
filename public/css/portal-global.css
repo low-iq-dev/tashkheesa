@@ -373,13 +373,13 @@
 
 .auth-actions a {
   font-size: var(--text-md);
-  color: var(--medical-blue);
+  color: #0B6B5F;
   text-decoration: none;
   transition: color var(--transition-fast);
 }
 
 .auth-actions a:hover {
-  color: var(--deep-blue);
+  color: #074B43;
   text-decoration: underline;
 }
 
@@ -391,7 +391,7 @@
 }
 
 .auth-card .btn-primary {
-  background: var(--medical-blue);
+  background: linear-gradient(135deg, #0B6B5F 0%, #074B43 100%); /* v2 teal, 1 Oct 2026 */
   color: var(--white);
   border: none;
   padding: 14px 24px;
@@ -404,7 +404,7 @@
 }
 
 .auth-card .btn-primary:hover {
-  background: var(--medical-blue-dark);
+  background: #074B43;
   transform: translateY(-1px);
   box-shadow: var(--shadow-md);
 }
