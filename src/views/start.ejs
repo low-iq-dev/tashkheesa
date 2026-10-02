@@ -89,13 +89,13 @@
   <section class="lp-hero">
     <div class="lp-wrap lp-hero__grid">
       <div>
-        <span class="lp-kicker"><%= __isAr ? 'استشاريين مستشفى الشفاء · القاهرة الجديدة' : 'Shifa Hospital Group consultants · New Cairo' %></span>
+        <span class="lp-kicker"><%= __isAr ? 'استشاريين مجموعة مستشفيات شفا · القاهرة الجديدة' : 'Shifa Hospital Group consultants · New Cairo' %></span>
         <%# LEAN HERO 2026-10-01: ~0.5% of paid visitors tapped Start with the
             four-line hero. One line of promise, the price, one button. %>
         <h1><%= __isAr ? 'رأي طبي تاني مكتوب — خلال 48 ساعة' : 'A written second opinion — in 48 hours' %></h1>
         <p class="lp-sub"><%= __isAr
-          ? 'ارفع تقريرك أو أشعتك، واستشاري من مستشفى الشفاء يبعتلك رأيه مكتوب.'
-          : 'Upload your report or scan; a Shifa Hospital consultant sends you a written opinion.' %></p>
+          ? 'ارفع تقريرك أو أشعتك، واستشاري من مجموعة مستشفيات شفا يبعتلك رأيه مكتوب.'
+          : 'Upload your report or scan; a Shifa Hospital Group consultant sends you a written opinion.' %></p>
         <div class="lp-price">
           <span><%= __isAr ? 'تبدأ من' : 'From' %> <b><%= __min %> <%= __isAr ? 'ج.م' : 'EGP' %></b></span>
           <span><b>48</b> <%= __isAr ? 'ساعة للرد' : 'hours to your report' %></span>
@@ -129,7 +129,7 @@
             <li><%= __isAr ? 'الأربطة الصليبية سليمة' : 'ACL and PCL intact' %></li>
           </ol>
           <div class="lp-report__rec"><b><%= __isAr ? 'رأي الاستشاري:' : 'Consultant’s opinion:' %></b> <%= __isAr ? 'القطع صغير ومستقر. ابدأ بعلاج طبيعي ٦ أسابيع، والمنظار لو الركبة بتقفل أو الألم مستمر.' : 'The tear is small and stable. Start 6 weeks of physiotherapy; arthroscopy only if the knee locks or pain persists.' %></div>
-          <div class="lp-report__sig">✓ <%= __isAr ? 'موقّع من استشاري العظام · مستشفى الشفاء' : 'Signed by the orthopedic consultant · Shifa Hospital' %></div>
+          <div class="lp-report__sig">✓ <%= __isAr ? 'موقّع من استشاري العظام · مجموعة مستشفيات شفا' : 'Signed by the orthopedic consultant · Shifa Hospital Group' %></div>
         </div>
       </div>
     </div>
@@ -141,7 +141,7 @@
       <p class="lp-sec__sub"><%= __isAr ? 'من غير مواعيد ولا مشاوير.' : 'No appointments, no trips.' %></p>
       <div class="lp-steps">
         <div class="lp-step"><div class="lp-step__n">1</div><h3><%= __isAr ? 'ارفع ملفاتك' : 'Upload your files' %></h3><p><%= __isAr ? 'صور التقرير أو الأشعة أو التحاليل، واكتب سؤالك للدكتور.' : 'Photos of the report, scan or labs, plus your question for the doctor.' %></p></div>
-        <div class="lp-step"><div class="lp-step__n">2</div><h3><%= __isAr ? 'استشاري يراجعها' : 'A consultant reviews' %></h3><p><%= __isAr ? 'استشاري في نفس التخصص من مستشفى الشفاء يقرا حالتك كاملة.' : 'A Shifa Hospital consultant in the right specialty reads your whole case.' %></p></div>
+        <div class="lp-step"><div class="lp-step__n">2</div><h3><%= __isAr ? 'استشاري يراجعها' : 'A consultant reviews' %></h3><p><%= __isAr ? 'استشاري في نفس التخصص من مجموعة مستشفيات شفا يقرا حالتك كاملة.' : 'A Shifa Hospital Group consultant in the right specialty reads your whole case.' %></p></div>
         <div class="lp-step"><div class="lp-step__n">3</div><h3><%= __isAr ? 'رأي مكتوب في 48 ساعة' : 'Written opinion in 48h' %></h3><p><%= __isAr ? 'تقرير بالعربي يجاوب سؤالك ويقولك الخطوة الجاية.' : 'A report that answers your question and tells you the next step.' %></p></div>
       </div>
     </div>
@@ -165,7 +165,7 @@
   <section class="lp-sec" style="padding-top:0;">
     <div class="lp-wrap">
       <div class="lp-trust">
-        <div><b><%= __isAr ? 'مستشفى الشفاء' : 'Shifa Hospital Group' %></b><%= __isAr ? 'مستشفى معتمدة من GAHAR في القاهرة الجديدة.' : 'A GAHAR-accredited hospital in New Cairo.' %></div>
+        <div><b><%= __isAr ? 'مجموعة مستشفيات شفا' : 'Shifa Hospital Group' %></b><%= __isAr ? 'مجموعة مستشفيات معتمدة من GAHAR في القاهرة الجديدة.' : 'A GAHAR-accredited hospital group in New Cairo.' %></div>
         <div><b><%= __isAr ? 'فلوسك مضمونة' : 'Your money is safe' %></b><%= __isAr ? 'لو مفيش استشاري قبل حالتك، بترجعلك فلوسك كاملة.' : 'If no consultant has accepted your case, you get a full refund.' %></div>
         <div><b><%= __isAr ? 'خصوصية تامة' : 'Private' %></b><%= __isAr ? 'ملفاتك مشفّرة ومحدش بيشوفها غير الاستشاري بتاعك.' : 'Your files are encrypted and seen only by your consultant.' %></div>
         <div><b><%= __isAr ? 'الدفع سهل' : 'Easy payment' %></b><%= __isAr ? 'تدفع بإنستاباي أو تحويل بنكي بعد ما تجهز حالتك.' : 'Pay by InstaPay or bank transfer once your case is ready.' %></div>
@@ -196,8 +196,9 @@
 <script nonce="<%= (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '' %>">
 (function () {
   var src = (location.search.match(/[?&]utm_source=([^&]+)/) || [])[1] || '';
+  var camp = (location.search.match(/[?&]utm_campaign=([^&]+)/) || [])[1] || '';
   function hit(step) {
-    try { fetch('/f/e?s=' + encodeURIComponent(step) + (src ? '&src=' + encodeURIComponent(src) : ''), { keepalive: true, credentials: 'same-origin' }); } catch (e) {}
+    try { fetch('/f/e?s=' + encodeURIComponent(step) + (src ? '&src=' + encodeURIComponent(src) : '') + (camp ? '&c=' + encodeURIComponent(camp) : ''), { keepalive: true, credentials: 'same-origin' }); } catch (e) {}
   }
   var sent = false, t = null;
   function arm() {

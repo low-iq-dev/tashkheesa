@@ -572,8 +572,10 @@ function setupStaticPages(opts) {
     try {
       var fd = require('../services/funnel_digest');
       var step = String((req.query && req.query.s) || '');
-      if (step === 'start_view') {
-        fd.bumpStartView(Object.assign(Object.create(req), { query: { utm_source: (req.query && req.query.src) || '' } }));
+      if (step === 'start_view' || step === 'services_view') {
+        fd.bumpLandingView(step === 'start_view' ? 'start' : 'services', Object.assign(Object.create(req), {
+          query: { utm_source: (req.query && req.query.src) || '', utm_campaign: (req.query && req.query.c) || '' }
+        }));
       } else if (step === 'start_cta' || step === 'start_wa') {
         fd.bumpFunnelCount(step, req);
       }
@@ -603,8 +605,8 @@ function setupStaticPages(opts) {
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       title: isAr ? 'رأي طبي تاني مكتوب في 48 ساعة | تشخيصة' : 'A written second opinion in 48 hours | Tashkheesa',
       description: isAr
-        ? 'ارفع تقريرك أو أشعتك واستشاري من مستشفى الشفاء يبعتلك رأيه مكتوب خلال 48 ساعة.'
-        : 'Upload your report or scan and a Shifa Hospital consultant sends you a written opinion within 48 hours.',
+        ? 'ارفع تقريرك أو أشعتك واستشاري من مجموعة مستشفيات شفا يبعتلك رأيه مكتوب خلال 48 ساعة.'
+        : 'Upload your report or scan and a Shifa Hospital Group consultant sends you a written opinion within 48 hours.',
       canonical: '/start',
       BUSINESS_INFO: BUSINESS_INFO,
       minPrice: cat && cat.minPrice ? cat.minPrice : null
