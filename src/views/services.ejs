@@ -767,8 +767,26 @@
   </div>
 </main>
 
+<%# FUNNEL BEACON 2026-10-02. The carousel boost lands here, and this page was
+    not counted at all. Same rule as /start: a view counts once the page has
+    been VISIBLE for a second (Meta's in-app browser preloads pages nobody sees). %>
 <script nonce="<%= typeof cspNonce !== 'undefined' ? cspNonce : '' %>">
-// Services page loaded
+(function () {
+  var src = (location.search.match(/[?&]utm_source=([^&]+)/) || [])[1] || '';
+  var camp = (location.search.match(/[?&]utm_campaign=([^&]+)/) || [])[1] || '';
+  var sent = false, t = null;
+  function arm() {
+    if (sent || document.visibilityState !== 'visible') return;
+    clearTimeout(t);
+    t = setTimeout(function () {
+      if (sent || document.visibilityState !== 'visible') return;
+      sent = true;
+      try { fetch('/f/e?s=services_view' + (src ? '&src=' + encodeURIComponent(src) : '') + (camp ? '&c=' + encodeURIComponent(camp) : ''), { keepalive: true, credentials: 'same-origin' }); } catch (e) {}
+    }, 1000);
+  }
+  document.addEventListener('visibilitychange', arm);
+  arm();
+})();
 </script>
 
 <%- include('partials/service_assistant', { submitUrl: submitUrl }) %>
