@@ -1,4 +1,5 @@
 <%
+  const __gw = (String(process.env.CARD_PROVIDER || '').trim().toLowerCase() === 'kashier') ? 'Kashier' : 'Paymob'; // card gateway name shown to the patient
   // Patient New-Case Wizard — v2 5-step flow.
   //
   // Locals from routes/patient.js:
@@ -1233,7 +1234,7 @@
           <% if (__s5TransferOnly) { %>
           <div class="p-card__sub"><%= tt('Pay by InstaPay or bank transfer on the next page — three steps, about two minutes. Your case stays a private draft until we confirm the transfer, and you get a full refund if you cancel before a specialist is assigned.', 'Pay by InstaPay or bank transfer on the next page — three steps, about two minutes. Your case stays a private draft until we confirm the transfer, and you get a full refund if you cancel before a specialist is assigned.', 'الدفع بإنستاباي أو تحويل بنكي في الصفحة الجاية — ثلاث خطوات في دقيقتين. حالتك بتفضل مسودة خاصة لحد ما نأكد التحويل، واسترداد كامل لو ألغيت قبل ما يتعيّن استشاري.') %></div>
           <% } else { %>
-          <div class="p-card__sub"><%= tt('Paid upfront via secure Paymob checkout — we never see your card details. Cancel any time before a specialist is assigned for a full refund.', 'Paid upfront via secure Paymob checkout — we never see your card details. Cancel any time before a specialist is assigned for a full refund.', 'يُدفع مقدمًا عبر Paymob الآمن — إحنا مبنشوفش بيانات بطاقتك. وتقدر تلغي في أي وقت قبل تعيين أخصائي وتسترد المبلغ كامل.') %></div>
+          <div class="p-card__sub"><%= tt('Paid upfront via secure Paymob checkout — we never see your card details. Cancel any time before a specialist is assigned for a full refund.', 'Paid upfront via secure Paymob checkout — we never see your card details. Cancel any time before a specialist is assigned for a full refund.', 'يُدفع مقدمًا عبر Paymob الآمن — إحنا مبنشوفش بيانات بطاقتك. وتقدر تلغي في أي وقت قبل تعيين أخصائي وتسترد المبلغ كامل.').split('Paymob').join(__gw) %></div>
           <% } %>
         </div>
         <div class="p-card__body">
@@ -1294,7 +1295,7 @@
             </div>
             <% } else { %>
             <div style="margin-top:14px;text-align:center;font-size:12px;color:var(--muted);">
-              <%= tt('Cards · Wallets · Apple Pay · Google Pay · supported by Paymob', 'Cards · Wallets · Apple Pay · Google Pay · supported by Paymob', 'بطاقات · محافظ · Apple Pay · Google Pay · عبر Paymob') %>
+              <%= tt('Cards · Wallets · Apple Pay · Google Pay · supported by Paymob', 'Cards · Wallets · Apple Pay · Google Pay · supported by Paymob', 'بطاقات · محافظ · Apple Pay · Google Pay · عبر Paymob').split('Paymob').join(__gw).split(' · Apple Pay · Google Pay').join(__gw === 'Kashier' ? '' : ' · Apple Pay · Google Pay') %>
             </div>
             <% } %>
           <% } else { %>
@@ -1326,7 +1327,7 @@
       <% } else { %>
       <%- include('partials/patient/reassure-card', {
         eyebrow: tt('How payment works', 'How payment works', 'كيف يتم الدفع'),
-        title: tt('Secure payment, processed by Paymob — we never see your card details.', 'Secure payment, processed by Paymob — we never see your card details.', 'دفع آمن عبر Paymob — إحنا مبنشوفش بيانات بطاقتك.'),
+        title: tt('Secure payment, processed by Paymob — we never see your card details.', 'Secure payment, processed by Paymob — we never see your card details.', 'دفع آمن عبر Paymob — إحنا مبنشوفش بيانات بطاقتك.').split('Paymob').join(__gw),
         body: tt('Full refund if you cancel before a specialist is assigned.', 'Full refund if you cancel before a specialist is assigned.', 'استرداد كامل لو ألغيت قبل ما يتعيّن أخصائي لحالتك.'),
         isAr: __isAr
       }) %>
@@ -1341,7 +1342,7 @@
             tt('Your case stays a private draft until we confirm the transfer.', 'Your case stays a private draft until we confirm the transfer.', 'حالتك بتفضل مسودة خاصة لحد ما نأكد التحويل.'),
             tt('Keep your transfer receipt — it is your proof of payment.', 'Keep your transfer receipt — it is your proof of payment.', 'خلّي إيصال التحويل معاك — ده إثبات الدفع بتاعك.')
           ] : [
-            tt('Payment is processed by Paymob, not Tashkheesa.', 'Payment is processed by Paymob, not Tashkheesa.', 'يُعالج الدفع عبر Paymob، وليس عبر تشخيصة مباشرة.'),
+            tt('Payment is processed by Paymob, not Tashkheesa.', 'Payment is processed by Paymob, not Tashkheesa.', 'يُعالج الدفع عبر Paymob، وليس عبر تشخيصة مباشرة.').split('Paymob').join(__gw),
             tt('We never see or store your card details.', 'We never see or store your card details.', 'نحن لا نرى أو نخزن بيانات بطاقتك.'),
             tt('Your case remains a private draft until payment confirms.', 'Your case remains a private draft until payment confirms.', 'تبقى حالتك مسودة خاصة حتى يتأكد الدفع.')
           ]).forEach(function(t) { %>

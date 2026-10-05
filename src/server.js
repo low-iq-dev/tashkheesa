@@ -1122,6 +1122,9 @@ app.use('/', publicOrdersRoutes);
 // and its own deadline_at-at-creation semantics, which produced phantom
 // breaches on unpaid cases. The canonical funnel is the patient wizard.
 app.use('/', orderFlowRoutes);
+// Kashier signed webhook (2026-10-05). Mounted before the Paymob router; it only
+// owns POST /payments/kashier/webhook.
+app.use('/payments/kashier', require('./routes/payments_kashier'));
 app.use('/payments', paymentRoutes);
 app.use('/', videoRoutes);
 app.use('/', addonRoutes);

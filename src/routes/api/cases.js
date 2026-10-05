@@ -594,7 +594,11 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     // MANUAL PAYMENT PATH (2026-09-24, MANUAL_PAY_CONTRACT.md). Read per
     // request. CARD_PAYMENT_ENABLED=false: no Paymob intention is minted and
     // paymentLink is null — the app shows only the transfer block.
-    const cardEnabled = manualPayment.isCardPaymentEnabled();
+    const cardEnabled = manualPayment.isCardPaymentEnabledFor(req.user.id);
+    // Kashier: orders.payment_link stays the internal pay page (hosted sessions
+    // expire), so the app's link always comes from the minting helper, which
+    // re-uses a fresh session and mints a new one otherwise.
+    const kashierSelected = require('../../services/kashier').isSelected();
 
     // Legacy `payments` table dropped by migration 042. Source the
     // same fields from `orders` — payment_method / paid_at exist
@@ -611,7 +615,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     // a checkoutUrl. ADDITIVE: the proven web POST route is untouched. A mint
     // failure must NOT turn this read endpoint into a 500 — on ANY error we log
     // and leave paymentLink null (app shows unavailable; the patient can retry).
-    if (cardEnabled && payment && String(payment.status || '').toLowerCase() !== 'paid' && !payment.paymentLink) {
+    if (cardEnabled && payment && String(payment.status || '').toLowerCase() !== 'paid' && (!payment.paymentLink || kashierSelected)) {
       try {
         const proto = req.secure ? 'https'
           : (req.headers['x-forwarded-proto'] || req.protocol || 'https');
@@ -640,6 +644,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         // e-mail). Without a reason code the app rendered a generic "payment
         // link unavailable" dead end for a condition the patient can fix in
         // fifteen seconds. .fields lists exactly what is missing.
+        // Kashier: never hand the app the internal web pay-page path as if it
+        // were a checkout link.
+        if (kashierSelected) payment.paymentLink = null;
         payment.paymentLinkError = mintErr && mintErr.code === 'PATIENT_PROFILE_INCOMPLETE'
           ? 'PATIENT_PROFILE_INCOMPLETE'
           : 'PAYMENT_LINK_UNAVAILABLE';

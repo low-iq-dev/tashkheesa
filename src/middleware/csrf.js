@@ -126,6 +126,12 @@ function setupCsrf(app, opts) {
     if (p === '/webhooks/resend') {
       return next();
     }
+    // Kashier payment webhook (2026-10-05). Same category: server-to-server, no
+    // cookie, and nothing is written until the x-kashier-signature HMAC over
+    // the signed fields verifies (routes/payments_kashier.js). Exact path only.
+    if (p === '/payments/kashier/webhook' || p === '/payments/kashier/webhook/') {
+      return next();
+    }
     // OpenClaw opt-out / opt-in. Same category as the webhook above: a
     // server-to-server POST from the WhatsApp gateway on the Mac mini, which
     // holds no cookie and so can never present a CSRF token. Both routes

@@ -55,16 +55,28 @@ const REQUIRED_SIGNED_FIELDS = [
  * @param {string[]} signatureKeys - data.signatureKeys
  * @returns {string} query-string form, alphabetically ordered
  */
+// RFC 3986 strict encoding — what the `query-string` package (Kashier's own
+// Node sample) and PHP_QUERY_RFC3986 (their PHP sample) both produce.
+function strictEncode(v) {
+  return encodeURIComponent(v).replace(/[!'()*]/g, function (c) {
+    return '%' + c.charCodeAt(0).toString(16).toUpperCase();
+  });
+}
+
 function buildSignatureString(data, signatureKeys) {
   return signatureKeys
     .slice()
     .sort()
     .map(function (key) {
       const v = data[key];
-      // Kashier joins raw values; it does NOT url-encode. Verified against a
-      // live test webhook before go-live — if signatures fail on payloads
-      // containing spaces or '&', re-check this line first.
-      return key + '=' + (v == null ? '' : String(v));
+      // 2026-10-05 — Kashier URL-ENCODES THE VALUES (keys are left as they
+      // are). This used to join raw values, which verifies only while no
+      // signed value contains a space or a reserved character; `channel` is
+      // "online | e-commerce" on real card payments, so every real webhook
+      // would have failed. Pinned by the documented test vector in
+      // tests/services/kashier-signature.test.js
+      // (developers.kashier.io/docs/webhooks, key 11111).
+      return key + '=' + (v == null ? '' : strictEncode(String(v)));
     })
     .join('&');
 }

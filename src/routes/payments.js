@@ -291,6 +291,44 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
     // verify — so intention and verification can never drift (audit B5/B6).
     const amountCents = owedCentsForOrder({ price: order.price, addons_json: addonsJson });
 
+    // ── KASHIER (2026-10-05) ─────────────────────────────────────────────
+    // CARD_PROVIDER=kashier routes the SAME validated, server-priced charge to
+    // a Kashier hosted session instead of a Paymob intention. Everything above
+    // this line (ownership, payable status, EGP, add-on pricing, amountCents)
+    // is shared, so the two providers cannot disagree about what is owed. The
+    // button keeps calling this one endpoint; only the destination changes.
+    {
+      const kashier = require('../services/kashier');
+      if (kashier.isSelected()) {
+        // The error code stays 'paymob_unavailable' on purpose: it is the code
+        // the pay page's button script already maps to "payment is briefly
+        // unavailable, try again", and that script is byte-pinned by
+        // tests/…/manual-payment-pay-page. The NAME is historical; the meaning
+        // ("card gateway unavailable") is the same for either provider.
+        if (!kashier.isAvailableForPatient(req.user.id)) {
+          // Selected but not available to this account (keys not in yet, or
+          // test mode and the patient is not on the test allowlist).
+          return res.status(503).json({ ok: false, error: 'paymob_unavailable', provider: 'kashier' });
+        }
+        try {
+          const { ensureKashierCheckout } = require('../services/kashier_checkout');
+          const out = await ensureKashierCheckout({
+            order: order,
+            amountCents: amountCents,
+            currency: currency,
+            lang: (res.locals && res.locals.lang) || (req.user && req.user.lang) || 'ar',
+            source: 'web_pay_page'
+          });
+          return res.json({ ok: true, checkoutUrl: out.checkoutUrl, reused: !!out.reused });
+        } catch (kErr) {
+          if (kErr && kErr.code === 'CARD_UNAVAILABLE') {
+            return res.status(502).json({ ok: false, error: 'paymob_unavailable', provider: 'kashier' });
+          }
+          throw kErr;
+        }
+      }
+    }
+
     // ── FIX 11a: REUSE the stored intention when nothing about the charge
     // changed. The comment below the createIntention call has always claimed
     // this happened; it never did — line 88 selected paymob_intention_id and
@@ -1592,6 +1630,9 @@ router.post('/callback', async (req, res, next) => {
 
 module.exports = router;
 module.exports.getOrCreatePaymentUrl = getOrCreatePaymentUrl;
+module.exports.buildSpecialReference = buildSpecialReference;
+module.exports.orderIdFromReference = orderIdFromReference;
+module.exports.normalizeStatus = normalizeStatus;
 // AUDIT-RETURN-2026-09-06 — exported so the redirect landing in routes/patient.js
 // reads Paymob's parameters with the SAME precedence the webhook uses, and so
 // the guard test can pin that precedence without booting the app.
