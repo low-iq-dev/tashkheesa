@@ -141,6 +141,9 @@ module.exports = function (db, helpers, deploy) {
   router.use('/doctor', require('./api/doctor_inbox')(db, helpers));
   router.use('/doctor', require('./api/doctor_money')(db, helpers));
   router.use('/doctor', require('./api/doctor_me')(db, helpers));
+  // Short-lived links to case files and the report PDF — the app has no
+  // cookie session, so /files/:id (a 302 behind the web login) is closed to it.
+  router.use('/doctor', require('./api/doctor_files')(db, helpers));
 
   // ─── Protected Routes (JWT required) ───────────────────────
 
