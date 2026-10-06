@@ -7,12 +7,15 @@
 // The intake route runs for real on an ephemeral port with a fake registry
 // behind it; everything else is pure or dependency-injected. No database.
 
+console.log('\n🗼 check registry, expiry register, daily digest\n');
+if (require('./_harness').runIsolated(__filename)) return;
+
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-const { t, check, withEnv, ROOT } = require('./_harness');
+const { t, check, withEnv, ROOT, finish } = require('./_harness');
 
-console.log('\n🗼 check registry, expiry register, daily digest\n');
+
 
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const sc = require('../../src/services/system_checks');
@@ -437,4 +440,5 @@ function post(server, body, headers) {
     return (server.match(/runFunnelDigest\(\)/g) || []).length === 1 ? null : 'the digest is scheduled more than once';
   });
 
+  finish();
 })();

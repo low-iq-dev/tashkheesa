@@ -9,11 +9,64 @@
 const path = require('path');
 const ROOT = path.join(__dirname, '..', '..');
 
-const t = global._testRunner || {
+const CHILD = process.env.WATCHTOWER_TEST_CHILD === '1';
+const MARK = '@@WT ';
+
+// ── Process isolation ───────────────────────────────────────────────────────
+//
+// tests/run.js require()s every test file in one process and lets their async
+// bodies interleave. These tests swap entries in require.cache (src/pg,
+// src/logger) and replace global.fetch for the length of an awaited call — in
+// a shared process that leaks both ways: another file's request lands in our
+// fake Expo, and another file's lazy require('src/pg') gets our stub.
+//
+// So each watchtower test file re-runs ITSELF in a child process,
+// synchronously, and relays the child's results to the runner. Nothing these
+// tests stub is ever visible to another test file.
+const runnerT = global._testRunner || {
   pass: (n) => console.log('  ✅ ' + n),
   fail: (n, e) => { console.error('  ❌ ' + n + ': ' + ((e && e.message) || e)); process.exitCode = 1; },
   skip: (n, r) => console.log('  ⏭️  ' + n + ' (' + r + ')')
 };
+
+const t = CHILD ? {
+  pass: (n) => process.stdout.write(MARK + JSON.stringify({ ok: true, name: n }) + '\n'),
+  fail: (n, e) => process.stdout.write(MARK + JSON.stringify({ ok: false, name: n, err: String((e && e.message) || e) }) + '\n'),
+  skip: (n, r) => process.stdout.write(MARK + JSON.stringify({ skip: true, name: n, err: r }) + '\n'),
+} : runnerT;
+
+/**
+ * Call first thing in a test file: `if (runIsolated(__filename)) return;`
+ * In the parent it runs the file in a child, relays every result, and returns
+ * true. In the child it returns false and the file's own tests run.
+ */
+function runIsolated(file) {
+  if (CHILD) return false;
+  const { spawnSync } = require('child_process');
+  const label = path.basename(file, '.test.js');
+  const r = spawnSync(process.execPath, [file], {
+    cwd: ROOT, encoding: 'utf8', timeout: 120000,
+    env: Object.assign({}, process.env, { WATCHTOWER_TEST_CHILD: '1' }),
+  });
+  let seen = 0;
+  String(r.stdout || '').split('\n').forEach((line) => {
+    if (line.indexOf(MARK) !== 0) return;
+    let m; try { m = JSON.parse(line.slice(MARK.length)); } catch (_) { return; }
+    seen++;
+    if (m.skip) runnerT.skip(m.name, m.err);
+    else if (m.ok) runnerT.pass(m.name);
+    else runnerT.fail(m.name, new Error(m.err));
+  });
+  // A child that died, or reported nothing, must not read as "all passed".
+  if (r.error || r.status !== 0 || seen === 0) {
+    runnerT.fail(label + ': test process', new Error(
+      (r.error && r.error.message) || ('exit ' + r.status + ', ' + seen + ' result(s): ' + String(r.stderr || '').trim().split('\n').slice(-3).join(' | '))));
+  }
+  return true;
+}
+
+/** Call at the end of a test file's async body (child only): exit cleanly, whatever is still open. */
+function finish() { if (CHILD) setImmediate(() => process.exit(0)); }
 
 async function check(name, fn) {
   try { const err = await fn(); if (err) t.fail(name, new Error(err)); else t.pass(name); }
@@ -84,4 +137,4 @@ function withEnv(vars) {
 
 const tick = () => new Promise((r) => setImmediate(r));
 
-module.exports = { t, check, withStubs, fakePg, fakeExpo, withEnv, tick, ROOT };
+module.exports = { t, check, withStubs, fakePg, fakeExpo, withEnv, tick, ROOT, runIsolated, finish, CHILD };

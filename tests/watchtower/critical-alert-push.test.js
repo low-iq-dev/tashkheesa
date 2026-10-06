@@ -8,9 +8,12 @@
 // WhatsApp is an optional second transport that can neither block nor fail
 // the push. The Expo call is faked at global.fetch and src/pg in require.cache.
 
-const { t, check, withStubs, fakePg, fakeExpo, withEnv, tick } = require('./_harness');
-
 console.log('\n🚨 critical alerts go through the Command push\n');
+if (require('./_harness').runIsolated(__filename)) return;
+
+const { t, check, withStubs, fakePg, fakeExpo, withEnv, tick, finish } = require('./_harness');
+
+
 
 const WA_OFF = {
   ADMIN_PHONE: undefined, WHATSAPP_PHONE_NUMBER_ID: undefined, WHATSAPP_ACCESS_TOKEN: undefined,
@@ -181,4 +184,5 @@ function setup(opts) {
     return null;
   });
 
+  finish();
 })();

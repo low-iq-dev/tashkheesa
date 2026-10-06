@@ -9,11 +9,14 @@
 // run against a fake src/pg. The same behaviours were also exercised end to
 // end against a migrated Postgres — see docs/audits/WATCHTOWER_2026-10-06.md.
 
+console.log('\n👀 the attention list: kinds, state, escalation\n');
+if (require('./_harness').runIsolated(__filename)) return;
+
 const fs = require('fs');
 const path = require('path');
-const { t, check, withStubs, fakePg, ROOT } = require('./_harness');
+const { t, check, withStubs, fakePg, ROOT, finish } = require('./_harness');
 
-console.log('\n👀 the attention list: kinds, state, escalation\n');
+
 
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const stripSql = (s) => s.replace(/--.*$/gm, '');
@@ -343,4 +346,5 @@ const H = 3600e3;
     return out.status === 200 && out.data.action === 'snooze' ? null : 'a good snooze failed';
   });
 
+  finish();
 })();
