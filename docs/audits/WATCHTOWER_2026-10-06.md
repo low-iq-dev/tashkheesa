@@ -625,5 +625,5 @@ The dry run takes a brief exclusive lock on `critical_alert_log` and the view; t
 7. **Decide:** keep `skipped` in `send_failed`, or count `failed` only? (Found in review 7.)
 8. **Decide:** `ai.spend` is filed under `money`, so a 6× day is a loud push. Say if it should be quiet.
 9. **Check the thresholds I chose** in the Part 3 table — only the 3×/6× AI rule, the 30/7-day expiry rule, the 48-hour signup rule and the 60-minute / 48-hour counts came from the brief.
-10. **Merge order.** The main checkout has uncommitted changes to `src/server.js`, which this branch also edits (three small hunks: one import, the worker schedule, the prune). Expect to reconcile that file by hand.
+10. **Merge order.** `src/server.js` was being edited in the main checkout while this ran; that work was committed during the job as `6421bfd` on `fix/doctor-file-open-inline` (not by me). This branch also edits `server.js` (three small hunks: one import, the worker schedule, the prune). Whichever merges second may need that file reconciled by hand.
 11. **Claude's scheduled runs** should use the INSERT in Part 3 verbatim, with `source = 'claude'`, and must set `expected_every_seconds` to their real cadence, or the check will be flagged stale (or never flagged).
