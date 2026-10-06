@@ -1,5 +1,5 @@
 // src/critical-alert.js
-// Send critical WhatsApp alerts to the admin phone.
+// Critical alerts: Command push first (primary), WhatsApp second (optional).
 //
 // Theme 8 Phase 7 (OQ-6): DB-backed throttle + delivery log.
 // Theme 9 Sub-issue B: per-call env reads + Meta utility-template path
@@ -54,13 +54,13 @@ function _logCriticalAlertAttempt(claimId, statusCode, errorText) {
 // category='whatsapp_send' so the WA-401 cron (Sub-issue A) surfaces them
 // alongside notify/whatsapp.js failures. Critical-alert delivery is part
 // of the same WhatsApp pipeline; one cron, one signal.
-function _logToErrorLogs(statusCode, errorText, alertKey) {
+function _logToErrorLogs(statusCode, errorText, alertKey, category) {
   try {
     var logger = require('./logger');
     if (typeof logger.logErrorToDb !== 'function') return;
     var err = new Error('critical_alert_send_failed: ' + (errorText || 'unknown'));
     logger.logErrorToDb(err, {
-      category: 'whatsapp_send',
+      category: category || 'whatsapp_send',
       subsystem: 'critical_alert',
       alertKey: String(alertKey || 'generic').slice(0, 200),
       statusCode: statusCode == null ? null : Number(statusCode)
@@ -139,37 +139,99 @@ function _deriveAlertKey(alertKey, message) {
   return m ? m[1].toLowerCase() : 'generic';
 }
 
-// Second delivery route for a critical alert: Expo push to every registered
-// superadmin device (the Command app). Deliberately independent of the
-// WhatsApp path — see the call site for why.
+// PRIMARY delivery route for a critical alert (6 Oct 2026, watchtower): Expo
+// push to every registered superadmin device — the Command app, the same path
+// worker_down uses.
 //
-// Never throws, never awaits into the caller's critical path, and never
-// reports success: notifySuperadmins swallows its own failures by design, so
-// treating a resolved promise as delivery would be a lie. The
-// critical_alert_log row continues to describe the WhatsApp attempt only.
-function _pushToCommandApp(key, message) {
+// It was the second route, fire-and-forget, with no kind and no record: the
+// critical_alert_log row described the WhatsApp attempt only, so "was anyone
+// actually told" could not be answered from the table that exists to answer
+// it. Now it is awaited, sent as the catalogue kind `critical_alert` (loud,
+// lockOn — services/ops_push_prefs.js), and its outcome is returned so the
+// caller can mark the row delivered ONLY when Expo accepted a push ticket.
+//
+// Deliberately notifySuperadmins + recordOpsEvent rather than pushOpsEvent:
+// this function already owns a stronger throttle (the per-key claim above),
+// and pushOpsEvent's per-kind budget could suppress the one alert that must
+// never be suppressed — the same reasoning as services/worker_watchdog.js.
+//
+// Superadmins are resolved from the database by role; no recipient id is
+// named here or anywhere else in this file.
+//
+// Never throws. Returns { attempted, accepted, rejected, errors }.
+async function _pushToCommandApp(key, message) {
+  var none = { attempted: 0, accepted: 0, rejected: 0, errors: [] };
   try {
     var notifySuperadmins = require('./middleware/push').notifySuperadmins;
-    if (typeof notifySuperadmins !== 'function') return;
+    if (typeof notifySuperadmins !== 'function') { none.errors.push('push_unavailable'); return none; }
     var pool = require('./pg').pool;
-    if (!pool) return;
+    if (!pool) { none.errors.push('pool_unavailable'); return none; }
 
+    var title = 'Critical: ' + String(key || 'generic').replace(/[_-]/g, ' ');
     var body = String(message || 'Unknown error').slice(0, 300);
-    var p = notifySuperadmins(pool, {
-      title: 'Critical: ' + String(key || 'generic').replace(/_/g, ' '),
+    var outcome = await notifySuperadmins(pool, {
+      title: title,
       body: body,
       // The Command app routes on `screen`; /ops is where the error log and
       // the worker widget live, which is what an operator needs next.
-      data: { screen: 'ops', alertKey: String(key || 'generic'), severity: 'critical' }
+      data: { kind: 'critical_alert', screen: 'ops', alertKey: String(key || 'generic'), severity: 'critical' },
+      kind: 'critical_alert'
     });
-    if (p && typeof p.catch === 'function') {
-      p.catch(function (e) {
-        console.error('[critical-alert] push to Command app failed:', e && e.message ? e.message : e);
-      });
-    }
+    outcome = outcome || none;
+
+    // Activity feed row, so an alert missed on the lock screen is still there
+    // to scroll back to. sent_count is ACCEPTED tickets, so 0 reads as
+    // "fired, reached nobody" on GET /admin/events.
+    try {
+      var recordOpsEvent = require('./services/ops_push').recordOpsEvent;
+      if (typeof recordOpsEvent === 'function') {
+        await recordOpsEvent({
+          kind: 'critical_alert',
+          dedupeKey: String(key || 'generic') + ':' + Date.now(),
+          title: title,
+          body: body,
+          recipients: outcome.accepted
+        });
+      }
+    } catch (_) { /* the feed row is not worth failing an alert over */ }
+
+    return outcome;
   } catch (e) {
-    console.error('[critical-alert] push to Command app unavailable:', e && e.message ? e.message : e);
+    console.error('[critical-alert] push to Command app failed:', e && e.message ? e.message : e);
+    none.errors.push('push_threw: ' + (e && e.message ? e.message : 'unknown'));
+    return none;
   }
+}
+
+// Record what Expo said on the claimed row. `delivered` is true only when at
+// least one push ticket was accepted; otherwise push_error says why (no
+// registered device, a rejected ticket, a timeout). Never throws.
+function _pushFailureReason(outcome) {
+  if (outcome && outcome.accepted > 0) return null;
+  if (!outcome || !outcome.attempted) {
+    return (outcome && outcome.errors && outcome.errors[0]) || 'no_superadmin_device_registered';
+  }
+  return 'expo_rejected: ' + ((outcome.errors || []).join('; ') || 'unknown');
+}
+
+function _logPushOutcome(claimId, outcome) {
+  if (!claimId) return;
+  try {
+    var pg = require('./pg');
+    var reason = _pushFailureReason(outcome);
+    pg.execute(
+      "UPDATE critical_alert_log" +
+      "   SET delivered = $2, push_attempted = $3, push_accepted = $4, push_error = $5" +
+      " WHERE id = $1",
+      [
+        claimId,
+        !!(outcome && outcome.accepted > 0),
+        (outcome && outcome.attempted) || 0,
+        (outcome && outcome.accepted) || 0,
+        reason == null ? null : String(reason).slice(0, 1000)
+      ]
+    ).catch(function () { /* never throw from log writer */ });
+  } catch (_) { /* pg not loaded yet — boot path */ }
 }
 
 // Public API: sendCriticalAlert(message, alertKey?)
@@ -179,10 +241,63 @@ function _pushToCommandApp(key, message) {
 // New callers (Phase 7 Widget 4 error-rate alert) pass a distinct key
 // so the throttle buckets don't collide.
 //
-// Returns a Promise that resolves AFTER the request is queued (Meta) or
-// dispatched (OpenClaw) — not after the provider's response, which settles
-// asynchronously into the DB log row. Existing non-await callers are unchanged.
+// Returns a Promise that resolves once Expo has answered the push (bounded by
+// the 8s timeout in middleware/push.js) and the WhatsApp request, if that
+// transport is configured, is queued (Meta) or dispatched (OpenClaw). Never
+// rejects. Existing non-await callers are unchanged.
 async function sendCriticalAlert(message, alertKey) {
+  var key = _deriveAlertKey(alertKey, message);
+  var text = '[TASHKHEESA CRITICAL] ' + String(message || 'Unknown error').slice(0, 1000);
+
+  // The per-key 5-minute claim governs BOTH transports, so a storm cannot
+  // buzz the phone repeatedly and a flapping alarm stays one stream of noise.
+  var claimId = await _claimSend(key, text);
+  if (claimId === null) return;  // throttled
+
+  // ── 1. PUSH — the primary transport ────────────────────────────────────
+  //
+  // 2026-08-25: every WhatsApp gate was failing at once (expired Meta token,
+  // unset OpenClaw vars, empty template name) — 128 critical alerts attempted
+  // in 30 days, zero delivered, including two production-crash pages. Expo
+  // push was the one channel still working and was not wired here at all.
+  // 2026-10-06: it is now the primary transport, awaited, and the row is
+  // marked delivered only if Expo accepted a ticket.
+  //
+  // ── 2. WHATSAPP — optional second transport ────────────────────────────
+  //
+  // Off unless its env vars are set. Started alongside the push rather than
+  // after it, so neither waits on the other: the two process-death handlers in
+  // server.js exit 500ms after calling this, and a WhatsApp send queued behind
+  // an awaited push would never leave. Its promise is caught on its own, so
+  // nothing in it can throw into the caller or disturb the push; its outcome
+  // lands in status_code / error, which keep meaning "the WhatsApp attempt".
+  var pushPromise = _pushToCommandApp(key, message);
+  var whatsappPromise = _sendWhatsAppAlert(claimId, key, text).catch(function (e) {
+    console.error('[critical-alert] WhatsApp transport threw (push unaffected):', e && e.message ? e.message : e);
+    return 'failed';
+  });
+
+  var pushOutcome = await pushPromise;
+  _logPushOutcome(claimId, pushOutcome);
+  var pushDelivered = !!(pushOutcome && pushOutcome.accepted > 0);
+  var whatsapp = await whatsappPromise;
+
+  // Nobody was told, on any channel. That must be as visible as a failure —
+  // AUDIT-2026-08-22 (N4) — so it goes to error_logs where /ops/errors reads.
+  // Category 'critical_alert', not 'whatsapp_send': with WhatsApp switched off
+  // this is not a WhatsApp fault and must not trip the WA-401 cron.
+  if (!pushDelivered && whatsapp === 'off') {
+    _logToErrorLogs(null, 'undelivered: push ' + _pushFailureReason(pushOutcome) + '; whatsapp off',
+      key, 'critical_alert');
+    console.error('[critical-alert] UNDELIVERED — no push ticket accepted and WhatsApp is not configured',
+      { alertKey: key });
+  }
+}
+
+// The WhatsApp half. Returns 'off' when the transport is not configured (no
+// log row, no error — unset means disabled), otherwise 'attempted'. The
+// provider's answer settles into critical_alert_log.status_code / error.
+async function _sendWhatsAppAlert(claimId, key, text) {
   // Theme 9-B: read envs per call. Render rotation takes effect on
   // the next call, not the next deploy.
   var adminPhone    = (process.env.ADMIN_PHONE || '').replace(/[^0-9]/g, '');
@@ -191,70 +306,11 @@ async function sendCriticalAlert(message, alertKey) {
   var templateName  = (process.env.CRITICAL_ALERT_TEMPLATE_NAME || '').trim();
   var templateLang  = (process.env.CRITICAL_ALERT_TEMPLATE_LANG || 'en').trim();
 
-  var key = _deriveAlertKey(alertKey, message);
-  var text = '[TASHKHEESA CRITICAL] ' + String(message || 'Unknown error').slice(0, 1000);
+  // No number to send to: the transport is off. This used to write a
+  // suppression row to error_logs on every alert; with push primary, an unset
+  // optional transport is a configuration choice, not a failure.
+  if (!adminPhone) return 'off';
 
-  var claimId = await _claimSend(key, text);
-  if (claimId === null) return;  // throttled
-
-  // ── PUSH FIRST, AND UNCONDITIONALLY ────────────────────────────────────
-  //
-  // 2026-08-25. Every gate below this point is a WhatsApp gate, and on
-  // 2026-08-25 every one of them was failing: the Meta token had expired
-  // (OAuthException 190), OPENCLAW_BASE_URL/OPENCLAW_SEND_KEY were unset, and
-  // CRITICAL_ALERT_TEMPLATE_NAME had been empty for a stretch before that.
-  // Result: 128 critical alerts attempted in 30 days, ZERO delivered —
-  // including two unhandled_rejection pages for a production crash on 23
-  // August that nobody was told about.
-  //
-  // Expo push to the Command app is the one channel that was still working the
-  // whole time, and it was not wired to this function at all. So it fires here,
-  // ABOVE the adminPhone / templateName / transport checks, because those are
-  // precisely the conditions under which a page most needs a second route out.
-  //
-  // Placed AFTER the throttle claim on purpose — the 5-minute per-key bucket
-  // should govern both channels, or a flapping alarm becomes two streams of
-  // noise instead of one.
-  //
-  // Fire-and-forget, fully guarded, lazily required: notifySuperadmins already
-  // swallows per-recipient and lookup failures, and this module is loaded from
-  // server.js's boot path before much of the graph exists. A paging function
-  // that can throw is a paging function that stops the thing it was paging
-  // about.
-  _pushToCommandApp(key, message);
-
-  if (!adminPhone) {
-    _suppressed(claimId, 'env_missing_admin_phone', key);
-    return;
-  }
-
-  // ── AUDIT-2026-08-22 (N4): route through the CONFIGURED transport. ─────
-  //
-  // This function always spoke to Meta's Graph API directly, ignoring
-  // NOTIFICATIONS_WHATSAPP_TRANSPORT. But .env.example documents the Meta path
-  // as blocked pending Business verification, and the default transport was
-  // flipped to OpenClaw precisely because OpenClaw is the one that is live. So
-  // on the running system every one of the 18 critical alerts — Paymob HMAC
-  // failure, payment-intention mismatch, all three markCasePaid-failed-after-
-  // capture sites, "video paid while disabled, manual refund needed",
-  // worker-down, error-rate spike, the WhatsApp-401 alarm itself — was
-  // unreachable, and setting CRITICAL_ALERT_TEMPLATE_NAME would not have fixed
-  // it, because the template gate is on a road that leads nowhere.
-  //
-  // OpenClaw takes free-form text, so there is no HSM template to configure and
-  // no 24h customer-service window to fall foul of; the alert text goes as-is.
-  //
-  // Deliberately calls sendViaOpenClaw directly rather than notify/whatsapp
-  // sendWhatsApp: the latter gates on NOTIFICATIONS_WHATSAPP_ENABLED (the
-  // patient/doctor notification kill-switch) and on the non-production
-  // recipient allowlist. Neither should govern ops paging — an operator
-  // turning off patient notifications, or running a staging instance, must
-  // still be told the payment webhook is rejecting signatures. ADMIN_PHONE is
-  // a single explicitly-configured staff number, not a user's.
-  //
-  // Both requires are lazy: this module is loaded from server.js's boot path
-  // before much of the graph exists, and a critical-alert module that cannot
-  // be required is a critical-alert module that cannot warn anyone.
   var transport = 'openclaw';
   try {
     transport = require('./notify/whatsapp').whatsappTransport();
@@ -292,10 +348,8 @@ async function sendCriticalAlert(message, alertKey) {
           'Cloud API so this alert is not silently dropped.');
         transport = 'meta';
       } else {
-        // Neither transport can send. Say so precisely rather than letting the
-        // OpenClaw branch log the misleading oc_env_misconfigured 18 times.
-        _suppressed(claimId, 'env_missing_openclaw_and_meta', key);
-        return;
+        // Neither WhatsApp transport is configured: the transport is off.
+        return 'off';
       }
     }
   }
@@ -306,7 +360,7 @@ async function sendCriticalAlert(message, alertKey) {
       sendViaOpenClaw = require('./lib/openclaw_client').sendViaOpenClaw;
     } catch (e) {
       _suppressed(claimId, 'openclaw_client_unavailable', key);
-      return;
+      return 'attempted';
     }
     try {
       var ocResult = await sendViaOpenClaw({
@@ -333,23 +387,23 @@ async function sendCriticalAlert(message, alertKey) {
       _logCriticalAlertAttempt(claimId, null, ocMsg);
       _logToErrorLogs(null, ocMsg, key);
     }
-    return;
+    return 'attempted';
   }
 
   // ── Meta Cloud API transport (legacy, blocked pending verification) ────
-  if (!phoneNumberId || !accessToken) {
-    _suppressed(claimId, 'env_missing', key);
-    return;
-  }
+  if (!phoneNumberId || !accessToken) return 'off';
 
   // Theme 9-B: outside Meta's 24h customer-service window, free-form text
   // is silently rejected by Meta (response code 131047). Send as a
   // utility-category template instead. If no template name is configured
   // (e.g. pre-Meta-verification), skip the send and log it — the operator
   // now sees the suppression on /ops/errors as well as in /ops widget 5.
+  //
+  // This one is NOT "off": the Meta credentials are set and the template is
+  // not, which is a half-finished configuration somebody should hear about.
   if (!templateName) {
     _suppressed(claimId, 'template_not_configured', key);
-    return;
+    return 'attempted';
   }
 
   var body = JSON.stringify({
@@ -408,6 +462,7 @@ async function sendCriticalAlert(message, alertKey) {
     _logCriticalAlertAttempt(claimId, null, msg);
     _logToErrorLogs(null, msg, key);
   }
+  return 'attempted';
 }
 
 module.exports = { sendCriticalAlert: sendCriticalAlert };

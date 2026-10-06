@@ -75,11 +75,40 @@ const KIND_CATALOGUE = Object.freeze([
   { kind: 'doctor_app_feedback',    group: 'doctors', def: 'quiet',
     en: 'Doctor app feedback',              ar: 'ملاحظات من تطبيق الدكاترة' },
 
+  // ── Attention (6 Oct 2026, watchtower) ───────────────────────────────────
+  // The operational kinds of v_needs_attention (migration 126). The attention
+  // sweep escalates by these defaults: a loud item is pushed again after 2
+  // hours and then every 6 until someone acks or snoozes it; a quiet one is
+  // pushed once and then only appears in the daily digest.
+  { kind: 'paid_unassigned',        group: 'cases',   def: 'loud',  lockOn: true,
+    en: 'Paid case with no doctor',         ar: 'حالة مدفوعة من غير دكتور' },
+  { kind: 'refund_stale',           group: 'money',   def: 'quiet',
+    en: 'Refund open over 48 hours',        ar: 'استرداد مفتوح أكتر من ٤٨ ساعة' },
+  { kind: 'specialty_uncovered',    group: 'doctors', def: 'quiet',
+    en: 'Specialty with no ready doctor',   ar: 'تخصص من غير دكتور جاهز' },
+  { kind: 'send_failed',            group: 'system',  def: 'quiet',
+    en: 'Message not delivered',            ar: 'رسالة موصلتش' },
+
   // ── System ───────────────────────────────────────────────────────────────
+  { kind: 'critical_alert',         group: 'system',  def: 'loud',  lockOn: true,
+    en: 'Critical alert',                   ar: 'تنبيه حرج' },
   { kind: 'worker_down',            group: 'system',  def: 'loud',  lockOn: true,
     en: 'Background worker down',           ar: 'خدمة خلفية وقفت' },
   { kind: 'worker_recovered',       group: 'system',  def: 'quiet',
     en: 'Background worker recovered',      ar: 'خدمة خلفية رجعت' },
+  // The check registry (migration 127). Loudness is decided per check AREA by
+  // services/system_checks.js: a failed site / cases / money check is loud,
+  // anything else quiet; a stale check is quiet unless it is a site check.
+  { kind: 'system_check_failed',    group: 'system',  def: 'loud',
+    en: 'System check failed',              ar: 'فحص النظام فشل' },
+  { kind: 'system_check_recovered', group: 'system',  def: 'quiet',
+    en: 'System check recovered',           ar: 'فحص النظام رجع سليم' },
+  { kind: 'system_check_stale',     group: 'system',  def: 'quiet',
+    en: 'System check stopped reporting',   ar: 'فحص النظام بطّل يبعت' },
+  { kind: 'ops_brief',              group: 'system',  def: 'quiet',
+    en: 'Claude brief',                     ar: 'ملخص Claude' },
+  { kind: 'daily_digest',           group: 'system',  def: 'quiet',
+    en: 'Daily digest',                     ar: 'الملخص اليومي' },
 ]);
 
 const BY_KIND = Object.freeze(KIND_CATALOGUE.reduce(function (acc, k) { acc[k.kind] = k; return acc; }, {}));
@@ -93,10 +122,20 @@ function defaultModeFor(kind) {
   return k ? k.def : UNKNOWN_DEFAULT;
 }
 
-/** Apply lockOn: an 'off' on a locked kind resolves to the default. */
-function effectiveMode(kind, stored) {
+/**
+ * Apply lockOn: an 'off' on a locked kind resolves to the default.
+ *
+ * `producerDefault` (6 Oct 2026) is the producer's own default for one event,
+ * used instead of the catalogue default when nothing is stored — one kind can
+ * then be loud for a site check and quiet for a growth one. Only 'loud' and
+ * 'quiet' are honoured: a producer cannot switch a push off on the user's
+ * behalf. A stored preference always wins over it.
+ */
+function effectiveMode(kind, stored, producerDefault) {
   const k = BY_KIND[kind];
-  const mode = MODES.includes(stored) ? stored : defaultModeFor(kind);
+  const fallback = (producerDefault === 'loud' || producerDefault === 'quiet')
+    ? producerDefault : defaultModeFor(kind);
+  const mode = MODES.includes(stored) ? stored : fallback;
   if (mode === 'off' && k && k.lockOn) return k.def;
   return mode;
 }

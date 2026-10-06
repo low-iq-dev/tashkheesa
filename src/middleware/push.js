@@ -14,6 +14,7 @@
 // For now, we use a direct fetch implementation that doesn't need the SDK.
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+const EXPO_TIMEOUT_MS = 8000;
 
 /**
  * Role-agnostic core: send ONE Expo push to an already-resolved (userId, token).
@@ -34,7 +35,7 @@ async function _sendExpoPush(db, userId, pushToken, { title, body, data = {} }, 
   // Validate Expo push token format
   if (!pushToken.startsWith('ExponentPushToken[') && !pushToken.startsWith('ExpoPushToken[')) {
     console.warn(`[push] Invalid push token for user ${userId}`);
-    return;
+    return { ok: false, error: 'invalid_token_format' };
   }
 
   // `delivery` (29 Sep 2026) lets a caller say HOW the push should arrive —
@@ -61,6 +62,10 @@ async function _sendExpoPush(db, userId, pushToken, { title, body, data = {} }, 
       Accept: 'application/json',
     },
     body: JSON.stringify([message]),
+    // 6 Oct 2026 — global fetch has no timeout of its own, and sendCriticalAlert
+    // now awaits this to learn whether the ticket was accepted. A hung exp.host
+    // must not hang the thing that is paging about a hang.
+    signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(EXPO_TIMEOUT_MS) : undefined,
   });
 
   const result = await response.json();
@@ -85,7 +90,21 @@ async function _sendExpoPush(db, userId, pushToken, { title, body, data = {} }, 
       }
       console.log(`[push] Removed invalid token for user ${userId}`);
     }
+    return {
+      ok: false,
+      error: String(result.data[0].details?.error || result.data[0].message || 'expo_error').slice(0, 200),
+    };
   }
+
+  // 6 Oct 2026 — the ticket outcome, for callers that record delivery
+  // (critical-alert.js). 'ok' is Expo ACCEPTING the push ticket; anything else
+  // — an error ticket above, or a response with no ticket at all — is not.
+  // Existing callers ignore the return value, so nothing changes for them.
+  if (result.data?.[0]?.status === 'ok') return { ok: true };
+  return {
+    ok: false,
+    error: String((result.errors && result.errors[0] && result.errors[0].message) || 'no_ticket').slice(0, 200),
+  };
 }
 
 /**
@@ -164,9 +183,18 @@ async function sendPushNotification(db, userId, { title, body, data = {} }) {
  * such as the worker watchdog must never break because a push failed.
  *
  * @param {Object} db - pg Pool / better-sqlite3 handle (same shape as sendPushNotification)
- * @param {Object} notification - { title, body, data? }
+ * @param {Object} notification - { title, body, data?, kind?, defaultMode? }
+ *   defaultMode (6 Oct 2026): the producer's own default for THIS event, used in
+ *   place of the catalogue default when the superadmin has stored no preference
+ *   — how one kind (system_check_failed) is loud for a site check and quiet for
+ *   a growth one. A stored preference still wins, and lockOn still applies.
+ * @returns {Promise<{attempted:number, accepted:number, rejected:number, errors:string[]}>}
+ *   what Expo said, per device. Never throws; a lookup failure is reported as
+ *   zero attempted with the reason in `errors`.
  */
-async function notifySuperadmins(db, { title, body, data = {}, kind = null }) {
+async function notifySuperadmins(db, { title, body, data = {}, kind = null, defaultMode = null }) {
+  const outcome = { attempted: 0, accepted: 0, rejected: 0, errors: [] };
+  const noteError = (e) => { if (e && outcome.errors.length < 5 && !outcome.errors.includes(e)) outcome.errors.push(e); };
   try {
     // C1 — every live DEVICE of every superadmin: per-device session rows
     // UNIONed with the transition-mirror column (a Command build that
@@ -219,21 +247,28 @@ async function notifySuperadmins(db, { title, body, data = {}, kind = null }) {
 
     for (const row of (rows || [])) {
       if (!row || !row.push_token) continue;
-      const mode = kind ? prefs.effectiveMode(kind, stored[row.id]) : 'loud';
+      const mode = kind ? prefs.effectiveMode(kind, stored[row.id], defaultMode) : 'loud';
       if (mode === 'off') continue;
       const delivery = prefs ? prefs.deliveryFor(mode) : undefined;
+      outcome.attempted++;
       try {
-        await _sendExpoPush(db, row.id, row.push_token,
+        const r = await _sendExpoPush(db, row.id, row.push_token,
           { title, body, data: Object.assign({}, data, kind ? { mode } : {}) }, delivery);
+        if (r && r.ok) outcome.accepted++;
+        else { outcome.rejected++; noteError((r && r.error) || 'no_ticket'); }
       } catch (err) {
         // One bad recipient must not abort the rest.
+        outcome.rejected++;
+        noteError('send_threw: ' + (err && err.message));
         console.error(`[push] Error notifying superadmin ${row.id}:`, err.message);
       }
     }
   } catch (err) {
     // Lookup / unexpected failure must never break the caller.
+    noteError('lookup_failed: ' + (err && err.message));
     console.error('[push] notifySuperadmins failed:', err.message);
   }
+  return outcome;
 }
 
 /**

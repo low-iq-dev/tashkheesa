@@ -209,6 +209,7 @@ function _burstTitle(kind, suppressed) {
  * @param {string} opts.body        push body
  * @param {Object} [opts.data]      payload for the app to route on
  * @param {string} [opts.orderId]   recorded on the log row
+ * @param {string} [opts.defaultMode] 'loud' | 'quiet' — this event's default when no preference is stored
  * @returns {Promise<{sent: boolean, skipped?: string, recipients?: number}>}
  */
 async function pushOpsEvent(opts) {
@@ -281,6 +282,9 @@ async function pushOpsEvent(opts) {
         // 29 Sep 2026 — lets notifySuperadmins apply each superadmin's
         // loud / quiet / off for this kind (services/ops_push_prefs.js).
         kind: o.kind,
+        // 6 Oct 2026 — the producer's own default for this event (loud/quiet),
+        // used when the superadmin has stored no preference for the kind.
+        defaultMode: o.defaultMode || null,
       });
     } catch (err) {
       logErrorToDb(err, {
