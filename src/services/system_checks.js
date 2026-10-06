@@ -29,7 +29,13 @@
 // daily digest. Nothing here throws into its caller.
 
 const { queryAll, queryOne, execute } = require('../pg');
-const { logErrorToDb } = require('../logger');
+const logger = require('../logger');
+
+// Through the module object, never destructured: a log write must not be able
+// to throw into a check, and tests can observe it.
+function logErrorToDb(err, ctx) {
+  try { logger.logErrorToDb(err, ctx); } catch (_) { /* never throw from a log writer */ }
+}
 
 const AGENT_NAME = 'system_checks';
 const INTERVAL_SECONDS = 5 * 60;
