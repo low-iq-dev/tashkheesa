@@ -428,6 +428,25 @@ function classifyAiSpend(last24Usd, avgDailyUsd) {
   return { status: ratio >= 6 ? 'fail' : (ratio >= 3 ? 'warn' : 'ok'), ratio };
 }
 
+/**
+ * notifications.critical summary. Pure. A row written before migration 124 has
+ * delivered = NULL: it is neither delivered nor not, and must be said so —
+ * "5 alerts: 0 delivered, 0 not" reads as a contradiction.
+ */
+function criticalSummary(total, delivered, undelivered) {
+  if (!total) return 'No critical alerts in 24 hours';
+  const unrecorded = Math.max(0, total - delivered - undelivered);
+  return plural(total, 'critical alert') + ' in 24h: ' + delivered + ' delivered, ' + undelivered + ' not' +
+    (unrecorded ? ', ' + unrecorded + ' from before delivery was recorded' : '');
+}
+
+/** ai.spend summary. Pure. The multiple is shown only when it can alarm (>= $1 in 24h). */
+function aiSpendSummary(last24, avg, ratio) {
+  const usd = (n) => '$' + (n > 0 && n < 0.995 ? n.toFixed(4) : (Math.round(n * 100) / 100).toFixed(2));
+  return 'AI spend ' + usd(last24) + ' in 24h vs ' + usd(avg) + '/day over the previous 7 days' +
+    (ratio !== null && avg > 0 && last24 >= 1 ? ' (' + (Math.round(ratio * 10) / 10) + 'x)' : '');
+}
+
 /** growth.signups: warn when nobody has signed up for 48 hours. Pure. */
 function classifySignups(last48h) {
   return (Number(last48h) || 0) === 0 ? 'warn' : 'ok';
@@ -542,9 +561,8 @@ const INTERNAL = [
     const total = (r && r.total) || 0, delivered = (r && r.delivered) || 0, undelivered = (r && r.undelivered) || 0;
     return {
       check_key: 'notifications.critical', area: 'notifications', status: undelivered > 0 ? 'fail' : 'ok',
-      summary: total === 0 ? 'No critical alerts in 24 hours'
-        : plural(total, 'critical alert') + ' in 24h: ' + delivered + ' delivered, ' + undelivered + ' not',
-      detail: { total, delivered, undelivered },
+      summary: criticalSummary(total, delivered, undelivered),
+      detail: { total, delivered, undelivered, unrecorded: Math.max(0, total - delivered - undelivered) },
     };
   },
 
@@ -598,12 +616,10 @@ const INTERNAL = [
       '  FROM agent_token_log WHERE logged_at >= ' + nowUtc + " - INTERVAL '8 days'", []);
     const last24 = Number((r && r.last24) || 0); const avg = Number((r && r.prev7) || 0) / 7;
     const c = classifyAiSpend(last24, avg);
-    const usd = (n) => '$' + (Math.round(n * 100) / 100).toFixed(2);
     return {
       check_key: 'ai.spend', area: 'money', status: c.status,
-      summary: 'AI spend ' + usd(last24) + ' in 24h vs ' + usd(avg) + '/day over the previous 7 days' +
-               (c.ratio !== null && avg > 0 ? ' (' + (Math.round(c.ratio * 10) / 10) + 'x)' : ''),
-      detail: { last_24h_usd: Math.round(last24 * 100) / 100, avg_7d_usd: Math.round(avg * 100) / 100,
+      summary: aiSpendSummary(last24, avg, c.ratio),
+      detail: { last_24h_usd: Math.round(last24 * 10000) / 10000, avg_7d_usd: Math.round(avg * 10000) / 10000,
                 ratio: c.ratio === null ? null : Math.round(c.ratio * 100) / 100 },
     };
   },
@@ -666,6 +682,6 @@ module.exports = {
   validateCheck, validateBody, upsertCheck, upsertChecks,
   isStale, effectiveStatus, buildSystemPayload, readSystem,
   transitionKind, failedMode, staleMode, QUIET_FAIL_KEYS, claimTransitions, claimStale, claimBriefs, processPushes,
-  classifyAiSpend, classifySignups, computeInternalChecks, runSystemChecks,
+  classifyAiSpend, classifySignups, criticalSummary, aiSpendSummary, computeInternalChecks, runSystemChecks,
   pruneCheckHistory, digestCounts,
 };

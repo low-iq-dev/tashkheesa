@@ -653,6 +653,41 @@ There is a test per reader: one per view arm (5), plus `cases.sla_overdue`, `not
 
 ---
 
+## Deploy
+
+Merged by fast-forwarding `origin/main` from `3f9ac87` to **`24f7c94`** (pushed from the worktree; the main checkout, in use by another session, was not touched). No env var was set.
+
+Verified on production, 6 October, 09:52–10:01 UTC:
+
+| Check | Result |
+|---|---|
+| `/__version` | `gitSha` `24f7c94576f939225d45078af261613f87193515`, about 60 seconds after the push |
+| `/healthz` | 200, `workersOk` true, `clockOk` true; lists `system_checks` (`starting` for the first 3 minutes, then `alive`) |
+| `/healthz?strict=1` | 200 |
+| `schema_migrations` | 124, 125, 126, 127, 128 all recorded |
+| `POST /api/v1/ops/checks` | 503 (no key set — closed, as designed) |
+| `GET /api/v1/admin/system` without a token | 401 |
+| `error_logs` since the deploy | nothing above info |
+
+**First system summary.** I have no superadmin token, so this is the area status computed from the eleven rows the worker wrote at 09:55, by the same rule the endpoint applies: **overall `warn`.**
+
+| area | status | why |
+|---|---|---|
+| site | ok | 6 of 6 workers alive |
+| cases | ok | no paid case waiting; none past deadline |
+| money | ok | no claim over an hour; no stale refund; AI spend negligible |
+| notifications | ok | no failed sends in 24 h |
+| doctors | **warn** | 1 specialty with no Urgent cover (Radiology) |
+| growth | **warn** | no signups in 48 hours (7-day average 0.1/day) |
+| credentials | **warn** | 18 with no date |
+| mini, tash, backups, stores | none | nothing reports to them yet |
+
+**What pushed on deploy.** One push: at 10:00:16 UTC the first sweep sent a quiet `specialty_uncovered` — "Specialty not covered · No Urgent cover for Radiology" — to 1 registered device. Nothing else: no check failed, so no `system_check_failed`; the three warnings do not push; no critical alert fired. The attention list holds 3 doctor applications and that one specialty item.
+
+**Two summaries read badly on real data and are fixed on the branch, not yet deployed** (commit after `24f7c94`): `notifications.critical` said "5 critical alerts in 24h: 0 delivered, 0 not" (the five predate migration 124, so their delivery was never recorded — it now says so), and `ai.spend` said "$0.00 in 24h vs $0.00/day … (40.9x)" for sub-cent amounts (it now shows the cents and drops the multiple below $1). Statuses were right in both cases; only the text was wrong.
+
+---
+
 ## Found in review
 
 1. **`/healthz` cannot fail a plain uptime check.** It is 200 with `"ok": true` while a worker is down. Unless the UptimeRobot monitor is already a keyword monitor, it has never been able to alarm on a dead worker. (Part 0e.)

@@ -352,6 +352,19 @@ function post(server, body, headers) {
     return s(0.9, 0.1) === 'ok' ? null : 'a sub-dollar day should not alarm';
   });
 
+  await check('summaries do not contradict themselves (seen on production after deploy)', () => {
+    // 5 rows from before migration 124 have delivered = NULL.
+    const c = sc.criticalSummary(5, 0, 0);
+    if (!/5 critical alerts in 24h: 0 delivered, 0 not, 5 from before delivery was recorded/.test(c)) return 'critical: ' + c;
+    if (sc.criticalSummary(3, 2, 1) !== '3 critical alerts in 24h: 2 delivered, 1 not') return 'critical: ' + sc.criticalSummary(3, 2, 1);
+    if (sc.criticalSummary(0, 0, 0) !== 'No critical alerts in 24 hours') return 'critical zero';
+    // $0.0041 against $0.0001/day is 40x of nothing: no multiple, and not "$0.00 vs $0.00".
+    const a = sc.aiSpendSummary(0.0041, 0.0001, 40.9);
+    if (/x\)/.test(a) || /\$0\.00 /.test(a)) return 'ai: ' + a;
+    const b = sc.aiSpendSummary(12, 3, 4);
+    return b === 'AI spend $12.00 in 24h vs $3.00/day over the previous 7 days (4x)' ? null : 'ai: ' + b;
+  });
+
   await check('growth.signups warns only on zero signups for 48 hours', () => (
     (sc.classifySignups(0) === 'warn' && sc.classifySignups(1) === 'ok') ? null : 'wrong'
   ));
