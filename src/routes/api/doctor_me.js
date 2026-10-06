@@ -41,6 +41,13 @@ const MESSAGE_MAX = 2000;
 const THEMES = ['dark', 'light', 'system'];
 const SIG_MIME_OK = { 'image/png': 'png', 'image/jpeg': 'jpg' };
 const SIG_MAX_BYTES = 2 * 1024 * 1024;
+// Profile photo: the web rule (JPG/PNG/WebP, at least 400x400) with a 3 MB
+// ceiling, because this door takes base64 inside the API's 5 MB JSON body.
+// The app downsizes before sending, so a real photo is a few hundred KB.
+const PHOTO_MIME_OK = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+const PHOTO_MAX_BYTES = 3 * 1024 * 1024;
+const PHOTO_MIN_DIM = 400;
+const PHOTO_LINK_TTL_SECONDS = 15 * 60;
 
 // The doctor's own pause. Anything else in pause_reason (auto:sla_breach…,
 // an operator's free text, NULL from a legacy admin pause) was applied by
@@ -654,6 +661,93 @@ module.exports = function (db, helpers) {
     } catch (err) {
       logErr(err, req, 'api.doctor_me.signature_remove', { category: 'doctor_upload' });
       return res.fail('Signature could not be removed', 500, 'SIGNATURE_REMOVE_FAILED');
+    }
+  });
+
+  // ─── Profile photo ────────────────────────────────────────
+  // Same storage convention as the web upload: R2 key
+  // `doctor-photos/<doctor_id>/<timestamp>.<ext>`, previous photo deleted
+  // best-effort, users.profile_photo_url holds the key.
+  //
+  // GET /profile/photo-link → { url | null } — a short-lived link to MY photo.
+  router.get('/profile/photo-link', async (req, res) => {
+    const doctorId = meId(req);
+    if (!doctorId) return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+    try {
+      const row = await safeGet('SELECT profile_photo_url FROM users WHERE id = $1', [doctorId], null);
+      const key = row && row.profile_photo_url ? String(row.profile_photo_url) : '';
+      if (!key || key.indexOf('doctor-photos/' + doctorId + '/') !== 0) return res.ok({ url: null, expires_in: null });
+      const url = await require('../../storage').getSignedDownloadUrl(key, PHOTO_LINK_TTL_SECONDS);
+      return res.ok({ url, expires_in: PHOTO_LINK_TTL_SECONDS });
+    } catch (err) {
+      logErr(err, req, 'api.doctor_me.photo_link', { category: 'doctor_upload' });
+      return res.fail('Photo temporarily unavailable', 500, 'PHOTO_LINK_FAILED');
+    }
+  });
+
+  // PUT /profile/photo — body { data } is a data-URL or raw base64 image.
+  router.put('/profile/photo', async (req, res) => {
+    const doctorId = meId(req);
+    if (!doctorId) return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+    const raw = req.body && typeof req.body.data === 'string' ? req.body.data.trim() : '';
+    if (!raw) return res.fail('No image data', 400, 'INVALID_IMAGE');
+
+    let b64 = raw;
+    const m = /^data:([a-z0-9.+/-]+);base64,(.*)$/is.exec(raw);
+    if (m) b64 = m[2];
+    b64 = b64.replace(/\s+/g, '');
+    if (b64.length > Math.ceil(PHOTO_MAX_BYTES / 3) * 4 + 4) return res.fail('Photo is too large (max 3 MB)', 413, 'IMAGE_TOO_LARGE');
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(b64)) return res.fail('Image data is not valid base64', 400, 'INVALID_IMAGE');
+    const buffer = Buffer.from(b64, 'base64');
+    if (!buffer.length) return res.fail('Image data is empty', 400, 'INVALID_IMAGE');
+    if (buffer.length > PHOTO_MAX_BYTES) return res.fail('Photo is too large (max 3 MB)', 413, 'IMAGE_TOO_LARGE');
+
+    // The bytes decide the type, not anything the client declared.
+    let dims = null;
+    try { dims = require('image-size').imageSize(buffer); } catch (_) { dims = null; }
+    if (!dims || !dims.width || !dims.height) return res.fail('Could not read the image', 400, 'INVALID_IMAGE');
+    const sniffed = dims.type === 'png' ? 'image/png'
+      : (dims.type === 'jpg' || dims.type === 'jpeg') ? 'image/jpeg'
+        : dims.type === 'webp' ? 'image/webp' : null;
+    if (!sniffed) return res.fail('Use a JPG, PNG or WebP image', 400, 'INVALID_IMAGE');
+    if (dims.width < PHOTO_MIN_DIM || dims.height < PHOTO_MIN_DIM) {
+      return res.fail('Photo must be at least 400x400 pixels', 400, 'IMAGE_TOO_SMALL');
+    }
+    const ext = PHOTO_MIME_OK[sniffed];
+
+    const storage = require('../../storage');
+    const tsName = Date.now() + '.' + ext;
+    const folder = 'doctor-photos/' + doctorId;
+    try {
+      const key = await storage.uploadFile({ buffer, originalname: tsName, mimetype: sniffed, folder, filename: tsName });
+      const prev = await safeGet('SELECT profile_photo_url FROM users WHERE id = $1', [doctorId], null);
+      const prevKey = prev && prev.profile_photo_url;
+      if (prevKey && String(prevKey).indexOf('doctor-photos/') === 0 && prevKey !== key) {
+        try { await storage.deleteFile(prevKey); } catch (_) { /* best-effort */ }
+      }
+      await safeRun('UPDATE users SET profile_photo_url = $1 WHERE id = $2', [key, doctorId]);
+      return res.ok({ ok: true });
+    } catch (err) {
+      logErr(err, req, 'api.doctor_me.photo_upload', { category: 'doctor_upload' });
+      return res.fail('Photo could not be saved', 500, 'PHOTO_SAVE_FAILED');
+    }
+  });
+
+  // DELETE /profile/photo
+  router.delete('/profile/photo', async (req, res) => {
+    const doctorId = meId(req);
+    if (!doctorId) return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+    try {
+      const prev = await safeGet('SELECT profile_photo_url FROM users WHERE id = $1', [doctorId], null);
+      const prevKey = prev && prev.profile_photo_url;
+      if (prevKey && String(prevKey).indexOf('doctor-photos/') === 0) {
+        try { await require('../../storage').deleteFile(prevKey); } catch (_) { /* best-effort */ }
+      }
+      await safeRun('UPDATE users SET profile_photo_url = NULL WHERE id = $1', [doctorId]);
+      return res.ok({ ok: true });
+    } catch (err) {
+      logErr(err, req, 'api.doctor_me.photo_remove', { category: 'doctor_upload' });
+      return res.fail('Photo could not be removed', 500, 'PHOTO_REMOVE_FAILED');
     }
   });
 

@@ -306,6 +306,59 @@ test('POST /conversations/:id/messages error codes: EMPTY_MESSAGE, CONVERSATION_
   assert.equal(queued.length, 0, 'no notification for a message that was not saved');
 });
 
+test('POST /conversations/:id/report writes the web report row and alerts ops; reason and message are checked first', async () => {
+  reset();
+  conversationRow = ACTIVE_CONVO;
+  const pushed = [];
+  const realOps = buildRouter._deps.opsPush;
+  buildRouter._deps.opsPush = () => ({ pushOpsEvent: async (o) => { pushed.push(o); } });
+  const realAudit = buildRouter._deps.audit;
+  const audited = [];
+  buildRouter._deps.audit = () => ({ logOrderEvent: (o) => { audited.push(o); } });
+  try {
+    let db = makeDb();
+    let res = await drive(db, 'post', '/conversations/:id/report', { params: { id: 'cv_1' }, body: { reason: 'because' } });
+    assert.equal(res.statusCode, 400); assert.equal(res._code, 'INVALID_REASON');
+    assert.equal(db.runs.length, 0);
+
+    // A message id from another thread is refused before anything is written.
+    db = makeDb();
+    res = await drive(db, 'post', '/conversations/:id/report', { params: { id: 'cv_1' }, body: { reason: 'harassment', message_id: 'm_other' } });
+    assert.equal(res.statusCode, 404); assert.equal(res._code, 'MESSAGE_NOT_AVAILABLE');
+    assert.equal(db.runs.length, 0);
+
+    db = makeDb();
+    db.gets.push(['SELECT id FROM messages WHERE id = $1 AND conversation_id = $2', { id: 'm_7' }]);
+    res = await drive(db, 'post', '/conversations/:id/report', { params: { id: 'cv_1' }, body: { reason: 'harassment', message_id: 'm_7', details: '  threatening  ' } });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res._json.data, { reported: true });
+    assert.equal(db.runs.length, 1);
+    const [sql, params] = db.runs[0];
+    assert.match(sql, /INSERT INTO chat_reports/);
+    assert.deepEqual(params.slice(1), ['cv_1', 'm_7', 'doc_1', 'doctor', 'harassment', 'threatening']);
+    assert.equal(pushed.length, 1);
+    assert.equal(pushed[0].kind, 'chat_reported');
+    assert.equal(pushed[0].orderId, 'ord_9');
+    assert.equal(pushed[0].dedupeKey, params[0]);
+    assert.deepEqual(audited, [{ orderId: 'ord_9', label: 'Chat message reported: harassment', actorUserId: 'doc_1' }]);
+
+    // The ops alert failing does not undo a saved report.
+    buildRouter._deps.opsPush = () => ({ pushOpsEvent: async () => { throw new Error('push down'); } });
+    db = makeDb();
+    res = await drive(db, 'post', '/conversations/:id/report', { params: { id: 'cv_1' }, body: { reason: 'spam' } });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(db.runs[0][1].slice(1), ['cv_1', null, 'doc_1', 'doctor', 'spam', null]);
+
+    db = makeDb(); db.runThrows = true;
+    res = await drive(db, 'post', '/conversations/:id/report', { params: { id: 'cv_1' }, body: { reason: 'spam' } });
+    assert.equal(res.statusCode, 500); assert.equal(res._code, 'REPORT_SAVE_FAILED');
+
+    conversationRow = null;
+    res = await drive(makeDb(), 'post', '/conversations/:id/report', { params: { id: 'cv_x' }, body: { reason: 'spam' } });
+    assert.equal(res.statusCode, 404); assert.equal(res._code, 'CONVERSATION_NOT_AVAILABLE');
+  } finally { buildRouter._deps.opsPush = realOps; buildRouter._deps.audit = realAudit; }
+});
+
 test('POST /conversations/:id/read flips the patient messages and reports the count', async () => {
   reset();
   conversationRow = ACTIVE_CONVO;
@@ -551,7 +604,8 @@ test('the router keeps the JWT + doctor-role guards ahead of every route', () =>
   assert.ok(router.stack.slice(2).every((l) => l.route), 'no middleware after the guards');
   const paths = router.stack.slice(2).map((l) => `${Object.keys(l.route.methods)[0].toUpperCase()} ${l.route.path}`);
   assert.deepEqual(paths, [
-    'GET /conversations', 'GET /conversations/:id', 'POST /conversations/:id/messages', 'POST /conversations/:id/read',
+    'GET /conversations', 'GET /conversations/:id', 'POST /conversations/:id/messages',
+    'POST /conversations/:id/report', 'POST /conversations/:id/read',
     'GET /alerts', 'POST /alerts/read', 'POST /alerts/:id/read',
     'GET /annotations/:imageId', 'PUT /annotations/:imageId',
     // Push registration + preferences (migration 121); covered in

@@ -107,6 +107,7 @@ function makeQueue(over) {
     ACCEPTED_STATUSES: CASE_ACCEPTED_STATUSES,
     UNACCEPTED_STATUSES: CASE_UNACCEPTED_STATUSES,
     DOCTOR_DECLINE_REASONS: ['unavailable', 'wrong_subspecialty', 'conflict_of_interest', 'workload', 'other'],
+    DOCTOR_HANDBACK_REASONS: ['on_leave', 'wrong_subspecialty', 'conflict_of_interest', 'workload', 'other'],
     enrichOrders: (rows) => rows.map((r) => ({ ...r, db_status: r.status })),
     mapPortalCaseItem: (o) => ({ ...o }),
     stripPricingFields(o) {
@@ -738,6 +739,41 @@ test('decline: reason validated against _queue.DOCTOR_DECLINE_REASONS before the
   assert.deepEqual(data(res), { declined: true });
   assert.deepEqual(decline.calls[0].req.body, { reason: 'workload', note: 'too many cases' });
   assert.deepEqual(decline.calls[0].req.params, { caseId: 'ord-1' });
+});
+
+test('handback: reason validated against _queue.DOCTOR_HANDBACK_REASONS, body forwarded, every redirect mapped', async () => {
+  const handback = fakeAction('/portal/doctor/dashboard?msg=case_handed_back');
+  install({ actions: { handback } });
+  // 'unavailable' is a DECLINE reason, not a hand-back one.
+  let res = await drive('post', '/cases/:id/handback', { helpers: makeHelpers([]), params: { id: 'ord-1' }, body: { reason: 'unavailable' } });
+  assert.equal(res.statusCode, 400); assert.equal(res._code, 'INVALID_REASON');
+  assert.equal(handback.calls.length, 0);
+
+  res = await drive('post', '/cases/:id/handback', { helpers: makeHelpers([]), params: { id: 'ord-1' }, body: { reason: 'on_leave', note: '  travelling  ' } });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(data(res), { handed_back: true });
+  assert.deepEqual(handback.calls[0].req.body, { reason: 'on_leave', note: 'travelling' });
+  assert.deepEqual(handback.calls[0].req.params, { caseId: 'ord-1' });
+
+  const table = [
+    ['/portal/doctor/case/ord-1?error=handback_not_active', 409, 'HANDBACK_NOT_ACTIVE'],
+    ['/portal/doctor/case/ord-1?error=reason_required', 400, 'INVALID_REASON'],
+    ['/portal/doctor/case/ord-1?error=handback_failed', 500, 'HANDBACK_FAILED'],
+  ];
+  for (const [to, status, code] of table) {
+    install({ actions: { handback: fakeAction(to) } });
+    res = await drive('post', '/cases/:id/handback', { helpers: makeHelpers([]), params: { id: 'ord-1' }, body: { reason: 'other' } });
+    assert.equal(res.statusCode, status, to);
+    assert.equal(res._code, code, to);
+  }
+  // Bare dashboard: not this doctor's case.
+  install({ actions: { handback: fakeAction('/portal/doctor/dashboard') } });
+  res = await drive('post', '/cases/:id/handback', { helpers: makeHelpers([[ORDER_RE, order({ doctor_id: OTHER })]]), params: { id: 'ord-1' }, body: { reason: 'other' } });
+  assert.equal(res.statusCode, 404); assert.equal(res._code, 'CASE_NOT_AVAILABLE');
+  // The handler throwing is a plain failure, never a crash.
+  install({ actions: { handback: fakeAction(new Error('db down')) } });
+  res = await drive('post', '/cases/:id/handback', { helpers: makeHelpers([]), params: { id: 'ord-1' }, body: { reason: 'other' } });
+  assert.equal(res.statusCode, 500); assert.equal(res._code, 'HANDBACK_FAILED');
 });
 
 test('decline: every redirect the handler ends in maps to a stable code; the bare dashboard is settled by ownership', async () => {

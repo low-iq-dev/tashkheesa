@@ -37,6 +37,8 @@ const deps = {
   messaging: () => require('../messaging'),
   alerts: () => require('../doctor')._alerts,
   notify: () => require('../../notify'),
+  opsPush: () => require('../../services/ops_push'),
+  audit: () => require('../../audit'),
 };
 
 // template -> AlertItem.kind. Built from the names registered in
@@ -290,6 +292,64 @@ module.exports = function (db, helpers) {
         read: false,
       },
     });
+  });
+
+  // ─── POST /conversations/:id/report ───────────────────────
+  // Same record the web "Report" form writes (POST /portal/messages/report):
+  // a chat_reports row, an audit line and an ops alert. body { reason,
+  // message_id?, details? }. The reasons are the web form's options.
+  const REPORT_REASONS = ['inappropriate', 'harassment', 'spam', 'unprofessional', 'privacy', 'other'];
+  router.post('/conversations/:id/report', async (req, res) => {
+    const me = meId(req);
+    const conversationId = paramId(req.params.id);
+    if (!me || !conversationId) return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+
+    const conversation = await deps.messaging().getConversationForUser(conversationId, me);
+    if (!conversation) return res.fail('Conversation not available', 404, 'CONVERSATION_NOT_AVAILABLE');
+
+    const body = req.body || {};
+    const reason = String(body.reason || '').trim();
+    if (!REPORT_REASONS.includes(reason)) return res.fail('Invalid report reason', 400, 'INVALID_REASON');
+    const details = sanitizeString(body.details || '', 1000).trim() || null;
+
+    // A reported message must be one from THIS thread; an id from elsewhere
+    // would point the moderator at a conversation the reporter is not in.
+    let messageId = body.message_id ? paramId(body.message_id) : null;
+    if (messageId) {
+      const msg = await safeGet('SELECT id FROM messages WHERE id = $1 AND conversation_id = $2', [messageId, conversationId], null);
+      if (!msg) return res.fail('Message not available', 404, 'MESSAGE_NOT_AVAILABLE');
+    }
+
+    const reportId = randomUUID();
+    try {
+      await safeRun(
+        `INSERT INTO chat_reports (id, conversation_id, message_id, reported_by, reporter_role, reason, details)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [reportId, conversationId, messageId, me, 'doctor', reason, details]
+      );
+    } catch (e) {
+      return res.fail('Report could not be saved', 500, 'REPORT_SAVE_FAILED');
+    }
+
+    try {
+      deps.audit().logOrderEvent({
+        orderId: conversation.order_id || conversationId,
+        label: 'Chat message reported: ' + reason,
+        actorUserId: me,
+      });
+    } catch (_) { /* the report is saved */ }
+    try {
+      await deps.opsPush().pushOpsEvent({
+        kind: 'chat_reported',
+        dedupeKey: reportId,
+        title: 'Chat message reported',
+        body: 'Reported by a doctor: ' + reason,
+        orderId: conversation.order_id || null,
+        data: { screen: 'moderation', reportId },
+      });
+    } catch (_) { /* the report is saved; the alert is best effort, as on the web */ }
+
+    return res.ok({ reported: true });
   });
 
   // ─── POST /conversations/:id/read ─────────────────────────

@@ -523,6 +523,87 @@ test('DELETE /signature mirrors the web remove handler', async () => {
   assert.deepEqual(runs[0].params, ['doc_1']);
 });
 
+// ═══ Profile photo ═════════════════════════════════════════════════════════
+// A real PNG of a given size (image-size reads the IHDR; the pixels are zeros).
+function pngOf(w, h) {
+  const zlib = require('node:zlib');
+  const crc = (buf) => zlib.crc32 ? zlib.crc32(buf) : 0;
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const td = Buffer.concat([Buffer.from(type), data]);
+    const c = Buffer.alloc(4); c.writeUInt32BE(crc(td) >>> 0);
+    return Buffer.concat([len, td, c]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 0;
+  const raw = Buffer.alloc((w + 1) * h);
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0)),
+  ]).toString('base64');
+}
+
+test('PUT /profile/photo stores under doctor-photos/<id>, deletes the old key and writes profile_photo_url', async () => {
+  reset();
+  const db = makeDb([[/SELECT profile_photo_url FROM users/, { profile_photo_url: 'doctor-photos/doc_1/old.jpg' }]]);
+  const { res, runs } = await drive({ method: 'put', route: '/profile/photo', body: { data: 'data:image/png;base64,' + pngOf(400, 400) }, db });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res._json.data, { ok: true });
+  assert.equal(calls.upload[0].folder, 'doctor-photos/doc_1');
+  assert.equal(calls.upload[0].mimetype, 'image/png');
+  assert.deepEqual(calls.del, ['doctor-photos/doc_1/old.jpg']);
+  assert.match(runs[0].sql, /UPDATE users SET profile_photo_url = \$1 WHERE id = \$2/);
+  assert.match(runs[0].params[0], /^doctor-photos\/doc_1\/\d+\.png$/);
+  assert.equal(runs[0].params[1], 'doc_1');
+});
+
+test('PUT /profile/photo keeps the web rules: at least 400x400, an image by its bytes, and a size ceiling', async () => {
+  reset();
+  let r = await drive({ method: 'put', route: '/profile/photo', body: { data: pngOf(399, 600) } });
+  assert.equal(r.res.statusCode, 400); assert.equal(r.res._code, 'IMAGE_TOO_SMALL');
+  r = await drive({ method: 'put', route: '/profile/photo', body: { data: Buffer.from('not an image at all').toString('base64') } });
+  assert.equal(r.res.statusCode, 400); assert.equal(r.res._code, 'INVALID_IMAGE');
+  r = await drive({ method: 'put', route: '/profile/photo', body: {} });
+  assert.equal(r.res.statusCode, 400); assert.equal(r.res._code, 'INVALID_IMAGE');
+  const big = Buffer.alloc(3 * 1024 * 1024 + 10, 1).toString('base64');
+  r = await drive({ method: 'put', route: '/profile/photo', body: { data: big } });
+  assert.equal(r.res.statusCode, 413); assert.equal(r.res._code, 'IMAGE_TOO_LARGE');
+  assert.equal(calls.upload.length, 0);
+});
+
+test('DELETE /profile/photo clears the column and never deletes a key outside doctor-photos/', async () => {
+  reset();
+  let db = makeDb([[/SELECT profile_photo_url FROM users/, { profile_photo_url: 'doctor-photos/doc_1/1.jpg' }]]);
+  let r = await drive({ method: 'delete', route: '/profile/photo', db });
+  assert.equal(r.res.statusCode, 200);
+  assert.deepEqual(calls.del, ['doctor-photos/doc_1/1.jpg']);
+  assert.match(r.runs[0].sql, /UPDATE users SET profile_photo_url = NULL WHERE id = \$1/);
+  reset();
+  db = makeDb([[/SELECT profile_photo_url FROM users/, { profile_photo_url: 'https://cdn.example/legacy.jpg' }]]);
+  r = await drive({ method: 'delete', route: '/profile/photo', db });
+  assert.equal(r.res.statusCode, 200);
+  assert.deepEqual(calls.del, []);
+});
+
+test('GET /profile/photo-link signs only MY photo key; anything else is "no photo"', async () => {
+  reset();
+  const realSign = storage.getSignedDownloadUrl;
+  const signed = [];
+  storage.getSignedDownloadUrl = async (key, ttl) => { signed.push([key, ttl]); return 'https://signed.example/' + key; };
+  try {
+    let db = makeDb([[/SELECT profile_photo_url FROM users/, { profile_photo_url: 'doctor-photos/doc_1/9.jpg' }]]);
+    let r = await drive({ method: 'get', route: '/profile/photo-link', db });
+    assert.deepEqual(r.res._json.data, { url: 'https://signed.example/doctor-photos/doc_1/9.jpg', expires_in: 900 });
+    assert.deepEqual(signed, [['doctor-photos/doc_1/9.jpg', 900]]);
+    for (const key of [null, 'doctor-photos/doc_2/9.jpg', 'https://cdn.example/x.jpg']) {
+      db = makeDb([[/SELECT profile_photo_url FROM users/, { profile_photo_url: key }]]);
+      r = await drive({ method: 'get', route: '/profile/photo-link', db });
+      assert.deepEqual(r.res._json.data, { url: null, expires_in: null }, String(key));
+    }
+    assert.equal(signed.length, 1);
+  } finally { storage.getSignedDownloadUrl = realSign; }
+});
+
 // ═══ Phrases ═══════════════════════════════════════════════════════════════
 test('GET /phrases lists this doctor\'s phrases newest first in the app shape', async () => {
   const db = makeDb([[/FROM doctor_phrases WHERE doctor_id = \$1 ORDER BY created_at DESC/, [

@@ -1166,6 +1166,44 @@ module.exports = function (db, helpers) {
     return res.fail('Decline failed', 500, 'DECLINE_FAILED');
   });
 
+  // ─── POST /cases/:id/handback ─────────────────────────────
+  // Returning a case the doctor already ACCEPTED. body { reason: one of
+  // _queue.DOCTOR_HANDBACK_REASONS, note? }. Runs the web hand-back handler,
+  // so the consequences are the web's: the fee for this case goes to zero,
+  // and a non-excused reason counts toward the auto-pause.
+  router.post('/cases/:id/handback', async (req, res) => {
+    const doctorId = meId(req);
+    const orderId = String(req.params.id || '');
+    if (!doctorId || !orderId) return res.fail('Invalid request', 400, 'INVALID_REQUEST');
+
+    const body = req.body || {};
+    const reason = String(body.reason || '').trim();
+    const allowed = queue().DOCTOR_HANDBACK_REASONS || [];
+    if (!allowed.includes(reason)) return res.fail('Invalid hand-back reason', 400, 'INVALID_REASON');
+    const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : '';
+
+    let out;
+    try {
+      out = await runWebAction(deps.actions().handback, {
+        orderId, doctorId, doctorName: req.user && req.user.name, body: { reason, note }, req,
+      });
+    } catch (_) {
+      return res.fail('Hand-back failed', 500, 'HANDBACK_FAILED');
+    }
+    if (!out.redirect) return res.fail('Hand-back failed', 500, 'HANDBACK_FAILED');
+    const r = parseRedirect(out.redirect);
+
+    if (r.msg === 'case_handed_back') return res.ok({ handed_back: true });
+    if (r.error === 'handback_not_active') return res.fail('Case cannot be handed back in its current state', 409, 'HANDBACK_NOT_ACTIVE');
+    if (r.error === 'reason_required') return res.fail('Invalid hand-back reason', 400, 'INVALID_REASON');
+    if (r.error === 'handback_failed') return res.fail('Hand-back failed', 500, 'HANDBACK_FAILED');
+
+    // Bare dashboard: the handler found no case of ours to hand back.
+    const after = await readOrder(orderId);
+    if (!after || String(after.doctor_id || '') !== doctorId) return notAvailable(res);
+    return res.fail('Hand-back failed', 500, 'HANDBACK_FAILED');
+  });
+
   // ─── request-files / reject-file → the web reject-files handler ─
   async function runRejectFiles(req, res, { orderId, doctorId, reason }) {
     let out;
