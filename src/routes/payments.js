@@ -308,6 +308,21 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
         if (!kashier.isAvailableForPatient(req.user.id)) {
           // Selected but not available to this account (keys not in yet, or
           // test mode and the patient is not on the test allowlist).
+          // Recorded, because this is otherwise invisible: no Kashier call is
+          // made, so nothing else writes a row, and the patient just sees
+          // "card payment is unavailable".
+          try {
+            const kCfg = kashier.readConfig();
+            await execute(
+              `INSERT INTO payment_events (id, order_id, event_type, payload_json, received_at)
+               VALUES ($1, $2, 'intention_failed', $3, NOW())`,
+              ['pe-' + crypto.randomUUID(), order.id, JSON.stringify({
+                provider: 'kashier', code: 'CARD_NOT_AVAILABLE_FOR_PATIENT',
+                mode: kCfg.mode, configured: kCfg.configured,
+                on_test_list: kCfg.testPatientIds.indexOf(String(req.user.id)) !== -1
+              })]
+            );
+          } catch (_) {}
           return res.status(503).json({ ok: false, error: 'paymob_unavailable', provider: 'kashier' });
         }
         try {

@@ -3988,16 +3988,17 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
 
   // CHECKOUT V2 (2026-10-06) — views/patient_pay_v2.ejs. The redesigned page
   // (two method tiles, the chosen method across the main column, the case
-  // summary beneath) for the cases it was designed for: a domestic EGP order
-  // with no card-only add-ons, reached through the internal pay link, where the
-  // transfer path and/or the Kashier card path is on. Anything else — add-ons,
-  // an international display price, an external payment link, the legacy
-  // Paymob-only default — keeps the old view, untouched.
+  // summary beneath) for an order with no card-only add-ons, reached through
+  // the internal pay link, where the transfer path and/or the Kashier card path
+  // is on. International orders included: the view shows the local price the
+  // patient was quoted and states the EGP amount actually charged. Anything
+  // else — add-ons, an external payment link, the legacy Paymob-only default —
+  // keeps the old view, untouched.
   {
     const kashierOn = require('../services/kashier').isSelected();
     const hasWayToPay = !!payRenderCommon.manualPayment || (kashierOn && payRenderCommon.cardEnabled);
     if (hasWayToPay && (payRenderCommon.manualPayment || kashierOn) &&
-        !serviceHasAddons && !isIntlOrderRow && (!rawPaymentLink || isInternalFallback)) {
+        !serviceHasAddons && (!rawPaymentLink || isInternalFallback)) {
       return res.render('patient_pay_v2', Object.assign({}, payRenderCommon, {
         // Card only when it can actually be minted for this patient.
         cardEnabled: !!(payRenderCommon.cardEnabled && (kashierOn || !payRenderCommon.manualPayment))

@@ -10,10 +10,9 @@
   //   └────────────────────────────────────────────────────────────────────┘
   //
   // routes/patient.js renders this instead of patient_payment_required.ejs
-  // for a domestic (EGP) order with no card-only add-ons, when the transfer
-  // path and/or the Kashier card path is on. Everything else (add-ons,
-  // international display prices, an external payment link) still renders the
-  // old view, which is why that file and its byte-identical pins are untouched.
+  // for an order with no card-only add-ons, when the transfer path and/or the
+  // Kashier card path is on. Everything else (add-ons, an external payment
+  // link) still renders the old view, which is why that file and its byte-identical pins are untouched.
   //
   // This view owns NO payment logic:
   //   card     → the same button contract as before: [data-paymob-create-intention]
@@ -23,7 +22,8 @@
   //              reference, sender_name). A claim never marks a case paid.
   //   referral → POST /api/referral/apply, then reload (the server re-prices).
   //
-  // Locals: order, user, lang, isAr, cardEnabled, manualPayment, error,
+  // Locals: order, price + currency (the LOCAL total for an international
+  // order), user, lang, isAr, cardEnabled, manualPayment, error,
   // paymentFailed, csrfToken, csrfField, cspNonce.
 
   const __isAr = !!(typeof isAr !== 'undefined' && isAr);
@@ -51,6 +51,21 @@
   const __fee = __total + __discount;
   const __code = __order.referral_code ? String(__order.referral_code) : '';
   const __pct = (__discount > 0 && __fee > 0) ? Math.round((__discount / __fee) * 100) : 0;
+
+  // INTERNATIONAL ORDERS. Every order is CHARGED in EGP (order.price), but a
+  // patient outside Egypt was quoted a price in their own currency
+  // (orders.display_price / display_currency). The route passes that local
+  // total as `price` + `currency`. The summary shows the local figures the
+  // patient recognises, and states the EGP amount that is actually taken
+  // wherever money moves: under the total, on the pay button, in the transfer
+  // steps. Local fee/discount lines are the EGP lines scaled by the same
+  // ratio, so they always add up to the local total shown.
+  const __dispCur = __order.display_currency ? String(__order.display_currency).toUpperCase() : '';
+  const __isIntl = __order.display_price != null && !!__dispCur && __dispCur !== 'EGP';
+  const __localTotal = (__isIntl && typeof price !== 'undefined' && Number(price) > 0) ? Number(price) : __total;
+  const __ratio = (__isIntl && __total > 0) ? (__localTotal / __total) : 1;
+  const __sumCur = __isIntl ? __dispCur : __cur;
+  function local(n) { return money(Math.round(Number(n || 0) * __ratio * 100) / 100); }
 
   const __tier = String(__order.urgency_tier || 'standard').toLowerCase();
   const __hours = __tier === 'urgent' ? 4 : (__tier === 'vip' ? 18 : 48);
@@ -236,7 +251,7 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
             <span data-pay-label><%= L('Pay ' + money(__total) + ' EGP securely', 'ادفع ' + money(__total) + ' ج.م بأمان') %></span>
           </button>
-          <div class="pv-hint" style="font-size:13px;"><%= L('Full refund if you cancel before a consultant is assigned.', 'استرداد كامل لو لغيت قبل تعيين الاستشاري.') %></div>
+          <div class="pv-hint" style="font-size:13px;"><% if (__isIntl) { %><%= L('About ' + money(__localTotal) + ' ' + __dispCur + '. ', 'حوالي ' + money(__localTotal) + ' ' + __dispCur + '. ') %><% } %><%= L('Full refund if you cancel before a consultant is assigned.', 'استرداد كامل لو لغيت قبل تعيين الاستشاري.') %></div>
         </div>
         <div data-paymob-error role="alert" class="pv-note" style="display:none;margin-top:14px;background:var(--accent-tint);border:1px solid var(--accent-light);color:var(--ink);"></div>
       </section>
@@ -256,6 +271,7 @@
           <div class="pv-step">
             <div class="pv-step__h"><span class="pv-step__n">1</span><%= L('Send exactly', 'حوّل بالظبط') %></div>
             <div class="pv-amount"><span class="pv-amount__n" dir="ltr"><%= __mpAmount %></span><span class="pv-amount__c"><%= __cur %></span></div>
+            <% if (__isIntl) { %><div class="pv-hint"><%= L('Transfers are in Egyptian pounds, from an Egyptian bank account or InstaPay. Paying from abroad? Use the card option, or ask us on WhatsApp.', 'التحويل بالجنيه المصري، من حساب بنكي مصري أو إنستاباي. بتدفع من برّه مصر؟ استخدم البطاقة أو كلمنا واتساب.') %></div><% } %>
             <dl class="pv-dl">
               <% if (__hasHandle) { %><dt><%= L('InstaPay', 'إنستاباي') %></dt><dd class="pv-mono" dir="ltr"><%= __mp.instapay.handle %></dd><% } %>
               <% if (__hasBank && __mp.bank.bankName) { %><dt><%= L('Bank', 'البنك') %></dt><dd><%= __mp.bank.bankName %></dd><% } %>
@@ -407,15 +423,20 @@
 
       <div>
         <div class="pv-lines">
-          <div class="pv-line"><span style="color:var(--ink-2);"><%= L('Service fee', 'رسوم الخدمة') %></span><span style="font-weight:600;" dir="ltr"><%= money(__fee) %> <%= __cur %></span></div>
+          <div class="pv-line"><span style="color:var(--ink-2);"><%= L('Service fee', 'رسوم الخدمة') %></span><span style="font-weight:600;" dir="ltr"><%= local(__fee) %> <%= __sumCur %></span></div>
           <% if (__discount > 0) { %>
-            <div class="pv-line" style="color:var(--primary);"><span><%= L('Code ', 'كود ') %><span dir="ltr"><%= __code %></span><%= __pct ? L(' · ' + __pct + '% off', ' · خصم ' + __pct + '%') : '' %></span><span style="font-weight:600;" dir="ltr">−<%= money(__discount) %> <%= __cur %></span></div>
+            <div class="pv-line" style="color:var(--primary);"><span><%= L('Code ', 'كود ') %><span dir="ltr"><%= __code %></span><%= __pct ? L(' · ' + __pct + '% off', ' · خصم ' + __pct + '%') : '' %></span><span style="font-weight:600;" dir="ltr">−<%= local(__discount) %> <%= __sumCur %></span></div>
           <% } %>
         </div>
         <div class="pv-total">
           <span style="font-size:14px;font-weight:700;"><%= L('Total today', 'الإجمالي') %></span>
-          <span style="display:flex;align-items:baseline;gap:6px;"><span class="pv-total__n" dir="ltr"><%= money(__total) %></span><span style="font-size:14px;font-weight:600;color:var(--ink-2);"><%= __cur %></span></span>
+          <span style="display:flex;align-items:baseline;gap:6px;"><span class="pv-total__n" dir="ltr"><%= __isIntl ? money(__localTotal) : money(__total) %></span><span style="font-size:14px;font-weight:600;color:var(--ink-2);"><%= __sumCur %></span></span>
         </div>
+        <% if (__isIntl) { %>
+          <div class="pv-hint" style="margin-top:10px;font-size:13px;" data-pv-egp-note>
+            <%= L('Charged in Egyptian pounds: ', 'المبلغ بيتخصم بالجنيه المصري: ') %><strong dir="ltr" style="color:var(--ink);"><%= money(__total) %> EGP</strong><%= L('. Your bank converts it, so the amount on your statement may differ slightly from ' + money(__localTotal) + ' ' + __dispCur + '.', '. البنك بتاعك هو اللي بيحوّل العملة، فالمبلغ في كشف الحساب ممكن يختلف شوية عن ' + money(__localTotal) + ' ' + __dispCur + '.') %>
+          </div>
+        <% } %>
       </div>
     </div>
   </section>

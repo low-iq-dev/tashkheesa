@@ -94,6 +94,22 @@ check('figures come from the order: fee, discount line, total, button amount', f
   assert(/Pay 1,200 EGP securely/.test(plain) && /18 hours/.test(plain), 'amount / VIP turnaround wrong');
 });
 
+check('international order: local price shown, EGP charge stated wherever money moves', function () {
+  // Quoted 80 USD, charged 3,200 EGP, with a 50% code already applied (fee was 6,400 EGP = 160 USD).
+  const h = render({
+    order: { id: 'o-intl', service_name: 'X', price: 3200, currency: 'EGP', display_price: 80, display_currency: 'USD',
+      urgency_tier: 'standard', referral_code: 'TASH50', referral_discount: 3200 },
+    price: 80, currency: 'USD', manualPayment: mp({ amount: 3200 })
+  });
+  assert(/>80<\/span>/.test(h) && /USD/.test(h), 'local total not shown');
+  assert(/160 USD/.test(h) && /−80 USD/.test(h), 'local fee/discount lines do not add up to the local total');
+  assert(/data-pv-egp-note/.test(h) && /3,200 EGP/.test(h), 'the EGP amount actually charged is not stated');
+  assert(/Pay 3,200 EGP securely/.test(h), 'the pay button must carry the amount actually charged');
+  assert(/Transfers are in Egyptian pounds/.test(h), 'transfer option must say it is EGP-only');
+  const dom = render({ manualPayment: mp() });
+  assert(!/data-pv-egp-note/.test(dom) && !/Transfers are in Egyptian pounds/.test(dom), 'domestic order shows international notes');
+});
+
 check('urgent-hours note only on an Urgent case', function () {
   const note = function () { return 'URGENT-HOURS-RULE'; };
   assert(!/URGENT-HOURS-RULE/.test(render({ manualPayment: mp(), urgentWindowNote: note })), 'shown on a Standard case');
@@ -112,7 +128,7 @@ check('route: v2 is used only for the cases it was built for', function () {
   const i = r.indexOf("res.render('patient_pay_v2'");
   assert(i !== -1, 'route never renders the v2 view');
   const guard = r.slice(r.lastIndexOf('if (hasWayToPay', i), i);
-  assert(/!serviceHasAddons/.test(guard) && /!isIntlOrderRow/.test(guard) && /isInternalFallback/.test(guard),
-    'v2 must not take add-on, international or external-link orders');
+  assert(/!serviceHasAddons/.test(guard) && /isInternalFallback/.test(guard),
+    'v2 must not take add-on or external-link orders');
   assert(i < r.indexOf("res.render('patient_payment_required', Object.assign({}, payRenderCommon, {\n      paymentLink: null"), 'v2 branch must come before the old render');
 });
