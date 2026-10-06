@@ -65,14 +65,20 @@ Contents: [Part 0 findings](#part-0--findings) · [What was built](#what-was-bui
 
 **Status code: 200. Always.** The body is what changes:
 
+The live response on 6 October (all workers healthy), verbatim:
+
 ```json
-{ "ok": true, "mode": "production", "timestamp": 1759740000000, "uptimeSec": 86400,
-  "requestId": "…", "pool": { "total": 4, "idle": 3, "waiting": 0 },
-  "workers": [ { "name": "case_sla_worker", "status": "down", "ageSec": 1900, "staleSeconds": 720 },
-               { "name": "acceptance_watcher", "status": "alive", "ageSec": 41, "staleSeconds": 360 }, … ],
-  "workersOk": false,
-  "clock": { "db": "UTC", "node": "UTC", "ok": true }, "clockOk": true }
+{"ok":true,"mode":"production","timestamp":1791277859427,"uptimeSec":2173,"requestId":"req_38d996f9",
+ "pool":{"total":3,"idle":3,"waiting":0},
+ "workers":[{"name":"case_sla_worker","status":"alive","ageSec":39,"staleSeconds":720},
+            {"name":"acceptance_watcher","status":"alive","ageSec":10,"staleSeconds":360},
+            {"name":"notification_worker","status":"alive","ageSec":10,"staleSeconds":180},
+            {"name":"video_scheduler","status":"alive","ageSec":59,"staleSeconds":240},
+            {"name":"attention_sweep","status":"alive","ageSec":639,"staleSeconds":2400}],
+ "workersOk":true,"clock":{"db":"UTC","node":"UTC","ok":true},"clockOk":true}
 ```
+
+With a worker down (read from `routes/health.js`; I did not take a worker down to observe it), the status code is still 200, that worker's entry becomes `"status":"down"`, and the one top-level change is `"workersOk":false`. Note there is no space after the colon — the keyword must be typed exactly as below.
 
 `"ok"` stays `true` even then. A worker reads `starting` (not `down`) while the instance's uptime is shorter than that worker's staleness budget, and `starting` counts as ok.
 
@@ -96,7 +102,7 @@ For each part: what it is, the guard that matters, and the test that fails when 
 
 - Push is the primary transport. `sendCriticalAlert` sends the catalogue kind **`critical_alert`** (group system, default loud, lockOn, Arabic label «تنبيه حرج») to every superadmin device, and writes an Activity row.
 - `critical_alert_log` gains `delivered`, `push_attempted`, `push_accepted`, `push_error` (migration 124). `delivered` is true only when Expo accepted at least one ticket. `status_code` / `error` keep meaning the WhatsApp attempt, so the `/ops` widget that reads them is unaffected.
-- `notifySuperadmins` now returns `{ attempted, accepted, rejected, errors }` and the Expo call has an 8-second timeout. Existing callers ignore the return value.
+- `notifySuperadmins` now returns `{ attempted, accepted, rejected, errors }` and each Expo call has an 8-second timeout. Existing callers ignore the return value. Devices are sent to one after another, so `sendCriticalAlert` can take up to 8 seconds per device to resolve. Only the attention sweep and the worker watchdog await it; the other 23 call sites (17 of them in routes) fire and forget, so no request or webhook waits on Expo.
 - WhatsApp runs alongside the push, not after it. With `ADMIN_PHONE` unset, or neither transport's credentials set, it is off — no log row, no error. It cannot throw into the caller.
 - If no ticket was accepted and WhatsApp is off, an `error_logs` row with category `critical_alert` says so.
 
@@ -594,7 +600,8 @@ The dry run takes a brief exclusive lock on `critical_alert_log` and the view; t
 6. **Fresh-database migrations do not run.** `059` has a post-condition that expects four production rows, so `migrate()` on an empty database stops there. I got a scratch database to 128 by cloning a local schema at 108 and running 109–128. The suite already skips "fresh-DB migration completeness".
 7. **`send_failed` counts `skipped`, as specified.** Production's last 30 days: 17 WhatsApp and 12 email rows skipped versus 5 failed. If most skips are deliberate (opt-out, a disabled channel), this kind will be mostly noise. It is quiet and pushed once per recipient per episode. I did not inspect the skip reasons.
 8. **`sent_count` in `ops_push_log` is devices registered, not tickets accepted**, for everything sent through `pushOpsEvent`. Only `critical_alert` records real acceptance. `notifySuperadmins` now returns the real numbers, so this is a small follow-up.
-9. **Urgent cover in production today:** Radiology has a ready doctor but none who takes Urgent. That is real, and will be the first `specialty_uncovered` push after deploy.
+9. **One incident can now buzz more than once, loudly.** A dead worker produces `worker_down` (watchdog push), then `critical_alert` (the watchdog's own `sendCriticalAlert`, which was already a second loud push before this job), and now a third: `system_check_failed` for `site.workers`, up to 5 minutes later. A paid case with no doctor produces `paid_unassigned` at 15 minutes and, if still open, `system_check_failed` for `cases.paid_unassigned` at 60 minutes. Each is throttled on its own; nothing dedupes across kinds. See "needs Ziad" 12.
+10. **Urgent cover in production today:** Radiology has a ready doctor but none who takes Urgent. That is real, and will be the first `specialty_uncovered` push after deploy.
 
 ---
 
@@ -607,6 +614,7 @@ The dry run takes a brief exclusive lock on `critical_alert_log` and the view; t
 - **No push on a move to `warn`.** The spec lists failed, recovered and stale.
 - **No CHECK constraints** on `ops_checks.status` / `area`, following 121 and 123. SQL writers are trusted; the reader tolerates bad rows.
 - **No delete endpoint for expiries.** Not in the spec.
+- **`attention_state` is never pruned.** Every item that has ever been in the view keeps a small row (abandoned drafts included). It is keyed, so it cannot grow faster than the things it describes, but nothing deletes it.
 - **No per-area notification settings.** One kind, with the producer choosing loud or quiet per event.
 - **`doctor_application` and `contact_enquiry` pushes are untouched**, as are all money and auth paths.
 - **The end-to-end script is not committed**; the scratch database is dropped.
@@ -627,3 +635,4 @@ The dry run takes a brief exclusive lock on `critical_alert_log` and the view; t
 9. **Check the thresholds I chose** in the Part 3 table — only the 3×/6× AI rule, the 30/7-day expiry rule, the 48-hour signup rule and the 60-minute / 48-hour counts came from the brief.
 10. **Merge order.** `src/server.js` was being edited in the main checkout while this ran; that work was committed during the job as `6421bfd` on `fix/doctor-file-open-inline` (not by me). This branch also edits `server.js` (three small hunks: one import, the worker schedule, the prune). Whichever merges second may need that file reconciled by hand.
 11. **Claude's scheduled runs** should use the INSERT in Part 3 verbatim, with `source = 'claude'`, and must set `expected_every_seconds` to their real cadence, or the check will be flagged stale (or never flagged).
+12. **Decide: duplicate loud pushes for one incident** (found in review 9). Cheapest fix if you want one buzz: make `site.workers` and `cases.paid_unassigned` quiet on failure, since each already has a dedicated loud alert. I left them loud because the brief says site and cases failures are loud.

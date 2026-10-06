@@ -241,10 +241,14 @@ function _logPushOutcome(claimId, outcome) {
 // New callers (Phase 7 Widget 4 error-rate alert) pass a distinct key
 // so the throttle buckets don't collide.
 //
-// Returns a Promise that resolves once Expo has answered the push (bounded by
-// the 8s timeout in middleware/push.js) and the WhatsApp request, if that
-// transport is configured, is queued (Meta) or dispatched (OpenClaw). Never
-// rejects. Existing non-await callers are unchanged.
+// Returns a Promise that resolves once Expo has answered the push and the
+// WhatsApp request, if that transport is configured, is queued (Meta) or
+// dispatched (OpenClaw). The push is sent one device after another with an 8s
+// timeout EACH (middleware/push.js), so the worst case is 8s x devices, not 8s.
+// That is fine for the two callers that await this — the attention sweep and
+// the worker watchdog, both background jobs. No request handler awaits it
+// (every route calls it fire-and-forget); keep it that way, or a slow exp.host
+// would hold a payment webhook open. Never rejects.
 async function sendCriticalAlert(message, alertKey) {
   var key = _deriveAlertKey(alertKey, message);
   var text = '[TASHKHEESA CRITICAL] ' + String(message || 'Unknown error').slice(0, 1000);
