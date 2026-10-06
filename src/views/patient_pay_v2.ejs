@@ -1,0 +1,554 @@
+<%
+  // Checkout page v2 (2026-10-06) — the layout Ziad approved on the design
+  // canvas "Tashkheesa checkout redesign":
+  //
+  //   ┌ header ───────────────────────────────────────────────────────────┐
+  //   │ 1. Choose how to pay  [ card tile ] [ transfer tile ]  │ assurances│
+  //   │ 2. the chosen method, full width of the main column    │ WhatsApp  │
+  //   ├────────────────────────────────────────────────────────┴───────────┤
+  //   │ Your case — service, fee, discount, total, referral code           │
+  //   └────────────────────────────────────────────────────────────────────┘
+  //
+  // routes/patient.js renders this instead of patient_payment_required.ejs
+  // for a domestic (EGP) order with no card-only add-ons, when the transfer
+  // path and/or the Kashier card path is on. Everything else (add-ons,
+  // international display prices, an external payment link) still renders the
+  // old view, which is why that file and its byte-identical pins are untouched.
+  //
+  // This view owns NO payment logic:
+  //   card     → the same button contract as before: [data-paymob-create-intention]
+  //              → POST /payments/paymob/create-intention → hosted checkout.
+  //   transfer → the same form as partials/patient/manual-payment-block.ejs:
+  //              POST /portal/patient/pay/:id/transfer-claim (method,
+  //              reference, sender_name). A claim never marks a case paid.
+  //   referral → POST /api/referral/apply, then reload (the server re-prices).
+  //
+  // Locals: order, user, lang, isAr, cardEnabled, manualPayment, error,
+  // paymentFailed, csrfToken, csrfField, cspNonce.
+
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __lang = (typeof lang === 'string' && lang) ? lang : (__isAr ? 'ar' : 'en');
+  const __user = (typeof user !== 'undefined' && user) ? user : {};
+  const __order = (typeof order !== 'undefined' && order) ? order : {};
+  const __nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
+  function L(en, ar) { return __isAr ? ar : en; }
+  const __gw = (String(process.env.CARD_PROVIDER || '').trim().toLowerCase() === 'kashier') ? 'Kashier' : 'Paymob';
+
+  const __cardOn = (typeof cardEnabled === 'undefined') ? true : (cardEnabled !== false);
+  const __mp = (typeof manualPayment !== 'undefined' && manualPayment) ? manualPayment : null;
+  const __both = __cardOn && !!__mp;
+  const __claim = __mp ? (__mp.claim || null) : null;
+  const __pending = !!(__claim && __claim.status === 'pending');
+  const __rejected = !!(__claim && __claim.status === 'rejected');
+  const __start = (__mp && (__pending || __rejected || __mp.flash || __mp.errorCode)) ? 'transfer' : (__cardOn ? 'card' : 'transfer');
+
+  function money(n) {
+    return Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  }
+  const __cur = L('EGP', 'ج.م');
+  const __total = Number(__order.price || 0);
+  const __discount = Math.max(0, Number(__order.referral_discount || 0));
+  const __fee = __total + __discount;
+  const __code = __order.referral_code ? String(__order.referral_code) : '';
+  const __pct = (__discount > 0 && __fee > 0) ? Math.round((__discount / __fee) * 100) : 0;
+
+  const __tier = String(__order.urgency_tier || 'standard').toLowerCase();
+  const __hours = __tier === 'urgent' ? 4 : (__tier === 'vip' ? 18 : 48);
+  const __tierLabel = __tier === 'urgent' ? L('Urgent, report within 4 hours', 'عاجل، التقرير خلال 4 ساعات')
+    : (__tier === 'vip' ? L('VIP, report within 18 hours', 'VIP، التقرير خلال 18 ساعة')
+    : L('Standard, report within 48 hours', 'عادي، التقرير خلال 48 ساعة'));
+  const __specialty = __isAr ? (__order.specialty_name_ar || __order.specialty_name || '') : (__order.specialty_name || '');
+  const __ref = __order.reference_id || (__mp && __mp.reference) || String(__order.id || '').slice(0, 8).toUpperCase();
+
+  // Transfer block values (same derivations as manual-payment-block.ejs).
+  const __fv = (__mp && __mp.formValues && typeof __mp.formValues === 'object') ? __mp.formValues : {};
+  const __mpAmount = __mp ? money(__mp.amount) : '';
+  const __hasHandle = !!(__mp && __mp.instapay && __mp.instapay.handle);
+  const __hasBank = !!(__mp && __mp.bank);
+  const __defaultMethod = __fv.method || (__claim && __claim.method) || ((__mp && __mp.instapay) ? 'instapay' : 'bank');
+  const __errMap = {
+    reference_invalid: L('Please enter the transfer reference (3 to 80 characters) exactly as your banking app shows it.', 'اكتب مرجع التحويل (من 3 إلى 80 حرفًا) كما يظهر في تطبيق البنك.'),
+    method_invalid: L('Please choose how you paid.', 'اختر طريقة الدفع التي استخدمتها.'),
+    method_unavailable: L('That payment method is not available right now. Please choose another.', 'طريقة الدفع هذه غير متاحة حاليًا. اختر طريقة أخرى.'),
+    sender_invalid: L('The sender name is too long (80 characters at most).', 'اسم المُرسِل طويل جدًا (80 حرفًا كحد أقصى).'),
+    generic: L('We could not save your transfer details. Please try again.', 'تعذّر حفظ بيانات التحويل. حاول مرة أخرى.')
+  };
+  const __mpErr = (__mp && __mp.errorCode) ? (__errMap[__mp.errorCode] || __errMap.generic) : null;
+  let __when = '';
+  try {
+    if (__claim && __claim.submittedAt) {
+      __when = new Date(__claim.submittedAt).toLocaleString(__isAr ? 'ar-EG' : 'en-GB', { timeZone: 'Africa/Cairo', dateStyle: 'medium', timeStyle: 'short' });
+    }
+  } catch (_) { __when = ''; }
+  const __waReceipt = 'https://wa.me/201102009886?text=' + encodeURIComponent(__isAr
+    ? ('مرحباً تشخيصة، ده إثبات التحويل للحالة ' + (__mp ? (__mp.reference || '') : '') + ' (' + __mpAmount + ' ' + __cur + ').')
+    : ('Hi Tashkheesa, here is my transfer receipt for case ' + (__mp ? (__mp.reference || '') : '') + ' (' + __mpAmount + ' EGP).'));
+  const __waHelp = 'https://wa.me/201102009886?text=' + encodeURIComponent(__isAr
+    ? ('مرحباً تشخيصة، محتاج مساعدة في الدفع للحالة ' + __ref)
+    : ('Hi Tashkheesa, I need help paying for case ' + __ref));
+
+  const safeError = (typeof error !== 'undefined' && error) ? String(error) : null;
+  const __payL = {
+    preparing: L('Preparing payment…', 'جاري التحضير...'),
+    profileIncomplete: L('Please complete your profile before paying. Missing or invalid: ', 'يرجى إكمال ملفك الشخصي قبل الدفع. الحقول الناقصة أو غير الصحيحة: '),
+    unavailable: L('Card payment is briefly unavailable. Please try again in a moment, or pay by transfer.', 'الدفع بالبطاقة غير متاح حالياً. حاول مرة أخرى بعد قليل، أو ادفع بالتحويل.'),
+    networkError: L('We could not reach the server. Check your connection and try again.', 'تعذّر الاتصال بالخادم. تحقق من اتصالك وحاول مرة أخرى.'),
+    generic: L('Could not start payment. Please try again or message us on WhatsApp.', 'تعذر بدء الدفع. حاول مرة أخرى أو كلمنا على واتساب.'),
+    copied: L('Copied', 'تم النسخ'),
+    applying: L('Applying…', 'جاري التطبيق...'),
+    apply: L('Apply', 'تطبيق'),
+    codeInvalid: L('That code is not valid.', 'الكود غير صحيح.')
+  };
+%>
+<%- include('partials/patient/head', {
+  active: 'cases',
+  title: L('Pay to start your review', 'ادفع لبدء مراجعة حالتك'),
+  user: __user,
+  lang: __lang,
+  bodyClass: 'p-page-pay',
+  cspNonce: __nonce
+}) %>
+
+<%- include('partials/patient/topbar', {
+  title: L('Pay to start your review', 'ادفع عشان نبدأ مراجعة حالتك'),
+  sub: L('A Shifa Hospital Group consultant starts on your case as soon as payment is confirmed.', 'استشاري من مجموعة مستشفيات شفا يبدأ في حالتك أول ما الدفع يتأكد.'),
+  serif: true,
+  isAr: __isAr,
+  actions: '<span class="p-chip p-chip--teal">' + L('Awaiting payment', 'بانتظار الدفع') + '</span>'
+}) %>
+
+<style>
+  .pv{display:flex;flex-direction:column;gap:22px}
+  .pv-grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:24px;align-items:start}
+  .pv-main,.pv-side{display:flex;flex-direction:column;gap:18px;min-width:0}
+  .pv-h{margin:0;font-size:16px;font-weight:700;color:var(--ink)}
+  .pv-sub{font-size:13.5px;color:var(--ink-2);line-height:1.55;margin-top:4px}
+  .pv-card{background:var(--surface);border:1px solid var(--rule);border-radius:16px;padding:24px}
+  .pv-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:10px}
+  .pv-tile{appearance:none;-webkit-appearance:none;font:inherit;color:var(--ink);text-align:start;cursor:pointer;background:var(--surface);border:2px solid var(--rule-strong);border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:8px;min-height:112px}
+  .pv-tile:hover{border-color:var(--primary)}
+  .pv-tile:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+  .pv-tile[aria-pressed="true"]{border-color:var(--primary);box-shadow:0 6px 20px rgba(7,75,67,.10)}
+  .pv-tile__top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .pv-tile__t{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:700;line-height:1.3}
+  .pv-tile__t svg{flex:0 0 auto;color:var(--primary)}
+  .pv-tile__d{font-size:13.5px;line-height:1.5;color:var(--ink-2)}
+  .pv-badge{flex:0 0 auto;font-size:11px;font-weight:700;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:#DCE9E6;color:#074B43;white-space:nowrap}
+  .pv-badge--brass{background:#F2E4C7;color:#5A4416}
+  .pv-three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+  .pv-point__t{font-size:14px;font-weight:700;color:var(--ink)}
+  .pv-point__d{font-size:13.5px;line-height:1.55;color:var(--ink-2);margin-top:4px}
+  .pv-payrow{display:flex;flex-wrap:wrap;align-items:center;gap:16px;border-top:1px solid var(--rule);padding-top:20px;margin-top:20px}
+  .pv-paybtn{height:54px;padding:0 28px;font-size:16px;font-weight:700;border-radius:12px;display:inline-flex;align-items:center;gap:10px}
+  .pv-step{background:var(--surface-2);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+  .pv-step__h{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:700;color:var(--ink)}
+  .pv-step__n{flex:0 0 auto;width:28px;height:28px;border-radius:50%;background:var(--primary);color:#fff;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .pv-amount{display:flex;align-items:baseline;gap:8px}
+  .pv-amount__n{font-family:var(--font-display);font-size:40px;font-weight:500;line-height:1;color:var(--accent-dark)}
+  .pv-amount__c{font-size:14px;font-weight:600;color:var(--ink-2)}
+  .pv-dl{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 14px;font-size:13.5px}
+  .pv-dl dt{color:var(--ink-2)}
+  .pv-dl dd{margin:0;font-weight:600;color:var(--ink);word-break:break-all}
+  .pv-mono{font-family:var(--font-mono)}
+  .pv-refbox{background:var(--surface);border:1px dashed var(--accent,#B38B3E);border-radius:10px;padding:12px 14px;font-family:var(--font-mono);font-size:17px;font-weight:700;color:var(--ink);letter-spacing:.02em;word-break:break-all}
+  .pv-hint{font-size:12.5px;line-height:1.5;color:var(--ink-2)}
+  .pv-ghost{align-self:flex-start;min-height:44px}
+  .pv-note{padding:12px 14px;border-radius:10px;font-size:12.5px;line-height:1.5}
+  .pv-foot{font-size:13px;line-height:1.55;color:var(--ink-2);border-top:1px solid var(--rule);padding-top:16px;margin-top:20px}
+  .pv-assure{display:flex;flex-direction:column;gap:12px;font-size:13.5px;line-height:1.5;color:var(--ink-2)}
+  .pv-assure__row{display:flex;gap:10px;align-items:flex-start}
+  .pv-assure__row svg{flex:0 0 auto;margin-top:2px;color:var(--primary)}
+  .pv-help{display:flex;align-items:center;justify-content:space-between;gap:12px;text-decoration:none;font-size:14px;font-weight:600;min-height:44px;color:var(--primary)}
+  .pv-help span:last-child{font-weight:500;color:var(--ink-2)}
+  .pv-case{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:28px;align-items:start}
+  .pv-lines{display:flex;flex-direction:column;gap:10px;font-size:14px}
+  .pv-line{display:flex;justify-content:space-between;gap:12px}
+  .pv-total{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border-top:1px solid var(--rule);padding-top:14px;margin-top:4px}
+  .pv-total__n{font-family:var(--font-display);font-size:44px;font-weight:500;line-height:1;color:var(--accent-dark)}
+  .pv-code{display:flex;gap:8px;margin-top:6px}
+  .pv-code input{flex:1;min-width:0;text-transform:uppercase}
+  @media (max-width:1080px){.pv-grid{grid-template-columns:minmax(0,1fr)}.pv-three{grid-template-columns:minmax(0,1fr)}.pv-case{grid-template-columns:minmax(0,1fr);gap:18px}}
+  @media (max-width:560px){.pv-tiles{grid-template-columns:minmax(0,1fr)}.pv-tile{min-height:0}.pv-card{padding:18px}.pv-paybtn{width:100%;justify-content:center}}
+</style>
+
+<% if (safeError) { %>
+  <%- include('partials/patient/whats-happening-card', { icon: 'alert', eyebrow: L('PLEASE READ', 'يرجى الانتباه'), title: safeError, body: '' }) %>
+<% } %>
+<% if (typeof paymentFailed !== 'undefined' && paymentFailed) { %>
+  <div role="alert" class="p-card" style="padding:16px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;">
+    <div style="font-size:13px;font-weight:600;margin-bottom:4px;"><%= L('Your previous payment didn’t go through.', 'لم يكتمل الدفع في المرة السابقة.') %></div>
+    <div style="font-size:12.5px;color:var(--ink-2);line-height:1.5;"><%= L('Your case is still saved. Nothing was charged. You can try again, or pay by transfer.', 'حالتك محفوظة ولم يُخصم أي مبلغ. حاول مرة أخرى، أو ادفع بالتحويل.') %></div>
+  </div>
+<% } %>
+
+<div class="pv" data-pv data-order-id="<%= __order.id || '' %>" data-start="<%= __start %>" data-csrf-token="<%= typeof csrfToken !== 'undefined' && csrfToken ? csrfToken : '' %>">
+
+  <div class="pv-grid">
+    <div class="pv-main">
+
+      <% if (__both) { %>
+      <section aria-label="<%= L('Payment method', 'طريقة الدفع') %>">
+        <h2 class="pv-h"><%= L('1. Choose how to pay', '1. اختار طريقة الدفع') %></h2>
+        <div class="pv-tiles">
+          <button type="button" class="pv-tile" data-pv-tile="card" aria-pressed="<%= __start === 'card' ? 'true' : 'false' %>">
+            <span class="pv-tile__top">
+              <span class="pv-tile__t">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"></rect><path d="M2.5 10h19"></path><path d="M6.5 15h4"></path></svg>
+                <%= L('Card or mobile wallet', 'بطاقة أو محفظة موبايل') %>
+              </span>
+              <span class="pv-badge"><%= L('INSTANT', 'فوري') %></span>
+            </span>
+            <span class="pv-tile__d"><%= L('Pay now on ' + __gw + '’s secure page. Your case starts right away.', 'ادفع دلوقتي على صفحة ' + __gw + ' الآمنة. حالتك تبدأ فورًا.') %></span>
+          </button>
+          <button type="button" class="pv-tile" data-pv-tile="transfer" aria-pressed="<%= __start === 'transfer' ? 'true' : 'false' %>">
+            <span class="pv-tile__top">
+              <span class="pv-tile__t">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9.5 12 4l9 5.5"></path><path d="M5 10v8M9.500 10v8M14.500 10v8M19 10v8"></path><path d="M3 20h18"></path></svg>
+                <%= L('InstaPay or bank transfer', 'إنستاباي أو تحويل بنكي') %>
+              </span>
+              <span class="pv-badge pv-badge--brass"><%= L('3 STEPS', '3 خطوات') %></span>
+            </span>
+            <span class="pv-tile__d"><%= L('Send the amount from your bank app. Your case starts once we confirm it.', 'حوّل المبلغ من تطبيق البنك. حالتك تبدأ بعد ما نأكد التحويل.') %></span>
+          </button>
+        </div>
+      </section>
+      <% } %>
+
+      <% if (__cardOn) { %>
+      <section class="pv-card" id="pv-card" data-pv-panel="card" aria-label="<%= L('Pay by card or wallet', 'الدفع بالبطاقة أو المحفظة') %>">
+        <h2 class="pv-h"><%= (__both ? '2. ' : '') + L('Pay by card or wallet', 'ادفع بالبطاقة أو المحفظة') %></h2>
+        <div class="pv-three" style="margin-top:18px;">
+          <div>
+            <div class="pv-point__t"><%= L('You leave this page briefly', 'هتخرج من الصفحة لحظات') %></div>
+            <div class="pv-point__d"><%= L('The button opens ' + __gw + '’s checkout, where you enter your card or wallet number.', 'الزر بيفتح صفحة ' + __gw + '، وهناك بتكتب بيانات البطاقة أو المحفظة.') %></div>
+          </div>
+          <div>
+            <div class="pv-point__t"><%= L('We never see your card', 'إحنا مبنشوفش بطاقتك') %></div>
+            <div class="pv-point__d"><%= L('Card details stay with ' + __gw + '. Tashkheesa only receives the confirmation.', 'بيانات البطاقة بتفضل عند ' + __gw + '. تشخيصة بيوصلها تأكيد الدفع بس.') %></div>
+          </div>
+          <div>
+            <div class="pv-point__t"><%= L('Then you come straight back', 'وبعدها بترجع هنا على طول') %></div>
+            <div class="pv-point__d"><%= L('We confirm here and on WhatsApp, and your case goes to a consultant.', 'بنأكد لك هنا وعلى واتساب، وحالتك تروح للاستشاري.') %></div>
+          </div>
+        </div>
+        <div class="pv-payrow">
+          <button type="button" class="p-btn p-btn--primary pv-paybtn" data-paymob-create-intention data-order-id="<%= __order.id || '' %>">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
+            <span data-pay-label><%= L('Pay ' + money(__total) + ' EGP securely', 'ادفع ' + money(__total) + ' ج.م بأمان') %></span>
+          </button>
+          <div class="pv-hint" style="font-size:13px;"><%= L('Full refund if you cancel before a consultant is assigned.', 'استرداد كامل لو لغيت قبل تعيين الاستشاري.') %></div>
+        </div>
+        <div data-paymob-error role="alert" class="pv-note" style="display:none;margin-top:14px;background:var(--accent-tint);border:1px solid var(--accent-light);color:var(--ink);"></div>
+      </section>
+      <% } %>
+
+      <% if (__mp) { %>
+      <section class="pv-card" id="transfer" data-pv-panel="transfer" aria-label="<%= L('Pay by InstaPay or bank transfer', 'الدفع بإنستاباي أو تحويل بنكي') %>">
+        <h2 class="pv-h"><%= (__both ? '2. ' : '') + L('Pay by InstaPay or bank transfer', 'ادفع بإنستاباي أو تحويل بنكي') %></h2>
+        <div class="pv-sub"><%= L('About two minutes. Nothing is marked paid until we see the money arrive.', 'دقيقتين تقريبًا. الحالة مش بتتسجل مدفوعة غير لما المبلغ يوصل.') %></div>
+
+        <% if (__mp.flash === 'submitted') { %>
+          <div role="status" class="pv-note" style="margin-top:14px;background:var(--accent-tint);border:1px solid var(--accent-light);color:var(--ink-2);"><%= L('Thank you. We have your transfer reference.', 'شكرًا. وصلنا مرجع التحويل.') %></div>
+        <% } %>
+
+        <div class="pv-three" style="margin-top:18px;gap:14px;">
+
+          <div class="pv-step">
+            <div class="pv-step__h"><span class="pv-step__n">1</span><%= L('Send exactly', 'حوّل بالظبط') %></div>
+            <div class="pv-amount"><span class="pv-amount__n" dir="ltr"><%= __mpAmount %></span><span class="pv-amount__c"><%= __cur %></span></div>
+            <dl class="pv-dl">
+              <% if (__hasHandle) { %><dt><%= L('InstaPay', 'إنستاباي') %></dt><dd class="pv-mono" dir="ltr"><%= __mp.instapay.handle %></dd><% } %>
+              <% if (__hasBank && __mp.bank.bankName) { %><dt><%= L('Bank', 'البنك') %></dt><dd><%= __mp.bank.bankName %></dd><% } %>
+              <% if (__hasBank) { %><dt><%= L('Name', 'الاسم') %></dt><dd><%= __mp.bank.accountName %></dd><% } %>
+              <% if (__hasBank && __mp.bank.accountNumber) { %><dt><%= L('Account', 'الحساب') %></dt><dd class="pv-mono" dir="ltr"><%= __mp.bank.accountNumber %></dd><% } %>
+              <% if (__hasBank && __mp.bank.iban) { %><dt>IBAN</dt><dd class="pv-mono" dir="ltr"><%= __mp.bank.iban %></dd><% } %>
+            </dl>
+            <% if (__hasBank && __mp.bank.accountNumber) { %>
+              <button type="button" class="p-btn p-btn--secondary p-btn--sm pv-ghost" data-pv-copy="<%= __mp.bank.accountNumber %>"><%= L('Copy account number', 'انسخ رقم الحساب') %></button>
+            <% } else if (__hasBank && __mp.bank.iban) { %>
+              <button type="button" class="p-btn p-btn--secondary p-btn--sm pv-ghost" data-pv-copy="<%= __mp.bank.iban %>"><%= L('Copy IBAN', 'انسخ الـ IBAN') %></button>
+            <% } else if (__hasHandle) { %>
+              <button type="button" class="p-btn p-btn--secondary p-btn--sm pv-ghost" data-pv-copy="<%= __mp.instapay.handle %>"><%= L('Copy InstaPay address', 'انسخ عنوان إنستاباي') %></button>
+            <% } %>
+            <% if (__mp.instapay && __mp.instapay.link) { %>
+              <a class="p-btn p-btn--secondary p-btn--sm pv-ghost" href="<%= __mp.instapay.link %>" target="_blank" rel="noopener noreferrer"><%= L('Open InstaPay', 'افتح إنستاباي') %></a>
+            <% } %>
+            <% if (__hasBank && __mp.bank.accountNumber) { %>
+              <div class="pv-hint"><%= L('In InstaPay: Send → Bank account → ' + (__mp.bank.bankName || 'the bank above') + ' → paste the number.', 'في إنستاباي: تحويل ← حساب بنكي ← ' + (__mp.bank.bankName || 'البنك') + ' ← الصق الرقم.') %></div>
+            <% } %>
+          </div>
+
+          <div class="pv-step">
+            <div class="pv-step__h"><span class="pv-step__n">2</span><%= L('Add your reference', 'اكتب رقم المرجع') %></div>
+            <div class="pv-refbox" dir="ltr"><%= __mp.reference %></div>
+            <button type="button" class="p-btn p-btn--secondary p-btn--sm pv-ghost" data-pv-copy="<%= __mp.reference %>"><%= L('Copy reference', 'انسخ المرجع') %></button>
+            <div class="pv-hint"><%= L('Paste it in the transfer note, so we know the money is for your case.', 'الصقه في ملاحظة التحويل، عشان نعرف إن المبلغ يخص حالتك.') %></div>
+          </div>
+
+          <div class="pv-step">
+            <div class="pv-step__h"><span class="pv-step__n">3</span><%= __pending ? L('We have it', 'وصلنا') : L('Tell us you sent it', 'قول لنا إنك حوّلت') %></div>
+
+            <% if (__pending) { %>
+              <div role="status" class="pv-note" style="background:var(--surface);border:1px solid var(--rule-strong);">
+                <div style="font-size:13.5px;font-weight:700;color:var(--ink);margin-bottom:4px;"><%= L('We have your transfer reference and are checking it.', 'وصلنا مرجع التحويل ونقوم بمراجعته.') %></div>
+                <div style="color:var(--ink-2);">
+                  <%= __claim.method === 'bank' ? L('Bank transfer', 'تحويل بنكي') : L('InstaPay', 'إنستاباي') %> ·
+                  <span dir="ltr" class="pv-mono"><%= __claim.reference %></span><% if (__when) { %> · <%= __when %><% } %>
+                </div>
+                <div style="color:var(--ink-2);margin-top:6px;"><%= __mp.confirmNote %></div>
+              </div>
+              <a class="p-btn p-btn--secondary p-btn--block" href="<%= __waReceipt %>" target="_blank" rel="noopener noreferrer" style="min-height:44px;"><%= L('Send the receipt on WhatsApp', 'ابعت الإيصال على واتساب') %></a>
+              <details>
+                <summary style="cursor:pointer;font-size:12.5px;color:var(--ink-2);min-height:28px;"><%= L('Sent the wrong reference? Update it', 'أرسلت مرجعًا خاطئًا؟ عدّله') %></summary>
+            <% } %>
+
+            <% if (__rejected) { %>
+              <div role="alert" class="pv-note" style="background:var(--warn-bg);border:1px solid #E6C7A8;color:var(--warn);">
+                <div style="font-size:13px;font-weight:700;margin-bottom:4px;"><%= L('We could not match your last transfer.', 'لم نتمكن من مطابقة آخر تحويل أرسلته.') %></div>
+                <% if (__claim.rejectionReason) { %><div style="color:var(--ink-2);"><%= L('Reason:', 'السبب:') %> <%= __claim.rejectionReason %></div><% } %>
+                <div style="color:var(--ink-2);margin-top:4px;"><%= L('Your case is still saved. Please check the details and send the reference again.', 'حالتك لا تزال محفوظة. راجع التفاصيل وأرسل المرجع مرة أخرى.') %></div>
+              </div>
+            <% } %>
+            <% if (__mpErr) { %>
+              <div role="alert" class="pv-note" style="background:var(--accent-tint);border:1px solid var(--accent-light);color:var(--ink);"><%= __mpErr %></div>
+            <% } %>
+
+              <form method="post" action="/portal/patient/pay/<%= encodeURIComponent(__order.id || '') %>/transfer-claim" style="display:flex;flex-direction:column;gap:10px;">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <% if (__mp.instapay && __mp.bank) { %>
+                  <fieldset style="border:0;padding:0;margin:0;display:flex;gap:6px 14px;flex-wrap:wrap;">
+                    <legend class="p-field__label" style="margin-bottom:4px;"><%= L('How did you pay?', 'دفعت إزاي؟') %></legend>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:32px;"><input type="radio" name="method" value="instapay" <%= __defaultMethod === 'instapay' ? 'checked' : '' %> /> <%= L('InstaPay', 'إنستاباي') %></label>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:32px;"><input type="radio" name="method" value="bank" <%= __defaultMethod === 'bank' ? 'checked' : '' %> /> <%= L('Bank transfer', 'تحويل بنكي') %></label>
+                  </fieldset>
+                <% } else { %>
+                  <input type="hidden" name="method" value="<%= __mp.instapay ? 'instapay' : 'bank' %>" />
+                <% } %>
+                <div class="p-field">
+                  <label class="p-field__label" for="mp_reference"><%= L('Transfer reference, or the time you sent it', 'مرجع التحويل، أو وقت التحويل') %></label>
+                  <input class="p-field__input" id="mp_reference" name="reference" type="text" required minlength="3" maxlength="80" dir="auto" autocomplete="off"
+                         value="<%= __fv.reference != null ? __fv.reference : '' %>"
+                         placeholder="<%= L('e.g. InstaPay 17:35', 'مثال: إنستاباي 5:35') %>" />
+                </div>
+                <details>
+                  <summary style="cursor:pointer;font-size:12.5px;color:var(--ink-2);min-height:28px;"><%= L('Sent from someone else’s account? Add their name', 'التحويل من حساب حد تاني؟ اكتب اسمه') %></summary>
+                  <div class="p-field" style="margin-top:6px;">
+                    <label class="p-field__label" for="mp_sender"><%= L('Name on the sending account', 'اسم صاحب الحساب المُحوِّل') %></label>
+                    <input class="p-field__input" id="mp_sender" name="sender_name" type="text" maxlength="80" autocomplete="name" value="<%= __fv.sender_name != null ? __fv.sender_name : '' %>" />
+                  </div>
+                </details>
+                <button type="submit" class="p-btn p-btn--primary p-btn--block" style="min-height:46px;font-weight:700;"><%= L('I have sent the transfer', 'أرسلت التحويل') %></button>
+                <% if (!__pending) { %>
+                  <a href="<%= __waReceipt %>" target="_blank" rel="noopener noreferrer" style="font-size:13.5px;font-weight:600;text-decoration:none;color:var(--primary);min-height:44px;display:flex;align-items:center;gap:8px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1.400-4.200A8 8 0 1 1 8.300 18.700L4 20z"></path></svg>
+                    <%= L('Send the receipt on WhatsApp', 'ابعت الإيصال على واتساب') %>
+                  </a>
+                <% } %>
+              </form>
+
+            <% if (__pending) { %></details><% } %>
+          </div>
+
+        </div>
+
+        <div class="pv-foot">
+          <% if (__mp.relationshipNote) { %><%= __mp.relationshipNote %> <% } %><%= __mp.confirmNote %>
+        </div>
+      </section>
+      <% } %>
+
+    </div>
+
+    <aside class="pv-side" aria-label="<%= L('Good to know', 'معلومات تهمك') %>">
+      <div class="pv-card pv-assure" style="padding:20px 22px;">
+        <div class="pv-assure__row">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.500-3 8.200-7 10-4-1.800-7-5.500-7-10V6l7-3z"></path><path d="M9 12l2 2 4-4"></path></svg>
+          <span><%= L('Full refund if no consultant accepts your case, or if you cancel before one is assigned.', 'استرداد كامل لو مفيش استشاري قبل حالتك، أو لو لغيت قبل تعيين الاستشاري.') %></span>
+        </div>
+        <div class="pv-assure__row">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+          <span><%= L('The ' + __hours + ' hours start when payment is confirmed.', 'الـ ' + __hours + ' ساعة بتبدأ من وقت تأكيد الدفع.') %></span>
+        </div>
+        <% if (__tier === 'urgent') { %>
+          <%- include('partials/urgent-window-note', { style: 'font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.5;' }) %>
+        <% } %>
+      </div>
+      <a class="pv-card pv-help" href="<%= __waHelp %>" target="_blank" rel="noopener noreferrer" style="padding:14px 22px;">
+        <span><%= L('Stuck? Ask us on WhatsApp', 'محتاج مساعدة؟ كلمنا واتساب') %></span>
+        <span dir="ltr">+20 110 200 9886</span>
+      </a>
+    </aside>
+  </div>
+
+  <section class="pv-card" aria-label="<%= L('Your case', 'حالتك') %>">
+    <h2 class="pv-h"><%= L('Your case', 'حالتك') %></h2>
+    <div class="pv-case" style="margin-top:14px;">
+      <div>
+        <div style="font-size:16px;font-weight:600;color:var(--ink);"><%= __order.service_name || '' %></div>
+        <div class="pv-sub" style="margin-top:4px;"><%= __specialty %><%= __specialty ? ' · ' : '' %><%= __tierLabel %></div>
+        <div class="pv-sub" style="margin-top:10px;"><%= L('Case reference', 'رقم الحالة') %> <span class="pv-mono" dir="ltr" style="color:var(--ink);font-weight:600;"><%= __ref %></span></div>
+
+        <div style="margin-top:16px;max-width:420px;">
+          <label class="p-field__label" for="pv_code"><%= L('Referral code', 'كود الخصم') %></label>
+          <% if (__code) { %>
+            <div class="pv-code">
+              <input class="p-field__input" id="pv_code" type="text" value="<%= __code %>" readonly dir="ltr" />
+              <span style="display:flex;align-items:center;font-size:13.5px;font-weight:700;color:var(--primary);padding:0 6px;"><%= L('Applied', 'تم التطبيق') %></span>
+            </div>
+          <% } else { %>
+            <div class="pv-code">
+              <input class="p-field__input" id="pv_code" type="text" maxlength="20" dir="ltr" autocomplete="off" placeholder="<%= L('Enter a code', 'اكتب الكود') %>" />
+              <button type="button" class="p-btn p-btn--secondary" id="pv_code_btn" style="min-height:44px;white-space:nowrap;"><%= L('Apply', 'تطبيق') %></button>
+            </div>
+            <div id="pv_code_msg" role="status" class="pv-hint" style="display:none;margin-top:6px;"></div>
+          <% } %>
+        </div>
+      </div>
+
+      <div>
+        <div class="pv-lines">
+          <div class="pv-line"><span style="color:var(--ink-2);"><%= L('Service fee', 'رسوم الخدمة') %></span><span style="font-weight:600;" dir="ltr"><%= money(__fee) %> <%= __cur %></span></div>
+          <% if (__discount > 0) { %>
+            <div class="pv-line" style="color:var(--primary);"><span><%= L('Code ', 'كود ') %><span dir="ltr"><%= __code %></span><%= __pct ? L(' · ' + __pct + '% off', ' · خصم ' + __pct + '%') : '' %></span><span style="font-weight:600;" dir="ltr">−<%= money(__discount) %> <%= __cur %></span></div>
+          <% } %>
+        </div>
+        <div class="pv-total">
+          <span style="font-size:14px;font-weight:700;"><%= L('Total today', 'الإجمالي') %></span>
+          <span style="display:flex;align-items:baseline;gap:6px;"><span class="pv-total__n" dir="ltr"><%= money(__total) %></span><span style="font-size:14px;font-weight:600;color:var(--ink-2);"><%= __cur %></span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <a class="p-btn p-btn--ghost p-btn--sm" href="/dashboard" style="align-self:flex-start;"><%= L('Back to dashboard', 'العودة إلى الرئيسية') %></a>
+</div>
+
+<script<% if (__nonce) { %> nonce="<%= __nonce %>"<% } %>>
+(function () {
+  var root = document.querySelector('[data-pv]');
+  if (!root) return;
+  var T = <%- JSON.stringify(__payL) %>;
+  var orderId = root.getAttribute('data-order-id') || '';
+  var csrf = root.getAttribute('data-csrf-token') || '';
+
+  // ── method chooser ───────────────────────────────────────────────────────
+  var panels = { card: document.getElementById('pv-card'), transfer: document.getElementById('transfer') };
+  var tiles = root.querySelectorAll('[data-pv-tile]');
+  function show(which, scroll) {
+    if (!panels.card || !panels.transfer) return;
+    Object.keys(panels).forEach(function (k) { panels[k].style.display = (k === which) ? '' : 'none'; });
+    tiles.forEach(function (t) { t.setAttribute('aria-pressed', t.getAttribute('data-pv-tile') === which ? 'true' : 'false'); });
+    if (scroll && window.matchMedia && window.matchMedia('(max-width: 1080px)').matches && panels[which].scrollIntoView) {
+      panels[which].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+  if (tiles.length) {
+    tiles.forEach(function (t) { t.addEventListener('click', function () { show(t.getAttribute('data-pv-tile'), true); }); });
+    var start = root.getAttribute('data-start') === 'transfer' ? 'transfer' : 'card';
+    if (String(window.location.hash || '') === '#transfer') start = 'transfer';
+    show(start, false);
+  }
+
+  // ── copy buttons ─────────────────────────────────────────────────────────
+  root.querySelectorAll('[data-pv-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = btn.getAttribute('data-pv-copy') || '';
+      var orig = btn.textContent;
+      function done() { btn.textContent = T.copied; setTimeout(function () { btn.textContent = orig; }, 1500); }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () {});
+      } else {
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'absolute'; ta.style.left = '-9999px';
+          document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done();
+        } catch (_) {}
+      }
+    });
+  });
+
+  // ── card: same contract as the old page's Pay button ─────────────────────
+  var payBtn = root.querySelector('[data-paymob-create-intention]');
+  var errEl = root.querySelector('[data-paymob-error]');
+  function payErr(msg) { if (errEl) { errEl.style.display = msg ? 'block' : 'none'; errEl.textContent = msg || ''; } }
+  if (payBtn) {
+    var label = payBtn.querySelector('[data-pay-label]');
+    payBtn.addEventListener('click', async function () {
+      if (!orderId) return;
+      payErr('');
+      var orig = label ? label.textContent : '';
+      payBtn.disabled = true;
+      if (label) label.textContent = T.preparing;
+      function restore() { payBtn.disabled = false; if (label) label.textContent = orig; }
+      var res;
+      try {
+        res = await fetch('/payments/paymob/create-intention', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'x-csrf-token': csrf },
+          body: JSON.stringify({ orderId: orderId, addons: { video_consultation: false, prescription: false } })
+        });
+      } catch (e) {
+        payErr(T.networkError); restore(); return;
+      }
+      var data = null;
+      try { data = await res.json(); } catch (_) {}
+      if (res.ok && data && data.checkoutUrl) { window.location.href = data.checkoutUrl; return; }
+      var code = data && data.error;
+      if (code === 'already_paid') {
+        window.location.href = '/portal/patient/orders/' + encodeURIComponent(orderId) + '/payment-success'; return;
+      }
+      if (code === 'case_not_submitted') {
+        window.location.href = '/patient/new-case?resume=' + encodeURIComponent(orderId); return;
+      }
+      if (code === 'patient_profile_incomplete') {
+        var f = (data && Array.isArray(data.fields)) ? data.fields : [];
+        payErr(T.profileIncomplete + (f.length ? f.join(', ') : '—'));
+      } else if (code === 'paymob_unavailable' || res.status === 502 || res.status === 503) {
+        payErr(T.unavailable);
+      } else {
+        payErr(T.generic);
+      }
+      restore();
+    });
+  }
+
+  // ── referral code ────────────────────────────────────────────────────────
+  var codeBtn = document.getElementById('pv_code_btn');
+  var codeIn = document.getElementById('pv_code');
+  var codeMsg = document.getElementById('pv_code_msg');
+  function codeSay(msg, ok) {
+    if (!codeMsg) return;
+    codeMsg.style.display = msg ? 'block' : 'none';
+    codeMsg.style.color = ok ? 'var(--primary)' : '#991b1b';
+    codeMsg.textContent = msg || '';
+  }
+  if (codeBtn && codeIn) {
+    codeBtn.addEventListener('click', function () {
+      var code = String(codeIn.value || '').trim().toUpperCase();
+      if (!code) return;
+      codeBtn.disabled = true; codeBtn.textContent = T.applying; codeSay('', true);
+      fetch('/api/referral/apply', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'x-csrf-token': csrf },
+        body: JSON.stringify({ code: code, order_id: orderId })
+      }).then(function (r) { return r.json(); }).then(function (data) {
+        if (data && data.ok) {
+          // The server has re-priced the order. Reload so every figure on the
+          // page (total, pay button, "Send exactly") comes from the order.
+          window.location.reload();
+          return;
+        }
+        codeSay((data && data.error) || T.codeInvalid, false);
+        codeBtn.disabled = false; codeBtn.textContent = T.apply;
+      }).catch(function () {
+        codeSay(T.networkError, false);
+        codeBtn.disabled = false; codeBtn.textContent = T.apply;
+      });
+    });
+  }
+})();
+</script>
+
+<%- include('partials/patient/foot', { active: 'cases', isAr: __isAr, cspNonce: __nonce }) %>

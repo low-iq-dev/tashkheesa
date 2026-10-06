@@ -3750,6 +3750,10 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
             o.service_id,
             o.price,
             o.base_price,
+            o.urgency_tier,
+            o.reference_id,
+            o.referral_code,
+            o.referral_discount,
             sv.name AS service_name,
             sp.name AS specialty_name,
             sp.name_ar AS specialty_name_ar
@@ -3979,6 +3983,25 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
       // The transfer block is additive: if it cannot be built the page still
       // renders exactly as it would with the flag off.
       logErrorToDb(mpErr, { context: 'patient.pay_page.manual_payment', orderId, userId: patientId, category: 'payment' });
+    }
+  }
+
+  // CHECKOUT V2 (2026-10-06) — views/patient_pay_v2.ejs. The redesigned page
+  // (two method tiles, the chosen method across the main column, the case
+  // summary beneath) for the cases it was designed for: a domestic EGP order
+  // with no card-only add-ons, reached through the internal pay link, where the
+  // transfer path and/or the Kashier card path is on. Anything else — add-ons,
+  // an international display price, an external payment link, the legacy
+  // Paymob-only default — keeps the old view, untouched.
+  {
+    const kashierOn = require('../services/kashier').isSelected();
+    const hasWayToPay = !!payRenderCommon.manualPayment || (kashierOn && payRenderCommon.cardEnabled);
+    if (hasWayToPay && (payRenderCommon.manualPayment || kashierOn) &&
+        !serviceHasAddons && !isIntlOrderRow && (!rawPaymentLink || isInternalFallback)) {
+      return res.render('patient_pay_v2', Object.assign({}, payRenderCommon, {
+        // Card only when it can actually be minted for this patient.
+        cardEnabled: !!(payRenderCommon.cardEnabled && (kashierOn || !payRenderCommon.manualPayment))
+      }));
     }
   }
 
