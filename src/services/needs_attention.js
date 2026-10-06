@@ -328,7 +328,11 @@ async function defaultPushEvent(item, step) {
     title: (PUSH_TITLES[item.kind] || item.kind.replace(/_/g, ' ')) + (step > 0 ? ' — still open' : ''),
     body: (item.who && item.kind !== 'specialty_uncovered' ? item.who + ': ' : '') +
           String(item.summary || '').slice(0, 160) + ' · waiting ' + ageLabel(item.waiting_minutes),
-    data: { screen: 'attention', attentionKind: item.kind, ref: item.ref, step: step },
+    // `screen` is the route for a Command build that has the Attention screen.
+    // A paid case with no doctor also carries caseId, which every existing
+    // build already routes to the case — where the assign button is.
+    data: Object.assign({ screen: 'attention', attentionKind: item.kind, ref: item.ref, step: step },
+      item.kind === 'paid_unassigned' ? { caseId: item.ref } : {}),
     orderId: item.kind === 'paid_unassigned' ? item.ref : null,
   });
 }

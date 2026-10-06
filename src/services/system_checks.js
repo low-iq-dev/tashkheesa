@@ -436,7 +436,12 @@ const INTERNAL = [
     return {
       check_key: 'site.workers', area: 'site', status: down.length ? 'fail' : 'ok',
       summary: down.length ? 'Down: ' + down.map((w) => w.name).join(', ')
-        : ws.filter((w) => w.status === 'alive').length + ' of ' + ws.length + ' workers alive',
+        : (function () {
+          const alive = ws.filter((w) => w.status === 'alive').length;
+          const starting = ws.length - alive;
+          // 'starting' = the instance has only just woken; not a failure.
+          return alive + ' of ' + ws.length + ' workers alive' + (starting ? ', ' + starting + ' starting up' : '');
+        })(),
       detail: { workers: ws.map((w) => ({ name: w.name, status: w.status, age_sec: w.ageSec })) },
     };
   },
