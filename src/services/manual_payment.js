@@ -83,6 +83,22 @@ function isCardPaymentEnabled() {
 }
 
 /**
+ * Is the CARD path on for THIS patient? (2026-10-05, Kashier.)
+ *
+ * CARD_PAYMENT_ENABLED stays the master switch. With CARD_PROVIDER=kashier the
+ * card path additionally needs Kashier to be available to this account: the
+ * three credentials present, and — in TEST mode — the patient named in
+ * KASHIER_TEST_PATIENT_IDS (services/kashier.js explains why). With any other
+ * provider this is exactly isCardPaymentEnabled(), so nothing changes.
+ */
+function isCardPaymentEnabledFor(patientId) {
+  if (!isCardPaymentEnabled()) return false;
+  const kashier = require('./kashier');
+  if (kashier.isSelected()) return kashier.isAvailableForPatient(patientId);
+  return true;
+}
+
+/**
  * The manual-payment configuration as of THIS request.
  *
  * `enabled` is true only when MANUAL_PAYMENT_ENABLED is on AND at least one
@@ -611,6 +627,7 @@ module.exports = {
   DEFAULT_CONFIRM_NOTE_AR,
   envFlag,
   isCardPaymentEnabled,
+  isCardPaymentEnabledFor,
   readManualPaymentConfig,
   isManualPaymentEnabled,
   localizedNote,

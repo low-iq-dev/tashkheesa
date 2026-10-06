@@ -2058,7 +2058,7 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     uploadedFlash: !!(req.query && req.query.uploaded),
     // Soft launch 2026-09-25 — Step 5 must describe the payment path that is
     // actually on. Read per request like the pay page (manual_payment.js).
-    cardEnabled: manualPayment.isCardPaymentEnabled(),
+    cardEnabled: manualPayment.isCardPaymentEnabledFor(req.user && req.user.id),
     transferEnabled: manualPayment.isManualPaymentEnabled(),
     // Theme 14 Phase 3 — AI specialty recommendation. Populated by the
     // step===3 branch above from the latest specialty_classifications row
@@ -2991,6 +2991,65 @@ router.get('/portal/patient/payment-return', requireRole('patient'), async (req,
   return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId) + '/payment-success');
 });
 
+// GET /portal/patient/payment-return/k/:id — Kashier redirect landing (2026-10-05).
+//
+// Kashier sends the browser here after the hosted checkout, with its own
+// parameters appended (paymentStatus, merchantOrderId, signature, …). The
+// order id is in the PATH because Kashier appends a query string of its own to
+// merchantRedirect.
+//
+// Exactly like the Paymob landing above, this is a DISPLAY decision only:
+// nothing here writes payment_status. POST /payments/kashier/webhook is the
+// sole source of truth for money, and the success page re-reads the database.
+//
+// No requireRole: the mobile app opens the checkout in a browser that has no
+// web session. A visitor without a session (or who does not own the order)
+// gets a neutral page that reveals nothing about the order.
+router.get('/portal/patient/payment-return/k/:id', async (req, res) => {
+  const orderId = String(req.params.id || '').trim();
+  const q = req.query || {};
+  const kStatus = String(q.paymentStatus || q.status || '').trim().toUpperCase();
+  const failed = (kStatus === 'FAILURE' || kStatus === 'FAILED' || kStatus === 'CANCELLED' || kStatus === 'CANCELED');
+
+  let owned = null;
+  if (orderId && req.user && req.user.id && String(req.user.role || '').toLowerCase() === 'patient') {
+    try {
+      owned = await queryOne(
+        'SELECT id FROM orders_active WHERE id = $1 AND patient_id = $2',
+        [orderId, req.user.id]
+      );
+    } catch (_) { owned = null; }
+  }
+
+  if (!owned) {
+    const isAr = String(getLang(req, res) || 'ar').toLowerCase() !== 'en';
+    res.set('Cache-Control', 'no-store');
+    res.set('X-Robots-Tag', 'noindex');
+    return res.status(200).send(
+      '<!doctype html><html lang="' + (isAr ? 'ar' : 'en') + '" dir="' + (isAr ? 'rtl' : 'ltr') + '">' +
+      '<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+      '<meta name="robots" content="noindex"><title>Tashkheesa</title></head>' +
+      '<body style="margin:0;font-family:system-ui,-apple-system,Segoe UI,Tahoma,sans-serif;background:#F8F5EF;color:#12312C;">' +
+      '<div style="max-width:420px;margin:18vh auto 0;padding:28px 24px;text-align:center;">' +
+      '<h1 style="font-size:22px;margin:0 0 12px;">' +
+      (failed
+        ? (isAr ? 'الدفع لم يكتمل' : 'Payment was not completed')
+        : (isAr ? 'شكراً — جاري تأكيد الدفع' : 'Thank you — confirming your payment')) +
+      '</h1><p style="font-size:15px;line-height:1.7;margin:0 0 20px;color:#3d5a55;">' +
+      (failed
+        ? (isAr ? 'لم يتم خصم أي مبلغ. ارجع للتطبيق أو لحسابك وحاول مرة أخرى.' : 'Nothing was charged. Go back to the app or your account and try again.')
+        : (isAr ? 'ارجع للتطبيق أو لحسابك. هنبعتلك تأكيد على الواتساب أول ما الدفع يتأكد.' : 'Go back to the app or your account. We will confirm on WhatsApp as soon as the payment is verified.')) +
+      '</p><a href="/dashboard" style="display:inline-block;padding:12px 22px;border-radius:10px;background:#0B6B5F;color:#fff;text-decoration:none;font-weight:600;">' +
+      (isAr ? 'حسابي' : 'My account') + '</a></div></body></html>'
+    );
+  }
+
+  if (failed) {
+    return res.redirect('/portal/patient/pay/' + encodeURIComponent(orderId) + '?failed=1');
+  }
+  return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId) + '/payment-success');
+});
+
 // GET /portal/patient/orders/:id/payment-success — post-payment landing page.
 // Re-queries the DB on every visit; never trusts redirect query params for
 // state. Handles the "we're confirming your payment" interim case when the
@@ -3897,7 +3956,7 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
   // no query and the view renders byte-identical to before. The transfer
   // amount comes from the service's transferAmountForOrder — the same
   // owedCentsForOrder(price, persisted addons_json) the Paymob mint charges.
-  payRenderCommon.cardEnabled = manualPayment.isCardPaymentEnabled();
+  payRenderCommon.cardEnabled = manualPayment.isCardPaymentEnabledFor(patientId);
   payRenderCommon.manualPayment = null;
   if (manualPayment.isManualPaymentEnabled()) {
     try {

@@ -292,6 +292,30 @@ services:
       - key: PAYMOB_NOTIFICATION_URL
         value: https://tashkheesa.com/payments/callback
 
+      # ── Card gateway: Kashier (2026-10-05) ───────────────────────────────
+      # Hosted Payment Sessions. Nothing here is fatal at boot and nothing
+      # changes until CARD_PROVIDER=kashier is set — see src/services/kashier.js.
+      #
+      #   CARD_PROVIDER             set to `kashier` to route the card button
+      #                             (web + app) to Kashier instead of Paymob.
+      #   CARD_PAYMENT_ENABLED      still the master switch; must be true.
+      #   KASHIER_MODE              `test` (default) or `live`. Test and live
+      #                             have DIFFERENT keys in the Kashier dashboard.
+      #   KASHIER_TEST_PATIENT_IDS  comma-separated users.id. In test mode the
+      #                             card button exists ONLY for these accounts,
+      #                             and only their cases can be settled by a
+      #                             test webhook. Ignored in live mode.
+      #
+      # Webhook: the URL is sent per session (serverWebhook), so nothing has to
+      # be registered in the Kashier dashboard:
+      #   https://tashkheesa.com/payments/kashier/webhook
+      - key: KASHIER_MERCHANT_ID
+        sync: false
+      - key: KASHIER_PAYMENT_API_KEY
+        sync: false
+      - key: KASHIER_SECRET_KEY
+        sync: false
+
       # ── File storage: Uploadcare (prodRequired) ──────────────────────────
       # The patient new-case wizard and doctor signup load the widget with this
       # key; unset renders the widget unconfigured and patients cannot upload.

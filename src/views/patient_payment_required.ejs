@@ -1,4 +1,5 @@
 <%
+  const __gw = (String(process.env.CARD_PROVIDER || '').trim().toLowerCase() === 'kashier') ? 'Kashier' : 'Paymob'; // card gateway name shown to the patient
   // Payment-required page — V2 chrome. Reached when a patient lands on a case
   // that hasn't been paid for (e.g., session expiry or returning to an unpaid
   // case). Reuses the wizard Step 5 visual idioms (brass total, Pay button,
@@ -478,7 +479,7 @@
               <input type="hidden" id="addon_sla_hidden" name="addon_sla_24hr" value="0">
               <input type="hidden" id="addon_prescription_hidden" name="addon_prescription" value="0">
               <button type="submit" class="p-btn p-btn--primary p-btn--lg p-btn--block">
-                <%= tt('Pay securely with Paymob', 'Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
+                <%= tt('Pay securely with Paymob', 'Pay securely with Paymob', 'ادفع بأمان عبر Paymob').split('Paymob').join(__gw) %>
               </button>
             </form>
             <button type="button" class="p-btn p-btn--ghost p-btn--sm p-btn--block"
@@ -492,7 +493,7 @@
                     data-paymob-create-intention
                     data-order-id="<%= __order.id || '' %>"
                     style="margin-top:14px;">
-              <%= tt('Pay securely with Paymob', 'Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
+              <%= tt('Pay securely with Paymob', 'Pay securely with Paymob', 'ادفع بأمان عبر Paymob').split('Paymob').join(__gw) %>
             </button>
             <div data-paymob-error
                  style="display:none;margin-top:10px;padding:10px 12px;background:var(--accent-tint);border:1px solid var(--accent-light);border-radius:8px;font-size:12.5px;line-height:1.5;color:var(--ink-2);"></div>
@@ -535,7 +536,7 @@
               <input type="hidden" id="addon_video_hidden" name="addon_video_consultation" value="0">
               <input type="hidden" id="addon_sla_hidden" name="addon_sla_24hr" value="0">
               <button type="submit" class="p-btn p-btn--primary p-btn--lg p-btn--block">
-                <%= tt('Pay securely with Paymob', 'Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
+                <%= tt('Pay securely with Paymob', 'Pay securely with Paymob', 'ادفع بأمان عبر Paymob').split('Paymob').join(__gw) %>
               </button>
             </form>
             <button type="button" class="p-btn p-btn--ghost p-btn--sm p-btn--block"
@@ -548,7 +549,7 @@
                     class="p-btn p-btn--primary p-btn--lg p-btn--block"
                     data-paymob-create-intention
                     data-order-id="<%= __order.id || '' %>">
-              <%= tt('Pay securely with Paymob', 'Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
+              <%= tt('Pay securely with Paymob', 'Pay securely with Paymob', 'ادفع بأمان عبر Paymob').split('Paymob').join(__gw) %>
             </button>
             <div data-paymob-error
                  style="display:none;margin-top:10px;padding:10px 12px;background:var(--accent-tint);border:1px solid var(--accent-light);border-radius:8px;font-size:12.5px;line-height:1.5;color:var(--ink-2);"></div>

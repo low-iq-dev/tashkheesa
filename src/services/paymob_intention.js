@@ -55,7 +55,7 @@ async function ensurePaymentLinkForOrder({ orderId, patientId, redirectionUrl })
 
   // Scope to patientId so one patient can never mint against another's order.
   const order = await queryOne(
-    `SELECT id, patient_id, payment_status, price, currency, payment_link, addons_json, service_id
+    `SELECT id, patient_id, status, payment_status, price, currency, payment_link, paymob_intention_id, addons_json, service_id
        FROM orders_active
       WHERE id = $1 AND patient_id = $2`,
     [id, patientId]
@@ -64,6 +64,34 @@ async function ensurePaymentLinkForOrder({ orderId, patientId, redirectionUrl })
 
   if (String(order.payment_status || '').toLowerCase() === 'paid') {
     return { alreadyPaid: true };
+  }
+
+  // ── KASHIER (2026-10-05) ───────────────────────────────────────────────
+  // CARD_PROVIDER=kashier: the app's payment link is a Kashier hosted session.
+  // Same amount helper as the web button and the webhook. Sessions expire, so
+  // the stored link is NOT returned blindly — ensureKashierCheckout re-uses it
+  // only while it is fresh and still for the amount owed.
+  {
+    const kashier = require('./kashier');
+    if (kashier.isSelected()) {
+      if (!kashier.isAvailableForPatient(patientId)) throw err('card_unavailable', 'CARD_UNAVAILABLE');
+      const { isPayableStatus } = require('../case_lifecycle');
+      if (!isPayableStatus(order.status)) throw err('case_not_submitted', 'CASE_NOT_SUBMITTED');
+      const kAmount = Number(order.price);
+      if (!Number.isFinite(kAmount) || kAmount <= 0) throw err('invalid_amount', 'INVALID_AMOUNT');
+      const kCurrency = String(order.currency || 'EGP').toUpperCase();
+      if (kCurrency !== 'EGP') throw err('unsupported_currency', 'UNSUPPORTED_CURRENCY');
+      const { ensureKashierCheckout } = require('./kashier_checkout');
+      const lang = await queryOne('SELECT lang FROM users WHERE id = $1', [patientId]);
+      const out = await ensureKashierCheckout({
+        order: order,
+        amountCents: owedCentsForOrder({ price: order.price, addons_json: order.addons_json || null }),
+        currency: kCurrency,
+        lang: (lang && lang.lang) || 'ar',
+        source: 'mobile_pay_page'
+      });
+      return { checkoutUrl: out.checkoutUrl };
+    }
   }
 
   // IDEMPOTENT: a link already exists → reuse it, never mint a second intention.
