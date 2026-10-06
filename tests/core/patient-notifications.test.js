@@ -127,6 +127,15 @@ try {
     'the report is the product — if one push exists it is this one');
   expect(push.isPushWorthy('new_message'), 'a human talking to them should reach the phone');
   expect(push.isPushWorthy('payment_failed_patient'), 'a failed payment needs action');
+  for (const loud of ['order_breached_patient', 'order_reassigned_patient',
+    'urgent_case_window_deferred_patient', 'video_slot_proposed',
+    'video_no_show_patient', 'video_doctor_no_show_patient']) {
+    expect(push.isPushWorthy(loud),
+      loud + ' must push — it changes when or by whom the patient is served');
+    expect(new RegExp('\\b' + loud + ':\\s*\\{').test(
+      require('fs').readFileSync(require('path').join(__dirname, '../../src/notify/notification_titles.js'), 'utf8')),
+      loud + ' needs a title — a push with no title is dropped');
+  }
   for (const quiet of ['sla_reminder_24h', 'sla_reminder_6h', 'sla_reminder_1h']) {
     expect(!push.isPushWorthy(quiet),
       quiet + ' must NOT push — the patient cannot act on a deadline the doctor owns, and ' +

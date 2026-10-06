@@ -72,6 +72,12 @@ const PUSH_TEMPLATES = Object.freeze({
   additional_files_requested_patient:{ screen: 'case-detail' },
   prescription_uploaded_patient:     { screen: 'case-detail' },
   prescription_recommended_patient:  { screen: 'case-detail' },
+  // 2026-10-06 — three things that change WHEN or BY WHOM the report arrives.
+  // Each was in the in-app list only, so a patient who was not looking at the
+  // app learned of a delay by the report simply not turning up.
+  order_reassigned_patient:          { screen: 'case-detail' },
+  order_breached_patient:            { screen: 'case-detail' },
+  urgent_case_window_deferred_patient: { screen: 'case-detail' },
 
   // A human is talking to them.
   new_message:                       { screen: 'chat' },
@@ -87,6 +93,11 @@ const PUSH_TEMPLATES = Object.freeze({
   video_appointment_rescheduled:     { screen: 'case-detail' },
   video_appointment_cancelled:       { screen: 'case-detail' },
   video_call_started:                { screen: 'case-detail' },
+  // 2026-10-06 — the doctor proposed another time (theirs to accept), and
+  // the two "the call did not happen" outcomes.
+  video_slot_proposed:               { screen: 'case-detail' },
+  video_no_show_patient:             { screen: 'case-detail' },
+  video_doctor_no_show_patient:      { screen: 'case-detail' },
 });
 
 // Deliberately NOT pushed, recorded here so the next person does not have to
