@@ -30,6 +30,14 @@ const WORKER_SPECS = [
   // intake doors failed silently before this existed precisely because nothing
   // reported its own absence. 40 minutes is ~2.5 intervals.
   { key: 'attention_sweep', staleSeconds: 40 * 60 },
+  // 2026-10-06 (watchtower) — the check registry worker (services/
+  // system_checks.js) runs every 5 minutes. It writes the portal's own checks
+  // AND is the only thing that pushes a status change for ANY check, including
+  // rows Claude's scheduled runs write by SQL — so if it stops, every check
+  // goes quiet at once. Registered here for the same reason as the sweep
+  // above: the watcher must not be the only thing that knows it is dead.
+  // 12 minutes is ~2.5 intervals, the same budget as case_sla_worker.
+  { key: 'system_checks', staleSeconds: 12 * 60 },
 ];
 
 /**

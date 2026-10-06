@@ -12,6 +12,7 @@
 //   uploaded       … of those, got past Documents     orders_active.draft_step >= 2
 //   submitted      … of those, submitted              status <> DRAFT
 //   paid           payments recorded that day         paid_at
+//   delivered      reports delivered that day         completed_at  (6 Oct: Command digest)
 // Staff/test accounts (@tashkheesa.com, @shifaegypt.com) are excluded.
 //
 // Page views are de-duplicated per visitor per day in memory (a hash of IP +
@@ -134,6 +135,16 @@ async function computeFunnel(day) {
        FROM orders_active o JOIN users u ON u.id = o.patient_id
       WHERE ${SKIP_EMAIL_SQL} AND o.payment_status = 'paid'
         AND o.paid_at >= ${bounds} AND o.paid_at < ${boundsEnd}`);
+  // 6 Oct 2026 — reports delivered that day, for the Command digest push.
+  // completed_at is what every delivery path stamps (services/business_pulse.js
+  // reads the same column); practice and demo cases are not deliveries.
+  await one('delivered',
+    `SELECT COUNT(*)::int AS n
+       FROM orders_active o JOIN users u ON u.id = o.patient_id
+      WHERE ${SKIP_EMAIL_SQL}
+        AND COALESCE(o.is_practice,false) = false
+        AND COALESCE(o.source,'') NOT IN ('practice_seed','demo_appreview')
+        AND o.completed_at >= ${bounds} AND o.completed_at < ${boundsEnd}`);
   return out;
 }
 
@@ -181,6 +192,7 @@ function formatDigest(f, since) {
     'Submitted: ' + fmt(f.submitted) + pct(f.submitted, f.uploaded),
     'Paid: ' + fmt(f.paid) + (f.paid_amount ? ' · EGP ' + Number(f.paid_amount).toLocaleString('en-US') : ''),
   ];
+  if (f.delivered !== undefined) lines.push('Reports delivered: ' + fmt(f.delivered));
   const camps = Object.keys(f).filter(function (k) { return k.indexOf('_view@') !== -1; }).sort();
   if (camps.length) {
     lines.push('', 'By ad campaign (landing views):');
@@ -201,8 +213,75 @@ function previousCairoDay(now) {
 }
 
 /**
+ * The body of the daily Command push. Pure: one line a founder can read on a
+ * lock screen — what is waiting, what is broken, what happened yesterday.
+ * A count that could not be read is shown as '?', never as 0.
+ */
+function formatOpsDigest(o) {
+  const n = (v) => (v === null || v === undefined) ? '?' : String(v);
+  const parts = [];
+  parts.push(n(o.attentionOpen) + ' waiting' + (o.attentionLoud ? ' (' + o.attentionLoud + ' urgent)' : ''));
+  const checks = [];
+  if (o.checksFailing === null || o.checksFailing === undefined) checks.push('checks ?');
+  else {
+    if (o.checksFailing) checks.push(o.checksFailing + ' failing');
+    if (o.checksStale) checks.push(o.checksStale + ' stale');
+    if (!checks.length) checks.push('all checks ok');
+  }
+  parts.push(checks.join(', '));
+  parts.push('yesterday ' + n(o.paid) + ' paid, ' + n(o.delivered) + ' delivered');
+  return parts.join(' · ');
+}
+
+/**
+ * 6 Oct 2026 (watchtower) — the one quiet push a day.
+ *
+ * Open attention items, failing and stale checks, yesterday's paid and
+ * delivered counts. Sent from the same once-a-day claim as the WhatsApp funnel
+ * digest rather than a second scheduler, as kind `daily_digest` (quiet), and
+ * it opens the System screen (data.screen = 'system').
+ *
+ * Each number is read on its own, so one failing source shows a '?' instead
+ * of costing the whole digest. Never throws.
+ */
+async function pushOpsDigest(day, f, deps) {
+  const d = deps || {};
+  const o = { paid: f ? f.paid : null, delivered: f ? f.delivered : null,
+              attentionOpen: null, attentionLoud: 0, checksFailing: null, checksStale: 0 };
+  try {
+    const na = d.attention || require('./needs_attention');
+    const items = (await na.listAttention({ includeHidden: false })) || [];
+    o.attentionOpen = items.length;
+    o.attentionLoud = items.filter((i) => na.levelFor(i.kind) === 'loud').length;
+  } catch (e) { console.error('[funnel-digest] attention count failed', e && e.message); }
+  try {
+    const c = await (d.digestCounts || require('./system_checks').digestCounts)();
+    o.checksFailing = c.failing; o.checksStale = c.stale;
+  } catch (e) { console.error('[funnel-digest] check counts failed', e && e.message); }
+  try {
+    const push = d.pushOpsEvent || require('./ops_push').pushOpsEvent;
+    const r = await push({
+      kind: 'daily_digest',
+      dedupeKey: day,
+      title: 'Daily digest',
+      body: formatOpsDigest(o),
+      data: { screen: 'system', day: day },
+      defaultMode: 'quiet',
+    });
+    return { pushed: !!(r && r.sent), counts: o };
+  } catch (e) {
+    console.error('[funnel-digest] digest push failed', e && e.message);
+    return { pushed: false, counts: o };
+  }
+}
+
+/**
  * Runs every 15 min; sends once per Cairo day at/after 09:00. The claim row
  * makes it once-only across restarts and instances.
+ *
+ * Two deliveries share that one claim: the WhatsApp funnel digest to the
+ * founder (as before) and the quiet Command push above. They are independent
+ * — a WhatsApp failure does not stop the push, and the reverse.
  */
 async function runFunnelDigest(opts) {
   const o = opts || {};
@@ -223,12 +302,20 @@ async function runFunnelDigest(opts) {
   const f = await computeFunnel(day);
   const since = await computeSinceLaunch();
   const text = formatDigest(f, since);
-  const send = o.sendFounder || require('./founder_whatsapp').sendFounderWhatsApp;
-  const r = await send(text, { template: 'founder_funnel_digest', ref: 'funnel:' + day });
-  return { ok: true, day, sent: r && r.sent, failed: r && r.failed, text };
+  let r = null;
+  try {
+    const send = o.sendFounder || require('./founder_whatsapp').sendFounderWhatsApp;
+    r = await send(text, { template: 'founder_funnel_digest', ref: 'funnel:' + day });
+  } catch (e) {
+    console.error('[funnel-digest] WhatsApp send failed', e && e.message);
+    r = { sent: 0, failed: 1 };
+  }
+  const ops = await pushOpsDigest(day, f, o.opsDigestDeps);
+  return { ok: true, day, sent: r && r.sent, failed: r && r.failed, text, opsPush: ops };
 }
 
 module.exports = {
   bumpFunnelCount, bumpStartView, bumpLandingView, computeFunnel, formatDigest, runFunnelDigest,
+  formatOpsDigest, pushOpsDigest,
   previousCairoDay, cairoDay, isBot,
 };

@@ -48,6 +48,92 @@ const REALERT_AFTER_HOURS = 24;
 
 const AGENT_NAME = 'attention_sweep';
 
+// ─── 6 Oct 2026 (watchtower) — state and escalation ─────────────────────────
+//
+// The view still has no state. What a human has DONE about a row — seen it,
+// snoozed it, resolved it — lives in attention_state (migration 125), keyed on
+// the view's (kind, ref), and so does the escalation clock below.
+//
+// Two populations, deliberately:
+//
+//   ESCALATING kinds (migration 126: paid_unassigned, refund_stale,
+//   specialty_uncovered, send_failed) are pushed one item at a time through
+//   ops push, as their own catalogue kind, on this clock:
+//     loud   pushed when first seen; if neither acked nor snoozed, again
+//            after 2 hours, then every 6.
+//     quiet  pushed once. After that it only appears in the daily digest.
+//   Loud or quiet is the kind's catalogue default (services/ops_push_prefs.js)
+//   so there is one place that says which is which.
+//
+//   Every OTHER kind (the intake doors and payment_claim) keeps the sweep's
+//   original rule unchanged: alert once it has waited an hour, re-alert after
+//   24 hours, as one digest through sendCriticalAlert.
+//
+// Snoozed and resolved items are off the list for both populations.
+const ESCALATING_KINDS = Object.freeze(['paid_unassigned', 'refund_stale', 'specialty_uncovered', 'send_failed']);
+const FIRST_REPUSH_HOURS = 2;
+const REPUSH_EVERY_HOURS = 6;
+// A resolve is a claim, not a fact: if the underlying condition is still true
+// this long after someone resolved it, the item comes back.
+const RESOLVED_REAPPEARS_AFTER_HOURS = 24;
+const SNOOZE_MIN_HOURS = 1;
+const SNOOZE_MAX_HOURS = 72;
+// The sweep stamps last_seen_at every 15 minutes while an item is in the view.
+// A gap this long means the condition cleared and came back: a new episode,
+// which must not inherit the old one's ack or push count.
+const EPISODE_GAP_HOURS = 2;
+
+const KNOWN_KINDS = Object.freeze([
+  'contact_submission', 'pre_launch_lead', 'abandoned_case', 'doctor_application', 'payment_claim',
+].concat(ESCALATING_KINDS));
+
+function isEscalating(kind) { return ESCALATING_KINDS.indexOf(kind) !== -1; }
+
+/** 'loud' | 'quiet' — the kind's catalogue default; uncatalogued kinds are quiet. */
+function levelFor(kind) {
+  try {
+    const cat = require('./ops_push_prefs').KIND_CATALOGUE.find((k) => k.kind === kind);
+    return cat && cat.def === 'loud' ? 'loud' : 'quiet';
+  } catch (_) { return 'quiet'; }
+}
+
+function _ms(v) { if (!v) return null; const d = v instanceof Date ? v : new Date(v); const n = d.getTime(); return Number.isFinite(n) ? n : null; }
+
+/**
+ * Is this item on the open list? Pure.
+ * @returns {null|'snoozed'|'resolved'} null when open, otherwise why it is hidden
+ */
+function hiddenReason(state, now) {
+  const t = _ms(now) || Date.now();
+  const st = state || {};
+  const snoozed = _ms(st.snoozed_until);
+  if (snoozed !== null && snoozed > t) return 'snoozed';
+  const resolved = _ms(st.resolved_at);
+  if (resolved !== null && resolved > t - RESOLVED_REAPPEARS_AFTER_HOURS * 3600e3) return 'resolved';
+  return null;
+}
+
+/**
+ * Should the sweep push this escalating item now? Pure — the escalation clock.
+ * @param {'loud'|'quiet'} level
+ * @param {object} state attention_state row (or null)
+ * @param {Date|number} now
+ * @returns {boolean}
+ */
+function pushDue(level, state, now) {
+  const t = _ms(now) || Date.now();
+  const st = state || {};
+  if (hiddenReason(st, t)) return false;
+  const count = Number(st.push_count) || 0;
+  if (count === 0) return true;                 // never pushed: loud or quiet, once
+  if (level !== 'loud') return false;           // quiet: once, then the digest only
+  if (_ms(st.acked_at) !== null) return false;  // someone has seen it
+  const last = _ms(st.last_pushed_at);
+  if (last === null) return true;
+  const gapHours = count === 1 ? FIRST_REPUSH_HOURS : REPUSH_EVERY_HOURS;
+  return t - last >= gapHours * 3600e3;
+}
+
 /**
  * Everyone currently waiting on a human, oldest first.
  * @param {object} [opts]
@@ -66,12 +152,193 @@ async function listWaiting(opts) {
   );
 }
 
+const STATE_COLS =
+  's.acked_at, s.acked_by, s.snoozed_until, s.resolved_at, s.resolved_by, s.note, ' +
+  's.first_seen_at, s.last_pushed_at, COALESCE(s.push_count, 0) AS push_count';
+const OPEN_SQL =
+  "(s.snoozed_until IS NULL OR s.snoozed_until <= NOW()) " +
+  "AND (s.resolved_at IS NULL OR s.resolved_at <= NOW() - INTERVAL '" + RESOLVED_REAPPEARS_AFTER_HOURS + " hours')";
+
+/**
+ * The attention list with each item's state, oldest first.
+ * @param {object} [opts]
+ * @param {boolean} [opts.includeHidden] also return snoozed and resolved items
+ * @returns {Promise<Array>} view columns + waiting_minutes + attention_state columns
+ */
+async function listAttention(opts) {
+  const includeHidden = !!(opts && opts.includeHidden);
+  return queryAll(
+    'SELECT v.kind, v.ref, v.who, v.email, v.phone, v.summary, v.waiting_since, v.severity, ' +
+    '       EXTRACT(EPOCH FROM (NOW() - v.waiting_since)) / 60 AS waiting_minutes, ' + STATE_COLS +
+    '  FROM v_needs_attention v ' +
+    '  LEFT JOIN attention_state s ON s.kind = v.kind AND s.ref = v.ref ' +
+    (includeHidden ? '' : ' WHERE ' + OPEN_SQL) +
+    ' ORDER BY v.waiting_since ASC, v.kind ASC, v.ref ASC',
+    []
+  );
+}
+
+/**
+ * Stamp every item currently in the view, and start a clean episode where one
+ * is due. One statement, run at the top of each sweep.
+ *
+ *   - first sighting: a row is created with first_seen_at = NOW()
+ *   - seen again:     last_seen_at moves forward
+ *   - new episode (not seen for EPISODE_GAP_HOURS — the condition cleared and
+ *     came back), or a resolve that has outlived its 24 hours while the
+ *     condition is still true: the ack and the push count are cleared, so the
+ *     item is treated as new. An unexpired snooze or resolve is never cleared.
+ */
+async function syncState() {
+  const gap = "s.last_seen_at IS NULL OR s.last_seen_at < NOW() - INTERVAL '" + EPISODE_GAP_HOURS + " hours'";
+  const reopened = "s.resolved_at IS NOT NULL AND s.resolved_at <= NOW() - INTERVAL '" + RESOLVED_REAPPEARS_AFTER_HOURS + " hours'";
+  const fresh = '((' + gap + ') OR (' + reopened + '))';
+  await execute(
+    'INSERT INTO attention_state AS s (kind, ref, first_seen_at, last_seen_at, updated_at) ' +
+    'SELECT DISTINCT v.kind, v.ref, NOW(), NOW(), NOW() FROM v_needs_attention v ' +
+    'ON CONFLICT (kind, ref) DO UPDATE SET ' +
+    '  last_seen_at   = NOW(), ' +
+    '  first_seen_at  = CASE WHEN (' + gap + ') OR s.first_seen_at IS NULL THEN NOW() ELSE s.first_seen_at END, ' +
+    '  acked_at       = CASE WHEN ' + fresh + ' THEN NULL ELSE s.acked_at END, ' +
+    '  acked_by       = CASE WHEN ' + fresh + ' THEN NULL ELSE s.acked_by END, ' +
+    '  push_count     = CASE WHEN ' + fresh + ' THEN 0 ELSE s.push_count END, ' +
+    '  last_pushed_at = CASE WHEN ' + fresh + ' THEN NULL ELSE s.last_pushed_at END, ' +
+    '  resolved_at    = CASE WHEN ' + reopened + ' THEN NULL ELSE s.resolved_at END, ' +
+    '  resolved_by    = CASE WHEN ' + reopened + ' THEN NULL ELSE s.resolved_by END, ' +
+    '  snoozed_until  = CASE WHEN s.snoozed_until <= NOW() THEN NULL ELSE s.snoozed_until END',
+    []
+  );
+}
+
+/** Is (kind, ref) in the view right now? State can only be set on a real item. */
+async function _exists(kind, ref) {
+  const rows = await queryAll('SELECT 1 FROM v_needs_attention WHERE kind = $1 AND ref = $2 LIMIT 1', [kind, ref]);
+  return rows.length > 0;
+}
+
+function _validKey(kind, ref) {
+  if (KNOWN_KINDS.indexOf(String(kind)) === -1) return 'UNKNOWN_KIND';
+  const r = String(ref == null ? '' : ref);
+  if (!r || r.length > 200) return 'BAD_REF';
+  return null;
+}
+
+async function _stateRow(kind, ref) {
+  const rows = await queryAll(
+    'SELECT kind, ref, acked_at, acked_by, snoozed_until, resolved_at, resolved_by, note, ' +
+    '       first_seen_at, last_pushed_at, push_count FROM attention_state WHERE kind = $1 AND ref = $2',
+    [kind, ref]
+  );
+  return rows[0] || null;
+}
+
+/**
+ * The three state transitions. Each returns { ok:true, state } or
+ * { ok:false, code } with code UNKNOWN_KIND | BAD_REF | NOT_FOUND | BAD_HOURS.
+ * NOT_FOUND means the item is not in v_needs_attention — state is never
+ * created for something that is not waiting.
+ */
+async function ackItem(kind, ref, userId) {
+  const bad = _validKey(kind, ref); if (bad) return { ok: false, code: bad };
+  if (!(await _exists(kind, ref))) return { ok: false, code: 'NOT_FOUND' };
+  await execute(
+    'INSERT INTO attention_state (kind, ref, acked_at, acked_by, first_seen_at, last_seen_at, updated_at) ' +
+    'VALUES ($1, $2, NOW(), $3, NOW(), NOW(), NOW()) ' +
+    'ON CONFLICT (kind, ref) DO UPDATE SET acked_at = NOW(), acked_by = EXCLUDED.acked_by, updated_at = NOW()',
+    [kind, ref, userId || null]
+  );
+  return { ok: true, state: await _stateRow(kind, ref) };
+}
+
+async function snoozeItem(kind, ref, hours, userId) {
+  const bad = _validKey(kind, ref); if (bad) return { ok: false, code: bad };
+  const h = Number(hours);
+  if (!Number.isInteger(h) || h < SNOOZE_MIN_HOURS || h > SNOOZE_MAX_HOURS) return { ok: false, code: 'BAD_HOURS' };
+  if (!(await _exists(kind, ref))) return { ok: false, code: 'NOT_FOUND' };
+  // A snooze is also an acknowledgement — nobody snoozes what they have not seen.
+  await execute(
+    'INSERT INTO attention_state (kind, ref, snoozed_until, acked_at, acked_by, first_seen_at, last_seen_at, updated_at) ' +
+    "VALUES ($1, $2, NOW() + ($3 || ' hours')::interval, NOW(), $4, NOW(), NOW(), NOW()) " +
+    'ON CONFLICT (kind, ref) DO UPDATE SET snoozed_until = EXCLUDED.snoozed_until, ' +
+    '  acked_at = COALESCE(attention_state.acked_at, NOW()), ' +
+    '  acked_by = COALESCE(attention_state.acked_by, EXCLUDED.acked_by), updated_at = NOW()',
+    [kind, ref, String(h), userId || null]
+  );
+  return { ok: true, state: await _stateRow(kind, ref) };
+}
+
+async function resolveItem(kind, ref, note, userId) {
+  const bad = _validKey(kind, ref); if (bad) return { ok: false, code: bad };
+  if (!(await _exists(kind, ref))) return { ok: false, code: 'NOT_FOUND' };
+  const n = note == null ? null : String(note).trim().slice(0, 1000) || null;
+  await execute(
+    'INSERT INTO attention_state (kind, ref, resolved_at, resolved_by, note, first_seen_at, last_seen_at, updated_at) ' +
+    'VALUES ($1, $2, NOW(), $3, $4, NOW(), NOW(), NOW()) ' +
+    'ON CONFLICT (kind, ref) DO UPDATE SET resolved_at = NOW(), resolved_by = EXCLUDED.resolved_by, ' +
+    '  note = EXCLUDED.note, updated_at = NOW()',
+    [kind, ref, userId || null, n]
+  );
+  return { ok: true, state: await _stateRow(kind, ref) };
+}
+
+/**
+ * Claim one escalation push, atomically: the count only moves if it is still
+ * the value this pass read, so two instances cannot both push the same step.
+ * @returns {Promise<boolean>} true if this caller owns the push
+ */
+async function claimPush(kind, ref, expectedCount) {
+  const rows = await queryAll(
+    'UPDATE attention_state SET push_count = push_count + 1, last_pushed_at = NOW(), updated_at = NOW() ' +
+    ' WHERE kind = $1 AND ref = $2 AND push_count = $3 RETURNING push_count',
+    [kind, ref, Number(expectedCount) || 0]
+  );
+  return rows.length > 0;
+}
+
+/** Give a claimed push back when the send did not go out, so the next pass retries. */
+async function revertPush(kind, ref, previous) {
+  await execute(
+    'UPDATE attention_state SET push_count = GREATEST(push_count - 1, 0), last_pushed_at = $3, updated_at = NOW() ' +
+    ' WHERE kind = $1 AND ref = $2',
+    [kind, ref, (previous && previous.last_pushed_at) || null]
+  );
+}
+
+const PUSH_TITLES = Object.freeze({
+  paid_unassigned: 'Paid case with no doctor',
+  refund_stale: 'Refund open over 48 hours',
+  specialty_uncovered: 'Specialty not covered',
+  send_failed: 'Message not delivered',
+});
+
+function ageLabel(minutes) {
+  const m = Math.max(0, Math.floor(Number(minutes) || 0));
+  if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60);
+  return h >= 48 ? Math.floor(h / 24) + 'd' : h + 'h';
+}
+
+async function defaultPushEvent(item, step) {
+  const { pushOpsEvent } = require('./ops_push');
+  return pushOpsEvent({
+    kind: item.kind,
+    // The step is part of the key: each escalation is its own event, so the
+    // ops-push cooldown dedupes a retry of one step without swallowing the next.
+    dedupeKey: item.ref + ':' + step,
+    title: (PUSH_TITLES[item.kind] || item.kind.replace(/_/g, ' ')) + (step > 0 ? ' — still open' : ''),
+    body: (item.who && item.kind !== 'specialty_uncovered' ? item.who + ': ' : '') +
+          String(item.summary || '').slice(0, 160) + ' · waiting ' + ageLabel(item.waiting_minutes),
+    data: { screen: 'attention', attentionKind: item.kind, ref: item.ref, step: step },
+    orderId: item.kind === 'paid_unassigned' ? item.ref : null,
+  });
+}
+
 /**
  * A one-line-per-item digest, newest concern first. Plain text on purpose:
  * it has to survive WhatsApp, an SMS, an email body and a terminal.
  */
 function formatDigest(items) {
-  if (!items.length) return 'Nobody is waiting. All four intake doors are clear.';
+  if (!items.length) return 'Nobody is waiting. All intake doors are clear.';
   const lines = items.slice(0, 20).map((i) => {
     const hrs = Math.floor(Number(i.waiting_minutes) / 60);
     const age = hrs >= 48 ? Math.floor(hrs / 24) + 'd' : (hrs >= 1 ? hrs + 'h' : '<1h');
@@ -123,10 +390,28 @@ async function recordAlerted(items) {
  */
 async function runAttentionSweep(deps) {
   const d = deps || {};
-  const _list = d.listWaiting || listWaiting;
+  // Injected deps (tests) replace the database entirely. The state-and-push
+  // deps added on 6 Oct default to inert when ANY deps object is passed, so a
+  // test that fakes only the original four never reaches a real connection.
+  const live = !deps;
+  const _list = d.listWaiting || listAttention;
   const _already = d.alreadyAlerted || alreadyAlerted;
   const _record = d.recordAlerted || recordAlerted;
   const _send = d.sendAlert || defaultSendAlert;
+  const _sync = d.syncState || (live ? syncState : async () => {});
+  const _claim = d.claimPush || (live ? claimPush : async () => false);
+  const _revert = d.revertPush || (live ? revertPush : async () => {});
+  const _push = d.pushEvent || (live ? defaultPushEvent : async () => ({ sent: false }));
+  const now = d.now || Date.now();
+
+  // Stamp what is in the view and open new episodes BEFORE reading the list,
+  // so first_seen_at exists for kinds that age from it. A failure here costs
+  // one pass of escalation bookkeeping, never the alerts themselves.
+  try { await _sync(); } catch (err) {
+    logMajor('[attention-sweep] could not sync attention_state — escalation clock not advanced this pass', {
+      error: err && err.message
+    });
+  }
 
   let waiting = [];
   try {
@@ -135,10 +420,19 @@ async function runAttentionSweep(deps) {
     logMajor('[attention-sweep] could not read v_needs_attention — nobody is being watched right now', {
       error: err && err.message
     });
-    return { total: 0, alertable: 0, alerted: 0, digest: '', failed: true };
+    return { total: 0, alertable: 0, alerted: 0, pushed: 0, digest: '', failed: true };
   }
+  // Snoozed and resolved items are off the list for every kind.
+  waiting = waiting.filter((i) => !hiddenReason(i, now));
 
-  const alertable = waiting.filter((i) => Number(i.waiting_minutes) >= ALERT_AFTER_MINUTES);
+  // The digest reads worst first (severity, then age), as listWaiting always
+  // ordered it; the list itself now arrives oldest first for the API.
+  waiting = waiting.slice().sort((a, b) =>
+    (Number(a.severity) - Number(b.severity)) || ((_ms(a.waiting_since) || 0) - (_ms(b.waiting_since) || 0)));
+
+  // ── The original rule, for every kind that is not on the escalation clock ──
+  const legacy = waiting.filter((i) => !isEscalating(i.kind));
+  const alertable = legacy.filter((i) => Number(i.waiting_minutes) >= ALERT_AFTER_MINUTES);
 
   const fresh = [];
   for (const item of alertable) {
@@ -165,10 +459,34 @@ async function runAttentionSweep(deps) {
     }
   }
 
+  // ── The escalation clock, one push per item ───────────────────────────────
+  let pushed = 0;
+  for (const item of waiting.filter((i) => isEscalating(i.kind))) {
+    try {
+      if (!pushDue(levelFor(item.kind), item, now)) continue;
+      const step = Number(item.push_count) || 0;
+      // Claim first: the count moves before the send, so a second instance or
+      // an overlapping pass cannot push the same step.
+      if (!(await _claim(item.kind, item.ref, step))) continue;
+      const r = await _push(item, step);
+      // 'kind_budget' means ops push logged it and sent a burst summary
+      // instead — that counts as told. Anything else did not go out: give the
+      // claim back so the next pass retries rather than a quiet item being
+      // marked "pushed once" when it never was.
+      if (r && (r.sent || r.skipped === 'kind_budget')) pushed++;
+      else await _revert(item.kind, item.ref, item);
+    } catch (err) {
+      logMajor('[attention-sweep] escalation push failed for ' + item.kind + ':' + item.ref, {
+        error: err && err.message
+      });
+    }
+  }
+
   return {
     total: waiting.length,
     alertable: alertable.length,
     alerted: fresh.length,
+    pushed: pushed,
     digest: formatDigest(waiting)
   };
 }
@@ -181,6 +499,25 @@ async function defaultSendAlert(body) {
 module.exports = {
   runAttentionSweep,
   listWaiting,
+  listAttention,
+  syncState,
+  ackItem,
+  snoozeItem,
+  resolveItem,
+  claimPush,
+  revertPush,
+  hiddenReason,
+  pushDue,
+  levelFor,
+  isEscalating,
+  ageLabel,
+  ESCALATING_KINDS,
+  KNOWN_KINDS,
+  FIRST_REPUSH_HOURS,
+  REPUSH_EVERY_HOURS,
+  RESOLVED_REAPPEARS_AFTER_HOURS,
+  SNOOZE_MIN_HOURS,
+  SNOOZE_MAX_HOURS,
   formatDigest,
   ALERT_AFTER_MINUTES,
   REALERT_AFTER_HOURS,

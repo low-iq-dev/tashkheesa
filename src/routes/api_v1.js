@@ -99,6 +99,12 @@ module.exports = function (db, helpers, deploy) {
     res.ok({ status: 'ok', version: '1.0.0', timestamp: new Date().toISOString() });
   });
 
+  // ─── Ops check intake (6 Oct 2026, watchtower) ─────────────
+  // POST /ops/checks — machine-to-machine, bearer OPS_CHECKS_KEY, fail closed
+  // (503) when the key is unset. Mounted ahead of every JWT gate: it has its
+  // own auth and no user. See src/routes/api/ops_checks.js.
+  router.use('/ops/checks', require('./api/ops_checks')());
+
   // ─── Admin (Tashkheesa Command — superadmin-only, read-only) ─
   // Mounted BEFORE the patient gate below so its own /auth/login stays public
   // and its protected routes gate on 'superadmin' (not 'patient'). The login/

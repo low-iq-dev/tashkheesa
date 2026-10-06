@@ -351,6 +351,35 @@ async function scheduleAttentionSweep() {
   return true;
 }
 
+/**
+ * The check registry worker — every 5 minutes, singleton across instances
+ * (6 Oct 2026, watchtower).
+ *
+ * Writes the portal's own checks to ops_checks and pushes every status change
+ * in that table, whoever wrote the row (services/system_checks.js). It
+ * heartbeats as 'system_checks', registered in admin_health.WORKER_SPECS, so
+ * the watchdog and /healthz notice if it stops.
+ */
+async function handleSystemChecks() {
+  const { runSystemChecks } = require('./services/system_checks');
+  pingOps('system_checks', 'running system checks');
+  const result = await runSystemChecks();
+  if (result.failed || result.recovered || result.stale || result.briefs) {
+    logMajor('[system-checks] pushed ' + JSON.stringify(result));
+  }
+  return result;
+}
+
+async function scheduleSystemChecks() {
+  if (!boss) return false;
+  // createQueue first — see the note in scheduleAttentionSweep.
+  await boss.createQueue('system-checks');
+  await boss.work('system-checks', { teamSize: 1, teamConcurrency: 1 }, handleSystemChecks);
+  await boss.schedule('system-checks', '*/5 * * * *', {}, { singletonKey: 'system-checks' });
+  logMajor('[job-queue] system checks scheduled via pg-boss (*/5 * * * *, singleton)');
+  return true;
+}
+
 async function scheduleSlaSweep() {
   if (!boss) return false;
   await boss.work('sla-sweep', { teamSize: 1, teamConcurrency: 1 }, handleSlaSweep);
@@ -512,6 +541,7 @@ module.exports = {
   stopJobQueue: stopJobQueue,
   scheduleSlaSweep: scheduleSlaSweep,
   scheduleAttentionSweep: scheduleAttentionSweep,
+  scheduleSystemChecks: scheduleSystemChecks,
   scheduleAiCanary: scheduleAiCanary,
   scheduleClassifierLearning: scheduleClassifierLearning,
   scheduleFxRates: scheduleFxRates,

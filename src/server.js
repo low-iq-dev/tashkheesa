@@ -1430,7 +1430,7 @@ async function runSlaEnforcementSweep(source) {
   }
 }
 
-var { startJobQueue, stopJobQueue, scheduleSlaSweep, scheduleAiCanary, scheduleClassifierLearning, scheduleAttentionSweep, scheduleFxRates } = require('./job_queue');
+var { startJobQueue, stopJobQueue, scheduleSlaSweep, scheduleAiCanary, scheduleClassifierLearning, scheduleAttentionSweep, scheduleSystemChecks, scheduleFxRates } = require('./job_queue');
 
 // Boot: wait for DB migration before starting workers
 _dbReady.then(async function() {
@@ -1459,6 +1459,15 @@ _dbReady.then(async function() {
   // rather than silent.
   try { await scheduleAttentionSweep(); } catch (e) {
     logMajor('Attention sweep schedule FAILED — intake doors are unwatched: ' + e.message);
+  }
+  // 2026-10-06 (watchtower) — the check registry worker, every 5 minutes.
+  // Ungated for the same reason as the sweep above: it is the only thing that
+  // pushes a status change in ops_checks, for the portal's own checks and for
+  // rows written by SQL alike. With it unscheduled the System screen still
+  // renders, but nothing is pushed and every check drifts stale — which is why
+  // it is registered in admin_health.WORKER_SPECS.
+  try { await scheduleSystemChecks(); } catch (e) {
+    logMajor('System checks schedule FAILED — no check will push: ' + e.message);
   }
   // FX (launch eve 2026-09-24) — daily pull of the rates behind the
   // international EGP charge into fx_rates, plus one pull now. Every instance
@@ -1768,6 +1777,17 @@ _dbReady.then(async function() {
         }).catch(function (err) {
           console.error('[heartbeat-cleanup] error', err);
         });
+        // 2026-10-06 (watchtower) — ops_check_history rides the same daily
+        // maintenance pass: 90 days of check history, then gone.
+        try {
+          require('./services/system_checks').pruneCheckHistory().then(function (n) {
+            if (n > 0) logMajor('ops_check_history prune (' + phase + '): removed ' + n + ' rows older than 90d');
+          }).catch(function (err) {
+            console.error('[check-history-cleanup] error', err);
+          });
+        } catch (chErr) {
+          console.error('[check-history-cleanup] error', chErr);
+        }
       };
       var hbCleanupInterval = setInterval(function () { runHeartbeatPrune('daily'); }, 24 * 60 * 60 * 1000);
       if (hbCleanupInterval.unref) hbCleanupInterval.unref();

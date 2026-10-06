@@ -5052,6 +5052,11 @@ module.exports = function (db, helpers, deploy, deps) {
     }
   });
 
+  // ─── Watchtower (6 Oct 2026) ────────────────────────────────────────────────
+  // /attention, /system and /expiries. Registered here, below the superadmin
+  // gate above, so they inherit it — see routes/api/admin_watchtower.js.
+  require('./admin_watchtower')(router);
+
   return router;
 };
 
