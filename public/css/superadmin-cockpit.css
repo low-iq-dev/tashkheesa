@@ -1104,3 +1104,14 @@ a { color: inherit; text-decoration: none; }
   .grid-2, .grid-3, .grid-2-1, .grid-1-2 { grid-template-columns: 1fr; }
   .search { display: none; }
 }
+
+/* Phone width (6 Oct 2026). The cockpit stopped at 900px: below that, wide
+   tables were clipped by .card{overflow:hidden} and the multi-column strips
+   never reflowed. Tables scroll sideways inside their card; strips stack. */
+@media (max-width: 600px) {
+  .card-body { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+  .topbar { flex-wrap: wrap; gap: 8px; }
+  .kpi-strip, .sla-buckets, .grid-4 { grid-template-columns: 1fr; }
+  .tbl { min-width: 560px; }
+}

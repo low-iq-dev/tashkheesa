@@ -396,6 +396,12 @@
       <div style="display:inline-block;margin-top:14px;background:#0B6B5F;color:#F8F5EF;padding:8px 18px;border-radius:50px;font-weight:700;font-size:15px;"><%= __heroAr ? ('تقارير مكتوبة تبدأ من ' + Number(__heroMin).toLocaleString('en-US') + ' جنيه') : ('Written reports from EGP ' + Number(__heroMin).toLocaleString('en-US')) %></div><br>
       <% } %>
       <%- include('partials/urgent-window-note', { style: 'margin:10px auto 0;max-width:720px;font-size:14px;line-height:1.55;color:#475569;' }) %>
+      <%# 6 Oct 2026 — paid Instagram traffic lands here; the top of the page
+          had a price but no way to act on it. %>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:16px;">
+        <a href="<%= locals.publicLinkPrefix || '' %>/start" style="display:inline-block;background:#0B6B5F;color:#fff;padding:12px 26px;border-radius:50px;font-weight:700;font-size:15px;text-decoration:none;"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
+        <a href="<%= locals.publicLinkPrefix || '' %>/wa" rel="nofollow" style="display:inline-block;background:#fff;color:#0B6B5F;border:1.5px solid #0B6B5F;padding:12px 26px;border-radius:50px;font-weight:700;font-size:15px;text-decoration:none;"><%= tt('svc.hero.whatsapp', 'Ask us on WhatsApp', 'اسألنا على واتساب') %></a>
+      </div>
       <a href="<%= locals.publicLinkPrefix || '' %>/help-me-choose" style="display:inline-block;margin-top:16px;background:#eff6ff;color:#2563eb;border:1.5px solid #93c5fd;padding:10px 22px;border-radius:50px;font-weight:600;font-size:14px;text-decoration:none;"><%= tt('svc.hero.help_cta',
         '🩺 Not sure which service you need? Ask our assistant →',
         '🩺 مش متأكد محتاج إيه؟ اسأل المساعد بتاعنا ←') %></a>
@@ -634,13 +640,22 @@
     <% } %>
 
     <!-- ── SPECIALTY SECTIONS ─────────────────────────── -->
-    <% orderedSpecs.forEach(function(specName) {
-      const specServices = bySpecialty[specName] || [];
-      if (!specServices.length) return;
+    <%
+    // 6 Oct 2026 — the page was 26 phone screens long, most of it things a
+    // patient cannot buy. Specialties with no consultant yet are now one short
+    // line at the bottom (__soonSpecs) instead of a full section each, and a
+    // live specialty lists only the services that can actually be booked.
+    const __soonSpecs = [];
+    orderedSpecs.forEach(function(specName) {
+      const __specAll = bySpecialty[specName] || [];
+      if (!__specAll.length) return;
+      const __specIsLive = __isLiveSpec(specName);
+      if (!__specIsLive) { __soonSpecs.push(specName); return; }
+      const __specBookable = __specAll.filter(isBookable);
+      const specServices = __specBookable.length ? __specBookable : __specAll;
       const meta = specialtyMeta[specName] || { icon: '🏥', desc: '', color: '#6b7280' };
       const preview = specServices.slice(0, 3);
       const rest = specServices.slice(3);
-      const __specIsLive = __isLiveSpec(specName);
       const sectionId = specName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
     %>
     <div class="specialty-section" id="<%= sectionId %>">
@@ -741,11 +756,19 @@
     </div>
     <% }); %>
 
+    <% if (__soonSpecs.length) { %>
+    <div class="specialty-section" id="coming-soon-specialties" style="text-align:center;">
+      <h2 style="font-size:18px;margin:0 0 8px;"><%= tt('svc.soon.title', 'More specialties are on the way', 'تخصصات تانية جاية قريب') %></h2>
+      <p style="margin:0 auto;max-width:720px;font-size:14px;line-height:1.7;color:#475569;"><%= __soonSpecs.map(specDisplayName).join(__isAr ? '، ' : ', ') %></p>
+      <p style="margin:10px 0 0;font-size:14px;"><a href="<%= locals.publicLinkPrefix || '' %>/wa" rel="nofollow" style="color:#0B6B5F;font-weight:600;"><%= tt('svc.soon.ask', 'Need one of these? Ask us on WhatsApp', 'محتاج واحد منهم؟ اسألنا على واتساب') %></a></p>
+    </div>
+    <% } %>
+
     <div class="cta-section">
       <h2><%= tt('svc.cta.title', 'Ready to get started?', 'مستعد تبدأ؟') %></h2>
       <p><%= tt('svc.cta.body',
-        'Submit your case in minutes. Expert specialist review, delivered to your inbox.',
-        'ابعت حالتك في دقايق. مراجعة من دكتور متخصص بتوصلك على إيميلك.') %></p>
+        'Submit your case in minutes. A written specialist review, delivered to your account and on WhatsApp.',
+        'ابعت حالتك في دقايق. مراجعة مكتوبة من دكتور متخصص بتوصلك على حسابك وعلى واتساب.') %></p>
       <% if (__ctaOn) { %>
       <a href="<%= bookHref('') %>" class="btn-cta"><%= tt('svc.cta.submit',
         'Submit Your Case Now',

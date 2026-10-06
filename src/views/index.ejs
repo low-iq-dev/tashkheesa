@@ -71,13 +71,15 @@
     "@context": "https://schema.org",
     "@type": "MedicalBusiness",
     "name": "Tashkheesa",
-    "description": "Specialist medical second opinion platform connecting patients with board-certified Egyptian consultants for remote diagnostic reviews.",
+    "description": "Specialist medical second opinion platform connecting patients with board-certified Egyptian consultants for written second opinions on existing reports and scans.",
     "url": "https://tashkheesa.com",
     "logo": "https://tashkheesa.com/assets/brand/og-image.png",
     "image": "https://tashkheesa.com/assets/brand/og-image.png",
     "address": {
       "@type": "PostalAddress",
-      "addressLocality": "Cairo",
+      "streetAddress": "166 El Tesaeen El Shamaly Street, Fifth Settlement",
+      "addressLocality": "New Cairo",
+      "addressRegion": "Cairo",
       "addressCountry": "EG"
     },
     "priceRange": "<%= currency %> <%= priceRangeMin %> - <%= currency %> <%= priceRangeMax %>",
@@ -130,7 +132,7 @@
       <div class="nav-links">
         <a href="<%= locals.publicLinkPrefix || '' %>/services"><%= tt('nav.services', 'Services', 'الخدمات') %></a>
         <a href="<%= locals.publicLinkPrefix || '' %>/about"><%= tt('nav.about', 'About', 'عن تشخيصة') %></a>
-        <a href="<%= locals.publicLinkPrefix || '' %>/specialties"><%= tt('nav.doctors', 'Doctors', 'الدكاترة') %></a>
+        <a href="<%= locals.publicLinkPrefix || '' %>/specialties"><%= tt('nav.specialties', 'Specialties', 'التخصصات') %></a>
         <a href="<%= locals.publicLinkPrefix || '' %>/blog"><%= tt('nav.blog', 'Blog', 'المدونة') %></a>
         <a href="<%= locals.publicLinkPrefix || '' %>/faq"><%= tt('nav.faq', 'FAQ', 'الأسئلة الشائعة') %></a>
         <a href="<%= locals.publicLinkPrefix || '' %>/contact"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a>
@@ -165,8 +167,8 @@
             'A written second opinion from a named Egyptian consultant — within 48 hours',
             'رأي طبي ثانٍ مكتوب من استشاري باسمه — خلال ٤٨ ساعة') %></h1>
           <p class="hero-fade-in"><%= tt('home.hero.body',
-            'Connect with verified specialists for second opinions, diagnostic reviews, and treatment guidance. Secure, fast, and built for clarity.',
-            'اتواصل مع دكاترة متخصصين معتمدين عشان تاخد رأي تاني، أو مراجعة تشخيصية، أو إرشاد للعلاج. آمن، سريع، ومبسّط.') %></p>
+            'Send your report or scan and a verified Shifa Hospital Group consultant reviews it and answers in writing. Secure, fast, and built for clarity.',
+            'ابعت تقريرك أو أشعتك، واستشاري معتمد من مجموعة مستشفيات شفا يراجعها ويرد عليك كتابةً. آمن، سريع، ومبسّط.') %></p>
           <div class="hero-buttons hero-fade-in">
             <% if (__ctaOn) { %><a class="btn-primary" href="/register<%= locals.langParam ? '?' + locals.langParam : '' %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
             <% } else { %><span class="btn-primary is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></span><% } %>
@@ -174,6 +176,9 @@
               'View Services & Pricing',
               'شوف الخدمات والأسعار') %></a>
           </div>
+          <p class="hero-fade-in" style="margin-top:14px;font-size:13px;opacity:.8;"><%= tt('home.hero.not_emergency',
+            'Not for emergencies. In an emergency, go to the nearest hospital or call 123.',
+            'الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بـ 123.') %></p>
         </div>
         <div class="hero-visual" aria-hidden="true">
           <article class="hero-device-shell hero-fade-in">
@@ -372,8 +377,8 @@
             <div class="testimonial-card">
               <div class="testimonial-inner">
                 <blockquote><%= tt('home.trust1.body',
-                  '"Every case on Tashkheesa is reviewed by consultants of Shifa Hospital Group — a GAHAR-accredited, 220-bed hospital in New Cairo with Centers of Excellence in Stroke, NICU, and Oncology."',
-                  '"كل حالة على تشخيصة بيراجعها استشاريو مجموعة مستشفيات شفا — مستشفى معتمد من GAHAR بسعة 220 سرير في القاهرة الجديدة، وعنده مراكز تميّز في السكتة الدماغية وحضانات الأطفال والأورام."') %></blockquote>
+                  '"Every case on Tashkheesa is reviewed by consultants of Shifa Hospital Group — a GAHAR-accredited, 280-bed hospital in New Cairo with Centers of Excellence in Stroke, NICU, and Oncology."',
+                  '"كل حالة على تشخيصة بيراجعها استشاريو مجموعة مستشفيات شفا — مستشفى معتمد من GAHAR بسعة 280 سرير في القاهرة الجديدة، وعنده مراكز تميّز في السكتة الدماغية وحضانات الأطفال والأورام."') %></blockquote>
                 <p class="testimonial-author"><%= tt('home.trust1.author',
                   'A Real Hospital Behind Every Opinion',
                   'مستشفى حقيقي ورا كل رأي طبي') %></p>
@@ -438,10 +443,10 @@
             running JS ever shows a zero. %>
         <div class="stats-grid">
           <div class="stat-item reveal stagger-1">
-            <div class="stat-number" data-count-to="220" data-count-suffix="">220</div>
+            <div class="stat-number" data-count-to="280" data-count-suffix="">280</div>
             <div class="stat-label"><%= tt('home.stat.beds',
-              'Beds at Shifa Hospital Group',
-              'سرير في مجموعة مستشفيات شفا') %></div>
+              'Beds at Shifa Hospital, New Cairo',
+              'سرير في مستشفى شفا بالتجمع الخامس') %></div>
           </div>
           <div class="stat-item reveal stagger-2">
             <div class="stat-number" data-count-to="150" data-count-suffix="+">150+</div>
@@ -544,7 +549,7 @@
             <li><%= businessPhone %></li>
             <li><%= tt('home.footer.address',
               businessAddress,
-              'القاهرة، مصر') %></li>
+              'مستشفى شفا، ١٦٦ شارع التسعين الشمالي، التجمع الخامس، القاهرة الجديدة') %></li>
           </ul>
           <% if (locals.appFunnel) { %><div class="tk-app-badge-row tk-app-badge-row--start"><%- include('partials/app_badge', { placement: 'footer' }) %></div><% } %>
         </div>

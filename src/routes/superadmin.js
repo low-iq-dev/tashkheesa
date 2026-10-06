@@ -2655,6 +2655,7 @@ router.get('/superadmin/manual-queue', requireSuperadmin, async (req, res) => {
         WHERE o.completed_at IS NULL
           AND ${realCaseSql('o.')}
           AND o.assignment_status = 'manual_queue'
+          AND LOWER(COALESCE(o.status, '')) NOT IN ('draft', 'expired_unpaid', 'cancelled', 'refunded')
         ORDER BY o.created_at ASC
         LIMIT 200`,
       [], []

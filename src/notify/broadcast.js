@@ -125,6 +125,23 @@ async function broadcastOrderToSpecialty(orderId) {
   // status back to 'auto' and the post-approve flow re-broadcasts.
   if (order.assignment_status === 'manual_queue') {
     console.warn('[broadcast] order in manual_queue, skipping:', orderId);
+    // 6 Oct 2026 — this point is only reached for a PAID order (the not_paid
+    // return is above). The classifier parks a case at draft time, quietly;
+    // nothing un-parks it when the patient pays, so a paying patient's case
+    // sat in the manual queue with no doctor told and no alert (found on the
+    // first Kashier payment). The park is still respected — routing may be
+    // wrong — but the operator now hears about it loudly, once per case.
+    try {
+      const { pushOpsEvent } = require('../services/ops_push');
+      await pushOpsEvent({
+        kind: 'assignment_failed',
+        dedupeKey: 'paid_parked:' + orderId,
+        title: 'PAID case is waiting for you to route it',
+        body: 'It was parked for manual triage before payment. No doctor has been told. Open the manual queue and approve the routing.',
+        orderId: orderId,
+        data: { screen: 'manual-queue', caseId: orderId }
+      });
+    } catch (_) { /* an alert must never fail the payment path */ }
     return { ok: false, reason: 'manual_queue_pending' };
   }
 

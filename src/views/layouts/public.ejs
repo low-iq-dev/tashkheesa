@@ -166,6 +166,7 @@
       <ul class="nav-list" id="public-nav-list">
         <li><a href="<%= locals.publicLinkPrefix || '' %>/services" class="nav-link"><%= tt('nav.services', 'Services', 'الخدمات') %></a></li>
         <li><a href="<%= locals.publicLinkPrefix || '' %>/about" class="nav-link"><%= tt('nav.about', 'About', 'عن تشخيصة') %></a></li>
+        <li><a href="<%= locals.publicLinkPrefix || '' %>/faq" class="nav-link"><%= tt('nav.faq', 'FAQ', 'الأسئلة الشائعة') %></a></li>
         <li><a href="<%= locals.publicLinkPrefix || '' %>/contact" class="nav-link"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a></li>
         <li>
           <a
@@ -177,7 +178,11 @@
             data-lang-toggle="<%= __langTargetCode %>"
           ><svg class="nav-lang-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg><span><%= __langTargetLabel %></span></a>
         </li>
-        <li><a href="/login<%= locals.langParam ? '?' + locals.langParam : '' %>" class="nav-link nav-cta"><%= tt('nav.signin', 'Sign In', 'تسجيل الدخول') %></a></li>
+        <li><a href="/login<%= locals.langParam ? '?' + locals.langParam : '' %>" class="nav-link"><%= tt('nav.signin', 'Sign In', 'تسجيل الدخول') %></a></li>
+        <%# 6 Oct 2026 — the pages that do the convincing (About, FAQ, Services)
+            had no way to convert from the header. Start goes to the same
+            landing page the ads use. %>
+        <li><a href="<%= locals.publicLinkPrefix || '' %>/start" class="nav-link nav-cta" data-nav-start><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a></li>
       </ul>
     </nav>
   </div>

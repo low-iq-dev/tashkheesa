@@ -963,7 +963,7 @@ var _dbReady = (async function initDatabase() {
 var homepageLocals = {
   businessEmail: process.env.BUSINESS_EMAIL || 'info@tashkheesa.com',
   businessPhone: process.env.BUSINESS_PHONE || '+20 110 200 9886',
-  businessAddress: process.env.BUSINESS_ADDRESS || 'Cairo, Egypt',
+  businessAddress: process.env.BUSINESS_ADDRESS || 'Shifa Hospital, 166 El Tesaeen El Shamaly Street, Fifth Settlement, New Cairo, Egypt',
   currency: 'EGP'
 };
 

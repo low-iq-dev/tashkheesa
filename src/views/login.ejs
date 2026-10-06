@@ -39,18 +39,22 @@
         </div>
       <% } %>
 
-      <!-- Sign-in method toggle: Email & password (default) | Phone number -->
+      <%# Phone is the default tab (6 Oct 2026): signup is name + phone only, so a
+          new patient has no email or password. A failed email sign-in re-renders
+          this page with an error, and then the email tab stays open. %>
+      <% const __emailFirst = !!err; %>
+      <!-- Sign-in method toggle: Phone number (default) | Email & password -->
       <div class="auth-tabs" role="tablist" aria-label="<%= tt('auth.login.method_label', 'Sign-in method', 'طريقة تسجيل الدخول') %>">
-        <button type="button" class="auth-tab is-active" role="tab" aria-selected="true" id="tab-email" data-tab="email">
+        <button type="button" class="auth-tab<%= __emailFirst ? ' is-active' : '' %>" role="tab" aria-selected="<%= __emailFirst ? 'true' : 'false' %>" id="tab-email" data-tab="email">
           <%= tt('auth.login.tab_email', 'Email & password', 'البريد وكلمة المرور') %>
         </button>
-        <button type="button" class="auth-tab" role="tab" aria-selected="false" id="tab-phone" data-tab="phone">
+        <button type="button" class="auth-tab<%= __emailFirst ? '' : ' is-active' %>" role="tab" aria-selected="<%= __emailFirst ? 'false' : 'true' %>" id="tab-phone" data-tab="phone">
           <%= tt('auth.login.tab_phone', 'Phone number', 'رقم الهاتف') %>
         </button>
       </div>
 
       <!-- Email & password (form + POST /login unchanged from PR 1) -->
-      <div class="auth-panel" data-panel="email" role="tabpanel" aria-labelledby="tab-email">
+      <div class="auth-panel" data-panel="email" role="tabpanel" aria-labelledby="tab-email"<%= __emailFirst ? '' : ' hidden' %>>
       <form method="post" action="/login">
         <%- (typeof csrfField === 'function') ? csrfField() : '' %>
         <% if (typeof next !== 'undefined' && next) { %>
@@ -79,7 +83,7 @@
       </div><!-- /email panel -->
 
       <!-- Phone number (OTP) — alternative sign-in; wired by /js/login-phone.js -->
-      <div class="auth-panel" data-panel="phone" role="tabpanel" aria-labelledby="tab-phone" hidden
+      <div class="auth-panel" data-panel="phone" role="tabpanel" aria-labelledby="tab-phone"<%= __emailFirst ? ' hidden' : '' %>
            data-cooldown="60"
            data-i18n-required="<%= tt('auth.login.phone_required', 'Enter your phone number.', 'أدخل رقم هاتفك.') %>"
            data-i18n-invalid="<%= tt('auth.login.otp_invalid', 'The code is incorrect or expired.', 'رمز التحقق غير صحيح أو منتهي.') %>"

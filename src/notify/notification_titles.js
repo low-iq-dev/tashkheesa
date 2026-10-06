@@ -315,6 +315,7 @@ const TEMPLATE_TITLES = {
   doctor_start_report_nudge:  { en: 'Start the report: {caseReference}',            ar: 'ابدأ كتابة التقرير: {caseReference}' },
   // Superadmin-only.
   admin_case_unaccepted:      { en: 'No doctor has accepted {caseReference}',       ar: 'لم يقبل أي طبيب الحالة {caseReference}' },
+  admin_doctor_ops_ticket:    { en: 'Doctor support ticket',                         ar: 'تذكرة دعم من طبيب' },
   admin_case_at_risk:         { en: 'At risk: {caseReference}',                     ar: 'حالة معرّضة للتأخير: {caseReference}' },
 
   sla_warning_75:     { en: 'Action needed: case approaching deadline', ar: 'إجراء مطلوب: حالة تقترب من الموعد النهائي' },

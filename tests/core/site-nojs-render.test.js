@@ -74,10 +74,10 @@ module.exports = (async function run() {
       // 1. Real stat figures as server-side text (helper stubs specialtyCount=7).
       try {
         const stats = [...body.matchAll(/class="stat-number"[^>]*>([^<]*)</g)].map((x) => x[1].trim());
-        assert.deepStrictEqual(stats, ['220', '150+', '7', '48h'],
+        assert.deepStrictEqual(stats, ['280', '150+', '7', '48h'],
           p + ' stat text must be the real figures with suffixes, got: ' + JSON.stringify(stats));
-        t.pass(p + ': stats read 220 / 150+ / 7 / 48h server-side, never 0');
-      } catch (e) { t.fail(p + ': stats read 220 / 150+ / 7 / 48h server-side, never 0', e); }
+        t.pass(p + ': stats read 280 / 150+ / 7 / 48h server-side, never 0');
+      } catch (e) { t.fail(p + ': stats read 280 / 150+ / 7 / 48h server-side, never 0', e); }
 
       // 2b. The html.js snippet is inline, nonce-ready, and precedes the
       //     animations stylesheet, so the page can never paint hidden.

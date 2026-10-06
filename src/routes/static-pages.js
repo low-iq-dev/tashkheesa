@@ -91,8 +91,8 @@ function setupStaticPages(opts) {
     doctorsEmail: 'doctors@tashkheesa.com',
     securityEmail: 'security@tashkheesa.com',
     phone: '+20 110 200 9886',
-    address: 'Cairo, Egypt',
-    address_ar: 'القاهرة، مصر',
+    address: 'Shifa Hospital, 166 El Tesaeen El Shamaly Street, Fifth Settlement, New Cairo, Egypt',
+    address_ar: 'مستشفى شفا، ١٦٦ شارع التسعين الشمالي، التجمع الخامس، القاهرة الجديدة',
     // LAUNCH-2026-09 — the platform accepts and processes cases 24/7. The only
     // time-boxed promise is the Urgent 4-hour tier, which runs 7am–7pm Cairo
     // (see src/services/urgency.js and patient_new_case.ejs §3). The old
@@ -390,7 +390,24 @@ function setupStaticPages(opts) {
   // snippet needs), and English on the Arabic page.
   var comingSoonDesc = (LAUNCH_DATE ? 'Tashkheesa launches ' + LAUNCH_DATE + '. ' : '') + 'Get expert medical second opinions from board-certified Egyptian specialists. Leave your details to hear when we launch.';
   var comingSoonDescAr = (LAUNCH_DATE ? 'تنطلق تشخيصة في ' + LAUNCH_DATE + '. ' : '') + 'احصل على رأي طبي ثانٍ من استشاريين مصريين معتمدين. سجّل بياناتك ليصلك إشعار فور الإطلاق.';
-  router.get('/coming-soon', function(req, res) {
+  router.get('/coming-soon', function(req, res, next) {
+    // 6 Oct 2026 — the platform launched on 25 Sep. Once booking is open, the
+    // pre-launch page is a dead end (the Instagram bio still pointed at it a
+    // week after launch), so it forwards to the landing page the ads use,
+    // keeping the query string so UTM tags survive. While booking is closed
+    // (PUBLIC_BOOKING_CTA off) the page renders as before — the wizard's own
+    // gate redirects here in that state and must not loop.
+    var __bookingOpen = false;
+    if (res.locals && typeof res.locals.bookingCtaEnabled !== 'undefined') __bookingOpen = !!res.locals.bookingCtaEnabled;
+    else { try { __bookingOpen = !!require('../services/public_cta').bookingCtaEnabled(); } catch (_) {} }
+    if (__bookingOpen) {
+      var __qs = req.originalUrl.indexOf('?') === -1 ? '' : req.originalUrl.slice(req.originalUrl.indexOf('?'));
+      // Always the Arabic landing page: this URL's visitors come from the
+      // Instagram bio and old posts, an Arabic audience, and the landing page
+      // carries its own language switch.
+      var __pfx = '/ar';
+      return res.redirect(302, __pfx + '/start' + __qs);
+    }
     // UTM params are captured from the URL and re-emitted as hidden form
     // inputs so they round-trip into pre_launch_leads on submit. Truncated
     // defensively (paid-traffic campaigns sometimes append tracking blobs).

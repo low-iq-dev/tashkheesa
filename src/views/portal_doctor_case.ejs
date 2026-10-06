@@ -687,6 +687,7 @@
           <div class="v2-card__title"><%= tt('Patient files', 'Patient files', 'ملفات المريض') %></div>
           <span class="v2-card__title-sub"><span data-numeric><%= _files.length %></span> <%= tt('files', 'files', 'ملف') %></span>
         </div>
+        <div style="font-size:12.5px;line-height:1.5;color:var(--muted,#6b7280);padding:0 16px 10px;"><%= tt('doctor.case.annotate_hint', 'To mark a finding, press Annotate on an image (JPG or PNG) and draw circles, arrows and labels. PDFs cannot be marked up.', 'لتحديد ملاحظة، اضغط «تعليم» على الصورة (JPG أو PNG) وارسم دوائر وأسهم وتسميات. ملفات PDF لا يمكن التعليم عليها.') %></div>
         <%# mobile B5: .v2-file-strip turns the rows into a horizontal strip of tiles on phones. %>
         <div class="v2-card__body v2-card__body--flush v2-file-strip">
           <% _files.forEach(function(f) {

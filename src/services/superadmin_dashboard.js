@@ -246,7 +246,8 @@ async function getAttentionItems() {
         `SELECT COUNT(*) AS cnt
            FROM ${REAL_ORDERS_ACTIVE} orders_active
           WHERE completed_at IS NULL
-            AND assignment_status = 'manual_queue'`,
+            AND assignment_status = 'manual_queue'
+            AND LOWER(COALESCE(status, '')) NOT IN ('draft', 'expired_unpaid', 'cancelled', 'refunded')`,
         [], { cnt: 0 }
       ).catch(() => ({ cnt: 0 })),
       // Manual payment path (migration 117) — InstaPay/bank transfer claims a
@@ -328,7 +329,8 @@ async function getSidebarBadges() {
       // column on an unmigrated env doesn't kill the whole badges payload.
       safeGet(
         `SELECT COUNT(*) AS cnt FROM ${REAL_ORDERS_ACTIVE} orders_active
-          WHERE completed_at IS NULL AND assignment_status = 'manual_queue'`,
+          WHERE completed_at IS NULL AND assignment_status = 'manual_queue'
+            AND LOWER(COALESCE(status, '')) NOT IN ('draft', 'expired_unpaid', 'cancelled', 'refunded')`,
         [], { cnt: 0 }
       ).catch(() => ({ cnt: 0 }))
     ]);

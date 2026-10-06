@@ -468,7 +468,7 @@ const ar = {
   'patient.dashboard.view_details': 'عرض التفاصيل',
   'patient.dashboard.view': 'عرض',
   'patient.dashboard.case_id': 'رقم الحالة',
-  'patient.dashboard.default_service': 'مراجعة تشخيصية',
+  'patient.dashboard.default_service': 'مراجعة الملف الطبي',
   'patient.dashboard.all_specialties': 'كل التخصصات',
   'patient.dashboard.search_ph': 'ابحث برقم الحالة أو الخدمة أو التخصص',
 
