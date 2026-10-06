@@ -455,7 +455,7 @@
     </div>
   <% } else if (step3Err === 'override_not_permitted') { %>
     <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
-      <strong><%= tt('Your case is locked to the recommended specialty at this confidence level. Please continue with the recommendation.', 'Your case is locked to the recommended specialty at this confidence level. Please continue with the recommendation.', 'حالتك مرتبطة بالتخصص الموصى به عند مستوى الثقة هذا. يرجى المتابعة بالاختيار الموصى به.') %></strong>
+      <strong><%= tt('Your case is matched to the recommended specialty, so the specialty can’t be changed. You can still choose any service within it.', 'Your case is matched to the recommended specialty, so the specialty can’t be changed. You can still choose any service within it.', 'حالتك موجهة للتخصص الموصى به، لذلك لا يمكن تغيير التخصص. يمكنك اختيار أي خدمة داخل نفس التخصص.') %></strong>
     </div>
   <% } else if (step3Err === 'invalid_service') { %>
     <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
@@ -469,9 +469,11 @@
     <input type="hidden" name="specialty_id" id="step3-specialty-id" value="<%= __defaultSpecialty %>" />
     <input type="hidden" name="service_id" id="step3-service-id" value="<%= __defaultService %>" />
     <%# Theme 14 — override flag: set by the SLA-disclaimer modal JS when the patient
-        overrides an AI recommendation (either dimension — specialty or service).
-        POST handler reads this to log the override + flip
-        orders.no_sla_refund_eligibility. Defaults to 0. %>
+        overrides the recommended specialty. E2E 2026-10-06: the POST handler no
+        longer READS it — it works the override out from the classification row,
+        so a form that leaves this at 0 cannot skip the specialty lock. Kept in
+        the form so older cached pages and the modal JS keep posting the same
+        shape. %>
     <input type="hidden" name="override" id="step3-override-flag" value="0" />
 
     <% if (__tier === 'locked') { %>
@@ -484,7 +486,12 @@
             - Mobile-safe: header + service rows use flex-wrap; badge has
               flex-shrink: 0 so it never compresses or clips.
           Locked tier: no override link, no override grid, no AI-matched
-          subtext (the patient is locked in at >=0.95 confidence). %>
+          subtext (the SPECIALTY is locked in at >=0.95 confidence).
+          E2E 2026-10-06 — the lock is on the specialty only. This card used
+          to show the AI's service as a fixed line too, and the services
+          card below was hidden, so a locked case could be bought as exactly
+          one service. The card now states the specialty; the services card
+          below lists every service in it with the AI's pick preselected. %>
       <div class="p-card p-spec-recommendation" data-tier="locked" id="step3-recommendation-card"
            style="border:1.5px solid var(--primary);background:var(--primary-light);border-radius:var(--r-lg);padding:var(--s-5) var(--s-4);">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:var(--s-3);margin-bottom:var(--s-2);flex-wrap:wrap;">
@@ -496,15 +503,9 @@
           </div>
         </div>
         <div style="font-size:var(--t-section);font-weight:700;color:var(--ink);line-height:var(--lh-tight, 1.15);"><%= __recName %></div>
-        <% if (__recService) { %>
-          <div style="margin-top:var(--s-4);padding-top:var(--s-3);border-top:1px solid var(--rule);display:flex;justify-content:space-between;align-items:baseline;gap:var(--s-3);flex-wrap:wrap;">
-            <div style="font-size:var(--t-body);font-weight:600;color:var(--ink-2);"><%= __recServiceName %></div>
-            <div class="p-num" style="font-size:var(--t-card-title);font-weight:600;color:var(--accent-dark);font-feature-settings:'tnum' 1, 'lnum' 1;"><%= __recServicePrice %></div>
-          </div>
-          <div style="font-size:var(--t-meta);color:var(--muted);margin-top:var(--s-1);">
-            <%= tt('Standard ' + __recServiceSlaHours + 'h turnaround', 'Standard ' + __recServiceSlaHours + 'h turnaround', 'تسليم خلال ' + __recServiceSlaHours + ' ساعة قياسي') %>
-          </div>
-        <% } %>
+        <div style="margin-top:var(--s-4);padding:var(--s-3);background:var(--surface);border-radius:var(--r-md);font-size:var(--t-body-sm);color:var(--ink-2);line-height:1.5;">
+          <%= tt('The specialty is set based on our analysis of your case. You can choose any service within it below.', 'The specialty is set based on our analysis of your case. You can choose any service within it below.', 'التخصص محدد بناءً على تحليل حالتك. يمكنك اختيار أي خدمة داخل هذا التخصص من القائمة أدناه.') %>
+        </div>
         <div style="margin-top:var(--s-4);padding-top:var(--s-3);border-top:1px solid var(--rule);">
           <button type="button" id="step3-why-toggle" aria-expanded="false" aria-controls="step3-why-content"
                   style="background:none;border:none;color:var(--primary);cursor:pointer;padding:0;font-size:var(--t-body-sm);text-decoration:underline;">
@@ -644,10 +645,12 @@
     <% } %>
 
     <%# Services card — visible when a specialty is in scope. For tier='locked'
-        the recommendation card above already shows the AI's service inline, so
-        the services-card hides (no second affordance for the same pick). For
-        all other tiers, the patient may still need to pick / change service. %>
-    <div class="p-card" id="step3-services-card" style="margin-top:14px;<%= (selectedSpecialty && __tier !== 'locked') ? '' : 'display:none;' %>">
+        the specialty in scope is the AI's (the hidden input is pre-filled with
+        it and there is no way to change it), so the card is shown from first
+        render with the AI's service preselected and marked; the patient may
+        pick any other service in that specialty (E2E 2026-10-06). For all
+        other tiers, the patient may still need to pick / change service. %>
+    <div class="p-card" id="step3-services-card" style="margin-top:14px;<%= ((__tier === 'locked') ? __defaultSpecialty : selectedSpecialty) ? '' : 'display:none;' %>">
       <div class="p-card__header">
         <div class="p-card__title"><%= tt('Pick the service that matches your case', 'Pick the service that matches your case', 'اختر الخدمة التي تناسب حالتك') %></div>
         <div class="p-card__sub"><%= tt('Each service is a different review depth.', 'Each service is a different review depth.', 'تختلف الخدمات في عمق المراجعة.') %></div>
@@ -668,7 +671,7 @@
                   data-specialty-id="<%= sv.specialty_id %>"
                   style="text-align:start;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid <%= sel ? 'var(--primary)' : 'var(--rule)' %>;background:<%= sel ? 'var(--primary-light)' : '#fff' %>;border-radius:12px;padding:14px 16px;">
             <div>
-              <div style="font-size:14px;font-weight:600;color:var(--ink);"><%= __svcName(sv) %></div>
+              <div style="font-size:14px;font-weight:600;color:var(--ink);"><%= __svcName(sv) %><% if (__tier === 'locked' && __recService && String(sv.id) === String(__recService.id)) { %> <span style="display:inline-block;margin-inline-start:6px;background:var(--primary);color:var(--on-primary);font-size:10.5px;font-weight:600;padding:1px 8px;border-radius:999px;vertical-align:middle;"><%= tt('Recommended', 'Recommended', 'موصى به') %></span><% } %></div>
               <div style="font-size:11.5px;color:var(--muted);margin-top:3px;"><%= tt('Standard ' + (sv.sla_hours || 48) + 'h turnaround', 'Standard ' + (sv.sla_hours || 48) + 'h turnaround', 'تسليم خلال ' + (sv.sla_hours || 48) + ' ساعة قياسي') %></div>
             </div>
             <div class="p-num" style="font-size:14px;font-weight:600;color:var(--accent-dark);"><%= priceLabel %></div>

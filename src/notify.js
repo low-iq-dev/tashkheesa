@@ -5,6 +5,14 @@ const { queryOne, queryAll, execute } = require('./pg');
 const { logErrorToDb } = require('./logger');
 const { sendWhatsApp } = require('./notify/whatsapp');
 const { getNotificationTitles } = require('./notify/notification_titles');
+// E2E 2026-10-06 — what a case is called in patient-facing copy. No requires
+// of its own, so it cannot join the notify <-> case_lifecycle cycle.
+const {
+  resolveCaseReference,
+  caseLabel: buildCaseLabel,
+  isStaffFacingTemplate,
+  applyCaseReference
+} = require('./notify/case_label');
 // AUDIT-PAY-1 — one locale table for the whole product (ar-EG / en-GB).
 // utils/formatNumber has no requires of its own, so this cannot cycle.
 const { pickLocale } = require('./utils/formatNumber');
@@ -180,11 +188,21 @@ function payloadFingerprint(responseJson) {
   }
 }
 
-function buildPaymentReminderPayload({ caseId, paymentUrl }) {
-  return {
+// E2E 2026-10-06 — `referenceId` added. The reminder never carried the case
+// reference, so every surface fell back to an id slice ("Case 8F83CD55-A06").
+// Keys are only present when there is a reference: an absent key and a null
+// one render the same, and existing payloads stay byte-identical.
+function buildPaymentReminderPayload({ caseId, paymentUrl, referenceId }) {
+  const payload = {
     case_id: caseId || null,
     payment_url: paymentUrl || null
   };
+  const ref = resolveCaseReference({ reference_id: referenceId, case_id: caseId });
+  if (ref) {
+    payload.reference_id = ref;
+    payload.caseReference = ref;
+  }
+  return payload;
 }
 
 // AUDIT-2026-08-22: mirrors notification_worker.stripDrPrefix and
@@ -370,7 +388,7 @@ function formatCairoDateTime(iso, lang) {
  * its title sit on the same bell row, so they have to name the same things the
  * same way. The English strings are unchanged, so this is additive.
  */
-const { formatTimeRemaining } = require('./notify/duration');
+const { formatTimeRemaining, formatHoldRemaining } = require('./notify/duration');
 
 function renderNotificationMessage(template, payload, lang) {
   const p = (payload && typeof payload === 'object') ? payload : {};
@@ -379,8 +397,28 @@ function renderNotificationMessage(template, payload, lang) {
   // money templates, so without it the freshly-translated body for a payment
   // confirmation fell back to the anonymous "your case" / "حالتك" directly
   // under a title that had just named the case reference.
-  const ref = p.reference_id || p.reference_code || p.case_ref || p.caseReference || null;
-  const caseLabel = ref ? `Case ${ref}` : (p.case_id ? 'Your case' : null);
+  //
+  // E2E 2026-10-06 — the label now comes from notify/case_label. Two defects:
+  //   1. `ref` took whatever the caller put in caseReference, and ~25 callers
+  //      put an id slice there, so the bell read "Case 8F83CD55-A06".
+  //      resolveCaseReference rejects anything shaped like an internal id.
+  //      Staff copy keeps the old fallback — a fragment is still a handle for
+  //      someone who can search by it.
+  //   2. There was ONE English label, capitalised for a sentence start, used
+  //      mid-sentence as well: "…complete payment for Your case…". The
+  //      `|| 'your case'` fallbacks written to prevent that were unreachable,
+  //      because the label was never empty when there was a case. Now there
+  //      are two: caseLabel (sentence start) and caseMid (mid-sentence), plus
+  //      neutral-voice variants for doctor / ops copy that are null without a
+  //      reference so the sentence's own "a case" / "the case" is used.
+  const staffCopy = isStaffFacingTemplate(template, p);
+  const legacyRef = p.reference_id || p.reference_code || p.case_ref || p.caseReference || null;
+  const ref = resolveCaseReference(p) || (staffCopy ? legacyRef : null);
+  const hasCase = Boolean(ref || p.case_id);
+  const caseLabel = hasCase ? buildCaseLabel({ ref, lang: 'en', position: 'start' }) : null;
+  const caseMid = hasCase ? buildCaseLabel({ ref, lang: 'en', position: 'mid' }) : null;
+  const caseLabelN = ref ? buildCaseLabel({ ref, lang: 'en', position: 'start', voice: 'neutral' }) : null;
+  const caseMidN = ref ? buildCaseLabel({ ref, lang: 'en', position: 'mid', voice: 'neutral' }) : null;
   // AUDIT-2026-08-22: the honorific is prepended by the copy below, and stored
   // doctor names already carry it — without stripping, "Dr. Ahmed" rendered as
   // "Dr. Dr. Ahmed" / "د. Dr. Ahmed".
@@ -413,8 +451,8 @@ function renderNotificationMessage(template, payload, lang) {
   const reason = (p.reason || p.denial_reason || p.cancellation_reason || null);
   const when = (p.scheduled_at_label || p.slot_label || p.when || null);
 
-  const arCase = ref ? `حالة ${ref}` : (p.case_id ? 'حالتك' : null);
-  const arCaseN = ref ? `حالة ${ref}` : (p.case_id ? 'الحالة' : null);
+  const arCase = hasCase ? buildCaseLabel({ ref, lang: 'ar' }) : null;
+  const arCaseN = hasCase ? buildCaseLabel({ ref, lang: 'ar', voice: 'neutral' }) : null;
 
   switch (template) {
     case 'order_created_patient':
@@ -434,7 +472,7 @@ function renderNotificationMessage(template, payload, lang) {
           : `تم إسناد ${arCase || 'حالتك'} إلى طبيب.`;
       }
       return doctor
-        ? `Dr. ${doctor} has accepted ${caseLabel || 'your case'}.`
+        ? `Dr. ${doctor} has accepted ${caseMid || 'your case'}.`
         : `${caseLabel || 'Your case'} has been assigned to a doctor.`;
 
     case 'order_assigned_doctor':
@@ -443,7 +481,7 @@ function renderNotificationMessage(template, payload, lang) {
       if (isAr) {
         return arCaseN ? `${arCaseN} جاهزة للمراجعة.` : 'حالة جديدة جاهزة للمراجعة.';
       }
-      return caseLabel ? `${caseLabel} is ready for your review.` : "A new case is ready for your review.";
+      return caseLabelN ? `${caseLabelN} is ready for your review.` : "A new case is ready for your review.";
 
     // A3 (AUDIT 2026-09-09) — open-pool broadcast. NOT "assigned to you": the
     // doctor must ACCEPT it, and the window closes. Egyptian register.
@@ -453,8 +491,8 @@ function renderNotificationMessage(template, payload, lang) {
           ? `${arCaseN} متاحة في تخصصك — اقبلها من قائمتك قبل ما تقفل مهلة القبول.`
           : 'في حالة جديدة متاحة في تخصصك — اقبلها من قائمتك قبل ما تقفل مهلة القبول.';
       }
-      return caseLabel
-        ? `${caseLabel} is available in your specialty — accept it from your queue before the acceptance window closes.`
+      return caseLabelN
+        ? `${caseLabelN} is available in your specialty — accept it from your queue before the acceptance window closes.`
         : 'A new case is available in your specialty — accept it from your queue before the acceptance window closes.';
 
     case 'order_reassigned_doctor':
@@ -464,7 +502,7 @@ function renderNotificationMessage(template, payload, lang) {
           ? `تمت إعادة تعيين ${arCaseN} إليك.`
           : 'تمت إعادة تعيين إحدى الحالات إليك.';
       }
-      return caseLabel ? `${caseLabel} has been reassigned to you.` : "A case has been reassigned to you.";
+      return caseLabelN ? `${caseLabelN} has been reassigned to you.` : "A case has been reassigned to you.";
 
     case 'order_reassigned_from_doctor':
       if (isAr) {
@@ -472,7 +510,7 @@ function renderNotificationMessage(template, payload, lang) {
           ? `تمت إعادة تعيين ${arCaseN} إلى طبيب آخر.`
           : 'تمت إعادة تعيين إحدى الحالات إلى طبيب آخر.';
       }
-      return caseLabel ? `${caseLabel} has been reassigned to another doctor.` : "A case has been reassigned.";
+      return caseLabelN ? `${caseLabelN} has been reassigned to another doctor.` : "A case has been reassigned.";
 
     case 'order_reassigned_patient':
       if (isAr) return `تم إسناد ${arCase || 'حالتك'} إلى طبيب آخر.`;
@@ -482,52 +520,69 @@ function renderNotificationMessage(template, payload, lang) {
       // "رأيك الطبي الثاني" is the registry's term for a second opinion
       // (notification_titles.report_ready_patient).
       if (isAr) return `تقرير الرأي الطبي الثاني ل${arCase || 'حالتك'} جاهز للاطلاع.`;
-      return `Your second-opinion report for ${caseLabel || 'your case'} is ready to view.`;
+      return `Your second-opinion report for ${caseMid || 'your case'} is ready to view.`;
 
     case 'additional_files_requested_patient':
     case 'additional_files_request_approved_patient':
       if (isAr) return `الطبيب يحتاج ملفات إضافية ل${arCase || 'حالتك'}. برجاء رفعها في أقرب وقت.`;
-      return `The doctor needs additional files for ${caseLabel || 'your case'}. Please upload them when you can.`;
+      return `The doctor needs additional files for ${caseMid || 'your case'}. Please upload them when you can.`;
 
     case 'patient_uploaded_files_doctor':
       if (isAr) return `المريض رفع ملفات إضافية على ${arCaseN || 'الحالة'}.`;
-      return `Patient uploaded additional files for ${caseLabel || 'the case'}.`;
+      return `Patient uploaded additional files for ${caseMidN || 'the case'}.`;
 
     case 'patient_reply_info':
       if (isAr) return `المريض أرسل معلومات إضافية بخصوص ${arCaseN || 'الحالة'}.`;
-      return `Patient sent additional information on ${caseLabel || 'the case'}.`;
+      return `Patient sent additional information on ${caseMidN || 'the case'}.`;
 
     case 'payment_success_patient':
     case 'payment_marked_paid_patient':
     case 'payment_marked_paid':
       if (isAr) return `تم استلام الدفع ل${arCase || 'حالتك'}.`;
-      return `Payment received for ${caseLabel || 'your case'}.`;
+      return `Payment received for ${caseMid || 'your case'}.`;
 
     case 'payment_success_doctor':
       // Doctor voice: "الحالة" carries the article, so no "ل" proclitic here.
       if (isAr) return `تم تأكيد الدفع — ${arCaseN || 'الحالة'} جاهزة للمراجعة.`;
-      return `Payment received for ${caseLabel || 'the case'}.`;
+      return `Payment received for ${caseMidN || 'the case'}.`;
 
     case 'payment_reminder_30m':
       if (isAr) return `تذكير: إكمال الدفع ل${arCase || 'حالتك'} يبدأ مراجعة الرأي الطبي الثاني.`;
-      return `Reminder: complete payment for ${caseLabel || 'your case'} to start your second-opinion review.`;
+      return `Reminder: complete payment for ${caseMid || 'your case'} to start your second-opinion review.`;
 
     case 'payment_reminder_6h':
       if (isAr) return `${arCase || 'حالتك'} لا تزال في انتظار الدفع. بإتمام الدفع يبدأ الطبيب المراجعة فورًا.`;
       return `${caseLabel || 'Your case'} is still awaiting payment. Complete it now so a doctor can begin.`;
 
-    case 'payment_reminder_24h':
-      // #66: the spot will be released soon if not paid — informational
-      // framing, not punitive (see email template tone). The Arabic keeps that
-      // register: a statement of what happens, with no blame and no deadline
-      // theatre.
-      if (isAr) return `${arCase || 'حالتك'} محفوظة منذ 24 ساعة. سيتم إخلاء المكان قريبًا إذا لم يكتمل الدفع.`;
-      return `${caseLabel || 'Your case'} has been held for 24 hours. The spot will be released soon if payment isn't completed.`;
+    case 'payment_reminder_24h': {
+      // #66: informational framing, not punitive (see email template tone).
+      //
+      // E2E 2026-10-06 — this said "held for 24 hours. The spot will be
+      // released soon", written when the case really was released at 48h. A
+      // submitted case is now held for 7 days from the patient's last activity
+      // (case_lifecycle.UNPAID_CASE_TTL), so a day in, "soon" was six days
+      // early. The time left comes from the payload's hours_remaining, which
+      // the sweep derives from that table; with no number, no number is
+      // claimed.
+      const holdLeft = formatHoldRemaining(p.hours_remaining ?? p.hoursRemaining, isAr ? 'ar' : 'en');
+      if (isAr) {
+        return holdLeft
+          ? `${arCase || 'حالتك'} لا تزال في انتظار الدفع. متبقٍ ${holdLeft} على انتهاء مهلة الدفع — بإتمام الدفع تبدأ المراجعة.`
+          : `${arCase || 'حالتك'} لا تزال في انتظار الدفع. بإتمام الدفع تبدأ المراجعة.`;
+      }
+      return holdLeft
+        ? `${caseLabel || 'Your case'} is still awaiting payment. We're holding it for another ${holdLeft} — complete the payment and your review starts.`
+        : `${caseLabel || 'Your case'} is still awaiting payment. Complete the payment and your review starts.`;
+    }
 
+    // E2E 2026-10-06 — case_auto_deleted_unpaid_patient said the case "was
+    // removed because payment wasn't completed within 48 hours. You can submit
+    // a new case". Nothing has emitted it since AUDIT-SWEEP-2026-09-06 and
+    // none of it is true any more: no case is deleted, there is no 48-hour
+    // rule, and paying revives the same case. It stays registered for
+    // historical rows, and if anything ever queues it again it now says what
+    // case_expired_unpaid_patient says.
     case 'case_auto_deleted_unpaid_patient':
-      if (isAr) return `تم حذف ${arCase || 'حالتك'} لعدم إتمام الدفع خلال 48 ساعة. يمكنك تقديم حالة جديدة في أي وقت.`;
-      return `${caseLabel || 'Your case'} was removed because payment wasn't completed within 48 hours. You can submit a new case anytime.`;
-
     // AUDIT-SWEEP-2026-09-06 — replaces case_auto_deleted_unpaid_patient as the
     // thing the unpaid sweep actually sends. Two facts the old copy got wrong
     // and a patient acts on: the case is NOT deleted (it stays in "My cases"),
@@ -537,7 +592,7 @@ function renderNotificationMessage(template, payload, lang) {
     // submitted case) and a number baked into copy is how the last one went stale.
     case 'case_expired_unpaid_patient':
       if (isAr) return `انتهت مهلة الدفع الخاصة بـ${arCase || 'حالتك'} وتم إخلاء المكان. الحالة لسه محفوظة عندك — لو أتممت الدفع هنكمل من نفس النقطة.`;
-      return `The payment window for ${caseLabel || 'your case'} has closed and the spot was released. Your case is still saved — complete the payment and we pick up exactly where you left off.`;
+      return `The payment window for ${caseMid || 'your case'} has closed and the spot was released. Your case is still saved — complete the payment and we pick up exactly where you left off.`;
 
     // AUDIT-PAY-1 (regression F2) — urgent case confirmed outside the Cairo
     // urgent window (07:00–19:00). This body is the ONLY thing that explains to
@@ -586,7 +641,7 @@ function renderNotificationMessage(template, payload, lang) {
     case 'sla_reminder_24h':
       if (String(p.role || '').toLowerCase() === 'doctor') {
         if (isAr) return `موعد تسليم ${arCaseN || 'الحالة'} خلال 24 ساعة. برجاء إكمال المراجعة.`;
-        return `${caseLabel || 'A case'} is due in about 24 hours. Please complete your review.`;
+        return `${caseLabelN || 'A case'} is due in about 24 hours. Please complete your review.`;
       }
       if (isAr) return `موعد تسليم ${arCase || 'حالتك'} خلال 24 ساعة. لا يلزم أي إجراء منك، وسنبلغك فور أن يصبح التقرير جاهزًا.`;
       return `${caseLabel || 'Your case'} is due within about 24 hours. Nothing is needed from you — we'll notify you the moment it's ready.`;
@@ -594,7 +649,7 @@ function renderNotificationMessage(template, payload, lang) {
     case 'sla_reminder_6h':
       if (String(p.role || '').toLowerCase() === 'doctor') {
         if (isAr) return `موعد تسليم ${arCaseN || 'الحالة'} خلال 6 ساعات. برجاء إكمال المراجعة.`;
-        return `${caseLabel || 'A case'} is due in about 6 hours. Please complete your review.`;
+        return `${caseLabelN || 'A case'} is due in about 6 hours. Please complete your review.`;
       }
       if (isAr) return `موعد تسليم ${arCase || 'حالتك'} خلال 6 ساعات. الطبيب المختص يعمل عليها وسنرسل التقرير فور جهوزه.`;
       return `${caseLabel || 'Your case'} is due in about 6 hours. Your specialist is working on it and we'll send the report as soon as it's ready.`;
@@ -602,7 +657,7 @@ function renderNotificationMessage(template, payload, lang) {
     case 'sla_reminder_1h':
       if (String(p.role || '').toLowerCase() === 'doctor') {
         if (isAr) return `عاجل — موعد تسليم ${arCaseN || 'الحالة'} خلال ساعة. برجاء إرسال المراجعة الآن.`;
-        return `URGENT — ${caseLabel || 'a case'} is due within the hour. Please submit your review now.`;
+        return `URGENT — ${caseMidN || 'a case'} is due within the hour. Please submit your review now.`;
       }
       if (isAr) return `موعد تسليم ${arCase || 'حالتك'} خلال ساعة. الطبيب المختص ينهي المراجعة الآن.`;
       return `${caseLabel || 'Your case'} is due within the hour. Your specialist is finalising it now.`;
@@ -614,66 +669,66 @@ function renderNotificationMessage(template, payload, lang) {
     case 'doctor_accept_nudge': {
       const left = formatTimeRemaining(Number(p.seconds_remaining), isAr ? 'ar' : 'en');
       if (isAr) return `${arCaseN || 'حالة'} بانتظارك${left ? ` — متبقٍ ${left} لقبولها` : ''}. افتح الحالة واقبلها قبل أن تُعرض على طبيب آخر.`;
-      return `${caseLabel || 'A case'} is waiting for you${left ? ` — ${left} left to accept it` : ''}. Open it and accept before it is offered to another doctor.`;
+      return `${caseLabelN || 'A case'} is waiting for you${left ? ` — ${left} left to accept it` : ''}. Open it and accept before it is offered to another doctor.`;
     }
     case 'doctor_review_reminder_50': {
       const left = formatTimeRemaining(Number(p.seconds_remaining), isAr ? 'ar' : 'en');
       if (isAr) return `مضى نصف مهلة مراجعة ${arCaseN || 'الحالة'}${left ? ` — متبقٍ حوالي ${left}` : ''}.`;
-      return `Half of the review window for ${caseLabel || 'a case'} has passed${left ? ` — about ${left} left` : ''}.`;
+      return `Half of the review window for ${caseMidN || 'a case'} has passed${left ? ` — about ${left} left` : ''}.`;
     }
     case 'doctor_review_reminder_80': {
       const left = formatTimeRemaining(Number(p.seconds_remaining), isAr ? 'ar' : 'en');
       if (isAr) return `موعد تسليم ${arCaseN || 'الحالة'} خلال حوالي ${left || 'وقت قصير'}. برجاء إرسال المراجعة.`;
-      return `${caseLabel || 'A case'} is due in about ${left || 'a short while'}. Please submit your review.`;
+      return `${caseLabelN || 'A case'} is due in about ${left || 'a short while'}. Please submit your review.`;
     }
     case 'doctor_start_report_nudge': {
       const left = formatTimeRemaining(Number(p.seconds_remaining), isAr ? 'ar' : 'en');
       if (isAr) return `قبلت ${arCaseN || 'الحالة'} ولم تُحفظ مسودة للتقرير بعد. ابدأ كتابة التقرير الآن${left ? ` — متبقٍ حوالي ${left}` : ''}.`;
-      return `You accepted ${caseLabel || 'a case'} but no report draft is saved yet. Start the report now${left ? ` — about ${left} left` : ''}.`;
+      return `You accepted ${caseMidN || 'a case'} but no report draft is saved yet. Start the report now${left ? ` — about ${left} left` : ''}.`;
     }
     case 'admin_case_unaccepted': {
       const waited = Number(p.minutes_waiting);
       const w = Number(p.window_minutes);
       if (isAr) return `لم يقبل أي طبيب ${arCaseN || 'الحالة'}${Number.isFinite(waited) ? ` منذ ${waited} دقيقة` : ''}${Number.isFinite(w) ? ` (مهلة القبول ${w} دقيقة)` : ''}. تحتاج إلى إسناد يدوي.`;
-      return `No doctor has accepted ${caseLabel || 'a case'}${Number.isFinite(waited) ? ` after ${waited} minutes` : ''}${Number.isFinite(w) ? ` (${w}-minute acceptance window)` : ''}. It needs a manual assignment.`;
+      return `No doctor has accepted ${caseMidN || 'a case'}${Number.isFinite(waited) ? ` after ${waited} minutes` : ''}${Number.isFinite(w) ? ` (${w}-minute acceptance window)` : ''}. It needs a manual assignment.`;
     }
     case 'admin_case_at_risk': {
       const left = formatTimeRemaining(Number(p.seconds_remaining), isAr ? 'ar' : 'en');
       if (isAr) return `${arCaseN || 'إحدى الحالات'} استهلكت 80% من مهلة المراجعة وما زالت قيد المراجعة${left ? ` — متبقٍ حوالي ${left}` : ''}.`;
-      return `${caseLabel || 'A case'} has used 80% of its review window and is still in review${left ? ` — about ${left} left` : ''}.`;
+      return `${caseLabelN || 'A case'} has used 80% of its review window and is still in review${left ? ` — about ${left} left` : ''}.`;
     }
 
     case 'sla_reminder_doctor':
     case 'order_sla_pre_breach':
     case 'order_sla_pre_breach_doctor':
       if (isAr) return `${arCaseN || 'إحدى الحالات'} تقترب من الموعد النهائي للمراجعة. برجاء إكمال المراجعة قريبًا.`;
-      return `${caseLabel || 'A case'} is approaching its SLA deadline. Please review soon.`;
+      return `${caseLabelN || 'A case'} is approaching its SLA deadline. Please review soon.`;
 
     case 'sla_breached_doctor':
     case 'order_breached_doctor':
       if (isAr) return `${arCaseN || 'إحدى الحالات'} تجاوزت مهلة المراجعة.`;
-      return `${caseLabel || 'A case'} has passed its SLA deadline.`;
+      return `${caseLabelN || 'A case'} has passed its SLA deadline.`;
 
     case 'order_breached_patient':
       if (isAr) return `نعتذر — ${arCase || 'حالتك'} تستغرق وقتًا أطول من المتوقع، ونحن نتابع الأمر.`;
-      return `We're sorry — ${caseLabel || 'your case'} is taking longer than expected. We're on it.`;
+      return `We're sorry — ${caseMid || 'your case'} is taking longer than expected. We're on it.`;
 
     case 'order_breached_superadmin':
       if (isAr) return `تم تجاوز مهلة المراجعة على ${arCaseN || 'إحدى الحالات'}.`;
-      return `SLA breached on ${caseLabel || 'a case'}.`;
+      return `SLA breached on ${caseMidN || 'a case'}.`;
 
     case 'prescription_uploaded_patient':
       // "الوصفة الطبية" per notification_titles.prescription_uploaded_patient
       // (the OpenClaw body says "روشتة", but that is the WhatsApp surface's
       // colloquial voice; the bell follows the bell registry).
       if (isAr) return `الوصفة الطبية متاحة الآن ل${arCase || 'حالتك'}.`;
-      return `A new prescription is available for ${caseLabel || 'your case'}.`;
+      return `A new prescription is available for ${caseMid || 'your case'}.`;
 
     case 'new_message':
       if (isAr) {
         return arCase ? `وصلتك رسالة جديدة بخصوص ${arCase}.` : 'وصلتك رسالة جديدة.';
       }
-      return caseLabel ? `You have a new message about ${caseLabel}.` : "You have a new message.";
+      return caseMid ? `You have a new message about ${caseMid}.` : "You have a new message.";
 
     case 'appointment_cancelled':
       if (isAr) return 'تم إلغاء موعدك.';
@@ -727,7 +782,7 @@ function renderNotificationMessage(template, payload, lang) {
       // dead name. The title and WhatsApp bodies for the same event already
       // say "urgent"; now this does too.
       if (isAr) return `تمت ترقية ${arCase || 'حالتك'} إلى المراجعة العاجلة.`;
-      return `Urgent turnaround has been added to ${caseLabel ? caseLabel.toLowerCase() : 'your case'}.`;
+      return `Urgent turnaround has been added to ${caseMid || 'your case'}.`;
 
     case 'addon_purchased_video':
       if (isAr) return 'تم تأكيد استشارتك بالفيديو. سنرسل لك تفاصيل الموعد.';
@@ -752,7 +807,7 @@ function renderNotificationMessage(template, payload, lang) {
       const howAr = p.method === 'bank' ? 'تحويل بنكي' : 'إنستاباي';
       const tref = p.transferReference ? String(p.transferReference) : null;
       if (isAr) return `المريض يقول إنه دفع ${money ? money + ' ' : ''}عبر ${howAr} على ${arCaseN || 'الحالة'}${tref ? ` (مرجع ${tref})` : ''}. راجِع كشف الحساب ثم أكّد الدفع أو ارفضه.`;
-      return `Patient says they paid ${money ? money + ' ' : ''}by ${how} on ${caseLabel || 'a case'}${tref ? ` (ref ${tref})` : ''}. Check the statement, then mark paid or reject.`;
+      return `Patient says they paid ${money ? money + ' ' : ''}by ${how} on ${caseMidN || 'a case'}${tref ? ` (ref ${tref})` : ''}. Check the statement, then mark paid or reject.`;
     }
 
     case 'payment_claim_rejected_patient':
@@ -1069,13 +1124,60 @@ async function queueNotification({
 
   const notifId = id || randomUUID();
 
+  // E2E 2026-10-06 — give every notification about a case the case's REAL
+  // reference (orders.reference_id) before anything is rendered or stored.
+  //
+  // Callers either pass no reference at all (the payment reminders) or pass
+  // `String(orderId).slice(0, 12).toUpperCase()` as caseReference, and the
+  // bell, the email worker and both WhatsApp composers each read the stored
+  // payload — so one lookup here fixes all four surfaces and every caller,
+  // including the ones in files this change does not touch. The reference is
+  // written under the keys the consumers read (applyCaseReference); an id
+  // slice a caller supplied is replaced by it, or — for patient copy on a case
+  // that has no reference yet — removed, so nothing downstream can print it.
+  //
+  // Placed AFTER the dedupe blocks on purpose: the auto-key fingerprint above
+  // is a hash of the payload exactly as the caller queued it, and enriching
+  // first would change every fingerprint across the deploy, letting one
+  // webhook retry through as a "new" event.
+  //
+  // Best-effort like everything else in this function: one primary-key read,
+  // and any failure leaves the payload exactly as it was queued.
+  let storedResponseJson = responseJson;
+  let enrichedResponse = null;
+  try {
+    const base = (response && typeof response === 'object' && !Array.isArray(response))
+      ? response
+      : (() => { try { const j = JSON.parse(responseJson); return (j && typeof j === 'object' && !Array.isArray(j)) ? j : null; } catch (_) { return null; } })();
+    const lookupId = orderId || (base && (base.order_id || base.orderId || base.case_id || base.caseId)) || null;
+    let realRef = resolveCaseReference(base, lookupId ? { id: lookupId } : null);
+    if (!realRef && lookupId) {
+      // include-deleted-ok: a soft-deleted case still has its reference, and a
+      // notification about it (a refund, say) should still name it.
+      const refRow = await queryOne('SELECT reference_id FROM orders WHERE id = $1', [String(lookupId)]);
+      realRef = resolveCaseReference(null, { id: lookupId, reference_id: refRow && refRow.reference_id });
+    }
+    const next = applyCaseReference(base || (realRef ? {} : null), realRef, {
+      orderId: lookupId,
+      stripFake: !isStaffFacingTemplate(template, base)
+    });
+    if (next && next !== base) {
+      enrichedResponse = next;
+      storedResponseJson = JSON.stringify(next);
+    }
+  } catch (err) {
+    enrichedResponse = null;
+    storedResponseJson = responseJson;
+    console.error('[notify] case reference lookup failed; queuing payload as given', err && err.message ? err.message : err);
+  }
+
   // Resolve human-readable title + message so the mobile app's notifications
   // list doesn't render empty rows. `type` mirrors `template` so the mobile
   // app can branch on it without depending on template naming stability.
   // The response payload is also used to render a one-line message body.
-  const parsedResponse = (typeof response === 'object' && response !== null)
+  const parsedResponse = enrichedResponse || ((typeof response === 'object' && response !== null)
     ? response
-    : (() => { try { return JSON.parse(responseJson); } catch { return null; } })();
+    : (() => { try { return JSON.parse(responseJson); } catch { return null; } })());
   // AUDIT — `vars` was omitted here, so every `{caseReference}` /
   // `{doctorName}` / `{patientName}` placeholder in TEMPLATE_TITLES
   // interpolated to '' and interpolate() then stripped the dangling
@@ -1156,7 +1258,7 @@ async function queueNotification({
                 is_read = false,
                 at = NOW()
           WHERE id = $7`,
-        [status, responseJson, orderId, template, inAppTitle, inAppMessage, requeueRowId]
+        [status, storedResponseJson, orderId, template, inAppTitle, inAppMessage, requeueRowId]
       );
       // A re-armed row is a FRESH lifecycle event — the comment above says as
       // much, and `at` is bumped so the bell surfaces it as new. It therefore
@@ -1206,7 +1308,7 @@ async function queueNotification({
          type, title, message, is_read
        )
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false)`,
-      [notifId, orderId, uid, channel, template, status, responseJson, normalizedDedupeKey,
+      [notifId, orderId, uid, channel, template, status, storedResponseJson, normalizedDedupeKey,
        template, inAppTitle, inAppMessage]
     );
 

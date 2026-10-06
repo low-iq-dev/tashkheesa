@@ -224,3 +224,190 @@ try {
     'the template must have an AR title with no un-interpolated placeholders');
   t.pass('expiry notifies the patient, and the template is registered in both languages');
 } catch (e) { t.fail('expiry notification', e); }
+
+// ════════════════════════════════════════════════════════════════════════════
+// E2E 2026-10-06 — who may be CHASED, as opposed to who may be expired.
+//
+// Production: a wizard draft created 10:13 (status 'draft', price NULL,
+// reference NULL) got payment_reminder_30m on whatsapp + email + in-app at
+// 10:44, while the patient was still filling in the form. The reminder ladder
+// keyed on "not terminal" and on created_at; it now keys on a status whitelist
+// and on submission, and stands down while a transfer claim is being checked.
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── 9. A draft is never reminded; neither is ops-triage intake ─────────────
+try {
+  expect(Array.isArray(cl.UNPAID_REMINDER_STATUSES) && cl.UNPAID_REMINDER_STATUSES.length === 1 &&
+    cl.UNPAID_REMINDER_STATUSES[0] === 'SUBMITTED',
+    'only SUBMITTED may receive payment reminders; got ' + JSON.stringify(cl.UNPAID_REMINDER_STATUSES));
+  cl.UNPAID_REMINDER_STATUSES.forEach(function (s) {
+    expect(cl.unpaidTtlFor(s) !== null,
+      s + ' is chased for payment but has no TTL — it would be chased forever');
+  });
+
+  ['DRAFT', 'draft', 'PENDING_REVIEW', 'pending_review', 'EXPIRED_UNPAID', 'CANCELLED', 'COMPLETED']
+    .forEach(function (s) {
+      expect(cl.isUnpaidReminderEligible(row(s, 31 * 60 * 1000)) === false,
+        s + ' must NOT be eligible for a payment reminder');
+    });
+  expect(cl.isUnpaidReminderEligible(row('SUBMITTED', 31 * 60 * 1000)) === true,
+    'a SUBMITTED unpaid case must be reminder-eligible');
+  expect(cl.isUnpaidReminderEligible(row('submitted', HOUR)) === true,
+    "lowercase 'submitted' must be recognised");
+  expect(cl.isUnpaidReminderEligible(row('SUBMITTED', HOUR, { paid_at: new Date(NOW).toISOString() })) === false,
+    'a paid case is never reminded');
+
+  // The draft still belongs to the sweep — it has a 30-day expiry — it is only
+  // the chaser it is excluded from.
+  expect(cl.isUnpaidSweepEligible(row('DRAFT', HOUR)) === true,
+    'a DRAFT must stay in the sweep so its 30-day expiry still runs');
+  t.pass('reminders: SUBMITTED only — DRAFT and PENDING_REVIEW are never chased, DRAFT still expires');
+} catch (e) { t.fail('reminder status whitelist', e); }
+
+// ── 10. The SQL pre-filter says the same thing as the JS predicate ─────────
+try {
+  const sql = cl.buildUnpaidSweepWorkPredicateSql();
+  const ladderArm = sql.split(/\n\s*OR /)[0];
+  expect(/INTERVAL '25 hours'/.test(ladderArm), 'first arm must be the reminder-ladder window');
+  expect(/UPPER\(COALESCE\(status, ''\)\) IN \([^)]*'SUBMITTED'[^)]*\)/.test(ladderArm),
+    'the ladder arm must carry the status whitelist — without it every fresh DRAFT is selected ' +
+    'for a chaser. Got: ' + ladderArm);
+  expect(!/'DRAFT'/.test(ladderArm) && !/'PENDING_REVIEW'/.test(ladderArm),
+    'the ladder arm must not admit DRAFT or PENDING_REVIEW');
+  expect(/COALESCE\(submitted_at, created_at\) > NOW\(\)/.test(ladderArm),
+    'the ladder window must be anchored on submission (COALESCE(submitted_at, created_at))');
+  expect(!/(^|[^_(, ])created_at > NOW\(\)/.test(ladderArm),
+    'no bare created_at window may remain in the ladder arm');
+  // A database that has not run migration 129 must still get valid SQL.
+  const legacy = cl.buildUnpaidSweepWorkPredicateSql({ hasSubmittedAt: false });
+  expect(!/submitted_at/.test(legacy) && /'SUBMITTED'/.test(legacy.split(/\n\s*OR /)[0]),
+    'without the column the arm falls back to created_at but keeps the whitelist');
+  // Expiry arms are untouched: DRAFT 720h, SUBMITTED 168h, on last activity.
+  expect(/'DRAFT'\) AND COALESCE\(updated_at, created_at\) <= NOW\(\) - INTERVAL '720 hours'/.test(sql),
+    'the DRAFT expiry arm must be unchanged');
+  expect(/COALESCE\(updated_at, created_at\) <= NOW\(\) - INTERVAL '168 hours'/.test(sql),
+    'the SUBMITTED expiry arm must be unchanged');
+  t.pass('SQL ladder arm: status whitelist + COALESCE(submitted_at, created_at); expiry arms unchanged');
+} catch (e) { t.fail('SQL pre-filter agrees with the predicate', e); }
+
+// ── 11. The ladder runs from submission, not creation ──────────────────────
+try {
+  // Draft opened 3 days ago, submitted 10 minutes ago: nothing is due yet.
+  const lateSubmit = {
+    id: 'o-late', status: 'SUBMITTED',
+    created_at: new Date(NOW - 3 * DAY).toISOString(),
+    updated_at: new Date(NOW - 10 * 60 * 1000).toISOString(),
+    submitted_at: new Date(NOW - 10 * 60 * 1000).toISOString()
+  };
+  expect(cl.secondsSinceSubmitted(lateSubmit, NOW) === 600,
+    'ladder age must be measured from submitted_at; got ' + cl.secondsSinceSubmitted(lateSubmit, NOW));
+  expect(cl.pickUnpaidReminderLevel(cl.secondsSinceSubmitted(lateSubmit, NOW)) === null,
+    'a case submitted 10 minutes ago must get NO reminder, however old its draft is');
+
+  // No stamp (pre-129 row): created_at is the fallback.
+  expect(cl.secondsSinceSubmitted(row('SUBMITTED', 2 * HOUR), NOW) === 7200,
+    'without submitted_at the ladder falls back to created_at');
+
+  // Only the highest due level — never a burst of all three.
+  expect(cl.pickUnpaidReminderLevel(29 * 60) === null, 'nothing before 30 minutes');
+  expect(cl.pickUnpaidReminderLevel(31 * 60) === '30m', '30m level');
+  expect(cl.pickUnpaidReminderLevel(7 * 3600) === '6h', '6h level');
+  expect(cl.pickUnpaidReminderLevel(30 * 3600) === '24h', '24h level');
+
+  const CODE = stripComments(fs.readFileSync(path.join(ROOT, 'src', 'case_lifecycle.js'), 'utf8'));
+  const start = CODE.indexOf('async function dispatchUnpaidCaseReminders');
+  const sweep = CODE.slice(start, CODE.indexOf('const CASE_STATUS = Object.freeze', start));
+  expect(/secondsSinceSubmitted\s*\(\s*orderRow\s*\)/.test(sweep) && !/secondsSinceCreated/.test(CODE),
+    'the sweep must age the ladder with secondsSinceSubmitted');
+  expect(/t\.level === dueLevel/.test(sweep),
+    'only the highest due level may be queued per tick — a case first seen 30h after ' +
+    'submission must not receive 30m + 6h + 24h on three channels at once');
+  // Dedupe key has no time component, so a backfilled submitted_at cannot re-send.
+  expect(/`payment_reminder:\$\{level\}:\$\{channel\}:\$\{caseId\}:\$\{userId\}`/.test(CODE),
+    'the reminder dedupe key must stay payment_reminder:<level>:<channel>:<case>:<user>');
+  t.pass('ladder anchored on submitted_at; one level per tick; dedupe key shape unchanged');
+} catch (e) { t.fail('ladder anchored on submission', e); }
+
+// ── 12. A pending transfer claim pauses reminders AND expiry ───────────────
+try {
+  const pending = { payment_claim_pending: true };
+  const none = { payment_claim_pending: false };   // rejected / confirmed / never claimed
+  expect(cl.isUnpaidReminderEligible(row('SUBMITTED', HOUR, pending)) === false,
+    'no payment reminder while a transfer claim is pending — the patient says they have paid');
+  expect(cl.isUnpaidExpiryDue(row('SUBMITTED', 8 * DAY, pending), NOW) === false,
+    'no unpaid expiry while a transfer claim is pending');
+  expect(cl.isUnpaidExpiryDue(row('DRAFT', 31 * DAY, pending), NOW) === false,
+    'the pause applies to every expirable status');
+
+  expect(cl.isUnpaidReminderEligible(row('SUBMITTED', HOUR, none)) === true,
+    'a rejected claim resumes reminders');
+  expect(cl.isUnpaidExpiryDue(row('SUBMITTED', 8 * DAY, none), NOW) === true,
+    'a rejected claim resumes expiry');
+
+  const CODE = stripComments(fs.readFileSync(path.join(ROOT, 'src', 'case_lifecycle.js'), 'utf8'));
+  const start = CODE.indexOf('async function dispatchUnpaidCaseReminders');
+  const sweep = CODE.slice(start, CODE.indexOf('const CASE_STATUS = Object.freeze', start));
+  expect(/FROM payment_claims pc[\s\S]{0,120}pc\.status = 'pending'/.test(CODE),
+    "the pause must read payment_claims rows with status 'pending' only");
+  expect((sweep.match(/NOT \$\{PENDING_PAYMENT_CLAIM_EXISTS_SQL\}/g) || []).length === 2,
+    'BOTH the sweep SELECT and the expiry UPDATE must carry the NOT EXISTS pending-claim guard');
+  const upd = sweep.slice(sweep.indexOf("SET status = 'expired_unpaid'"));
+  expect(/PENDING_PAYMENT_CLAIM_EXISTS_SQL/.test(upd.slice(0, 600)),
+    'the expiry UPDATE itself must re-assert no pending claim (a claim filed between SELECT and UPDATE)');
+  expect(/skipped: 'payment_claim_pending'/.test(sweep) && /loadPendingPaymentClaim/.test(sweep),
+    'the per-row path must check for a pending claim when the row did not come from the sweep SELECT');
+  t.pass('pending claim blocks reminder + expiry (JS, SELECT and UPDATE); rejected claim resumes both');
+} catch (e) { t.fail('pending transfer claim pauses the sweep', e); }
+
+// ── 13. Migration 129 exists and is safe to re-run ─────────────────────────
+try {
+  const MIG = fs.readFileSync(path.join(ROOT, 'src', 'migrations', '129_orders_submitted_at.sql'), 'utf8');
+  const sqlOnly = MIG.split('\n').filter(function (l) { return !/^\s*--/.test(l); }).join('\n');
+  expect(/ALTER TABLE orders\s+ADD COLUMN IF NOT EXISTS submitted_at timestamptz/i.test(sqlOnly),
+    'migration 129 must add orders.submitted_at idempotently');
+  expect(/WHERE o\.submitted_at IS NULL\s+AND UPPER\(COALESCE\(o\.status, ''\)\) <> 'DRAFT'/.test(sqlOnly),
+    'the backfill must only fill NULLs and must leave drafts NULL');
+  expect(!/updated_at\s*=/.test(sqlOnly),
+    'the backfill must not touch updated_at — it is the unpaid-expiry clock');
+  expect(/CREATE OR REPLACE VIEW public\.orders_active/.test(sqlOnly),
+    'orders_active freezes its column list — 129 must re-sync the view (084 pattern)');
+  expect(!/^[ \t]*BEGIN[ \t]*;/im.test(sqlOnly),
+    'no bare BEGIN; — the runner wraps the file in its own transaction');
+  t.pass('migration 129: idempotent column, NULL-only backfill, drafts untouched, view re-synced');
+} catch (e) { t.fail('migration 129', e); }
+
+// ── 14. The copy no longer promises a 24h / 48h release ────────────────────
+try {
+  const { renderNotificationMessage } = require('../../src/notify');
+  const { getOpenClawBody } = require('../../src/notify/openclawTemplates');
+  const { getNotificationTitles } = require('../../src/notify/notification_titles');
+  const stale = /48 hours|48 ساعة|held for 24 hours|held 24 hours|released soon|closing soon|final \d+ hours|24 ساعة كمان|محفوظة منذ 24/;
+  const payload = { case_id: 'c1', reference_id: 'TSH-2026-000017', hours_remaining: 6 * 24 };
+  ['en', 'ar'].forEach(function (lang) {
+    ['payment_reminder_30m', 'payment_reminder_6h', 'payment_reminder_24h',
+     'case_auto_deleted_unpaid_patient', 'case_expired_unpaid_patient'].forEach(function (tpl) {
+      const bell = renderNotificationMessage(tpl, payload, lang) || '';
+      expect(!stale.test(bell), tpl + '/' + lang + ' bell copy is stale: ' + bell);
+      const wa = getOpenClawBody(tpl, lang, payload, { orderId: 'c1' }) || '';
+      expect(!stale.test(wa), tpl + '/' + lang + ' WhatsApp copy is stale: ' + wa);
+    });
+    const f = fs.readFileSync(path.join(ROOT, 'src', 'templates', 'email', lang, 'payment-reminder-24h.hbs'), 'utf8');
+    expect(!stale.test(f) && !/hoursRemaining/.test(f) && /holdRemaining/.test(f),
+      'email payment-reminder-24h (' + lang + ') must use holdRemaining, not a raw hour count');
+  });
+  const titles = getNotificationTitles('payment_reminder_24h', {});
+  expect(!stale.test(titles.title_en) && !/انتهاء فترة الحفظ/.test(titles.title_ar),
+    'the 24h reminder title must not say the spot is closing soon');
+  // The number shown is what is left of the TTL, in days.
+  expect(/6 days/.test(renderNotificationMessage('payment_reminder_24h', payload, 'en')),
+    '24h reminder must state the days left on the hold');
+  expect(/6 أيام/.test(renderNotificationMessage('payment_reminder_24h', payload, 'ar')),
+    '24h reminder (AR) must state the days left with the right plural');
+  const { formatHoldRemaining } = require('../../src/notify/duration');
+  expect(formatHoldRemaining(cl.unpaidTtlHoursFor('SUBMITTED'), 'en') === '7 days', 'SUBMITTED hold reads as 7 days');
+  expect(formatHoldRemaining(cl.unpaidTtlHoursFor('DRAFT'), 'en') === '30 days', 'DRAFT hold reads as 30 days');
+  expect(formatHoldRemaining(48, 'ar') === 'يومين' && formatHoldRemaining(24, 'en') === '24 hours' &&
+    formatHoldRemaining('', 'en') === '' && formatHoldRemaining(0, 'en') === '',
+    'formatHoldRemaining edge cases');
+  t.pass('reminder copy matches the real hold (7 days submitted / 30 days draft), no 24h/48h claims');
+} catch (e) { t.fail('stale hold copy', e); }

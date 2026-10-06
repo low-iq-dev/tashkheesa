@@ -1242,7 +1242,8 @@ router.post('/callback', async (req, res, next) => {
           template: 'payment_failed_patient',
           response: {
             order_id: orderId,
-            caseReference: String(orderId).slice(0, 12).toUpperCase(),
+            // E2E 2026-10-06 — was an id slice; queueNotification resolves orders.reference_id.
+            caseReference: (order && order.reference_id) || null,
             paymentUrl: paymentUrl,
             errorReason: (txnBody && (txnBody.error_message || txnBody.data_message)) || null
           }
@@ -1533,7 +1534,8 @@ router.post('/callback', async (req, res, next) => {
     template: 'payment_success_patient',
     response: {
       order_id: orderId,
-      caseReference: String(orderId).slice(0, 12).toUpperCase(),
+      // E2E 2026-10-06 — was an id slice; queueNotification resolves orders.reference_id.
+      caseReference: (order && order.reference_id) || null,
     },
   }).catch(function (err) {
       // AUDIT-P0-8: queueMultiChannelNotification is async and awaits a users
@@ -1558,7 +1560,8 @@ router.post('/callback', async (req, res, next) => {
       template: 'addon_purchased_urgency',
       response: {
         order_id: orderId,
-        caseReference: String(orderId).slice(0, 12).toUpperCase(),
+        // E2E 2026-10-06 — was an id slice; queueNotification resolves orders.reference_id.
+        caseReference: (order && order.reference_id) || null,
         slaHours: order.sla_hours || null
       }
     }).catch(function(err) {

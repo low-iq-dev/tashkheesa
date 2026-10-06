@@ -298,7 +298,8 @@ async function processKashierEvent(input, d) {
             template: 'payment_failed_patient',
             response: {
               order_id: orderId,
-              caseReference: String(orderId).slice(0, 12).toUpperCase(),
+              // E2E 2026-10-06 — was an id slice; queueNotification resolves orders.reference_id.
+              caseReference: (order && order.reference_id) || null,
               paymentUrl: '/portal/patient/pay/' + orderId,
               errorReason: null
             }
@@ -496,7 +497,10 @@ async function processKashierEvent(input, d) {
       actorRole: 'system'
     });
 
-    const caseReference = String(orderId).slice(0, 12).toUpperCase();
+    // E2E 2026-10-06 — was `String(orderId).slice(0, 12).toUpperCase()`, which
+    // patients were shown as "Case 8F83CD55-A06". The real reference, or null
+    // and queueNotification looks it up (notify/case_label.js).
+    const caseReference = (order && order.reference_id) || null;
     const q = function (payload, tag) {
       try {
         Promise.resolve(d.queueMultiChannelNotification(payload)).catch(function (err) {

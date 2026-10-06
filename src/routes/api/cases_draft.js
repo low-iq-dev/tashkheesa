@@ -48,6 +48,8 @@ const { generateReferenceId } = require('../../utils/reference');
 // App funnel 2026-09-23 — fire-and-forget PostHog funnel events. Never awaited,
 // never throws (and each call site is try-wrapped on top of that).
 const { captureFunnel } = require('../../services/analytics');
+// E2E 2026-10-06 — orders.submitted_at (migration 129), stamped at submit.
+const { hasSubmittedAtColumn, submittedAtSetClause } = require('../../services/orders_submitted_at');
 
 router.use(require('express').json());
 
@@ -603,6 +605,83 @@ router.get('/:id/classification', async (req, res) => {
   }
 });
 
+// ─── Pricing a draft — ONE function for the quote and the submit ────────────
+//
+// E2E 2026-10-06. Before submit the app had no server figure to show, only
+// whatever it could work out from the catalogue; the server then charged what
+// resolveAndPriceIntake said. Two sources for one number agree only until a
+// regional price list or the account-country rule says otherwise, and then
+// the patient is quoted one figure and billed another.
+//
+// The quote route and the submit route both come through here, so the inputs
+// are resolved the same way (explicit choice, then the draft row) and the
+// figure is produced by the same call. `chargedTotalEgp` is what submit writes
+// to orders.price — the amount GET /cases/:id/payment reports and the card or
+// transfer is for.
+async function priceDraftIntake(draft, choice, userId, context) {
+  const c = choice || {};
+  const specialtyId = c.specialtyId || draft.specialty_id || null;
+  const serviceId = c.serviceId || draft.service_id || null;
+  const urgencyTier = c.urgencyTier || draft.urgency_tier || 'standard';
+  const country = c.country || draft.country || 'EG';
+  if (!serviceId) return { serviceId: null, intake: null };
+
+  // Validate + price. Throws IntakeError for anything the patient can fix.
+  // T5 (launch eve 2026-09-24): priced from the account's users.country;
+  // the draft/body country is advisory.
+  const intake = await resolveAndPriceIntake({
+    serviceId, specialtyId, country, urgencyTier, urgent: false,
+    userId: userId, context: context
+  });
+  return { serviceId, intake, chargedTotalEgp: intake.pricing.totalPrice };
+}
+
+// ─── GET /cases/draft/:id/quote ─────────────────────────────────────────────
+//
+// What this draft will cost if submitted as it stands. Read-only: it writes
+// nothing and mints no payment link, so the app can call it every time the
+// patient changes service or tier.
+//
+// `amount` is EGP and is the charged total INCLUDING the tier uplift.
+// displayAmount / displayCurrency are the patient's local figures for an
+// international account and null for an Egyptian one. display_price is stored
+// un-multiplied (see case_intake_pricing.priceCaseForMarket), so the local
+// total is derived exactly as the pay page derives it: local base x
+// (EGP total / EGP base).
+//
+// An urgent tier outside the Cairo window answers URGENT_UNAVAILABLE — the
+// same refusal submit would give, surfaced one screen earlier.
+router.get('/:id/quote', async (req, res) => {
+  try {
+    const draft = await loadOwnedDraft(req.params.id, req.user.id);
+    if (!draft) return res.fail('Draft not found', 404, 'NOT_FOUND');
+
+    const priced = await priceDraftIntake(draft, null, req.user.id, 'api.cases_draft.quote');
+    if (!priced.intake) {
+      return res.fail('Please choose a service first.', 409, 'QUOTE_NOT_READY');
+    }
+    const intake = priced.intake;
+    const charge = intake.charge || {};
+    const egpBase = Number(charge.egpBase) || 0;
+    const isIntl = charge.displayPrice != null && !!charge.displayCurrency &&
+      String(charge.displayCurrency).toUpperCase() !== 'EGP';
+    const tierMult = egpBase > 0 ? (Number(priced.chargedTotalEgp) / egpBase) : 1;
+
+    return res.ok({
+      serviceId: priced.serviceId,
+      serviceName: intake.service.name || null,
+      serviceNameAr: intake.service.name_ar || null,
+      urgencyTier: intake.urgencyTier,
+      amount: Number(priced.chargedTotalEgp),
+      currency: 'EGP',
+      displayAmount: isIntl ? Math.round(Number(charge.displayPrice) * tierMult) : null,
+      displayCurrency: isIntl ? String(charge.displayCurrency).toUpperCase() : null
+    });
+  } catch (err) {
+    return failFromError(res, err, 'api.cases_draft.quote', req);
+  }
+});
+
 // ─── POST /cases/draft/:id/submit ───────────────────────────────────────────
 //
 // The draft becomes a real case.
@@ -617,29 +696,29 @@ router.get('/:id/classification', async (req, res) => {
 // we record BOTH picks in specialty_classification_overrides. Two reasons, and
 // the second one matters more than it looks:
 //
-//   1. The patient is knowingly routing their own case, so the SLA refund
-//      guarantee no longer applies — no_sla_refund_eligibility is set, exactly
-//      as the web wizard sets it. The app MUST tell the patient this before
-//      they override; a silent forfeit of a refund right would be indefensible.
+//   1. A patient who picks a different SPECIALTY is knowingly routing their
+//      own case, so the SLA refund guarantee no longer applies —
+//      no_sla_refund_eligibility is set, exactly as the web wizard sets it.
+//      The app MUST tell the patient this before they override; a silent
+//      forfeit of a refund right would be indefensible. A different SERVICE
+//      inside the AI's specialty forfeits nothing (E2E 2026-10-06).
 //
 //   2. It is the training signal. Every one of these rows is a labelled
 //      correction, and the learner reads them back. Which is also why the
 //      insert is best-effort and never blocks a submission: losing one training
 //      row is nothing, losing a patient's case is not.
 //
-// The locked-tier check mirrors the web wizard's: above the lock threshold the
-// client hides the override affordance entirely, so a mismatched pair arriving
-// here is a forged or badly stale client and is refused rather than recorded.
+// The locked-tier check mirrors the web wizard's and is on the SPECIALTY only:
+// above the lock threshold the client offers no way to change specialty, so a
+// different specialty arriving here is a forged or badly stale client and is
+// refused rather than recorded. Any service within that specialty is accepted.
 router.post('/:id/submit', async (req, res) => {
   try {
     const draft = await loadOwnedDraft(req.params.id, req.user.id);
     if (!draft) return res.fail('Draft not found', 404, 'NOT_FOUND');
 
     const b = req.body || {};
-    const specialtyId = b.specialtyId || draft.specialty_id || null;
     const serviceId = b.serviceId || draft.service_id || null;
-    const urgencyTier = b.urgencyTier || draft.urgency_tier || 'standard';
-    const country = b.country || draft.country || 'EG';
 
     if (!serviceId) {
       return res.fail('Please choose a service.', 422, 'VALIDATION_ERROR');
@@ -670,13 +749,11 @@ router.post('/:id/submit', async (req, res) => {
       return res.fail('Attach between 1 and ' + MAX_FILES + ' files.', 400, 'TOO_MANY_FILES');
     }
 
-    // Validate + price. Throws IntakeError for anything the patient can fix.
-    // T5 (launch eve 2026-09-24): priced from the account's users.country;
-    // the draft/body country is advisory.
-    const intake = await resolveAndPriceIntake({
-      serviceId, specialtyId, country, urgencyTier, urgent: false,
-      userId: req.user.id, context: 'api.cases_draft'
-    });
+    // Validate + price — through priceDraftIntake, the same call the quote
+    // route makes, so the figure the patient was shown is the figure charged.
+    const { intake, chargedTotalEgp } = await priceDraftIntake(
+      draft, b, req.user.id, 'api.cases_draft'
+    );
 
     // ── Override audit, best effort ──
     try {
@@ -691,14 +768,25 @@ router.post('/:id/submit', async (req, res) => {
         const serviceMismatch =
           classRow.service_id && String(classRow.service_id) !== String(serviceId);
 
-        if (specialtyMismatch || serviceMismatch) {
+        // E2E 2026-10-06 — the lock is on the SPECIALTY only.
+        //
+        // It used to refuse a mismatch on either dimension. But the classifier
+        // is confident about WHERE a case belongs (cardiology, not radiology);
+        // which service inside that specialty the patient wants is their
+        // choice, not a routing decision. With the dual lock a confidently
+        // classified case could be bought as exactly one service.
+        if (specialtyMismatch) {
           const { lock: lockThreshold } = await require('../../services/admin_settings').getThresholds();
           if (Number(classRow.confidence) >= lockThreshold) {
             return res.fail(
-              'This case is locked to the recommended specialty. Please refresh and try again.',
+              'This case is locked to the recommended specialty. You can choose any service within it. Please refresh and try again.',
               409, 'OVERRIDE_NOT_PERMITTED'
             );
           }
+        }
+        if (specialtyMismatch || serviceMismatch) {
+          // Recorded on BOTH dimensions either way: a service-only correction
+          // is still a labelled example for the learner.
           await execute(
             `INSERT INTO specialty_classification_overrides
                (id, case_id, ai_specialty_id, ai_service_id, ai_confidence,
@@ -709,10 +797,16 @@ router.post('/:id/submit', async (req, res) => {
              classRow.confidence == null ? null : Number(classRow.confidence),
              intake.resolvedSpecialtyId, serviceId, new Date().toISOString()]
           );
-          await execute(
-            `UPDATE orders SET no_sla_refund_eligibility = true, updated_at = $1 WHERE id = $2`,
-            [new Date().toISOString(), draft.id]
-          );
+          // The on-time refund guarantee is forfeited only by re-ROUTING the
+          // case (a different specialty, allowed below the lock). Choosing a
+          // different service keeps the case with the doctors the AI sent it
+          // to, so there is nothing for the patient to forfeit.
+          if (specialtyMismatch) {
+            await execute(
+              `UPDATE orders SET no_sla_refund_eligibility = true, updated_at = $1 WHERE id = $2`,
+              [new Date().toISOString(), draft.id]
+            );
+          }
         }
       }
     } catch (err) {
@@ -734,8 +828,13 @@ router.post('/:id/submit', async (req, res) => {
     //
     // The WHERE clause re-asserts DRAFT, so a double-tapped Submit updates
     // nothing the second time instead of re-pricing a live case.
+    //
+    // submitted_at (E2E 2026-10-06) is stamped HERE and only here for an app
+    // case: this statement matches a row exactly once, at DRAFT -> submitted,
+    // and COALESCE keeps any value already there. Nothing later rewrites it.
     const refNumber = await generateReferenceId();
     const slaDeadline = new Date(Date.now() + intake.slaHours * 60 * 60 * 1000).toISOString();
+    const submittedAtSet = submittedAtSetClause(await hasSubmittedAtColumn());
 
     const result = await execute(
       // paymob_intention_id / payment_link are nulled alongside the price.
@@ -764,11 +863,12 @@ router.post('/:id/submit', async (req, res) => {
               urgency_flag = $13,
               urgency_tier = $14,
               draft_step = 5,
+              ${submittedAtSet}
               updated_at = NOW()
         WHERE id = $15 AND patient_id = $16
           AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
       [refNumber, serviceId, intake.resolvedSpecialtyId, intake.displayCountry,
-       intake.charge.egpBase, intake.pricing.totalPrice, intake.pricing.upliftAmount,
+       intake.charge.egpBase, chargedTotalEgp, intake.pricing.upliftAmount,
        intake.charge.doctorFeeEgp,
        // display_price is the LOCAL BASE, un-multiplied. See the long note in
        // case_intake_pricing.priceCaseForMarket — writing the uplifted total

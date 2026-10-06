@@ -69,10 +69,26 @@ async function resolveApiLang(req, safeGet) {
 // of submission, so that is the clock. created_at remains the fallback for a
 // case that has no such row (web-created cases, or the best-effort timeline
 // insert having failed) — i.e. the old behaviour, never a longer window.
-const SUBMITTED_AT_SQL = `COALESCE(
-          (SELECT MIN(ot.created_at) FROM order_timeline ot
-            WHERE ot.order_id = o.id AND LOWER(COALESCE(ot.status, '')) = 'submitted'),
-          o.created_at)`;
+//
+// E2E 2026-10-06 — there IS a submitted_at column now (migration 129), stamped
+// by every submit path. It leads the COALESCE; the timeline row and created_at
+// stay behind it for every case submitted before the column existed. The
+// expression is built per request by services/orders_submitted_at (see the
+// note there on why the column is probed and read from the base table), so
+// the list, the detail and the cancel window all share one clock.
+const { hasSubmittedAtColumn, submittedAtSql } = require('../../services/orders_submitted_at');
+async function resolveSubmittedAtSql() {
+  return submittedAtSql(await hasSubmittedAtColumn(), 'o');
+}
+
+// E2E 2026-10-06 — the app could not tell a case waiting on the PATIENT (unpaid)
+// from one waiting on US (transfer claim under review), and badged both
+// "Submitted". payment_claims exists since migration 117; one pending row per
+// order is enforced by its partial unique index, so EXISTS is an index probe.
+const PAYMENT_STATUS_SQL = `LOWER(COALESCE(o.payment_status, 'unpaid'))`;
+const PAYMENT_CLAIM_PENDING_SQL = `EXISTS (
+          SELECT 1 FROM payment_claims pc
+           WHERE pc.order_id = o.id AND pc.status = 'pending')`;
 const CANCEL_WINDOW_MINUTES = 10;
 const CANCELLABLE_STATUSES = ['submitted', 'new'];
 
@@ -127,6 +143,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       whereClause += " AND LOWER(COALESCE(o.status, '')) IN ('cancelled','canceled','refunded','expired_unpaid')";
     }
 
+    const SUBMITTED_AT_SQL = await resolveSubmittedAtSql();
     const cases = await safeAll(`
       SELECT
         o.id, o.reference_id as "referenceId", o.patient_id as "patientId",
@@ -147,6 +164,11 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         -- pre-acceptance wait and mislabels Urgent cases as VIP.
         o.sla_hours as "slaHours", o.urgency_tier as "urgencyTier",
         o.created_at as "createdAt",
+        -- E2E 2026-10-06 (contract §2): what the list needs to badge a case
+        -- honestly without a detail round-trip per row.
+        ${SUBMITTED_AT_SQL} as "submittedAt",
+        ${PAYMENT_STATUS_SQL} as "paymentStatus",
+        ${PAYMENT_CLAIM_PENDING_SQL} as "paymentClaimPending",
         o.completed_at as "completedAt",
         s.name as "serviceName", s.name_ar as "serviceNameAr", sp.name as "specialtyName",
         s.specialty_id as "specialtyId",
@@ -160,7 +182,10 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         SELECT ds.specialty_id FROM doctor_specialties ds WHERE ds.doctor_id = d.id LIMIT 1
       )
       ${whereClause}
-      ORDER BY o.created_at DESC
+      -- Newest SUBMISSION first. created_at is when the draft was opened, so a
+      -- case finished today from a draft started last week sorted below
+      -- everything in between. id breaks ties so pagination is stable.
+      ORDER BY ${SUBMITTED_AT_SQL} DESC, o.created_at DESC, o.id DESC
       LIMIT $${paramIndex++} OFFSET $${paramIndex++}
     `, [...params, perPage, offset]);
 
@@ -176,10 +201,96 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     });
   });
 
+  // ─── GET /cases/summary ──────────────────────────────────
+  // E2E 2026-10-06 (contract §6) — the dashboard counters.
+  //
+  // The app derived these by paging the list and counting client-side, with
+  // its own idea of what "active" means — which counted a submitted, UNPAID
+  // case as active. Nothing is in progress on a case nobody has paid for; it
+  // is waiting on the patient, and saying otherwise is how "why is my active
+  // case not moving" tickets get written.
+  //
+  // One row, one scan. The buckets PARTITION the total:
+  //   total = awaitingPayment + active + completed + closed
+  // and awaitingReport is a subset of active. The status spellings come from
+  // case_lifecycle's DB_STATUS_VARIANTS (the column is written in both cases
+  // and with legacy names), compared lower-cased, so this cannot drift from
+  // what the lifecycle itself considers the same status.
+  //
+  // MUST stay above GET '/:id', which would otherwise answer 'summary' with
+  // "Case not found".
+  router.get('/summary', async (req, res) => {
+    // Required here, not at the top: case_intake_pricing already reaches
+    // case_lifecycle lazily for the same reason (load order at boot).
+    const { CASE_STATUS, dbStatusValuesFor } = require('../../case_lifecycle');
+    const variants = (...canon) => Array.from(new Set(
+      canon.reduce((acc, c) => acc.concat(dbStatusValuesFor(c)), [])
+        .map((v) => String(v).toLowerCase())
+    ));
+
+    const drafts = variants(CASE_STATUS.DRAFT);
+    const submitted = variants(CASE_STATUS.SUBMITTED);
+    // 'delivered' / 'report_ready' / 'finalized' are not lifecycle statuses,
+    // but the list's Completed filter above accepts them — a case that shows
+    // under Completed there must be counted as completed here.
+    const completed = variants(CASE_STATUS.COMPLETED)
+      .concat(['delivered', 'report_ready', 'finalized']);
+    const closed = variants(CASE_STATUS.CANCELLED, CASE_STATUS.EXPIRED_UNPAID, CASE_STATUS.REFUNDED);
+    // A doctor has it, or it is between doctors: either way the patient is
+    // waiting for the report. PAID (not yet assigned) and REJECTED_FILES
+    // (waiting on the patient's files) are active but not this.
+    const withDoctor = variants(
+      CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.SLA_BREACH,
+      CASE_STATUS.REASSIGNED, CASE_STATUS.PENDING_REVIEW
+    );
+
+    const ST = "LOWER(COALESCE(o.status, ''))";
+    // Same "has the money arrived" test the payment-claim paths use.
+    const UNPAID = "LOWER(COALESCE(o.payment_status, '')) NOT IN ('paid', 'captured')";
+    const AWAITING_PAYMENT = `(${ST} = ANY($3::text[]) AND ${UNPAID})`;
+    const TERMINAL = `(${ST} = ANY($4::text[]) OR ${ST} = ANY($5::text[]))`;
+
+    try {
+      const row = await require('../../pg').queryOne(`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE ${AWAITING_PAYMENT})::int AS "awaitingPayment",
+          COUNT(*) FILTER (WHERE NOT ${AWAITING_PAYMENT} AND NOT ${TERMINAL})::int AS active,
+          COUNT(*) FILTER (WHERE NOT ${AWAITING_PAYMENT} AND NOT ${TERMINAL}
+                             AND ${ST} = ANY($6::text[]))::int AS "awaitingReport",
+          COUNT(*) FILTER (WHERE ${ST} = ANY($4::text[]))::int AS completed,
+          COUNT(*) FILTER (WHERE ${ST} = ANY($5::text[]))::int AS closed
+        FROM orders_active o
+        WHERE o.patient_id = $1 AND o.deleted_at IS NULL
+          AND NOT (${ST} = ANY($2::text[]))
+      `, [req.user.id, drafts, submitted, completed, closed, withDoctor]);
+
+      const n = (v) => Number(v) || 0;
+      return res.ok({
+        total: n(row && row.total),
+        active: n(row && row.active),
+        awaitingPayment: n(row && row.awaitingPayment),
+        awaitingReport: n(row && row.awaitingReport),
+        completed: n(row && row.completed),
+        closed: n(row && row.closed),
+      });
+    } catch (err) {
+      // Deliberately NOT safeGet: a swallowed failure would answer with six
+      // zeros, and the app would tell a patient with open cases they have none.
+      logErrorToDb(err, {
+        context: 'api.cases.summary',
+        userId: req.user.id, url: req.originalUrl, method: req.method,
+        category: 'patient_case'
+      });
+      return res.fail('Something went wrong. Please try again.', 500, 'INTERNAL_ERROR');
+    }
+  });
+
   // ─── GET /cases/:id ──────────────────────────────────────
   // Full case detail with timeline and files
 
   router.get('/:id', async (req, res) => {
+    const SUBMITTED_AT_SQL = await resolveSubmittedAtSql();
     const caseData = await safeGet(`
       SELECT
         o.id, o.reference_id as "referenceId", o.patient_id as "patientId",
@@ -188,6 +299,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         o.price, o.base_price as "basePrice", o.urgency_uplift_amount as "urgencyUplift", o.currency,
         ${SLA_DEADLINE_SQL} as "slaDeadline",
         ${SUBMITTED_AT_SQL} as "submittedAt",
+        ${PAYMENT_CLAIM_PENDING_SQL} as "paymentClaimPending",
         o.deadline_at as "acceptedDeadline",
         o.sla_hours as "slaHours", o.urgency_tier as "urgencyTier",
         o.created_at as "createdAt",
@@ -260,7 +372,10 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     caseData.hasReview = !!review;
     caseData.reviewRating = review ? review.rating : null;
 
-    caseData.paymentStatus = payment?.status || 'pending';
+    // Lower-cased (contract §2) so the list and the detail agree on the
+    // spelling. 'pending' stays the answer for a NULL, as it always was here.
+    caseData.paymentStatus = String(payment?.status || 'pending').toLowerCase();
+    caseData.paymentClaimPending = caseData.paymentClaimPending === true;
 
     // NEW-CASE-6 — the server says until when Cancel is offered, counted from
     // SUBMISSION (see SUBMITTED_AT_SQL), so the app never re-derives the rule
@@ -461,6 +576,18 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       caseLanguage
     ]);
 
+    // E2E 2026-10-06 — this path creates the case already submitted, so the
+    // row is born at its submission time: stamp submitted_at (migration 129)
+    // straight after the INSERT. Its own statement, column-probed, so the
+    // INSERT above stays exactly what older deploys ran; COALESCE so it is
+    // written once. A miss only sends readers to their timeline fallback.
+    if (await hasSubmittedAtColumn()) {
+      await safeRun(
+        'UPDATE orders SET submitted_at = COALESCE(submitted_at, NOW()) WHERE id = $1 AND patient_id = $2',
+        [orderId, req.user.id]
+      );
+    }
+
     // Insert files. Tag images for async AI quality check; non-images are skipped.
     // Theme 13 Sub-issue D: dual-mode INSERT — each row carries EITHER url
     // (R2 key from new mobile clients) OR uploadcare_uuid (legacy CDN path).
@@ -546,6 +673,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
   // ─── POST /cases/:id/cancel ──────────────────────────────
 
   router.post('/:id/cancel', async (req, res) => {
+    const SUBMITTED_AT_SQL = await resolveSubmittedAtSql();
     const caseData = await safeGet(
       `SELECT o.*, ${SUBMITTED_AT_SQL} AS submitted_at_resolved
          FROM orders_active o WHERE o.id = $1 AND o.patient_id = $2`,

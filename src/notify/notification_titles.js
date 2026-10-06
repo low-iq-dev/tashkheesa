@@ -139,7 +139,10 @@ const TEMPLATE_TITLES = {
   signup_no_case_24h: { en: 'Your specialist review is one step away',    ar: 'مراجعة الاستشاري على بُعد خطوة' },
   payment_reminder_30m: { en: 'Reminder: complete payment for your case',     ar: 'تذكير: إكمال الدفع لحالتك' },
   payment_reminder_6h:  { en: 'Your case is still waiting for payment',       ar: 'حالتك لسة في انتظار الدفع' },
-  payment_reminder_24h: { en: 'A heads-up: your case spot is closing soon',   ar: 'تنبيه: حالتك تقترب من انتهاء فترة الحفظ' },
+  // E2E 2026-10-06 — the 24h title said "your case spot is closing soon". A
+  // submitted case is held for 7 days (case_lifecycle UNPAID_CASE_TTL), so one
+  // day in, nothing is closing soon. No number in a title: the body carries it.
+  payment_reminder_24h: { en: "We're still holding your case — payment pending", ar: 'حالتك لسة محفوظة — في انتظار الدفع' },
 
   // Theme 14 Phase 5 — patient notification on manual-queue approve when
   // the chosen specialty differs from the patient's original submission.

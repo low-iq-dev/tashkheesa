@@ -3431,7 +3431,8 @@ router.post('/superadmin/orders/:id/additional-files/approve', requireSuperadmin
       template: 'additional_files_requested_patient',
       response: {
         case_id: orderId,
-        caseReference: orderId.slice(0, 12).toUpperCase(),
+        // E2E 2026-10-06 — was an id slice; queueNotification resolves orders.reference_id.
+        caseReference: null,
         reason: support_note || 'Additional files needed'
       },
       dedupe_key: 'additional_files_request:' + orderId + ':' + Date.now()
@@ -6976,7 +6977,8 @@ router.post('/superadmin/refunds/create', requireSuperadmin, async (req, res) =>
         template: 'patient_refund_opened_by_operator',
         response: {
           case_id: orderId,
-          caseReference: orderId.slice(0, 12).toUpperCase(),
+          // E2E 2026-10-06 — was an id slice; queueNotification resolves orders.reference_id.
+          caseReference: null,
           requestedAmount: amountRaw.toFixed(2),
           amount: amountRaw.toFixed(2),
           currency: 'EGP',
@@ -7119,7 +7121,8 @@ router.post('/superadmin/refunds/:id/approve', requireSuperadmin, async (req, re
         template: 'patient_refund_approved',
         response: {
           case_id: refund.order_id,
-          caseReference: refund.order_id.slice(0, 12).toUpperCase(),
+          // E2E 2026-10-06 — was an id slice; queueNotification resolves orders.reference_id.
+          caseReference: null,
           approvedAmount: approvedAmountRaw.toFixed(2),
           amount: approvedAmountRaw.toFixed(2),
           currency: 'EGP'
@@ -7187,7 +7190,8 @@ router.post('/superadmin/refunds/:id/deny', requireSuperadmin, async (req, res) 
         template: 'patient_refund_denied',
         response: {
           case_id: refund.order_id,
-          caseReference: refund.order_id.slice(0, 12).toUpperCase(),
+          // E2E 2026-10-06 — was an id slice; queueNotification resolves orders.reference_id.
+          caseReference: null,
           denialReason,
           requestedAmount: Number(refund.requested_amount || 0).toFixed(2),
           amount: Number(refund.requested_amount || 0).toFixed(2),
@@ -7407,7 +7411,8 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
         template: 'patient_refund_paid',
         response: {
           case_id: refund.order_id,
-          caseReference: refund.order_id.slice(0, 12).toUpperCase(),
+          // E2E 2026-10-06 — was an id slice; queueNotification resolves orders.reference_id.
+          caseReference: null,
           amount: finalAmount.toFixed(2),
           currency: 'EGP',
           instapayReference: reference,

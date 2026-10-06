@@ -22,7 +22,15 @@
 
 // FIX 13 — shared with notification_worker's email path so the two surfaces
 // render the same countdown with the same Arabic number agreement.
-const { formatTimeRemaining } = require('./duration');
+const { formatTimeRemaining, formatHoldRemaining } = require('./duration');
+// E2E 2026-10-06 — the case reference shown in a body (never an id slice for a
+// patient) and the tidy-up for bodies composed without one. See case_label.js.
+const {
+  resolveCaseReference,
+  isStaffFacingTemplate,
+  cleanMissingReference,
+  NO_REFERENCE_TOKEN
+} = require('./case_label');
 
 function appUrl() {
   return process.env.APP_URL || 'https://tashkheesa.com';
@@ -144,9 +152,15 @@ const OPENCLAW_TEMPLATES = {
 
   // ── h. Payment reminders for unpaid cases (#66) ────────────────────
   // Queued by case_lifecycle.dispatchUnpaidCaseReminders at 30m / 6h /
-  // 24h elapsed from order creation. The 24h variant is registered for
-  // completeness; the lifecycle hard-stop at 24h currently expires the
-  // case before the reminder loop reaches that threshold. AR voice is
+  // 24h after the case is SUBMITTED (not created — E2E 2026-10-06).
+  //
+  // E2E 2026-10-06 — the 24h body said "it's been held 24 hours. We hold
+  // cases for a final {hoursRemaining} hours before the spot is released",
+  // copy from the 48h soft-delete era. A submitted case is held 7 days from
+  // last activity (UNPAID_CASE_TTL), so it read "a final 144 hours" — or, with
+  // the field missing, a flat wrong "24". `holdRemaining` is that same number
+  // in days ("6 days" / "6 أيام"); when it is unknown the clause is dropped
+  // rather than guessed. AR voice is
   // gender-neutral per file conventions (team 1pl, nominal phrases
   // instead of gendered imperatives). The `link` field is the payment
   // URL (rewritten in notification_worker for payment_reminder_*).
@@ -159,8 +173,8 @@ const OPENCLAW_TEMPLATES = {
     ar: (v) => `حالتك (${v.caseReference}) لسة في انتظار الدفع. الإكمال من هنا وهنبدأ المراجعة مع الطبيب على طول: ${v.link}\n— تشخيصة`
   },
   payment_reminder_24h: {
-    en: (v) => `Heads-up about case ${v.caseReference}: it's been held 24 hours. We hold cases for a final ${v.hoursRemaining || '24'} hours before the spot is released. You can still pay here: ${v.link}\n— Tashkheesa`,
-    ar: (v) => `تنبيه عن حالة ${v.caseReference}: عدّت 24 ساعة وهي محفوظة. الحالات بتفضل ${v.hoursRemaining || '24'} ساعة كمان قبل ما المكان يتفتح. ممكن الدفع من هنا: ${v.link}\n— تشخيصة`
+    en: (v) => `Heads-up about case ${v.caseReference}: it's still waiting for payment.${v.holdRemaining ? ` We're holding it for another ${v.holdRemaining} before the payment window closes.` : ''} You can pay here: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تنبيه عن حالة ${v.caseReference}: لسة في انتظار الدفع.${v.holdRemaining ? ` هنفضل حاجزينها ${v.holdRemaining} كمان قبل ما مهلة الدفع تخلص.` : ''} ممكن الدفع من هنا: ${v.link}\n— تشخيصة`
   },
 
   // ── h2. SLA reminder tiers — 24h / 6h / 1h (FIX 4) ─────────────────
@@ -481,11 +495,24 @@ function getOpenClawBody(eventName, lang, rawVars, opts) {
   const vars = rawVars && typeof rawVars === 'object' ? rawVars : {};
   const orderId = (opts && opts.orderId) || vars.order_id || vars.orderId || null;
 
+  const realReference = resolveCaseReference(vars, orderId ? { id: orderId } : null);
+  const staffCopy = isStaffFacingTemplate(eventName, vars);
+
   const enriched = {
     // AUDIT-P0-3: notify/broadcast.js queues `case_ref` (not caseReference)
     // and `sla_hours`; without these aliases the doctor broadcast bodies
     // would render an empty case reference.
-    caseReference: vars.caseReference || vars.case_ref || vars.caseRef || (orderId ? String(orderId).slice(0, 12).toUpperCase() : ''),
+    //
+    // E2E 2026-10-06 — the last fallback here was an id slice, and most
+    // callers queued that same slice AS caseReference, so patients were told
+    // about "case 8F83CD55-A06". resolveCaseReference only returns a real
+    // reference. With none: staff copy keeps the old handle; patient copy is
+    // composed with a placeholder and rewritten below ("your case", no
+    // parenthetical) — an internal id is never printed to a patient.
+    caseReference: realReference
+      || (staffCopy
+        ? (vars.caseReference || vars.case_ref || vars.caseRef || (orderId ? String(orderId).slice(0, 12).toUpperCase() : ''))
+        : NO_REFERENCE_TOKEN),
     doctorName: stripDr(vars.doctorName || vars.doctor_name || ''),
     patientName: vars.patientName || vars.patient_name || '',
     amount: vars.amount != null ? vars.amount : '',
@@ -520,6 +547,9 @@ function getOpenClawBody(eventName, lang, rawVars, opts) {
     // '' when there is nothing sensible to say so the composer falls back to
     // its approximate tier wording. Prefers the exact seconds when queued,
     // otherwise reconstructs from an hours field (payment reminders).
+    // E2E 2026-10-06 — time left on the unpaid hold, in days once it is days
+    // (payment_reminder_24h). '' when the payload carries no hours field.
+    holdRemaining: formatHoldRemaining(vars.hoursRemaining || vars.hours_remaining, lang),
     timeRemaining: formatTimeRemaining(
       Number.isFinite(Number(vars.seconds_remaining))
         ? Number(vars.seconds_remaining)
@@ -552,7 +582,9 @@ function getOpenClawBody(eventName, lang, rawVars, opts) {
   const composer = lang === 'ar' ? entry.ar : entry.en;
   if (typeof composer !== 'function') return null;
 
-  return composer(enriched);
+  // No reference and a patient reading: rewrite the phrase around the
+  // placeholder. A no-op whenever a reference was interpolated.
+  return cleanMissingReference(composer(enriched), lang);
 }
 
 // Mirror notification_worker's stripDrPrefix — doctor names are stored

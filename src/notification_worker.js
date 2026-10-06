@@ -12,6 +12,26 @@ const { sendEmail, renderEmail, EMAIL_ENABLED } = require('./services/emailServi
 const { sendWhatsApp, whatsappTransport } = require('./notify/whatsapp');
 const { getNotificationTitles } = require('./notify/notification_titles');
 const { getWhatsAppTemplate } = require('./notify/whatsappTemplateMap');
+const { resolveCaseReference } = require('./notify/case_label');
+const { formatHoldRemaining } = require('./notify/duration');
+
+// E2E 2026-10-06 — the reference a recipient is shown. Both send paths used
+// `data.caseReference || String(caseId).slice(0, 12).toUpperCase()`, and since
+// most callers queued that same slice as caseReference, patients were emailed
+// and messaged about "Case 8F83CD55-A06". The order row is at hand here, so
+// its reference_id wins; an id-shaped value is never shown to a patient (the
+// templates all handle an empty reference). Doctors and ops keep the old
+// fallback — for them a fragment of the id is still something to search by.
+function caseReferenceForRecipient(payload, order, caseId, user) {
+  const real = resolveCaseReference(payload, order || (caseId ? { id: caseId } : null));
+  if (real) return real;
+  const role = String((user && user.role) || '').toLowerCase();
+  if (role === 'doctor' || role === 'admin' || role === 'superadmin') {
+    return (payload && payload.caseReference)
+      || (caseId ? String(caseId).slice(0, 12).toUpperCase() : '');
+  }
+  return '';
+}
 // FIX 13 — bilingual countdown rendering (minutes under the hour, correct
 // Arabic number agreement). Shared with notify/openclawTemplates.js.
 const { formatTimeRemaining } = require('./notify/duration');
@@ -178,12 +198,10 @@ const TEMPLATE_TO_EMAIL = {
   prescription_recommended_patient: 'prescription-recommended',
   prescription_unlocked_doctor:     'prescription-unlocked',
   // #66: payment-reminder series for unpaid cases. Queued by
-  // case_lifecycle.dispatchUnpaidCaseReminders at 30m / 6h / 24h
-  // elapsed from order creation. The 24h reminder is included for
-  // registry completeness even though the case_lifecycle hard-stop
-  // at 24h (status='expired_unpaid') currently expires the case
-  // before the reminder loop reaches that threshold — keeps the
-  // surface ready if the hold window is ever extended.
+  // case_lifecycle.dispatchUnpaidCaseReminders at 30m / 6h / 24h after the
+  // case is SUBMITTED (E2E 2026-10-06 — it used to be from creation, which
+  // chased drafts). A submitted case is held for 7 days (UNPAID_CASE_TTL), so
+  // all three levels are reachable.
   payment_reminder_30m: 'payment-reminder-30m',
   payment_reminder_6h:  'payment-reminder-6h',
   payment_reminder_24h: 'payment-reminder-24h',
@@ -325,10 +343,14 @@ async function processEmail(notification, user, order) {
     patientName: data.patientName || user.name || 'Patient',
     doctorName: stripDrPrefix(data.doctorName),
     caseId: caseIdResolved,
-    caseReference: data.caseReference
-      || (caseIdResolved ? String(caseIdResolved).slice(0, 12).toUpperCase() : ''),
+    caseReference: caseReferenceForRecipient(data, order, caseIdResolved, user),
     paymentUrl: paymentUrlResolved,
     hoursRemaining: data.hoursRemaining || data.hours_remaining || slaHoursRemaining || '',
+    // E2E 2026-10-06 — "6 days" / "6 أيام", for payment-reminder-24h.hbs. The
+    // template used to print the raw hour count ("a final 144 hours"). Only
+    // from the payment-reminder payload's own field: slaHoursRemaining above
+    // is a different clock.
+    holdRemaining: formatHoldRemaining(data.hoursRemaining || data.hours_remaining, lang),
     timeRemaining,
     specialty: data.specialty || '',
     slaHours: data.slaHours || (order ? order.sla_hours : ''),
@@ -511,8 +533,10 @@ async function processWhatsApp(notification, user, order) {
     patientName:  rawVars.patientName  || user.name || 'Patient',
     doctorName:   stripDrPrefix(rawVars.doctorName),
     caseId:       caseIdResolved,
-    caseReference: rawVars.caseReference
-      || (caseIdResolved ? String(caseIdResolved).slice(0, 12).toUpperCase() : ''),
+    caseReference: caseReferenceForRecipient(rawVars, order, caseIdResolved, user),
+    // Lets the OpenClaw composer tell patient copy from staff copy when a case
+    // has no reference (notify/case_label.isStaffFacingTemplate).
+    recipientRole: rawVars.recipientRole || user.role || '',
     paymentUrl:   paymentUrlResolved,
     hoursRemaining: rawVars.hoursRemaining || rawVars.hours_remaining || '',
     slaHours:     rawVars.slaHours || (order ? order.sla_hours : ''),

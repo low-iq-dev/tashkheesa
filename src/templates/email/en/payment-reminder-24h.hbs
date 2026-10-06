@@ -1,4 +1,4 @@
-<!-- Payment Reminder — 24 hours (informational, hold-window ending) -->
+<!-- Payment Reminder — 24 hours after submission (informational). A submitted case is held for 7 days from last activity (case_lifecycle UNPAID_CASE_TTL); holdRemaining is what is left of that, e.g. "6 days". -->
 <h2 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#0B6B5F;">
   A heads-up about your case
 </h2>
@@ -8,7 +8,7 @@
 </p>
 
 <p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4A4640;">
-  Your case has been held with us for 24 hours waiting for payment. To keep things moving, we hold cases for a final {{#if hoursRemaining}}{{hoursRemaining}}{{else}}24{{/if}} hours before the spot is released so another patient can be reviewed.
+  Your case is still with us, waiting for payment.{{#if holdRemaining}} We're holding it for another {{holdRemaining}} before the payment window closes.{{/if}}
 </p>
 
 {{#if caseReference}}
@@ -23,7 +23,7 @@
 {{/if}}
 
 <p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4A4640;">
-  You can still complete payment any time in the next {{#if hoursRemaining}}{{hoursRemaining}}{{else}}24{{/if}} hours and we'll pick up exactly where you left off.
+  You can complete payment any time {{#if holdRemaining}}in the next {{holdRemaining}}{{else}}while we hold it{{/if}} and we'll pick up exactly where you left off.
 </p>
 
 {{#if paymentUrl}}
@@ -39,5 +39,5 @@
 {{/if}}
 
 <p style="margin:24px 0 0 0;font-size:13px;color:#7A736A;line-height:1.5;">
-  If you've decided not to proceed, no action needed — your case will be released automatically. You can always start a fresh case whenever you're ready.
+  If you've decided not to proceed, no action is needed — the payment window closes on its own and your case stays saved in your account.
 </p>

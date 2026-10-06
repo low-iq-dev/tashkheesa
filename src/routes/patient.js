@@ -22,6 +22,8 @@ const { serviceBookableClause } = require('../services/service_bookable');
 const { modelHaiku } = require('../config/anthropic');
 const { recordAiUsage } = require('../services/ai_usage');
 const { getThresholds } = require('../services/admin_settings');
+// E2E 2026-10-06 — orders.submitted_at (migration 129) is probed, not assumed.
+const { hasSubmittedAtColumn } = require('../services/orders_submitted_at');
 // Part B item 2 (2026-09-13) — every patient-supplied file URL goes through
 // the same host allowlist /files/:id enforces on the way out.
 const { isAllowedFileUrl } = require('../services/file_url_allowlist');
@@ -2449,22 +2451,27 @@ router.post('/patient/new-case/step2', requireRole('patient'), async (req, res) 
 //     short-circuit to manual_pending at submit time — the "operator
 //     triages" outcome happens via auto_assign's no_doctors_available
 //     transition (already wired in Phase 3).
-//   - override flag (patient picked a specialty OR service different from
-//     the AI's top recommendation via the SLA-disclaimer modal) logs to
-//     specialty_classification_overrides (now with ai/patient service_id
-//     columns) AND flips orders.no_sla_refund_eligibility=true. Refund
-//     eligibility logic in services/refund_eligibility.js short-circuits
-//     SLA-breach refund for these orders.
-//   - Locked-tier defense (>=0.95): UI hides the override link entirely;
-//     reject any submission where specialty_id OR service_id differs
-//     from the AI's pick with err=override_not_permitted.
+//   - An override (patient picked a specialty OR service different from
+//     the AI's top recommendation) logs to
+//     specialty_classification_overrides (with ai/patient service_id
+//     columns). A different SPECIALTY also flips
+//     orders.no_sla_refund_eligibility=true; refund eligibility logic in
+//     services/refund_eligibility.js short-circuits SLA-breach refund for
+//     these orders. A different service inside the AI's specialty does not.
+//   - Locked-tier defense (>= lock threshold): the UI offers no way to
+//     change specialty; reject any submission whose specialty_id differs
+//     from the AI's pick with err=override_not_permitted. The service is
+//     the patient's to choose (E2E 2026-10-06 — lock = specialty only).
+//   - The mismatch is computed HERE from the classification row. The
+//     form's hidden `override` field is not consulted for any decision.
 router.post('/patient/new-case/step3', requireRole('patient'), async (req, res) => {
   if (isWizardUnavailable()) return res.redirect('/coming-soon');
   const patientId = req.user.id;
   const orderId = req.body && req.body.id ? String(req.body.id).trim() : '';
   const specialtyId = req.body && req.body.specialty_id ? String(req.body.specialty_id).trim() : '';
   const serviceId = req.body && req.body.service_id ? String(req.body.service_id).trim() : '';
-  const isOverride = String((req.body && req.body.override) || '0') === '1';
+  // req.body.override (the form's hidden field) is deliberately NOT read — see
+  // the override block below.
 
   if (!orderId) return res.redirect('/patient/new-case');
   const owned = await loadOwnedDraft(orderId, patientId);
@@ -2505,30 +2512,76 @@ router.post('/patient/new-case/step3', requireRole('patient'), async (req, res) 
     return res.redirect('/patient/new-case?step=3&id=' + encodeURIComponent(orderId) + '&err=invalid_service');
   }
 
-  // Override path: patient submitted a specialty OR service different from
-  // the AI's top pick under the SLA-disclaimer modal (Q4 locked).
-  // Phase 3 polish: an override fires when EITHER dimension changed —
-  // not just specialty. The locked-tier defense is also dual-dimension.
-  if (isOverride) {
+  // Override path: the patient's pick differs from the AI's top pick.
+  //
+  // E2E 2026-10-06 — two changes, both about who decides.
+  //
+  // (a) This whole block used to run only `if (isOverride)`, and isOverride is
+  //     a hidden form field. So the "forged form" defense below was skipped by
+  //     the simplest forgery there is: leave the field at 0. A locked case
+  //     could be re-routed to any specialty, with no override row and the
+  //     refund guarantee intact. The mismatch is now computed from the
+  //     classification row on every submission; the field decides nothing.
+  //
+  // (b) The lock is on the SPECIALTY only. A different service inside the AI's
+  //     specialty is the patient's choice: accepted at any confidence, still
+  //     recorded (it is a training label), and it does NOT forfeit the on-time
+  //     refund — the case stays with the doctors the AI routed it to.
+  //
+  // What the hidden field used to tell us — "the patient went through the
+  // warning modal" — is derived instead from the tier the page rendered: at or
+  // above the `min` threshold a recommendation was shown and the only way to a
+  // different specialty is through the modal; below it the patient was shown a
+  // plain grid with no suggestion, so there was nothing to override, nothing
+  // was warned about, and nothing is recorded or forfeited (as before).
+  let classRow = null;
+  let lockThreshold = null;
+  let minThreshold = null;
+  try {
+    classRow = await queryOne(
+      `SELECT specialty_id, service_id, confidence FROM specialty_classifications
+       WHERE case_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [orderId]
+    );
+    if (classRow) {
+      const thr = await getThresholds();
+      lockThreshold = thr.lock;
+      minThreshold = thr.min;
+    }
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'patient.theme14_override_lookup',
+      requestId: req.requestId,
+      userId: patientId,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_case',
+      orderId
+    });
+    // The classifier is advisory: with no row to compare against there is
+    // nothing to lock and nothing to record. The patient proceeds.
+    classRow = null;
+  }
+
+  const specialtyMismatch = !!(classRow && classRow.specialty_id &&
+    String(classRow.specialty_id) !== specialtyId);
+  const serviceMismatch = !!(classRow && classRow.service_id &&
+    String(classRow.service_id) !== serviceId);
+
+  // Locked-tier defense. At confidence >= the live lock threshold (default
+  // 0.95, tunable via /superadmin/settings since Theme 14 Phase 4) the UI
+  // offers no way to change specialty, so reaching here with a different one
+  // is a forged or stale submission.
+  if (specialtyMismatch && lockThreshold != null &&
+      Number(classRow.confidence) >= lockThreshold) {
+    return res.redirect('/patient/new-case?step=3&id=' + encodeURIComponent(orderId) + '&err=override_not_permitted');
+  }
+
+  const recommendationWasShown = !!(classRow && classRow.confidence != null &&
+    minThreshold != null && Number(classRow.confidence) >= minThreshold);
+
+  if (recommendationWasShown && (specialtyMismatch || serviceMismatch)) {
     try {
-      const classRow = await queryOne(
-        `SELECT specialty_id, service_id, confidence FROM specialty_classifications
-         WHERE case_id = $1 ORDER BY created_at DESC LIMIT 1`,
-        [orderId]
-      );
-      // Locked-tier defense — forged form submission. At confidence >=
-      // the live lock threshold (default 0.95, tunable via
-      // /superadmin/settings since Theme 14 Phase 4) the UI hides the
-      // override link entirely; reaching this branch with a mismatched
-      // specialty OR service is a forged submission.
-      const { lock: lockThreshold } = await getThresholds();
-      if (classRow && Number(classRow.confidence) >= lockThreshold) {
-        const specialtyMismatch = classRow.specialty_id && String(classRow.specialty_id) !== specialtyId;
-        const serviceMismatch   = classRow.service_id   && String(classRow.service_id)   !== serviceId;
-        if (specialtyMismatch || serviceMismatch) {
-          return res.redirect('/patient/new-case?step=3&id=' + encodeURIComponent(orderId) + '&err=override_not_permitted');
-        }
-      }
       await execute(
         `INSERT INTO specialty_classification_overrides
            (id, case_id,
@@ -2536,15 +2589,18 @@ router.post('/patient/new-case/step3', requireRole('patient'), async (req, res) 
             patient_specialty_id, patient_service_id, override_at, actor_role)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'patient')`,
         [randomUUID(), orderId,
-         classRow ? classRow.specialty_id : null,
-         classRow ? classRow.service_id   : null,
-         classRow ? Number(classRow.confidence) : null,
+         classRow.specialty_id,
+         classRow.service_id,
+         classRow.confidence == null ? null : Number(classRow.confidence),
          specialtyId, serviceId, nowIso]
       );
-      await execute(
-        `UPDATE orders SET no_sla_refund_eligibility = true, updated_at = $1 WHERE id = $2`,
-        [nowIso, orderId]
-      );
+      // Only re-ROUTING the case costs the guarantee. See (b) above.
+      if (specialtyMismatch) {
+        await execute(
+          `UPDATE orders SET no_sla_refund_eligibility = true, updated_at = $1 WHERE id = $2`,
+          [nowIso, orderId]
+        );
+      }
     } catch (err) {
       logErrorToDb(err, {
         context: 'patient.theme14_override',
@@ -2885,6 +2941,30 @@ router.post('/patient/new-case/step5', requireRole('patient'), newCaseSubmitLimi
       );
     }
     await caseLifecycle.submitCase(orderId);
+    // E2E 2026-10-06 — stamp orders.submitted_at (migration 129) at the
+    // DRAFT -> SUBMITTED transition. loadOwnedDraft above proved the row was a
+    // DRAFT a moment ago and submitCase has just moved it; COALESCE means a
+    // stamp already written (by submitCase itself, or a double-posted form)
+    // is never moved. Own try: the case IS submitted at this point, and a
+    // failed stamp only sends readers to their timeline/created_at fallback.
+    try {
+      if (await hasSubmittedAtColumn()) {
+        await execute(
+          `UPDATE orders SET submitted_at = COALESCE(submitted_at, NOW())
+            WHERE id = $1 AND patient_id = $2
+              AND UPPER(COALESCE(status, '')) <> 'DRAFT'`,
+          [orderId, patientId]
+        );
+      }
+    } catch (stampErr) {
+      logErrorToDb(stampErr, {
+        context: 'patient.new_case_step5_submitted_at',
+        requestId: req.requestId,
+        userId: patientId,
+        category: 'patient_case',
+        orderId
+      });
+    }
     // Final Case Intelligence sweep now that every upload is in (see job_queue).
     enqueueCaseIntelligence(orderId, { phase: 'final' }).catch(function (err) {
       console.error('[new-case step5] case intelligence enqueue failed:', err && err.message);

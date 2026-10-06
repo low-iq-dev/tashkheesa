@@ -153,19 +153,28 @@ let HAS_PAYMENT_STATUS_COLUMN = false;
 let HAS_SLA_PAUSED_AT_COLUMN = false;
 let HAS_SLA_REMAINING_SECONDS_COLUMN = false;
 let HAS_ASSIGNED_AT_COLUMN = false;
+// E2E 2026-10-06 — orders.submitted_at (migration 129) and the payment_claims
+// table (117). Both exist on production; the flags only keep the unpaid sweep's
+// generated SQL from naming a relation a half-migrated database does not have.
+let HAS_SUBMITTED_AT_COLUMN = false;
+let HAS_PAYMENT_CLAIMS_TABLE = false;
 
 async function ensureColumnCache() {
   if (_columnCacheReady) return;
-  const [a, b, c, d] = await Promise.all([
+  const [a, b, c, d, e, f] = await Promise.all([
     hasColumn(CASE_TABLE, 'payment_status'),
     hasColumn(CASE_TABLE, 'sla_paused_at'),
     hasColumn(CASE_TABLE, 'sla_remaining_seconds'),
-    hasColumn(CASE_TABLE, 'assigned_at')
+    hasColumn(CASE_TABLE, 'assigned_at'),
+    hasColumn(CASE_TABLE, 'submitted_at'),
+    hasColumn('payment_claims', 'status')
   ]);
   HAS_PAYMENT_STATUS_COLUMN = a;
   HAS_SLA_PAUSED_AT_COLUMN = b;
   HAS_SLA_REMAINING_SECONDS_COLUMN = c;
   HAS_ASSIGNED_AT_COLUMN = d;
+  HAS_SUBMITTED_AT_COLUMN = e;
+  HAS_PAYMENT_CLAIMS_TABLE = f;
   _columnCacheReady = true;
 }
 
@@ -614,12 +623,27 @@ async function _runSlaReminderSweepInner({ limit = 200 } = {}) {
 // ---------------------------------------------------------------------------
 // Automated Unpaid Case Reminder Support (WhatsApp + Email) with Dedupe
 // ---------------------------------------------------------------------------
-function secondsSinceCreated(orderRow) {
-  const createdAt = orderRow && orderRow.created_at;
-  if (!createdAt) return null;
-  const createdMs = new Date(createdAt).getTime();
-  if (!Number.isFinite(createdMs)) return null;
-  return Math.floor((Date.now() - createdMs) / 1000);
+// E2E 2026-10-06 — the ladder is anchored on SUBMISSION, not creation.
+//
+// It used to read created_at, and a wizard draft is created the moment the
+// patient opens the wizard. Production, 6 Oct: a draft created 10:13 (status
+// 'draft', price NULL, reference NULL) was sent payment_reminder_30m on
+// whatsapp, email and in-app at 10:44 — while the patient was still filling the
+// form, for a case that had no price to pay. "You have not paid" is a question
+// about the moment we ASKED for money, which is submit (orders.submitted_at,
+// migration 129). created_at remains the fallback for a row stamped by a path
+// that predates the column.
+function unpaidReminderAnchor(orderRow) {
+  if (!orderRow) return null;
+  return orderRow.submitted_at || orderRow.created_at || null;
+}
+
+function secondsSinceSubmitted(orderRow, nowMs) {
+  const anchor = unpaidReminderAnchor(orderRow);
+  if (!anchor) return null;
+  const anchorMs = new Date(anchor).getTime();
+  if (!Number.isFinite(anchorMs)) return null;
+  return Math.floor(((Number.isFinite(nowMs) ? nowMs : Date.now()) - anchorMs) / 1000);
 }
 
 // ── REGRESSION FIX (F12) — what "unpaid" means for the sweep. ─────────────
@@ -670,7 +694,10 @@ function hasMoneyMoved(orderRow) {
   return false;
 }
 
-function isUnpaidReminderEligible(orderRow) {
+// "Unpaid and still alive" — the gate for the whole sweep (reminders AND
+// expiry). A DRAFT passes: it has no payment reminder, but it does have a
+// 30-day expiry, and that decision is made further down from UNPAID_CASE_TTL.
+function isUnpaidSweepEligible(orderRow) {
   if (!orderRow) return false;
   const canonStatus = normalizeStatus(orderRow.status);
 
@@ -687,11 +714,65 @@ function isUnpaidReminderEligible(orderRow) {
   return true;
 }
 
+// E2E 2026-10-06 — who may be CHASED for payment. Narrower than the sweep gate
+// above, and a whitelist for the same reason UNPAID_CASE_TTL is one: the old
+// test was "not terminal", so DRAFT (nothing to pay yet — no price, no
+// reference) and PENDING_REVIEW (waiting on ops, not on the patient) were both
+// chased. A status added tomorrow is not reminded until someone lists it in
+// UNPAID_REMINDER_STATUSES. A pending transfer claim also stops the chaser: the
+// patient has told us they paid, and a "complete your payment" message while a
+// human is checking the bank statement reads as "we lost your money".
+function isUnpaidReminderEligible(orderRow) {
+  if (!isUnpaidSweepEligible(orderRow)) return false;
+  if (!UNPAID_REMINDER_STATUSES.includes(normalizeStatus(orderRow.status))) return false;
+  if (hasPendingPaymentClaim(orderRow)) return false;
+  return true;
+}
+
+// ── Transfer claims pause the sweep (E2E 2026-10-06) ───────────────────────
+//
+// payment_claims (migration 117) holds "I paid by InstaPay/bank" statements
+// waiting for a superadmin to check. While one is 'pending' the case is neither
+// reminded nor expired: the patient is waiting on US. A 'rejected' claim is
+// history, not a hold — both resume. 'confirmed' never reaches the sweep
+// (mark-paid stamps paid_at).
+//
+// The sweep SELECT carries the answer on each row as `payment_claim_pending`,
+// generated from the fragment below; the same fragment guards the expiry
+// UPDATE, so the pre-filter, the per-row decision and the write cannot
+// disagree. `::text` on both sides because neither table declares a foreign
+// key and the id columns must compare whatever their declared type.
+const PENDING_PAYMENT_CLAIM_EXISTS_SQL =
+  `EXISTS (SELECT 1 FROM payment_claims pc` +
+  ` WHERE pc.order_id::text = ${CASE_TABLE}.id::text AND pc.status = 'pending')`;
+
+function hasPendingPaymentClaim(orderRow) {
+  return Boolean(orderRow && orderRow.payment_claim_pending === true);
+}
+
+// For a row that did not come from the sweep SELECT (a single-case call via
+// getCase). Fails CLOSED: if the lookup errors we report a pending claim, so a
+// database blip costs one skipped tick rather than a chaser to someone who has
+// already paid, or an expiry under them.
+async function loadPendingPaymentClaim(orderId) {
+  if (!HAS_PAYMENT_CLAIMS_TABLE) return false;
+  try {
+    const row = await queryOne(
+      `SELECT 1 FROM payment_claims WHERE order_id::text = $1 AND status = 'pending' LIMIT 1`,
+      [String(orderId)]
+    );
+    return Boolean(row);
+  } catch (e) {
+    console.error('[unpaid-reminder] pending-claim lookup failed', e && e.message);
+    return true;
+  }
+}
+
 function getPaymentUrlFromOrder(orderRow) {
   return (orderRow && (orderRow.payment_link || orderRow.payment_url)) || null;
 }
 
-async function queuePaymentReminder({ caseId, level, toUserId, channel, paymentUrl, elapsedSeconds, hoursRemaining }) {
+async function queuePaymentReminder({ caseId, referenceId, level, toUserId, channel, paymentUrl, elapsedSeconds, hoursRemaining }) {
   const userId = safeUserId(toUserId);
   if (!userId) return { ok: false, skipped: 'missing_toUserId' };
 
@@ -727,7 +808,7 @@ async function queuePaymentReminder({ caseId, level, toUserId, channel, paymentU
       dedupeKey,
       dedupe_key: dedupeKey,
       response: {
-        ...buildPaymentReminderPayload({ caseId, paymentUrl }),
+        ...buildPaymentReminderPayload({ caseId, paymentUrl, referenceId }),
         elapsed_seconds: elapsedSeconds,
         hours_remaining: hoursRemaining,
         level
@@ -790,14 +871,24 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
       // the ones who got no payment reminder at all. Generated from
       // UNPAID_CASE_TTL, so it cannot disagree with the per-row decision below.
       // `force` skips it: an operator forcing a re-send means every row.
-      const workClause = force ? '' : `\n           AND (${buildUnpaidSweepWorkPredicateSql()})`;
+      const workClause = force ? '' : `\n           AND (${buildUnpaidSweepWorkPredicateSql({ hasSubmittedAt: HAS_SUBMITTED_AT_COLUMN })})`;
+
+      // E2E 2026-10-06 — a pending transfer claim means no work at all for
+      // this row (no reminder, no expiry), so it is filtered here rather than
+      // paid for with a page slot; `force` does not lift it, because an
+      // operator re-sending reminders still must not chase someone whose
+      // transfer is being checked. The rows that DO come back carry
+      // payment_claim_pending = false so the per-row path need not ask again.
+      const claimClause = HAS_PAYMENT_CLAIMS_TABLE
+        ? `\n           AND NOT ${PENDING_PAYMENT_CLAIM_EXISTS_SQL}`
+        : '';
 
       const rows = await queryAll(
-        `SELECT *
+        `SELECT *, FALSE AS payment_claim_pending
          FROM ${CASE_TABLE}
          WHERE created_at IS NOT NULL${paymentClause}
            AND COALESCE(status, '') NOT IN (${placeholders})
-           AND deleted_at IS NULL${workClause}
+           AND deleted_at IS NULL${claimClause}${workClause}
          ORDER BY created_at ASC
          LIMIT $${terminalStatuses.length + 1}`,
         [...terminalStatuses, limit]
@@ -830,11 +921,20 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
   if (!orderRow) return { ok: false, sentCount: 0, skipped: 'missing_case' };
 
   const caseId = orderRow.id;
-  if (!isUnpaidReminderEligible(orderRow)) {
+  if (!isUnpaidSweepEligible(orderRow)) {
     return { ok: true, sentCount: 0, skipped: 'not_eligible' };
   }
 
-  const elapsedSeconds = secondsSinceCreated(orderRow);
+  // E2E 2026-10-06 — a pending transfer claim pauses BOTH halves below. Rows
+  // from the sweep SELECT already carry the answer; anything else is asked.
+  if (typeof orderRow.payment_claim_pending !== 'boolean') {
+    orderRow.payment_claim_pending = await loadPendingPaymentClaim(caseId);
+  }
+  if (hasPendingPaymentClaim(orderRow)) {
+    return { ok: true, sentCount: 0, skipped: 'payment_claim_pending' };
+  }
+
+  const elapsedSeconds = secondsSinceSubmitted(orderRow);
   if (elapsedSeconds == null) {
     return { ok: true, sentCount: 0, skipped: 'missing_created_at' };
   }
@@ -870,7 +970,8 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
       WHERE id = $1
         AND paid_at IS NULL
         AND (payment_status IS NULL OR LOWER(TRIM(payment_status)) NOT IN (${UNPAID_SWEEP_STATUS_SQL_LIST}))
-        AND UPPER(COALESCE(status, '')) IN (${upperStatusVariantsSqlFor(orderRow.status)})
+        AND UPPER(COALESCE(status, '')) IN (${upperStatusVariantsSqlFor(orderRow.status)})${
+          HAS_PAYMENT_CLAIMS_TABLE ? `\n        AND NOT ${PENDING_PAYMENT_CLAIM_EXISTS_SQL}` : ''}
     `, [orderRow.id, ts]);
 
     if (result && result.rowCount > 0) {
@@ -914,6 +1015,14 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
     return { ok: true, sentCount: 0, skipped: 'expired_unpaid' };
   }
 
+  // E2E 2026-10-06 — everything above is the expiry half and applies to every
+  // status with a TTL; from here down is the chaser, for SUBMITTED cases only
+  // (see isUnpaidReminderEligible). `force` re-sends, it does not widen who is
+  // eligible: a draft has nothing to pay.
+  if (!isUnpaidReminderEligible(orderRow)) {
+    return { ok: true, sentCount: 0, skipped: 'not_reminder_status' };
+  }
+
   const toPatientId = getPatientUserIdFromOrder(orderRow);
   if (!toPatientId) {
     return { ok: true, sentCount: 0, skipped: 'missing_patient' };
@@ -935,11 +1044,22 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
     { level: '24h', seconds: 24 * 60 * 60 }
   ];
 
+  // E2E 2026-10-06 — only the HIGHEST level that is due goes out. The loop
+  // used to send every due level, which is invisible while a case walks the
+  // ladder one tick at a time (the lower levels are already deduped) and a
+  // burst of nine messages when it does not: a case first seen by the sweep
+  // hours after submission — a claim that was pending and then rejected, a
+  // worker that was down, a row whose anchor was just backfilled — would get
+  // 30m, 6h and 24h on three channels in one tick. `force` keeps its meaning
+  // (every level, for an operator re-send).
+  const dueLevel = pickUnpaidReminderLevel(elapsedSeconds, thresholds);
+
   const sent = [];
   for (const t of thresholds) {
-    if (force || elapsedSeconds >= t.seconds) {
+    if (force || (dueLevel && t.level === dueLevel)) {
       sent.push(await queuePaymentReminder({
         caseId,
+        referenceId: orderRow.reference_id || null,
         level: t.level,
         toUserId: toPatientId,
         channel: 'whatsapp',
@@ -949,6 +1069,7 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
       }));
       sent.push(await queuePaymentReminder({
         caseId,
+        referenceId: orderRow.reference_id || null,
         level: t.level,
         toUserId: toPatientId,
         channel: 'email',
@@ -967,6 +1088,7 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
       // to land together, and this is the other half.
       sent.push(await queuePaymentReminder({
         caseId,
+        referenceId: orderRow.reference_id || null,
         level: t.level,
         toUserId: toPatientId,
         channel: 'internal',
@@ -1343,6 +1465,31 @@ const UNPAID_TTL_NEVER_EXPIRES = Object.freeze({
   [CASE_STATUS.PENDING_REVIEW]: 'awaiting ops triage — the patient has not been asked to pay yet'
 });
 
+// E2E 2026-10-06 — the statuses a payment reminder may be sent for. One entry:
+// the patient finished the wizard, has been shown a price and has a reference.
+// Read by isUnpaidReminderEligible (the per-row decision) AND by
+// buildUnpaidSweepWorkPredicateSql (the pre-filter), the same one-array pattern
+// as PAYMENT_STATUSES_MEANING_MONEY_MOVED. Every entry must also carry a TTL —
+// a status we chase for money but never release would be chased forever — and
+// tests/core/unpaid-sweep-ttl asserts it.
+const UNPAID_REMINDER_STATUSES = Object.freeze([CASE_STATUS.SUBMITTED]);
+
+// Highest ladder level whose threshold has passed, or null. Pure, exported for
+// the guard test.
+function pickUnpaidReminderLevel(elapsedSeconds, thresholds) {
+  const ladder = thresholds || [
+    { level: '30m', seconds: 30 * 60 },
+    { level: '6h', seconds: 6 * 3600 },
+    { level: '24h', seconds: 24 * 3600 }
+  ];
+  if (!Number.isFinite(elapsedSeconds)) return null;
+  let due = null;
+  for (const t of ladder) {
+    if (elapsedSeconds >= t.seconds) due = t.level;
+  }
+  return due;
+}
+
 function unpaidTtlFor(status) {
   const key = normalizeStatus(status);
   return Object.prototype.hasOwnProperty.call(UNPAID_CASE_TTL, key)
@@ -1370,6 +1517,9 @@ function unpaidTtlAgeSeconds(orderRow, ttl, nowMs) {
 function isUnpaidExpiryDue(orderRow, nowMs) {
   const ttl = unpaidTtlFor(orderRow && orderRow.status);
   if (!ttl) return false;
+  // E2E 2026-10-06 — a pending transfer claim holds the case open: the patient
+  // says the money is sent and a human has not looked yet.
+  if (hasPendingPaymentClaim(orderRow)) return false;
   const ageSeconds = unpaidTtlAgeSeconds(orderRow, ttl, nowMs);
   if (ageSeconds == null) return false;
   return ageSeconds >= ttl.expireAfterHours * 3600;
@@ -1434,9 +1584,21 @@ function assertSqlSafeHours(hours) {
 const UNPAID_REMINDER_WINDOW_HOURS = 25;
 
 // `(still in the reminder ladder) OR (due to expire, per status)`.
-function buildUnpaidSweepWorkPredicateSql() {
+//
+// E2E 2026-10-06 — the ladder arm was `created_at > NOW() - 25 hours` with no
+// status test, which selected every fresh DRAFT for a chaser. It now carries
+// the UNPAID_REMINDER_STATUSES whitelist and the same anchor the per-row ladder
+// uses (submission, falling back to creation). `hasSubmittedAt: false` is for a
+// database that has not run migration 129 yet.
+function buildUnpaidSweepWorkPredicateSql(opts) {
+  const hasSubmittedAt = !(opts && opts.hasSubmittedAt === false);
+  const anchor = hasSubmittedAt ? 'COALESCE(submitted_at, created_at)' : 'created_at';
+  const reminderStatuses = [...new Set(
+    UNPAID_REMINDER_STATUSES.flatMap((k) => dbStatusValuesFor(k).map((v) => String(v).toUpperCase()))
+  )].map((v) => `'${assertSqlSafeStatus(v)}'`).join(', ');
   const arms = [
-    `created_at > NOW() - INTERVAL '${assertSqlSafeHours(UNPAID_REMINDER_WINDOW_HOURS)} hours'`
+    `(UPPER(COALESCE(status, '')) IN (${reminderStatuses})` +
+    ` AND ${anchor} > NOW() - INTERVAL '${assertSqlSafeHours(UNPAID_REMINDER_WINDOW_HOURS)} hours')`
   ];
   for (const canonKey of Object.keys(UNPAID_CASE_TTL)) {
     const ttl = UNPAID_CASE_TTL[canonKey];
@@ -3631,6 +3793,15 @@ module.exports = {
   unpaidTtlHoursFor,
   unpaidTtlHoursRemaining,
   isUnpaidExpiryDue,
+  // E2E 2026-10-06 — reminder eligibility, exported for the same guard test.
+  UNPAID_REMINDER_STATUSES,
+  isUnpaidSweepEligible,
+  isUnpaidReminderEligible,
+  hasPendingPaymentClaim,
+  unpaidReminderAnchor,
+  secondsSinceSubmitted,
+  pickUnpaidReminderLevel,
+  buildUnpaidSweepWorkPredicateSql,
   DB_STATUS,
   toCanonStatus,
   toDbStatus,

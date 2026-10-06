@@ -76,4 +76,31 @@ function formatTimeRemaining(seconds, lang) {
     : englishCount(hours, 'hour');
 }
 
-module.exports = { formatTimeRemaining };
+/**
+ * How much longer an unpaid case is held, for the payment-reminder copy.
+ *
+ * E2E 2026-10-06 — the reminders interpolated a bare hour count into "we hold
+ * cases for a final {{hoursRemaining}} hours", written when the hold was 48h.
+ * The hold is now per status (case_lifecycle.UNPAID_CASE_TTL: 7 days for a
+ * submitted case), so the same sentence read "a final 144 hours". From two
+ * days up this speaks in days; below that it defers to formatTimeRemaining.
+ * Days are floored — promising a patient a day they do not have is the one
+ * rounding error that matters here.
+ *
+ * @param {number|string} hours - Hours left on the hold (hours_remaining).
+ * @param {string} [lang='en']
+ * @returns {string} e.g. "6 days" / "6 أيام" / "يومين" / "20 hours"; '' when
+ *   there is nothing truthful to say, so the caller drops the clause.
+ */
+function formatHoldRemaining(hours, lang) {
+  if (hours == null || String(hours).trim() === '') return '';
+  const h = Number(hours);
+  if (!Number.isFinite(h) || h <= 0) return '';
+  if (h < 48) return formatTimeRemaining(h * 3600, lang);
+  const days = Math.floor(h / 24);
+  return String(lang || 'en').toLowerCase() === 'ar'
+    ? arabicCount(days, { one: 'يوم واحد', two: 'يومين', few: 'أيام', many: 'يوم' })
+    : englishCount(days, 'day');
+}
+
+module.exports = { formatTimeRemaining, formatHoldRemaining };

@@ -244,20 +244,30 @@ try {
   t.pass('documents-done enqueues the classifier, shares the rollback switch, and never blocks on it');
 } catch (e) { t.fail('classifier wiring', e); }
 
-// ── 12. Overriding the AI is recorded, and costs the SLA refund ─────────────
-// Both halves matter. The row is the learner's training signal; the flag is a
-// real consequence the patient must be told about before they override.
+// ── 12. Overriding the AI is recorded; re-routing costs the SLA refund ──────
+// The row is the learner's training signal; the flag is a real consequence the
+// patient must be told about before they override.
+//
+// E2E 2026-10-06 — the lock and the forfeit are on the SPECIALTY only. This
+// block used to pin the dual lock (`specialtyMismatch || serviceMismatch`
+// guarding the 409). The full contract is pinned in
+// e2e-lock-quote-summary.test.js; here we keep the draft router's own half.
 try {
-  const submitBody = DRAFT.slice(DRAFT.indexOf("router.post('/:id/submit'"));
+  const submitBody = DRAFT_CODE.slice(DRAFT_CODE.indexOf("router.post('/:id/submit'"));
   expect(/INSERT INTO specialty_classification_overrides/.test(submitBody),
     'an override must be recorded — it is both the audit trail and the learner training signal');
   expect(/ai_specialty_id, ai_service_id[\s\S]{0,120}patient_specialty_id, patient_service_id/.test(submitBody),
     'the override row must capture BOTH dimensions of AI pick vs patient pick');
   expect(/no_sla_refund_eligibility = true/.test(submitBody),
-    'overriding the AI forfeits SLA refund eligibility, exactly as the web wizard sets it');
+    'overriding the AI specialty forfeits SLA refund eligibility, exactly as the web wizard sets it');
   expect(/'OVERRIDE_NOT_PERMITTED'/.test(submitBody),
-    'above the lock threshold a mismatched pair is a forged or stale client and must be refused');
-  t.pass('overrides recorded on both dimensions, forfeit SLA refund, and are refused above the lock threshold');
+    'above the lock threshold a different specialty is a forged or stale client and must be refused');
+  const lockGuard = submitBody.slice(0, submitBody.indexOf("'OVERRIDE_NOT_PERMITTED'"));
+  const lastIf = lockGuard.slice(lockGuard.lastIndexOf('if (specialtyMismatch'));
+  expect(/^if \(specialtyMismatch\) \{/.test(lastIf),
+    'the 409 must be guarded by the SPECIALTY mismatch alone — a different service inside ' +
+    'the locked specialty is the patient\'s choice');
+  t.pass('overrides recorded on both dimensions; the lock refuses a different specialty only');
 } catch (e) { t.fail('override audit', e); }
 
 // ── 13. Drafts read through orders_active ──────────────────────────────────

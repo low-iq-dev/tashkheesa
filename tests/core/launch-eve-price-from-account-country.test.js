@@ -102,7 +102,14 @@ module.exports = (async function run() {
 
   await check('the app (POST /cases) and the draft submit pass the authenticated user', () => {
     if (!/resolveAndPriceIntake\(\{[\s\S]{0,200}userId: req\.user\.id, context: 'api\.cases'/.test(read('src/routes/api/cases.js'))) throw new Error('api/cases.js');
-    if (!/resolveAndPriceIntake\(\{[\s\S]{0,200}userId: req\.user\.id, context: 'api\.cases_draft'/.test(read('src/routes/api/cases_draft.js'))) throw new Error('api/cases_draft.js');
+    // E2E 2026-10-06 — the draft router prices through ONE helper,
+    // priceDraftIntake(draft, choice, userId, context), shared by submit and
+    // the new quote route. The pin follows the call: the helper must hand its
+    // userId to resolveAndPriceIntake, and both routes must give it req.user.id.
+    const draftSrc = read('src/routes/api/cases_draft.js');
+    if (!/async function priceDraftIntake\(draft, choice, userId, context\)[\s\S]{0,1200}resolveAndPriceIntake\(\{[\s\S]{0,200}userId: userId, context: context/.test(draftSrc)) throw new Error('api/cases_draft.js helper');
+    if (!/priceDraftIntake\(\s*draft, b, req\.user\.id, 'api\.cases_draft'/.test(draftSrc)) throw new Error('api/cases_draft.js submit');
+    if (!/priceDraftIntake\(draft, null, req\.user\.id, 'api\.cases_draft\.quote'\)/.test(draftSrc)) throw new Error('api/cases_draft.js quote');
   });
 
   await check('every web-funnel pricing site uses the account-country resolver', () => {

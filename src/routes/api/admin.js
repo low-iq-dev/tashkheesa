@@ -2716,7 +2716,8 @@ module.exports = function (db, helpers, deploy, deps) {
           template: 'patient_refund_approved',
           response: {
             case_id: refund.orderId,
-            caseReference: String(refund.orderId || '').slice(0, 12).toUpperCase(),
+            // E2E 2026-10-06 — was an id slice; queueNotification resolves orders.reference_id.
+            caseReference: null,
             approvedAmount: Number(refund.approvedAmount).toFixed(2),
             amount: Number(refund.approvedAmount).toFixed(2),
             currency: 'EGP',
@@ -2788,7 +2789,8 @@ module.exports = function (db, helpers, deploy, deps) {
           template: 'patient_refund_denied',
           response: {
             case_id: refund.orderId,
-            caseReference: String(refund.orderId || '').slice(0, 12).toUpperCase(),
+            // E2E 2026-10-06 — was an id slice; queueNotification resolves orders.reference_id.
+            caseReference: null,
             denialReason: refund.denialReason,
             ...(refund.requestedAmount != null ? {
               requestedAmount: Number(refund.requestedAmount).toFixed(2),
@@ -2889,7 +2891,8 @@ module.exports = function (db, helpers, deploy, deps) {
           template: 'patient_refund_paid',
           response: {
             case_id: refund.orderId,
-            caseReference: String(refund.orderId || '').slice(0, 12).toUpperCase(),
+            // E2E 2026-10-06 — was an id slice; queueNotification resolves orders.reference_id.
+            caseReference: null,
             amount: Number(refund.finalAmount).toFixed(2),
             currency: 'EGP',
             instapayReference: refund.instapayReference,
@@ -4141,7 +4144,8 @@ module.exports = function (db, helpers, deploy, deps) {
           template: 'case_routing_updated',
           response: {
             case_id: id,
-            caseReference: String(id).slice(0, 12).toUpperCase(),
+            // E2E 2026-10-06 — was an id slice; queueNotification resolves orders.reference_id.
+            caseReference: null,
             patientName: '', // resolved by notification_worker from users.name
           },
           dedupe_key: 'case_routing_updated:' + id,
@@ -4480,7 +4484,8 @@ module.exports = function (db, helpers, deploy, deps) {
           template: 'case_cancelled_patient',
           response: {
             order_id: id,
-            caseReference: String(id).slice(0, 12).toUpperCase(),
+            // E2E 2026-10-06 — was an id slice; queueNotification resolves orders.reference_id.
+            caseReference: null,
             reason: reasonForPatient,
           },
           dedupe_key: 'case_cancelled:' + id,

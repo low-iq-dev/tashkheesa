@@ -40,6 +40,21 @@
  * @property {function(Object): Object} paramBuilder - Extracts params from notification data
  */
 
+// E2E 2026-10-06 — every paramBuilder used `data.caseReference || data.case_id`
+// (or order_id), i.e. the raw internal UUID as the {{case_ref}} parameter
+// whenever the caller had not supplied a reference, and an id slice when it
+// had supplied the usual one. The parameter is now the case's real reference
+// or empty. Empty is deliberate: an HSM body is fixed text approved by Meta, so
+// there is no "your case" to substitute here, and a send Meta rejects for an
+// empty parameter is better than a patient being sent an internal id.
+// queueNotification resolves orders.reference_id into the payload, so in
+// practice this is only empty for a case that has no reference at all.
+const { resolveCaseReference } = require('./case_label');
+
+function metaCaseRef(data) {
+  return resolveCaseReference(data) || '';
+}
+
 /** @type {Object.<string, WhatsAppTemplateEntry>} */
 const whatsappTemplateMap = {
   // ── Patient Notifications ──────────────────────────────────────────
@@ -47,7 +62,7 @@ const whatsappTemplateMap = {
   order_created_patient: {
     templateNames: { en: 'case_submitted_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       specialty: data.specialty || '',
     }),
   },
@@ -55,7 +70,7 @@ const whatsappTemplateMap = {
   public_order_created_patient: {
     templateNames: { en: 'case_submitted_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       specialty: data.specialty || '',
     }),
   },
@@ -63,7 +78,7 @@ const whatsappTemplateMap = {
   report_ready_patient: {
     templateNames: { en: 'report_ready_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       doctor_name: data.doctorName || '',
     }),
   },
@@ -71,7 +86,7 @@ const whatsappTemplateMap = {
   payment_success_patient: {
     templateNames: { en: 'payment_confirmed_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.order_id || '',
+      case_ref: metaCaseRef(data),
       amount: data.amount || '',
     }),
   },
@@ -79,14 +94,14 @@ const whatsappTemplateMap = {
   payment_failed_patient: {
     templateNames: { en: 'payment_failed_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.order_id || '',
+      case_ref: metaCaseRef(data),
     }),
   },
 
   order_status_accepted_patient: {
     templateNames: { en: 'case_accepted_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       doctor_name: data.doctorName || '',
     }),
   },
@@ -94,7 +109,7 @@ const whatsappTemplateMap = {
   order_reassigned_patient: {
     templateNames: { en: 'case_reassigned_patient_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
     }),
   },
 
@@ -110,7 +125,7 @@ const whatsappTemplateMap = {
   order_assigned_doctor: {
     templateNames: { en: 'case_assigned_doctor_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       specialty: data.specialty || '',
       sla_hours: String(data.slaHours || '48'),
     }),
@@ -119,7 +134,7 @@ const whatsappTemplateMap = {
   order_auto_assigned_doctor: {
     templateNames: { en: 'case_assigned_doctor_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       specialty: data.specialty || '',
       sla_hours: String(data.slaHours || '48'),
     }),
@@ -128,7 +143,7 @@ const whatsappTemplateMap = {
   order_reassigned_doctor: {
     templateNames: { en: 'case_reassigned_doctor_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       sla_hours: String(data.slaHours || '48'),
     }),
   },
@@ -136,7 +151,7 @@ const whatsappTemplateMap = {
   order_reassigned_to_doctor: {
     templateNames: { en: 'case_reassigned_doctor_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       sla_hours: String(data.slaHours || '48'),
     }),
   },
@@ -144,7 +159,7 @@ const whatsappTemplateMap = {
   sla_warning_75: {
     templateNames: { en: 'sla_warning_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       hours_remaining: data.hoursRemaining || '',
     }),
   },
@@ -152,7 +167,7 @@ const whatsappTemplateMap = {
   sla_warning_urgent: {
     templateNames: { en: 'sla_warning_urgent_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       hours_remaining: data.hoursRemaining || '',
     }),
   },
@@ -160,7 +175,7 @@ const whatsappTemplateMap = {
   sla_breach: {
     templateNames: { en: 'sla_breached_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
     }),
   },
 
@@ -177,7 +192,7 @@ const whatsappTemplateMap = {
   sla_breach_superadmin: {
     templateNames: { en: 'sla_breached_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
     }),
   },
 
@@ -188,7 +203,7 @@ const whatsappTemplateMap = {
   admin_payment_claim_received: {
     templateNames: { en: 'sla_breached_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
     }),
   },
 
@@ -241,7 +256,7 @@ const whatsappTemplateMap = {
   additional_files_requested_patient: {
     templateNames: { en: 'additional_files_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       reason: data.reason || 'Additional files needed',
     }),
   },
@@ -249,7 +264,7 @@ const whatsappTemplateMap = {
   prescription_uploaded_patient: {
     templateNames: { en: 'prescription_ready_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       doctor_name: data.doctorName || '',
     }),
   },
@@ -257,7 +272,7 @@ const whatsappTemplateMap = {
   patient_uploaded_files_doctor: {
     templateNames: { en: 'patient_uploaded_files_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       patient_name: data.patientName || '',
     }),
   },
@@ -282,7 +297,7 @@ const whatsappTemplateMap = {
   case_cancelled_patient: {
     templateNames: { en: 'case_cancelled_patient_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       reason: data.reason || '',
     }),
   },
@@ -290,7 +305,7 @@ const whatsappTemplateMap = {
   addon_purchased_video: {
     templateNames: { en: 'addon_video_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       appointment_time: data.appointmentTime || data.appointment_time || '',
       doctor_name: data.doctorName || '',
     }),
@@ -299,7 +314,7 @@ const whatsappTemplateMap = {
   addon_purchased_urgency: {
     templateNames: { en: 'addon_urgency_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       sla_hours: String(data.slaHours || data.sla_hours || ''),
     }),
   },
@@ -307,7 +322,7 @@ const whatsappTemplateMap = {
   addon_purchased_prescription: {
     templateNames: { en: 'addon_prescription_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       doctor_name: data.doctorName || '',
     }),
   },
@@ -321,7 +336,7 @@ const whatsappTemplateMap = {
   payment_reminder_30m: {
     templateNames: { en: 'payment_reminder_30m_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       payment_url: data.paymentUrl || data.payment_url || '',
     }),
   },
@@ -329,7 +344,7 @@ const whatsappTemplateMap = {
   payment_reminder_6h: {
     templateNames: { en: 'payment_reminder_6h_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       payment_url: data.paymentUrl || data.payment_url || '',
     }),
   },
@@ -337,7 +352,7 @@ const whatsappTemplateMap = {
   payment_reminder_24h: {
     templateNames: { en: 'payment_reminder_24h_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       payment_url: data.paymentUrl || data.payment_url || '',
       hours_remaining: String(data.hoursRemaining || data.hours_remaining || '24'),
     }),
@@ -352,7 +367,7 @@ const whatsappTemplateMap = {
   case_routing_updated: {
     templateNames: { en: 'case_routing_updated_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
     }),
   },
 
@@ -368,25 +383,25 @@ const whatsappTemplateMap = {
   // OpenClaw is the live path; these names are NOT approved with Meta.
   doctor_accept_nudge: {
     templateNames: { en: 'doctor_accept_nudge_en', ar: null },
-    paramBuilder: (data) => ({ case_ref: data.caseReference || data.case_id || '' }),
+    paramBuilder: (data) => ({ case_ref: metaCaseRef(data) }),
   },
   doctor_review_reminder_50: {
     templateNames: { en: 'doctor_review_reminder_50_en', ar: null },
-    paramBuilder: (data) => ({ case_ref: data.caseReference || data.case_id || '' }),
+    paramBuilder: (data) => ({ case_ref: metaCaseRef(data) }),
   },
   doctor_review_reminder_80: {
     templateNames: { en: 'doctor_review_reminder_80_en', ar: null },
-    paramBuilder: (data) => ({ case_ref: data.caseReference || data.case_id || '' }),
+    paramBuilder: (data) => ({ case_ref: metaCaseRef(data) }),
   },
   doctor_start_report_nudge: {
     templateNames: { en: 'doctor_start_report_nudge_en', ar: null },
-    paramBuilder: (data) => ({ case_ref: data.caseReference || data.case_id || '' }),
+    paramBuilder: (data) => ({ case_ref: metaCaseRef(data) }),
   },
 
   sla_reminder_24h: {
     templateNames: { en: 'sla_reminder_24h_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       hours_remaining: String(data.hoursRemaining || data.hours_remaining || '24'),
     }),
   },
@@ -394,7 +409,7 @@ const whatsappTemplateMap = {
   sla_reminder_6h: {
     templateNames: { en: 'sla_reminder_6h_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       hours_remaining: String(data.hoursRemaining || data.hours_remaining || '6'),
     }),
   },
@@ -402,7 +417,7 @@ const whatsappTemplateMap = {
   sla_reminder_1h: {
     templateNames: { en: 'sla_reminder_1h_en', ar: null },
     paramBuilder: (data) => ({
-      case_ref: data.caseReference || data.case_id || '',
+      case_ref: metaCaseRef(data),
       hours_remaining: String(data.hoursRemaining || data.hours_remaining || '1'),
     }),
   },
