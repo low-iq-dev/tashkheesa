@@ -384,6 +384,13 @@ async function resolveAndPriceIntake({ serviceId, specialtyId, country, urgencyT
   const service = await resolveServiceForBooking(serviceId);
   const resolvedSpecialtyId = resolveSpecialtyId(service, specialtyId);
   assertUrgentWindowOpen(tier);
+  // 6 Oct 2026 — and only where a doctor has agreed to the 4-hour tier.
+  if (tier === 'urgent' && !(await require('./urgent_cover').serviceHasUrgentCover(service.id))) {
+    throw new IntakeError(
+      'URGENT_UNAVAILABLE', 400,
+      'Urgent is not available for this service at the moment. Please select Standard or VIP.'
+    );
+  }
   // T5: the account's registered country, not the client's claim.
   const pricingCountry = (await resolvePricingCountry({ userId, clientCountry: country, context })).country;
   const priced = await priceCaseForMarket({ service, country: pricingCountry, urgencyTier: tier });

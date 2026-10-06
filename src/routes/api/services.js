@@ -16,9 +16,15 @@ const { isUrgentWindowOpen } = require('../../services/urgency_window');
 // Per-tier availability, stamped on every catalogue item. Urgent is the only
 // tier with a sales window today; it is per item so a per-service rule can
 // land later without an API change.
-function withAvailability(rows) {
-  const urgentAvailable = isUrgentWindowOpen();
-  return (rows || []).map((r) => Object.assign(r, { urgentAvailable }));
+// 6 Oct 2026 — and per service now: Urgent is offered only where a doctor has
+// agreed to the 4-hour tier (services/urgent_cover.js). An unreadable cover
+// set (null) leaves the window as the only rule.
+async function withAvailability(rows) {
+  const windowOpen = isUrgentWindowOpen();
+  const covered = windowOpen ? await require('../../services/urgent_cover').servicesWithUrgentCover() : null;
+  return (rows || []).map((r) => Object.assign(r, {
+    urgentAvailable: windowOpen && (!covered || covered.has(String(r.id)))
+  }));
 }
 
 // One definition of "a patient may order this", shared with the web wizard and
@@ -69,7 +75,7 @@ module.exports = function (db, { safeGet, safeAll }) {
       ORDER BY s.id
     `, [req.params.id]);
 
-    return res.ok(withAvailability(services));
+    return res.ok(await withAvailability(services));
   });
 
 
@@ -135,7 +141,7 @@ function pricingCountryFor(req) {
     `;
 
     const services = await safeAll(sql, params);
-    return res.ok(withAvailability(services));
+    return res.ok(await withAvailability(services));
   });
 
   // ─── GET /services/:id/price ─────────────────────────────

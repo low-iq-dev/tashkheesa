@@ -973,6 +973,10 @@
     <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
       <strong><%= tt('Choose how soon you need your opinion before continuing.', 'Choose how soon you need your opinion before continuing.', 'اختر متى تحتاج رأيك قبل المتابعة.') %></strong>
     </div>
+  <% } else if (step4Err === 'urgent_no_cover') { %>
+    <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
+      <strong><%= tt('Urgent isn’t available for this service at the moment. Please choose Standard or VIP.', 'Urgent isn’t available for this service at the moment. Please choose Standard or VIP.', 'الخدمة العاجلة غير متاحة لهذه الخدمة حالياً. من فضلك اختر العادي أو VIP.') %></strong>
+    </div>
   <% } else if (step4Err === 'urgent_outside_window') { %>
     <%# Policy §3 — Urgent submitted outside 7am-7pm Cairo. Two explicit choices. %>
     <div role="alert" class="p-card" style="padding:18px;background:var(--warn-bg);border:1px solid #E6C7A8;margin-bottom:16px;">
@@ -1082,7 +1086,9 @@
           sub:     tt('Fastest review. Available 7am–7pm Cairo time.', 'Fastest review. Available 7am–7pm Cairo time.', 'أسرع مراجعة. متاح 7 صباحاً حتى 7 مساءً بتوقيت القاهرة.')
         }
       };
-      const TIER_KEYS = ['standard', 'vip', 'urgent'];
+      // 6 Oct 2026 — no Urgent tile where no doctor covers the 4-hour tier.
+      const __urgentCovered = (typeof urgentCovered === 'undefined') ? true : !!urgentCovered;
+      const TIER_KEYS = __urgentCovered ? ['standard', 'vip', 'urgent'] : ['standard', 'vip'];
     %>
     <form method="post" action="/patient/new-case/step4" id="step4-form" style="margin-top:18px;">
       <%- (typeof csrfField === 'function') ? csrfField() : '' %>

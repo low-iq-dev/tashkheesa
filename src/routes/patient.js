@@ -2052,6 +2052,11 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     specialties,
     services,
     pricing,
+    // 6 Oct 2026 — false hides the Urgent tile on Step 4 (no doctor covers the
+    // 4-hour tier for this service). Only read on Step 4; true when unknown.
+    urgentCovered: (step === 4 && draft && draft.service_id)
+      ? await require('../services/urgent_cover').serviceHasUrgentCover(draft.service_id)
+      : true,
     countryCurrency,
     ...uploadcareLocals,
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
@@ -2762,6 +2767,11 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
   // or "downgrade to VIP".
   if (tier === 'urgent' && !isUrgentWindowOpen()) {
     return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=urgent_outside_window');
+  }
+  // 6 Oct 2026 — Urgent is sold only where a doctor has agreed to the 4-hour
+  // tier for this service (services/urgent_cover.js).
+  if (tier === 'urgent' && !(await require('../services/urgent_cover').serviceHasUrgentCover(owned.service_id))) {
+    return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=urgent_no_cover');
   }
 
   // Look up the service catalog snapshot for this order's region.
