@@ -29,6 +29,7 @@ function setupHealthRoutes(opts) {
   // fields are exposed (name/status/ageSec/staleSeconds) — never
   // current_task/meta/token_cost. /healthz stays 200 even if a worker is down;
   // staleness surfaces in the body (workersOk + per-worker status).
+  // /healthz?strict=1 turns that into a 503 (see below).
   var { WORKER_SPECS, workerLiveness } = require('../services/admin_health');
   router.get('/healthz', async function(req, res) {
     var uptimeSec = Math.floor(process.uptime());
@@ -72,6 +73,16 @@ function setupHealthRoutes(opts) {
     clock.ok = String(clock.db || '').toUpperCase() === 'UTC' &&
                String(clock.node || '').toUpperCase() === 'UTC';
 
+    var workersOk = workers.every(function(w) { return w.status !== 'down'; });
+
+    // 6 Oct 2026 (watchtower) — /healthz?strict=1 for an external monitor that
+    // can only alarm on a status code. Same body; 503 when a worker is down or
+    // the clock contract is broken. The plain URL stays 200 on purpose: it is
+    // Render's own health check, and a 503 there would restart the web service
+    // over a stalled background worker, which fixes nothing and drops requests.
+    var strict = String((req.query && req.query.strict) || '') === '1';
+    if (strict && !(workersOk && clock.ok)) res.status(503);
+
     return res.json({
       ok: true,
       mode: MODE,
@@ -84,7 +95,7 @@ function setupHealthRoutes(opts) {
         waiting: pool.waitingCount
       },
       workers: workers,
-      workersOk: workers.every(function(w) { return w.status !== 'down'; }),
+      workersOk: workersOk,
       clock: clock,
       clockOk: clock.ok
     });

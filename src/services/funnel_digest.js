@@ -134,6 +134,8 @@ async function computeFunnel(day) {
     `SELECT COUNT(*)::int AS n, COALESCE(SUM(o.price),0)::int AS amount
        FROM orders_active o JOIN users u ON u.id = o.patient_id
       WHERE ${SKIP_EMAIL_SQL} AND o.payment_status = 'paid'
+        AND COALESCE(o.is_practice,false) = false
+        AND COALESCE(o.source,'') NOT IN ('practice_seed','demo_appreview')
         AND o.paid_at >= ${bounds} AND o.paid_at < ${boundsEnd}`);
   // 6 Oct 2026 — reports delivered that day, for the Command digest push.
   // completed_at is what every delivery path stamps (services/business_pulse.js

@@ -52,7 +52,7 @@ function dicomBytes(withMagic) {
   return b;
 }
 
-(async () => {
+module.exports = (async () => {
   const server = await new Promise((resolve) => { const s = http.createServer(app).listen(0, '127.0.0.1', () => resolve(s)); });
   const base = 'http://127.0.0.1:' + server.address().port;
   async function send(name, bytes, type) {

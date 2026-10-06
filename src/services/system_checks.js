@@ -20,7 +20,8 @@
 // stays failed is pushed once, not every five minutes.
 //
 // Three things are pushed, all through ops push:
-//   system_check_failed     a check became 'fail'   (loud for site/cases/money)
+//   system_check_failed     a check became 'fail'   (loud for site/cases/money,
+//                           except the two in QUIET_FAIL_KEYS)
 //   system_check_recovered  a failed or warning check became 'ok'      (quiet)
 //   system_check_stale      a check stopped reporting   (quiet; loud for site)
 // plus ops_brief (quiet) for every new write of a claude.brief.* row.
@@ -292,7 +293,18 @@ function transitionKind(prev, status) {
   return null;
 }
 
-function failedMode(area) { return LOUD_FAIL_AREAS.indexOf(area) !== -1 ? 'loud' : 'quiet'; }
+// Two checks restate an incident that already has its own loud alert:
+//   site.workers           worker_down (watchdog) + critical_alert
+//   cases.paid_unassigned  paid_unassigned (attention sweep)
+// A third loud buzz for the same thing teaches the phone's owner to ignore
+// buzzes, so these two fail quietly. Every other site / cases / money check
+// has no other voice and stays loud.
+const QUIET_FAIL_KEYS = Object.freeze(['site.workers', 'cases.paid_unassigned']);
+
+function failedMode(area, checkKey) {
+  if (QUIET_FAIL_KEYS.indexOf(checkKey) !== -1) return 'quiet';
+  return LOUD_FAIL_AREAS.indexOf(area) !== -1 ? 'loud' : 'quiet';
+}
 function staleMode(area) { return LOUD_STALE_AREAS.indexOf(area) !== -1 ? 'loud' : 'quiet'; }
 
 /**
@@ -360,7 +372,7 @@ async function processPushes(deps) {
         title: (failed ? 'Check failed: ' : 'Recovered: ') + _label(r.check_key),
         body: String(r.summary || (failed ? 'No summary given.' : 'Back to ok.')).slice(0, 300),
         data: { screen: 'system', checkKey: r.check_key, area: r.area, status: r.status },
-        defaultMode: failed ? failedMode(r.area) : 'quiet',
+        defaultMode: failed ? failedMode(r.area, r.check_key) : 'quiet',
       });
       if (failed) out.failed++; else out.recovered++;
     }
@@ -499,9 +511,17 @@ const INTERNAL = [
 
   async function notificationsFailed() {
     // notifications.at is timestamp WITHOUT time zone holding UTC digits.
+    // A send about a soft-deleted or practice order is not a failure anyone
+    // needs to hear about. LEFT JOIN + the two predicates on `o`: a
+    // notification with no order (o.* all NULL) still counts.
     const rows = (await queryAll(
-      "SELECT COALESCE(channel, 'unknown') AS channel, COUNT(*)::int AS n FROM notifications " +
-      " WHERE status = 'failed' AND at > (NOW() AT TIME ZONE 'UTC') - INTERVAL '24 hours' GROUP BY 1 ORDER BY 2 DESC", [])) || [];
+      "SELECT COALESCE(n.channel, 'unknown') AS channel, COUNT(*)::int AS n FROM notifications n " +
+      "  LEFT JOIN orders o ON o.id = n.order_id " +
+      " WHERE n.status = 'failed' AND n.at > (NOW() AT TIME ZONE 'UTC') - INTERVAL '24 hours' " +
+      "   AND o.deleted_at IS NULL " +
+      "   AND COALESCE(o.is_practice, false) = false " +
+      "   AND COALESCE(o.source, '') NOT IN ('demo_appreview', 'practice_seed') " +
+      " GROUP BY 1 ORDER BY 2 DESC", [])) || [];
     const total = rows.reduce((a, r) => a + r.n, 0);
     const by = {}; rows.forEach((r) => { by[r.channel] = r.n; });
     return {
@@ -645,7 +665,7 @@ module.exports = {
   HISTORY_RETENTION_DAYS, BRIEF_PREFIX, BRIEF_PERIODS, UPSERT_SQL,
   validateCheck, validateBody, upsertCheck, upsertChecks,
   isStale, effectiveStatus, buildSystemPayload, readSystem,
-  transitionKind, failedMode, staleMode, claimTransitions, claimStale, claimBriefs, processPushes,
+  transitionKind, failedMode, staleMode, QUIET_FAIL_KEYS, claimTransitions, claimStale, claimBriefs, processPushes,
   classifyAiSpend, classifySignups, computeInternalChecks, runSystemChecks,
   pruneCheckHistory, digestCounts,
 };

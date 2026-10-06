@@ -9,15 +9,20 @@
 --   specialty_uncovered  a specialty patients can order from with no doctor
 --                        able to take the case; a second row, ref '<id>:urgent',
 --                        when doctors exist but none of them covers Urgent
---   send_failed          notifications to a patient or doctor that failed or
---                        were skipped in the last 24 hours — ONE row per
---                        recipient, not one per message
+--   send_failed          notifications to a patient or doctor that FAILED in
+--                        the last 24 hours (not ones the worker chose to
+--                        skip) — ONE row per recipient, not one per message
 --
--- The first five arms are migration 117's, byte for byte (payment_claim, the
--- transfer waiting to be verified, is already a kind there — the 60-minute
--- threshold is applied by the sweep, not by the view).
+-- The first five arms are migration 117's (payment_claim, the transfer waiting
+-- to be verified, is already a kind there — the 60-minute threshold is applied
+-- by the sweep, not by the view). Four are byte for byte; payment_claim gains
+-- the practice-case exclusion, marked where it was added.
 --
--- Practice cases are excluded from every arm that touches an order, with the
+-- SOFT-DELETED ORDERS. Every arm that touches `orders` excludes rows with
+-- deleted_at set, as well as practice cases: a deleted order must never raise
+-- an attention item, a check count or a push.
+--
+-- Practice cases are excluded from every arm 126 adds or changes, with the
 -- same predicate the abandoned_case arm has always used plus the practice_seed
 -- source. Column types are unchanged (CREATE OR REPLACE VIEW would refuse
 -- otherwise): refunds.refunded_at and notifications.at are timestamp WITHOUT
@@ -108,6 +113,10 @@ JOIN orders o ON o.id = pc.order_id AND o.deleted_at IS NULL
 LEFT JOIN users u ON u.id = pc.patient_id
 WHERE pc.status = 'pending'
   AND COALESCE(o.payment_status, '') NOT IN ('paid', 'captured')
+  -- 126: the one change to a 117 arm. A claim on a practice case is a
+  -- rehearsal, and this kind is now pushed loud on a clock.
+  AND COALESCE(o.is_practice, false) = false
+  AND COALESCE(o.source, '') NOT IN ('demo_appreview', 'practice_seed')
 
 UNION ALL
 
@@ -143,7 +152,10 @@ UNION ALL
 -- ── A refund still owed after two days ──────────────────────────────────────
 -- 'pending' is undecided; 'approved' / 'auto_approved' are decided and not yet
 -- paid out. All three are money a patient is waiting for (the UNSETTLED set in
--- routes/api/admin.js). `ref` is the refund id.
+-- routes/api/admin.js). `ref` is the refund id. LEFT JOIN, with the order
+-- predicates written so that a refund whose order row is missing still shows
+-- (every o.* is NULL and passes) while one on a soft-deleted or practice order
+-- does not.
 SELECT
   'refund_stale',
   r.id::text,
@@ -161,6 +173,7 @@ LEFT JOIN users u ON u.id = o.patient_id
 WHERE r.status IN ('pending', 'approved', 'auto_approved')
   AND r.refunded_at IS NOT NULL
   AND (r.refunded_at AT TIME ZONE 'UTC') < NOW() - INTERVAL '48 hours'
+  AND o.deleted_at IS NULL
   AND COALESCE(o.is_practice, false) = false
   AND COALESCE(o.source, '') NOT IN ('demo_appreview', 'practice_seed')
 
@@ -243,26 +256,30 @@ WHERE COALESCE(sp.is_visible, true) = true
 UNION ALL
 
 -- ── Messages to a patient or doctor that did not go out ─────────────────────
+-- status 'failed' ONLY. 'skipped' is the notification worker deciding not to
+-- send (an opted-out recipient, a disabled channel, a duplicate) — a decision,
+-- not a failure, and it outnumbers real failures about six to one.
 -- Grouped per recipient: one person is one row, however many sends failed.
 -- `ref` is the recipient's user id. In-app ('internal') rows are not sends.
+-- A send about a soft-deleted or practice order is ignored; one with no order
+-- at all (o.* NULL) still counts.
 SELECT
   'send_failed',
   n.to_user_id::text,
   COALESCE(NULLIF(MAX(u.name), ''), 'Unknown'),
   MAX(u.email),
   MAX(u.phone),
-  COUNT(*)::text || ' message(s) not delivered to this ' || MAX(u.role) || ' in 24h ('
-    || COUNT(*) FILTER (WHERE n.status = 'failed')::text || ' failed, '
-    || COUNT(*) FILTER (WHERE n.status = 'skipped')::text || ' skipped; '
+  COUNT(*)::text || ' message(s) failed to send to this ' || MAX(u.role) || ' in 24h ('
     || STRING_AGG(DISTINCT n.channel, ', ') || ')',
   MIN(n.at) AT TIME ZONE 'UTC',
   2
 FROM notifications n
 JOIN users u ON u.id = n.to_user_id AND u.role IN ('patient', 'doctor')
 LEFT JOIN orders o ON o.id = n.order_id
-WHERE n.status IN ('failed', 'skipped')
+WHERE n.status = 'failed'
   AND COALESCE(n.channel, '') NOT IN ('', 'internal')
   AND n.at > (NOW() AT TIME ZONE 'UTC') - INTERVAL '24 hours'
+  AND o.deleted_at IS NULL
   AND COALESCE(o.is_practice, false) = false
   AND COALESCE(o.source, '') NOT IN ('demo_appreview', 'practice_seed')
 GROUP BY n.to_user_id;

@@ -59,7 +59,7 @@ app.use(express.json());
 app.use((req, _res, next) => { req.user = { id: 'pat-1', role: 'patient', name: 'P' }; next(); });
 app.use('/conversations', freshRequire('../../src/routes/api/conversations')(null, helpers));
 
-(async () => {
+module.exports = (async () => {
   const server = await new Promise((resolve) => { const s = http.createServer(app).listen(0, '127.0.0.1', () => resolve(s)); });
   const base = 'http://127.0.0.1:' + server.address().port;
   const call = async (method, p, body) => {

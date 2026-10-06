@@ -56,21 +56,30 @@ const AGENT_NAME = 'attention_sweep';
 //
 // Two populations, deliberately:
 //
-//   ESCALATING kinds (migration 126: paid_unassigned, refund_stale,
-//   specialty_uncovered, send_failed) are pushed one item at a time through
-//   ops push, as their own catalogue kind, on this clock:
+//   ESCALATING kinds (migration 126's paid_unassigned, refund_stale,
+//   specialty_uncovered and send_failed, plus payment_claim) are pushed one
+//   item at a time through ops push, as their own catalogue kind, on this clock:
 //     loud   pushed when first seen; if neither acked nor snoozed, again
 //            after 2 hours, then every 6.
 //     quiet  pushed once. After that it only appears in the daily digest.
 //   Loud or quiet is the kind's catalogue default (services/ops_push_prefs.js)
 //   so there is one place that says which is which.
 //
-//   Every OTHER kind (the intake doors and payment_claim) keeps the sweep's
-//   original rule unchanged: alert once it has waited an hour, re-alert after
+//   Every OTHER kind (the four intake doors) keeps the sweep's original rule
+//   unchanged: alert once it has waited an hour, re-alert after
 //   24 hours, as one digest through sendCriticalAlert.
 //
 // Snoozed and resolved items are off the list for both populations.
-const ESCALATING_KINDS = Object.freeze(['paid_unassigned', 'refund_stale', 'specialty_uncovered', 'send_failed']);
+const ESCALATING_KINDS = Object.freeze(['payment_claim', 'paid_unassigned', 'refund_stale', 'specialty_uncovered', 'send_failed']);
+
+// How long an escalating item must have waited before its FIRST push. The
+// view already applies each new kind's own threshold (15 minutes, 48 hours…),
+// so those push as soon as they appear. A transfer claim is in the view from
+// the moment the patient submits it — and that moment already pushes
+// (`payment_claim`, from the claim route) — so the sweep's first alert waits
+// the same hour it always has: 60 minutes, again 2 hours later, then every 6,
+// until someone acks it.
+const FIRST_PUSH_AFTER_MINUTES = Object.freeze({ payment_claim: 60 });
 const FIRST_REPUSH_HOURS = 2;
 const REPUSH_EVERY_HOURS = 6;
 // A resolve is a claim, not a fact: if the underlying condition is still true
@@ -118,14 +127,18 @@ function hiddenReason(state, now) {
  * @param {'loud'|'quiet'} level
  * @param {object} state attention_state row (or null)
  * @param {Date|number} now
+ * @param {number} [minWaitMinutes] the first push waits until state.waiting_minutes reaches this
  * @returns {boolean}
  */
-function pushDue(level, state, now) {
+function pushDue(level, state, now, minWaitMinutes) {
   const t = _ms(now) || Date.now();
   const st = state || {};
   if (hiddenReason(st, t)) return false;
   const count = Number(st.push_count) || 0;
-  if (count === 0) return true;                 // never pushed: loud or quiet, once
+  if (count === 0) {                            // never pushed: loud or quiet, once
+    const wait = Number(minWaitMinutes) || 0;
+    return wait <= 0 || (Number(st.waiting_minutes) || 0) >= wait;
+  }
   if (level !== 'loud') return false;           // quiet: once, then the digest only
   if (_ms(st.acked_at) !== null) return false;  // someone has seen it
   const last = _ms(st.last_pushed_at);
@@ -305,6 +318,7 @@ async function revertPush(kind, ref, previous) {
 }
 
 const PUSH_TITLES = Object.freeze({
+  payment_claim: 'Transfer still waiting to be verified',
   paid_unassigned: 'Paid case with no doctor',
   refund_stale: 'Refund open over 48 hours',
   specialty_uncovered: 'Specialty not covered',
@@ -333,7 +347,9 @@ async function defaultPushEvent(item, step) {
     // build already routes to the case — where the assign button is.
     data: Object.assign({ screen: 'attention', attentionKind: item.kind, ref: item.ref, step: step },
       item.kind === 'paid_unassigned' ? { caseId: item.ref } : {}),
-    orderId: item.kind === 'paid_unassigned' ? item.ref : null,
+    // (payment_claim needs no hint: every Command build routes that kind to
+    // the Transfers screen, where the Verify / Reject buttons are.)
+    orderId: (item.kind === 'paid_unassigned' || item.kind === 'payment_claim') ? item.ref : null,
   });
 }
 
@@ -467,7 +483,7 @@ async function runAttentionSweep(deps) {
   let pushed = 0;
   for (const item of waiting.filter((i) => isEscalating(i.kind))) {
     try {
-      if (!pushDue(levelFor(item.kind), item, now)) continue;
+      if (!pushDue(levelFor(item.kind), item, now, FIRST_PUSH_AFTER_MINUTES[item.kind])) continue;
       const step = Number(item.push_count) || 0;
       // Claim first: the count moves before the send, so a second instance or
       // an overlapping pass cannot push the same step.
@@ -518,6 +534,7 @@ module.exports = {
   ESCALATING_KINDS,
   KNOWN_KINDS,
   FIRST_REPUSH_HOURS,
+  FIRST_PUSH_AFTER_MINUTES,
   REPUSH_EVERY_HOURS,
   RESOLVED_REAPPEARS_AFTER_HOURS,
   SNOOZE_MIN_HOURS,

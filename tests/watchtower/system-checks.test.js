@@ -265,6 +265,23 @@ function post(server, body, headers) {
     return sent.every((e) => e.data.screen === 'system') ? null : 'a push does not open the System screen';
   });
 
+  await check('site.workers and cases.paid_unassigned fail QUIET; every other site / cases / money check stays loud', async () => {
+    const sent = [];
+    const keys = [['site.workers', 'site'], ['cases.paid_unassigned', 'cases'], ['cases.sla_overdue', 'cases'],
+      ['money.claims_waiting', 'money'], ['money.refunds_stale', 'money'], ['ai.spend', 'money'], ['site.dns', 'site']];
+    await sc.processPushes({
+      claimTransitions: async () => keys.map(([check_key, area]) => ({ check_key, area, status: 'fail', prev: 'ok', summary: 's' })),
+      claimStale: async () => [], claimBriefs: async () => [],
+      pushOpsEvent: async (e) => { sent.push(e); return { sent: true }; },
+    });
+    if (sent.length !== keys.length) return 'a failure was not pushed at all — quiet must still push';
+    const mode = {}; sent.forEach((e) => { mode[e.dedupeKey] = e.defaultMode; });
+    if (mode['site.workers'] !== 'quiet' || mode['cases.paid_unassigned'] !== 'quiet') return 'the two duplicate checks are not quiet';
+    const loud = ['cases.sla_overdue', 'money.claims_waiting', 'money.refunds_stale', 'ai.spend', 'site.dns'].filter((k) => mode[k] !== 'loud');
+    if (loud.length) return 'should be loud: ' + loud.join(', ');
+    return sc.QUIET_FAIL_KEYS.slice().sort().join() === 'cases.paid_unassigned,site.workers' ? null : 'the quiet list changed';
+  });
+
   await check('the push decision is the worker\'s: pushed_status drives it, and no writer touches it', () => {
     const src = read('src/services/system_checks.js');
     if (!/pushed_status IS DISTINCT FROM status/.test(src)) return 'transitions are not detected from pushed_status';
@@ -354,6 +371,125 @@ function post(server, body, headers) {
     if (/CREATE POLICY/i.test(all)) return 'a policy was added';
     if (!/CREATE TRIGGER ops_checks_history_trg/.test(all)) return 'no history trigger — SQL-written rows would leave no history';
     return /pushed_status\s+text/.test(all) ? null : 'no pushed_status column';
+  });
+
+  // ── soft-deleted orders: the JS readers ───────────────────────────────────
+  const sqlOf = (file, fnName) => {
+    const src = read(file);
+    const i = src.indexOf('async function ' + fnName + '(');
+    if (i === -1) return '';
+    return src.slice(i, src.indexOf('\n  },', i) === -1 ? i + 2500 : src.indexOf('\n  },', i));
+  };
+
+  await check('a soft-deleted order is ignored by cases.sla_overdue (reads orders_active + the shared open-case rule)', () => {
+    const q = sqlOf('src/services/system_checks.js', 'casesSlaOverdue');
+    if (!/FROM orders_active o/.test(q)) return 'does not read orders_active';
+    const { breachedCaseSql } = require('../../src/routes/api/_assign_helpers');
+    return /is_practice/.test(breachedCaseSql('o.')) ? null : 'the shared breached-case rule no longer excludes practice cases';
+  });
+
+  await check('a soft-deleted order is ignored by notifications.failed', () => {
+    const q = sqlOf('src/services/system_checks.js', 'notificationsFailed');
+    if (!/LEFT JOIN orders o ON o\.id = n\.order_id/.test(q)) return 'does not join the order';
+    if (!/o\.deleted_at IS NULL/.test(q)) return 'does not exclude soft-deleted orders';
+    if (!/COALESCE\(o\.is_practice, false\) = false/.test(q)) return 'does not exclude practice cases';
+    return /status = 'failed'/.test(q) && !/skipped/.test(q.replace(/\/\/.*$/gm, '')) ? null : 'counts something other than failed';
+  });
+
+  await check('the checks that count cases, claims, refunds and coverage read the view, never orders', () => {
+    for (const fn of ['casesPaidUnassigned', 'moneyClaimsWaiting', 'moneyRefundsStale', 'doctorsCoverage']) {
+      const q = sqlOf('src/services/system_checks.js', fn);
+      if (!/FROM v_needs_attention/.test(q)) return fn + ' does not read v_needs_attention';
+      if (/(FROM|JOIN)\s+orders\b/.test(q)) return fn + ' reads orders directly';
+    }
+    const code = read('src/services/system_checks.js').replace(/\/\/.*$/gm, '');
+    const direct = (code.match(/(FROM|JOIN)\s+orders\b/g) || []).length;
+    return direct === 1 ? null : 'expected exactly one direct orders read (notifications.failed), found ' + direct;
+  });
+
+  await check('a soft-deleted order is ignored by the digest: paid and delivered read orders_active, practice excluded', () => {
+    const src = read('src/services/funnel_digest.js');
+    for (const key of ['paid', 'delivered']) {
+      const i = src.indexOf("await one('" + key + "'");
+      if (i === -1) return 'no ' + key + ' count';
+      const q = src.slice(i, src.indexOf('`);', i));
+      if (!/FROM orders_active o/.test(q)) return key + ' does not read orders_active';
+      if (!/COALESCE\(o\.is_practice,false\) = false/.test(q)) return key + ' does not exclude practice cases';
+    }
+    return /(FROM|JOIN)\s+orders\b/.test(src.replace(/\/\/.*$/gm, '')) ? 'the digest reads orders directly' : null;
+  });
+
+  await check('orders_active is still "orders WHERE deleted_at IS NULL"', () => {
+    const sql = read('src/migrations/069_orders_active_view_projection_fix.sql');
+    return /CREATE OR REPLACE VIEW orders_active AS\s+SELECT \* FROM orders WHERE deleted_at IS NULL;/.test(sql)
+      ? null : 'orders_active no longer filters deleted_at — every reader above depends on it';
+  });
+
+  // ── /healthz?strict=1 ─────────────────────────────────────────────────────
+  await check('/healthz stays 200 with a worker down; ?strict=1 answers 503 with the same body', async () => {
+    const express = require('express');
+    const { setupHealthRoutes } = require('../../src/routes/health');
+    const { canonicalHostRedirect } = require('../../src/middleware/canonical_host');
+    const { WORKER_SPECS } = require('../../src/services/admin_health');
+    const state = { down: null, tz: 'UTC' };
+    const pool = {
+      totalCount: 1, idleCount: 1, waitingCount: 0,
+      query: async (sql) => {
+        if (/SHOW TimeZone/i.test(sql)) return { rows: [{ TimeZone: state.tz }] };
+        return { rows: WORKER_SPECS.filter((w) => w.key !== state.down).map((w) => ({ agent_name: w.key, last_run: new Date() })) };
+      },
+    };
+    const app = express();
+    app.set('trust proxy', 1);
+    app.use(canonicalHostRedirect({ enabled: true, canonicalHost: 'tashkheesa.com' }));
+    app.use(setupHealthRoutes({ MODE: 'test', CONFIG: {}, pool, pkg: { name: 'x', version: '1' }, GIT_SHA: 'abc' }));
+    const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+    const get = (p) => new Promise((resolve, reject) => {
+      http.get({ host: '127.0.0.1', port: server.address().port, path: p, headers: { host: 'tashkheesa.onrender.com' } }, (res) => {
+        let raw = ''; res.on('data', (c) => { raw += c; });
+        res.on('end', () => { let j = null; try { j = JSON.parse(raw); } catch (_) {} resolve({ status: res.statusCode, body: j }); });
+      }).on('error', reject);
+    });
+    const realUptime = process.uptime; const realTz = process.env.TZ;
+    process.uptime = () => 100000;            // long-running instance: a missing heartbeat is 'down', not 'starting'
+    try {
+      const nodeUtc = String(Intl.DateTimeFormat().resolvedOptions().timeZone || '').toUpperCase() === 'UTC';
+      // healthy
+      let plain = await get('/healthz'); let strict = await get('/healthz?strict=1');
+      if (plain.status !== 200) return 'healthy /healthz is ' + plain.status + ' (redirected off a non-canonical host?)';
+      if (!plain.body.workersOk) return 'fixture: workers should be ok';
+      if (nodeUtc && strict.status !== 200) return 'healthy strict is ' + strict.status;
+      if (!nodeUtc && strict.status !== 503) return 'strict should be 503 when the clock contract is broken (node TZ is not UTC here)';
+      // a worker down
+      state.down = 'case_sla_worker';
+      plain = await get('/healthz'); strict = await get('/healthz?strict=1');
+      if (plain.status !== 200) return 'plain /healthz must stay 200 with a worker down, got ' + plain.status;
+      if (plain.body.workersOk !== false) return 'workersOk should be false';
+      if (strict.status !== 503) return 'strict should be 503 with a worker down, got ' + strict.status;
+      const strip = (b) => JSON.stringify(Object.assign({}, b, { timestamp: 0, requestId: 0, workers: b.workers.map((w) => Object.assign({}, w, { ageSec: 0 })) }));
+      if (strip(plain.body) !== strip(strict.body)) return 'the strict body differs from the plain body';
+      if (strict.body.ok !== true) return 'the body changed shape';
+      // clock broken, workers fine
+      state.down = null; state.tz = 'Africa/Cairo';
+      plain = await get('/healthz'); strict = await get('/healthz?strict=1');
+      if (plain.status !== 200 || plain.body.clockOk !== false) return 'plain should be 200 with clockOk false';
+      if (strict.status !== 503) return 'strict should be 503 when clockOk is false';
+      // only the literal strict=1 switches it on
+      state.down = 'case_sla_worker'; state.tz = 'UTC';
+      for (const q of ['?strict=0', '?strict=true', '?strict=', '?other=1']) {
+        if ((await get('/healthz' + q)).status !== 200) return '/healthz' + q + ' should stay 200';
+      }
+      return null;
+    } finally { process.uptime = realUptime; if (realTz === undefined) delete process.env.TZ; else process.env.TZ = realTz; server.close(); }
+  });
+
+  await check('/healthz?strict=1 is exempt from the canonical-host redirect exactly like /healthz', () => {
+    const src = read('src/middleware/canonical_host.js');
+    if (!/EXEMPT_PATHS = new Set\(\[[^\]]*'\/healthz'/.test(src)) return '/healthz is no longer exempt';
+    // The exemption is decided on req.path, which carries no query string, so
+    // ?strict=1 cannot fall outside it. (The test above proves it over HTTP
+    // on a non-canonical Host.)
+    return /isExemptPath\(req\.path\)/.test(src) ? null : 'the exemption is no longer decided on req.path';
   });
 
   // ── PART 4: expiries ──────────────────────────────────────────────────────

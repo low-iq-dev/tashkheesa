@@ -81,21 +81,50 @@ const H = 3600e3;
     return null;
   });
 
-  await check('send_failed: failed or skipped in 24h, one row per recipient', () => {
+  await check('send_failed: status failed ONLY (not skipped), in 24h, one row per recipient', () => {
     const a = arm('send_failed');
     if (!a) return 'no send_failed arm';
-    if (!/n\.status IN \('failed', 'skipped'\)/.test(a)) return 'not failed-or-skipped';
+    if (!/n\.status = 'failed'/.test(a)) return "does not require status = 'failed'";
+    if (/skipped/.test(a)) return "'skipped' is still counted";
     if (!/INTERVAL '24 hours'/.test(a)) return 'the 24-hour window is missing';
     if (!/u\.role IN \('patient', 'doctor'\)/.test(a)) return 'not limited to patient- and doctor-facing sends';
     if (!/GROUP BY n\.to_user_id/.test(a)) return 'not grouped per recipient';
     return null;
   });
 
+  // Every arm of the view that reads `orders`, and how it reaches the table.
+  const ORDER_ARMS = ['abandoned_case', 'payment_claim', 'paid_unassigned', 'refund_stale', 'send_failed'];
+
+  await check('the view reads orders in exactly five arms (this list is the audit)', () => {
+    const reading = view.split(/UNION ALL/).filter((p) => /(FROM|JOIN)\s+orders\b/.test(p))
+      .map((p) => (/SELECT\s+'([a-z_]+)'/.exec(p) || [])[1]).sort().join();
+    return reading === ORDER_ARMS.slice().sort().join() ? null : 'arms reading orders: ' + reading;
+  });
+
+  for (const k of ORDER_ARMS) {
+    await check('a soft-deleted order is ignored by ' + k, () => {
+      const a = arm(k);
+      if (!/o\.deleted_at IS NULL/.test(a)) return k + ' does not require o.deleted_at IS NULL';
+      // Must be a hard predicate, not something OR-ed away.
+      if (/o\.deleted_at IS NULL\s+OR/i.test(a)) return k + ': the filter is OR-ed with something';
+      return null;
+    });
+  }
+
   await check('practice cases are excluded from every order-touching kind', () => {
-    for (const k of ['paid_unassigned', 'refund_stale', 'send_failed']) {
+    for (const k of ORDER_ARMS) {
       const a = arm(k);
       if (!PRACTICE.test(a)) return k + ' does not exclude is_practice';
-      if (!/NOT IN \('demo_appreview', 'practice_seed'\)/.test(a)) return k + ' does not exclude practice_seed / demo sources';
+      if (k !== 'abandoned_case' && !/NOT IN \('demo_appreview', 'practice_seed'\)/.test(a)) return k + ' does not exclude practice_seed / demo sources';
+    }
+    return null;
+  });
+
+  await check('no reader on this branch reads the orders table unfiltered', () => {
+    // The JS side: the attention service and routes read only the view.
+    for (const f of ['src/services/needs_attention.js', 'src/routes/api/admin_watchtower.js', 'src/routes/api/ops_checks.js', 'src/services/ops_expiries.js']) {
+      const code = read(f).replace(/\/\/.*$/gm, '');
+      if (/(FROM|JOIN)\s+orders(_active)?\b/.test(code)) return f + ' reads orders directly';
     }
     return null;
   });
@@ -229,15 +258,41 @@ const H = 3600e3;
     return r.total === 0 ? null : 'hidden items counted as waiting';
   });
 
-  await check('sweep: the original kinds keep the 60-minute / 24-hour digest rule', async () => {
+  await check('sweep: the intake kinds keep the 60-minute / 24-hour digest rule', async () => {
     const { log } = await sweep([
-      item({ kind: 'payment_claim', ref: 'p1', waiting_minutes: 61 }),
+      item({ kind: 'contact_submission', ref: 'c1', waiting_minutes: 61 }),
       item({ kind: 'abandoned_case', ref: 'a1', waiting_minutes: 30 }),
     ]);
-    if (log.sent.length !== 1 || log.sent[0].join() !== 'payment_claim') return 'digest was: ' + JSON.stringify(log.sent);
+    if (log.sent.length !== 1 || log.sent[0].join() !== 'contact_submission') return 'digest was: ' + JSON.stringify(log.sent);
     if (log.pushed.length) return 'a non-escalating kind went through the escalation clock';
     if (na.REALERT_AFTER_HOURS !== 24) return 're-alert window changed';
     return null;
+  });
+
+  await check('payment_claim is on the loud clock: first at 60 minutes, then 2h, then every 6h, stops on ack', async () => {
+    if (!na.isEscalating('payment_claim')) return 'payment_claim is not an escalating kind';
+    if (na.levelFor('payment_claim') !== 'loud') return 'payment_claim is not loud';
+    if (na.FIRST_PUSH_AFTER_MINUTES.payment_claim !== 60) return 'the first alert is not at 60 minutes';
+    const claim = (over) => item(Object.assign({ kind: 'payment_claim', ref: 'ord-9', waiting_minutes: 59 }, over));
+    let r = await sweep([claim()]);
+    if (r.log.pushed.length || r.log.sent.length) return 'alerted before 60 minutes';
+    r = await sweep([claim({ waiting_minutes: 60 })]);
+    if (r.log.pushed.join() !== 'payment_claim:ord-9:0') return 'not pushed at 60 minutes: ' + r.log.pushed.join();
+    if (r.log.sent.length) return 'a claim still went into the critical-alert digest';
+    const after = (count, minutes, extra) => sweep([claim(Object.assign({ waiting_minutes: 600, push_count: count, last_pushed_at: at(-minutes * 60e3) }, extra || {}))]);
+    if ((await after(1, 119)).log.pushed.length) return 'second push before 2 hours';
+    if ((await after(1, 120)).log.pushed.join() !== 'payment_claim:ord-9:1') return 'no second push at 2 hours';
+    if ((await after(2, 359)).log.pushed.length) return 'third push before 6 hours';
+    if ((await after(2, 360)).log.pushed.join() !== 'payment_claim:ord-9:2') return 'no third push at 6 hours';
+    if ((await after(1, 900, { acked_at: at(-H) })).log.pushed.length) return 'pushed again after an ack';
+    return null;
+  });
+
+  await check('the 60-minute wait applies only to the first push, and only to payment_claim', () => {
+    if (!na.pushDue('loud', { push_count: 0, waiting_minutes: 1 }, now)) return 'a kind with no wait was held back';
+    if (na.pushDue('loud', { push_count: 0, waiting_minutes: 59 }, now, 60)) return 'pushed before the wait';
+    if (!na.pushDue('loud', { push_count: 0, waiting_minutes: 60 }, now, 60)) return 'not pushed at the wait';
+    return Object.keys(na.FIRST_PUSH_AFTER_MINUTES).join() === 'payment_claim' ? null : 'another kind gained a wait';
   });
 
   // ── state transitions (SQL-backed) ────────────────────────────────────────

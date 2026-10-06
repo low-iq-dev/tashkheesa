@@ -1,13 +1,17 @@
 # Watchtower — 6 October 2026
 
-Branch `feat/watchtower`, cut from `origin/main` at `a80ea43`, built in the worktree
-`../tashkheesa-watchtower`. Pushed to origin. **Not merged, not deployed.** No production
-writes: every production query was a read, or the one migration dry run, which was forced
-to roll back and then verified as rolled back.
+Branch `feat/watchtower`, built in the worktree `../tashkheesa-watchtower`, rebased onto
+`origin/main` at `6421bfd`. No production writes from this work: every production query was
+a read, or a migration dry run that was forced to roll back and then verified as rolled back.
+
+**This document is current as of the follow-up pass** (same day), which rebased the branch and
+made five changes: `/healthz?strict=1`; `payment_claim` on the loud clock; `send_failed` counts
+failures only; two checks fail quietly; and a soft-deleted-orders audit. Those are folded into
+the sections below and summarised in [Follow-up](#follow-up-pass).
 
 Contents: [Part 0 findings](#part-0--findings) · [What was built](#what-was-built) ·
 [Suite](#suite-before-and-after) · [Contract](#contract) · [Env vars](#environment-variables) ·
-[Migrations](#migrations-and-the-production-dry-run) · [Found in review](#found-in-review) ·
+[Migrations](#migrations-and-the-production-dry-run) · [Follow-up](#follow-up-pass) · [Found in review](#found-in-review) ·
 [Deliberately not done](#deliberately-not-done) · [Needs Ziad](#needs-ziad)
 
 ---
@@ -82,7 +86,7 @@ With a worker down (read from `routes/health.js`; I did not take a worker down t
 
 `"ok"` stays `true` even then. A worker reads `starting` (not `down`) while the instance's uptime is shorter than that worker's staleness budget, and `starting` counts as ok.
 
-**So a plain HTTP monitor on `/healthz` cannot alarm on a dead worker.** The "tashkheesa.com" monitor must be a **keyword** monitor: URL `https://tashkheesa.com/healthz`, keyword `"workersOk":true`, alert when the keyword is **not** found. That also catches a down site (no body, no keyword). A second keyword monitor on `"clockOk":true` covers the timezone fault. After this branch deploys, `workers` gains a sixth entry, `system_checks`.
+**So a plain HTTP monitor on `/healthz` cannot alarm on a dead worker.** Since the follow-up there is a URL that can: **`/healthz?strict=1` returns 503** when `workersOk` or `clockOk` is false, with the same body, and 200 otherwise. Point the "tashkheesa.com" monitor at `https://tashkheesa.com/healthz?strict=1` as an ordinary HTTP monitor. Plain `/healthz` stays 200 for Render's own health check. After this branch deploys, `workers` gains a sixth entry, `system_checks`.
 
 ### f. Already built — skipped or kept
 
@@ -116,16 +120,21 @@ For each part: what it is, the guard that matters, and the test that fails when 
 
 ### Part 2 — attention API
 
-- `attention_state` (migration 125) and four new kinds in `v_needs_attention` (migration 126; 114 untouched, 117's five arms copied byte for byte).
+- `attention_state` (migration 125) and four new kinds in `v_needs_attention` (migration 126; 114 untouched). 117's five arms are copied; four byte for byte, and `payment_claim` gains the practice-case exclusion.
 - `GET /attention` and the three state POSTs (contract below).
-- Escalation runs inside the existing sweep. The four new kinds are pushed one item at a time as their own catalogue kind: **loud** — when first seen, again after 2 hours, then every 6, until acked or snoozed; **quiet** — once. `paid_unassigned` is loud + lockOn; `refund_stale`, `specialty_uncovered`, `send_failed` are quiet.
-- The five existing kinds keep the sweep's rule exactly: one digest after 60 minutes, re-alert after 24 hours. The one change for them: a snoozed or resolved item is skipped.
+- Escalation runs inside the existing sweep. Five kinds are pushed one item at a time as their own catalogue kind: **loud** — when first seen, again after 2 hours, then every 6, until acked or snoozed; **quiet** — once. `paid_unassigned` and `payment_claim` are loud + lockOn; `refund_stale`, `specialty_uncovered`, `send_failed` are quiet.
+- **`payment_claim` is on the loud clock** (follow-up). Its first sweep alert is at 60 minutes of waiting, then 2 hours later, then every 6, and an ack stops it. It no longer appears in the critical-alert digest. The immediate push when a patient submits a claim is unchanged and separate.
+- **`send_failed` counts `status = 'failed'` only** (follow-up). A `skipped` row is the worker deciding not to send; it is no longer counted.
+- The four intake kinds (`contact_submission`, `pre_launch_lead`, `abandoned_case`, `doctor_application`) keep the sweep's rule exactly: one digest after 60 minutes, re-alert after 24 hours. The one change for them: a snoozed or resolved item is skipped.
 - Two columns beyond the spec, on `attention_state`: `first_seen_at` / `last_seen_at` (the sweep stamps every item each pass) and `last_pushed_at` / `push_count` (the escalation clock). `specialty_uncovered` has no timestamp of its own, so it ages from `first_seen_at`. If an item leaves the view for over 2 hours and comes back, it is a new episode: the ack and the push count are cleared.
 
 | Guard | Negative test (`tests/watchtower/attention.test.js`) |
 |---|---|
 | 15-minute threshold on `paid_unassigned` | "paid_unassigned: paid, no doctor, open, older than 15 minutes" — fails at 5 minutes |
 | Practice exclusion | "practice cases are excluded from every order-touching kind" |
+| Soft-deleted orders | "a soft-deleted order is ignored by <kind>" ×5 — each fails if that arm's filter is removed |
+| Claim waits 60 minutes, then the loud clock | "payment_claim is on the loud clock: first at 60 minutes, then 2h, then every 6h, stops on ack" |
+| Skipped sends are not failures | "send_failed: status failed ONLY (not skipped)…" |
 | Loud clock 2h then 6h | "loud: pushed first, again after 2h, then every 6h" — fails at 1h |
 | Quiet is once | "quiet: pushed once and never again" — fails with the guard removed |
 | Ack stops repeats | "loud: an ack or a snooze stops the repeat pushes" |
@@ -145,7 +154,7 @@ For each part: what it is, the guard that matters, and the test that fails when 
 | `cases.sla_overdue` | cases | any | 3 or more |
 | `money.claims_waiting` | money | any over 60 min | oldest ≥ 4 h |
 | `money.refunds_stale` | money | any | — |
-| `notifications.failed` | notifications | any in 24 h | 10 or more |
+| `notifications.failed` | notifications | any failed in 24 h (not skipped; not on a soft-deleted or practice order) | 10 or more |
 | `notifications.critical` | notifications | — | any alert not delivered in 24 h |
 | `doctors.coverage` | doctors | any uncovered specialty | — |
 | `growth.signups` | growth | zero signups in 48 h | — |
@@ -153,7 +162,7 @@ For each part: what it is, the guard that matters, and the test that fails when 
 | `ai.spend` | **money** | 24 h ≥ 3× the 7-day daily average | ≥ 6× |
 
   The spec named the check keys and three of the thresholds; the rest of the warn/fail lines are my choices. `ai.spend` sits in `money` because the fixed area list has no `ai` area; below $1 in 24 hours it never alarms.
-- **Transitions are detected by the worker**, from `pushed_status`, for every row whatever its source. Rules: anything → `fail` pushes `system_check_failed` (loud for site / cases / money, quiet otherwise); `warn` or `fail` → `ok` pushes `system_check_recovered` (quiet); a check past twice its interval pushes `system_check_stale` once (quiet; loud for site). **A move to `warn` is not pushed.** A new row that arrives `ok` or `warn` pushes nothing; a new row that arrives `fail` pushes.
+- **Transitions are detected by the worker**, from `pushed_status`, for every row whatever its source. Rules: anything → `fail` pushes `system_check_failed` (loud for site / cases / money, quiet otherwise — **except `site.workers` and `cases.paid_unassigned`, which fail quietly** because `worker_down` / `critical_alert` / `paid_unassigned` already buzz for the same incident); `warn` or `fail` → `ok` pushes `system_check_recovered` (quiet); a check past twice its interval pushes `system_check_stale` once (quiet; loud for site). **A move to `warn` is not pushed.** A new row that arrives `ok` or `warn` pushes nothing; a new row that arrives `fail` pushes.
 - `claude.brief.daily|weekly|monthly`: every new write pushes `ops_brief` (quiet) once.
 - Per-area loudness needed one small addition: a producer may pass `defaultMode` ('loud' | 'quiet') for one event. A stored user preference still wins, and lockOn still holds.
 
@@ -189,6 +198,8 @@ The push for a SQL-written row arrives on the worker's next pass, so up to 5 min
 | Transition-only pushing | "a check that stays failed is pushed once, not on every pass" |
 | Writers cannot silence a push | "the push decision is the worker's: pushed_status drives it, and no writer touches it" |
 | Worker registered | "the worker is registered: WORKER_SPECS, a 5-minute singleton, a heartbeat, boot" |
+| Two duplicate checks fail quietly, the rest stay loud | "site.workers and cases.paid_unassigned fail QUIET; every other site / cases / money check stays loud" |
+| `/healthz?strict=1` | "/healthz stays 200 with a worker down; ?strict=1 answers 503 with the same body" — fails if strict stops returning 503, and fails if plain starts to |
 
 ### Part 4 — expiry register
 
@@ -204,7 +215,7 @@ The existing 09:00 Cairo funnel digest now also sends one quiet push, kind `dail
 
 ### How it was verified beyond unit tests
 
-A throwaway local Postgres database (`watchtower_scratch`, since dropped) was brought to migration 128 with the app's own migration runner, seeded, and driven end to end: the real view, the real sweep, the real worker, and the real routes over HTTP with a signed superadmin token. 57 of 57 checks passed, including the SQL-written-row path, the history trigger, each state transition, the escalation clock at 1h59 / 2h / 5h / 6h, and a patient token being refused with 403. The JSON examples in the contract are the responses that run produced. That script is not committed (it needs a migrated database; the suite runs without one).
+A throwaway local Postgres database (`watchtower_scratch`) was brought to migration 128 with the app's own migration runner, seeded, and driven end to end: the real view, the real sweep, the real worker, and the real routes over HTTP with a signed superadmin token. After the follow-up it runs **70 of 70** checks, including: the SQL-written-row path, the history trigger, each state transition, the escalation clock at 1h59 / 2h / 5h / 6h, a patient token refused with 403, the claim on the loud clock, and a soft-deleted twin of every item (paid case, draft, claim, refund, failed send, overdue case, delivered case) raising nothing. The JSON examples in the contract are responses that run produced. The script is not committed (it needs a migrated database; the suite runs without one).
 
 ---
 
@@ -214,17 +225,21 @@ A throwaway local Postgres database (`watchtower_scratch`, since dropped) was br
 
 | | Passed | Failed | Skipped |
 |---|---|---|---|
-| Before any change | 2575 | 6 | 53 |
-| After | 2645 | 6 | 53 |
+| origin/main `6421bfd`, clean worktree | 2599 | **0** | 53 |
+| `feat/watchtower` rebased onto it | 2686 | **0** | 53 |
 
-**`baseline-nodb-failures.txt` does not exist** — not in the worktree, not in the main checkout, not in git history on any branch. So the comparison is against the failure list captured from the pre-change run in this worktree. Against that, the six failing lines after are **identical, byte for byte**:
++87 passes are the three new test files (10 + 39 + 38). `orders-table-readers-allowlist` passes, with no file added to its allowlist.
 
-- `email-stub-mode` ×5 (gate strict; transport throw ×2; no transport ×2)
-- `orders-table-readers-allowlist` ×1 ("Found 3 unfiltered 'FROM/JOIN orders' reads" — still 3)
+**The earlier "6 failures, byte for byte" baseline was wrong and is withdrawn.** One of the six (`orders-table-readers-allowlist`) was a real defect on main, since fixed there. The other five (`email-stub-mode`) were caused by my worktree, not by the code:
 
-+70 passes are the three new test files (10 + 30 + 30).
+- `emailService.js` reads `EMAIL_ENABLED` once, when the module loads. The test force-reloads the module and expects the real transporter to be reached when stub mode is off.
+- The main checkout's `.env` sets `EMAIL_ENABLED`. My worktree had no `.env` (it is git-ignored, so `git worktree add` does not bring it), so the module loaded with email disabled and every "stub off" assertion got `email_disabled`.
+- It is **not order-dependent**: the file fails the same five assertions run alone with no `.env`, and passes alone with `EMAIL_ENABLED=true` or in the main checkout.
+- Fix: `.env` is now symlinked into the worktrees, like `node_modules`. A clean origin/main run then has 0 failures (it had 5 without the `.env`).
 
-One of three after-runs reported 2644: the last result of the existing `final-audit-conversations-contract` test arrived after the runner's 2-second quiet window and was not tallied — it neither passed nor failed. See "found in review".
+**Two existing tests were silently not finishing on the rebased branch, and that is fixed.** The first three runs of the rebased branch read 2684, not 2686, with 0 failures. The two missing results were the last two checks of `tests/core/final-audit-extensionless-dicom.test.js`. That file starts an async body the runner does not wait for and calls the global `fetch`; on this branch its next request happened to land while `paymob` 's timeout test had swapped `fetch` for a fake that never answers, so the request hung and the two checks never reported — neither pass nor fail. It passes 7 of 7 run alone. It is a test-isolation fault between two existing files, not a product regression, but two tests that stop running is not something to wave through. Fix: that file, and `final-audit-conversations-contract.test.js` (which lost a result the same way in the first pass), now export their promise (`module.exports = (async () => …)()`), which is the runner's own documented way to be awaited. One line each. With that the branch reads **2686 / 0 / 53** and every origin/main pass is present.
+
+No file is committed as a baseline.
 
 ---
 
@@ -292,7 +307,7 @@ Query: `all=1` (optional) also returns snoozed and resolved items.
 - `who`, `email`, `phone`, `summary` — string or `null`. For `specialty_uncovered`, `who` is the specialty name and both contact fields are `null`.
 - `waiting_minutes` — whole minutes, never negative. `waiting_label` — `"40m"`, `"3h"`, or `"2d"` from 48 hours up.
 - `severity` — integer 1 (highest) to 3.
-- `level` — `"loud"` or `"quiet"`: the kind's default push mode. `escalates` — `true` for the four new kinds (per-item pushes on the clock above), `false` for the five that use the 24-hour digest rule.
+- `level` — `"loud"` or `"quiet"`: the kind's default push mode. `escalates` — `true` for `payment_claim` and the four new kinds (per-item pushes on the clock above), `false` for the four intake kinds on the 24-hour digest rule.
 - `hidden` — always `null` without `all=1`. With it: `null`, `"snoozed"` or `"resolved"`.
 - `state.acked_by` / `state.resolved_by` — a superadmin user id. `push_count` — escalation pushes sent in this episode.
 - `counts` covers open items only, even with `all=1`.
@@ -523,13 +538,17 @@ Same shape. The `prefs` array has ten more rows, in catalogue order:
 | `ops_brief` | system | quiet | false |
 | `daily_digest` | system | quiet | false |
 
-Note for the settings screen: `system_check_failed` shows default "loud", but with no stored preference a failure outside site / cases / money arrives quiet, and `system_check_stale` shows "quiet" but a stale **site** check arrives loud. Once the user stores a preference for either kind, it applies to every area.
+Note for the settings screen: `system_check_failed` shows default "loud", but with no stored preference a failure outside site / cases / money arrives quiet, as do `site.workers` and `cases.paid_unassigned`, and `system_check_stale` shows "quiet" but a stale **site** check arrives loud. Once the user stores a preference for either kind, it applies to every area.
 
 `PUT /admin/notification-prefs` is unchanged and accepts the new kinds; `off` on `paid_unassigned` or `critical_alert` returns `400 LOCKED_ON`.
 
 ### Changed: GET `/admin/health` and `/healthz`
 
 `workers` gains `system_checks` (same shape as the others; stale after 720 seconds).
+
+### New: GET `/healthz?strict=1`
+
+Public, no auth, same JSON body as `/healthz`. Status **503** when `workersOk` is false or `clockOk` is false; **200** otherwise. Only the literal `strict=1` switches it on. Plain `/healthz` is always 200. Both are exempt from the canonical-host redirect, CSRF and staging auth (the exemptions are decided on the path, which carries no query string). For monitors, not for the app.
 
 ### Changed: GET `/admin/events`
 
@@ -544,12 +563,15 @@ Every ops push also carries `kind` and `mode` (`"loud"` | `"quiet"`).
 | `critical_alert` | `{ "kind", "screen": "ops", "alertKey": "<key>", "severity": "critical", "mode" }` |
 | `paid_unassigned` | `{ "kind", "screen": "attention", "attentionKind": "paid_unassigned", "ref": "<order id>", "step": 0, "caseId": "<order id>", "mode" }` |
 | `refund_stale`, `specialty_uncovered`, `send_failed` | `{ "kind", "screen": "attention", "attentionKind": "<kind>", "ref": "<ref>", "step": 0, "mode" }` |
+| `payment_claim` (from the sweep; title "Transfer still waiting to be verified") | `{ "kind": "payment_claim", "screen": "attention", "attentionKind": "payment_claim", "ref": "<order id>", "step": 0, "mode" }` |
 | `system_check_failed`, `system_check_recovered` | `{ "kind", "screen": "system", "checkKey": "site.dns", "area": "site", "status": "fail", "mode" }` |
 | `system_check_stale` | `{ "kind", "screen": "system", "checkKey": "…", "area": "…", "stale": true, "mode" }` |
 | `ops_brief` | `{ "kind", "screen": "system", "brief": "daily", "checkKey": "claude.brief.daily", "mode" }` |
 | `daily_digest` | `{ "kind", "screen": "system", "day": "2026-10-05", "mode" }` |
 
-`step` is 0 for the first push of an item and counts up with each repeat. **Route names: `attention` for the Attention screen, `system` for the System screen.** Today's Command build sends both to the dashboard, except `paid_unassigned`, which opens the case because it carries `caseId`. When the app adds the Attention route it must check `screen === 'attention'` before the generic `caseId` rule.
+`step` is 0 for the first push of an item and counts up with each repeat. **Route names: `attention` for the Attention screen, `system` for the System screen.** Today's Command build sends both to the dashboard, with two exceptions: `paid_unassigned` opens the case because it carries `caseId`, and `payment_claim` opens Transfers because the app already routes that kind there. When the app adds the Attention route it must check `screen === 'attention'` before the generic `caseId` rule, and decide whether a sweep `payment_claim` (it has `attentionKind`) should still open Transfers — it probably should.
+
+`send_failed` summaries now read `"1 message(s) failed to send to this patient in 24h (whatsapp)"`.
 
 ---
 
@@ -584,9 +606,47 @@ Production's `schema_migrations` tops out at `123_admin_notification_prefs.sql`,
 - the history trigger wrote 2 rows for an insert + a status change + a timestamp-only update, as designed;
 - 18 expiry rows; RLS true on all four new tables.
 
-A follow-up read confirmed the rollback: `attention_state`, `ops_checks` and `ops_expiries` do not exist in production, `critical_alert_log` still has 6 columns, and the view's original comment is intact.
+**Second dry run (follow-up), for the changed 126.** 125 + the new 126 were run on production again in a rolled-back transaction: applied cleanly, same eight columns, same rows as before (`doctor_application` ×3, `specialty_uncovered` ×1). Production has **41 soft-deleted orders**; **0** attention items reference one. For honesty: none of the 41 would have matched even without the new filters today (0 paid-and-unassigned, 0 open refunds, 0 pending claims, 0 failed sends in 24 h on deleted orders), so the filters close a hole rather than remove a live false alarm. Rollback verified again.
+
+A follow-up read confirmed the rollback of the first run: `attention_state`, `ops_checks` and `ops_expiries` do not exist in production, `critical_alert_log` still has 6 columns, and the view's original comment is intact.
 
 The dry run takes a brief exclusive lock on `critical_alert_log` and the view; the real migration will do the same. All five are safe to re-run (`IF NOT EXISTS`, `OR REPLACE`, `ON CONFLICT DO NOTHING`).
+
+---
+
+## Follow-up pass
+
+**Rebase.** Onto `6421bfd`, clean; git reconciled `src/server.js` without help.
+
+**1. `/healthz?strict=1`** — 503 when `workersOk` or `clockOk` is false, same body; plain `/healthz` unchanged. Already exempt from the canonical-host redirect, because that exemption (and CSRF's, and staging auth's) is decided on `req.path`; the test proves it over HTTP on a non-canonical Host with the real middleware.
+
+**2. `payment_claim` on the loud clock** — see Part 2. One design point: the other escalating kinds push as soon as they appear, because the view applies their threshold. A claim is in the view from the second it is submitted, so the sweep holds its first push until 60 minutes of waiting.
+
+**3. `send_failed` counts failures only.**
+
+**4. `site.workers` and `cases.paid_unassigned` fail quietly.** They still push (quiet) and still show on the System screen; every other site, cases and money check stays loud.
+
+**5. Soft-deleted orders — what the audit found.** Every place this branch reads `orders`:
+
+| Reader | Before | Now |
+|---|---|---|
+| view: `abandoned_case` | filtered (from 117) | unchanged |
+| view: `payment_claim` | deleted filtered (from 117); **practice cases not excluded** | practice exclusion added |
+| view: `paid_unassigned` | filtered | unchanged |
+| view: `refund_stale` | **missing** — `LEFT JOIN orders` with no `deleted_at` test | `o.deleted_at IS NULL` added |
+| view: `send_failed` | **missing** — same shape | `o.deleted_at IS NULL` added |
+| check: `cases.sla_overdue` | reads `orders_active` + the shared open-case rule (excludes practice) | unchanged |
+| check: `notifications.failed` | **missing** — counted every failed row, with no order join at all, so deleted and practice orders were included | joins the order; excludes deleted and practice |
+| checks: paid_unassigned / claims / refunds / coverage | read the view | unchanged (inherit the view's fixes) |
+| digest: `delivered` | reads `orders_active`, excludes practice | unchanged |
+| digest: `paid` (existing query, reused by the push) | reads `orders_active`; **did not exclude practice cases** | practice exclusion added — this also changes the "Paid" line of the existing WhatsApp funnel digest |
+| `needs_attention.js`, the new routes, `ops_expiries.js` | read only the view / their own tables | no direct read of `orders` |
+
+So three readers were missing the soft-delete filter (`refund_stale`, `send_failed`, `notifications.failed`) and two were missing the practice exclusion (`payment_claim`, digest `paid`).
+
+`orders-table-readers-allowlist` passes **without** adding any file to its allowlist, and that is the right answer: the one new direct read in JS (`notifications.failed`) pairs `LEFT JOIN orders` with `deleted_at IS NULL` in the same query, which is rule 1 of that lint. `orders_active` would have been wrong there — a left join to it turns a deleted order into a NULL row that passes.
+
+There is a test per reader: one per view arm (5), plus `cases.sla_overdue`, `notifications.failed`, the view-reading checks, the digest, and a pin that `orders_active` still means `deleted_at IS NULL`. Each is a source test (the suite has no database); the same behaviour is proven with real rows in the 70-check end-to-end run.
 
 ---
 
@@ -595,12 +655,12 @@ The dry run takes a brief exclusive lock on `critical_alert_log` and the view; t
 1. **`/healthz` cannot fail a plain uptime check.** It is 200 with `"ok": true` while a worker is down. Unless the UptimeRobot monitor is already a keyword monitor, it has never been able to alarm on a dead worker. (Part 0e.)
 2. **The process-death alerts race a 500 ms exit.** `server.js` calls `sendCriticalAlert` un-awaited from `unhandledRejection` / `uncaughtException` and exits half a second later. The claim, the push and the delivery write all have to land inside that. Not new, and I kept push and WhatsApp concurrent so it is no worse, but a crash page can still be lost, and its row can be left with `delivered` NULL. Not changed: `server.js`'s crash handlers are outside this job.
 3. **The `/ops` widget 5 reads `status_code` only.** With WhatsApp off, a push-delivered alert shows there with an empty status. `delivered` is the column to read now; the view was not edited.
-4. **The test runner can drop a late result.** `tests/run.js` stops counting after 2 quiet seconds. One existing async test (`final-audit-conversations-contract`) finished after that window in one of three runs, so the total read 2644 instead of 2645 with no failure shown. A test that fails late would be dropped the same way.
+4. **The test runner can drop a result without failing** (two cases found and fixed in the follow-up — see Suite). Any other test file that runs an un-awaited async body and uses the global `fetch` has the same exposure. Original note: **the test runner can drop a late result.** `tests/run.js` stops counting after 2 quiet seconds. One existing async test (`final-audit-conversations-contract`) finished after that window in one of three runs, so the total read 2644 instead of 2645 with no failure shown. A test that fails late would be dropped the same way.
 5. **The runner shares one process across all test files.** My first version of the new tests stubbed `require.cache` and `global.fetch` and broke seven unrelated tests in the same run. The new files now re-run themselves in a child process. Existing tests that swap `global.fetch` have the same exposure.
 6. **Fresh-database migrations do not run.** `059` has a post-condition that expects four production rows, so `migrate()` on an empty database stops there. I got a scratch database to 128 by cloning a local schema at 108 and running 109–128. The suite already skips "fresh-DB migration completeness".
-7. **`send_failed` counts `skipped`, as specified.** Production's last 30 days: 17 WhatsApp and 12 email rows skipped versus 5 failed. If most skips are deliberate (opt-out, a disabled channel), this kind will be mostly noise. It is quiet and pushed once per recipient per episode. I did not inspect the skip reasons.
+7. ~~`send_failed` counts `skipped`~~ — resolved in the follow-up: failures only.
 8. **`sent_count` in `ops_push_log` is devices registered, not tickets accepted**, for everything sent through `pushOpsEvent`. Only `critical_alert` records real acceptance. `notifySuperadmins` now returns the real numbers, so this is a small follow-up.
-9. **One incident can now buzz more than once, loudly.** A dead worker produces `worker_down` (watchdog push), then `critical_alert` (the watchdog's own `sendCriticalAlert`, which was already a second loud push before this job), and now a third: `system_check_failed` for `site.workers`, up to 5 minutes later. A paid case with no doctor produces `paid_unassigned` at 15 minutes and, if still open, `system_check_failed` for `cases.paid_unassigned` at 60 minutes. Each is throttled on its own; nothing dedupes across kinds. See "needs Ziad" 12.
+9. **One incident can now buzz more than once, loudly.** A dead worker produces `worker_down` (watchdog push), then `critical_alert` (the watchdog's own `sendCriticalAlert`, which was already a second loud push before this job), and now a third: `system_check_failed` for `site.workers`, up to 5 minutes later. A paid case with no doctor produces `paid_unassigned` at 15 minutes and, if still open, `system_check_failed` for `cases.paid_unassigned` at 60 minutes. Each is throttled on its own; nothing dedupes across kinds. **Resolved in the follow-up:** those two checks now fail quietly.
 10. **Urgent cover in production today:** Radiology has a ready doctor but none who takes Urgent. That is real, and will be the first `specialty_uncovered` push after deploy.
 
 ---
@@ -609,8 +669,8 @@ The dry run takes a brief exclusive lock on `critical_alert_log` and the view; t
 
 - **Not merged, not deployed, no production write.**
 - **The Command app.** No Attention or System screen exists yet; that is the app job this contract is for.
-- **`/healthz` status code left at 200.** Changing it could trip Render's own health check and restart the service over a stalled worker. Offered as an option below.
-- **The five existing attention kinds were not moved onto the new escalation clock.** The spec says the sweep's 24-hour rule applies to "the rest", so `payment_claim` and the intake kinds still go out as one digest through `sendCriticalAlert`. Note the consequence: that digest is a `critical_alert` push — loud, locked on, titled "Critical: attention sweep" — which is what it effectively was before, now with a name.
+- **Plain `/healthz` left at 200**, so Render's own health check cannot restart the service over a stalled worker. `/healthz?strict=1` is the monitor's URL.
+- **The four intake kinds were not moved onto the escalation clock** (`payment_claim` was, in the follow-up). They still go out as one digest through `sendCriticalAlert`. Note the consequence: that digest is a `critical_alert` push — loud, locked on, titled "Critical: attention sweep" — which is what it effectively was before, now with a name.
 - **No push on a move to `warn`.** The spec lists failed, recovered and stale.
 - **No CHECK constraints** on `ops_checks.status` / `area`, following 121 and 123. SQL writers are trusted; the reader tolerates bad rows.
 - **No delete endpoint for expiries.** Not in the spec.
@@ -618,21 +678,20 @@ The dry run takes a brief exclusive lock on `critical_alert_log` and the view; t
 - **No per-area notification settings.** One kind, with the producer choosing loud or quiet per event.
 - **`doctor_application` and `contact_enquiry` pushes are untouched**, as are all money and auth paths.
 - **The end-to-end script is not committed**; the scratch database is dropped.
-- **Main checkout untouched.** I read its `.env` once to learn which database it points at (a local one) and symlinked its `node_modules` into the worktree (untracked, not committed).
+- **No baseline file committed.**
+- **Main checkout untouched** until the merge. Its `node_modules` and `.env` are symlinked into the worktrees (untracked, not committed).
 
 ---
 
 ## Needs Ziad
 
-1. **`baseline-nodb-failures.txt` is missing.** I compared against the pre-change run instead (6 failures, identical after). If that file is meant to exist, it needs committing; the six lines are in "Suite" above.
-2. **UptimeRobot.** Make the "tashkheesa.com" monitor a keyword monitor on `https://tashkheesa.com/healthz`, keyword `"workersOk":true`, alert when missing. Optional second one on `"clockOk":true`. If you would rather have a status code, say so and I will add `/healthz?strict=1` returning 503 when a worker is down, leaving the plain URL at 200 for Render.
-3. **Set `OPS_CHECKS_KEY` on Render** (e.g. `openssl rand -hex 32`) if the mini or Tash will post checks. Until then the route is closed. SQL-written checks do not need it.
-4. **Enter the 18 expiry dates.** Until they are in, `credentials.expiring` sits at `warn` ("18 with no date"). It does not push at warn.
-5. **Expect these after deploy:** one quiet `specialty_uncovered` push for Radiology's Urgent cover; the `system_checks` worker appearing on `/healthz`; a quiet daily digest at 09:00 Cairo the next morning.
-6. **Decide:** should `payment_claim` move to the new loud clock (first alert at 60 minutes, again at 2 hours, then every 6, stopping on ack) instead of the once-a-day digest? It is the closest existing kind to `paid_unassigned`. One line to change.
-7. **Decide:** keep `skipped` in `send_failed`, or count `failed` only? (Found in review 7.)
-8. **Decide:** `ai.spend` is filed under `money`, so a 6× day is a loud push. Say if it should be quiet.
-9. **Check the thresholds I chose** in the Part 3 table — only the 3×/6× AI rule, the 30/7-day expiry rule, the 48-hour signup rule and the 60-minute / 48-hour counts came from the brief.
-10. **Merge order.** `src/server.js` was being edited in the main checkout while this ran; that work was committed during the job as `6421bfd` on `fix/doctor-file-open-inline` (not by me). This branch also edits `server.js` (three small hunks: one import, the worker schedule, the prune). Whichever merges second may need that file reconciled by hand.
-11. **Claude's scheduled runs** should use the INSERT in Part 3 verbatim, with `source = 'claude'`, and must set `expected_every_seconds` to their real cadence, or the check will be flagged stale (or never flagged).
-12. **Decide: duplicate loud pushes for one incident** (found in review 9). Cheapest fix if you want one buzz: make `site.workers` and `cases.paid_unassigned` quiet on failure, since each already has a dedicated loud alert. I left them loud because the brief says site and cases failures are loud.
+Decided in the follow-up and done: the strict health URL, `payment_claim` on the loud clock, `send_failed` failures only, the two quiet checks. What is left:
+
+1. **UptimeRobot.** Point the "tashkheesa.com" monitor at `https://tashkheesa.com/healthz?strict=1` as a plain HTTP monitor (alarm on non-200).
+2. **Set `OPS_CHECKS_KEY` on Render** (e.g. `openssl rand -hex 32`) if the mini or Tash will post checks. Until then the route answers 503. SQL-written checks do not need it. I did not set it.
+3. **Enter the 18 expiry dates.** Until they are in, `credentials.expiring` sits at `warn` ("18 with no date"). It does not push at warn.
+4. **Decide:** `ai.spend` is filed under `money` (the area list has no `ai`), so a 6× day is a loud push. Say if it should be quiet.
+5. **Check the thresholds I chose** in the Part 3 table. Only the 3×/6× AI rule, the 30/7-day expiry rule, the 48-hour signup rule and the 60-minute / 48-hour counts came from the brief.
+6. **The WhatsApp funnel digest's "Paid" line now excludes practice cases** (follow-up item 5). Say if you want that reverted for the WhatsApp text only.
+7. **Claude's scheduled runs** should use the INSERT in Part 3 verbatim, with `source = 'claude'`, and must set `expected_every_seconds` to their real cadence, or the check will be flagged stale (or never flagged).
+8. **New worktrees need `.env`.** Any future job that runs the suite in a fresh worktree will see five false `email-stub-mode` failures unless `.env` is linked in. Worth a line in whatever brief sets those jobs up.
