@@ -42,14 +42,16 @@ test('shouldPush: a locked key pushes through a disabled row and through quiet h
   assert.equal(r.reason, 'locked');
 });
 
-test('shouldPush: a missing preference row is enabled; an explicit false is silent', () => {
-  assert.equal(shouldPush({ key: 'deadline', prefs: {} }).push, true);
+test('shouldPush: no key can be switched off — a row stored as disabled before the lock is ignored', () => {
+  for (const k of DOCTOR_PREF_KEYS) {
+    const r = shouldPush({ key: k.key, prefs: { [k.key]: false } });
+    assert.equal(r.push, true, k.key);
+    assert.equal(r.reason, 'locked', k.key);
+  }
   assert.equal(shouldPush({ key: 'deadline' }).push, true);
-  const r = shouldPush({ key: 'deadline', prefs: { deadline: false } });
-  assert.equal(r.push, false);
-  assert.equal(r.reason, 'pref_disabled');
-  // another key's row does not leak
-  assert.equal(shouldPush({ key: 'message', prefs: { deadline: false } }).push, true);
+  // a key outside the vocabulary is still an ordinary preference
+  assert.equal(shouldPush({ key: 'future', prefs: { future: false } }).reason, 'pref_disabled');
+  assert.equal(shouldPush({ key: 'future', prefs: {} }).reason, 'enabled');
 });
 
 test('shouldPush: inside the quiet window is silent, outside is not, and off means no window', () => {
@@ -89,9 +91,10 @@ test('hhmmToMinutes accepts HH:MM and the HH:MM:SS pg returns for a time column;
 });
 
 // ── 2. the map ────────────────────────────────────────────────
-test('DOCTOR_PREF_KEYS is the app vocabulary with exactly one locked key, and every template maps into it', () => {
+test('DOCTOR_PREF_KEYS is the app vocabulary: every key locked, only offer breaks quiet hours, every template maps into it', () => {
   assert.deepEqual(DOCTOR_PREF_KEYS.map((k) => k.key), ['offer', 'window', 'deadline', 'message', 'files', 'payout', 'news']);
-  assert.deepEqual(DOCTOR_PREF_KEYS.filter((k) => k.locked).map((k) => k.key), ['offer']);
+  assert.ok(DOCTOR_PREF_KEYS.every((k) => k.locked === true));
+  assert.deepEqual(DOCTOR_PREF_KEYS.filter((k) => k.urgent).map((k) => k.key), ['offer']);
   for (const k of DOCTOR_PREF_KEYS) assert.ok(['push', 'push_email', 'email'].includes(k.channel), k.key + ' channel');
   const keys = new Set(DOCTOR_PREF_KEYS.map((k) => k.key));
   for (const [tpl, key] of Object.entries(DOCTOR_PUSH_TEMPLATES)) assert.ok(keys.has(key), tpl + ' -> ' + key);
@@ -150,14 +153,14 @@ test('pushForDoctorNotification: unknown template and non-doctor recipient never
     assert.equal(sent[0][1].title, 'رسالة جديدة');
     assert.equal(sent[0][1].body, 'Ali: hello');
     assert.deepEqual(sent[0][1].data, { screen: 'chat', template: 'new_message', kind: 'message', caseId: 'ord_9', conversationId: 'conv_3' });
-    assert.ok(queries.some((q) => /doctor_notification_prefs/.test(q)), 'prefs are read for an unlocked key');
+    assert.ok(!queries.some((q) => /doctor_notification_prefs/.test(q)), 'no prefs read: every key is locked');
 
-    // disabled preference -> silent
+    // a preference stored as disabled before the lock no longer silences it
     sent = []; prefRows = [{ key: 'message', enabled: false }];
     r = await doctorPush.pushForDoctorNotification({ userId: 'doc_1', template: 'new_message', title: 't' });
-    assert.equal(r.reason, 'pref_disabled'); assert.equal(sent.length, 0);
+    assert.equal(r.sent, true); assert.equal(r.reason, 'locked'); assert.equal(sent.length, 1);
 
-    // locked key: prefs are not even read, and quiet hours do not apply
+    // the urgent key: prefs are not even read, and quiet hours do not apply
     queries = []; sent = [];
     userRow = { role: 'doctor', quiet_hours_on: true, quiet_from: '00:00:00', quiet_to: '23:59:00' };
     r = await doctorPush.pushForDoctorNotification({ userId: 'doc_1', template: 'new_case_available', title: 'New case', orderId: 'ord_1' });
@@ -165,7 +168,7 @@ test('pushForDoctorNotification: unknown template and non-doctor recipient never
     assert.ok(!queries.some((q) => /doctor_notification_prefs/.test(q)), 'no prefs read for a locked key');
     assert.equal(sent[0][1].data.screen, 'case-detail');
 
-    // quiet hours silence an unlocked key
+    // quiet hours still hold every key but the urgent one
     sent = []; prefRows = [];
     r = await doctorPush.pushForDoctorNotification({ userId: 'doc_1', template: 'sla_reminder_doctor', title: 'Deadline' });
     assert.equal(r.reason, 'quiet_hours'); assert.equal(sent.length, 0);
@@ -280,7 +283,7 @@ test('DELETE /push-token nulls this session and the mirror', async () => {
   assert.deepEqual(db.runs[1][1], ['doc_1']);
 });
 
-test('GET /notification-prefs enumerates every key: missing row ON, stored row honoured, locked key ON regardless', async () => {
+test('GET /notification-prefs enumerates every key as locked and ON, whatever is stored', async () => {
   const db = makeDb();
   db.alls.push(['doctor_notification_prefs', [{ key: 'deadline', enabled: false }, { key: 'offer', enabled: false }, { key: 'bogus', enabled: false }]]);
   db.gets.push(['quiet_hours_on', { quiet_hours_on: true, quiet_from: '22:00:00', quiet_to: '07:00:00' }]);
@@ -290,8 +293,9 @@ test('GET /notification-prefs enumerates every key: missing row ON, stored row h
   assert.deepEqual(d.prefs.map((p) => p.key), DOCTOR_PREF_KEYS.map((k) => k.key));
   const by = Object.fromEntries(d.prefs.map((p) => [p.key, p]));
   assert.deepEqual(by.offer, { key: 'offer', on: true, locked: true, channel: 'push_email' }, 'a stored false on the locked key is ignored');
-  assert.equal(by.deadline.on, false);
-  assert.equal(by.deadline.locked, false);
+  assert.equal(by.deadline.on, true, 'a row disabled before the lock reads ON');
+  assert.equal(by.deadline.locked, true);
+  assert.ok(d.prefs.every((p) => p.locked === true && p.on === true));
   assert.equal(by.message.on, true, 'no row means on');
   assert.equal(by.payout.on, true);
   assert.ok(!('bogus' in by), 'unknown stored keys are not surfaced');
@@ -303,20 +307,14 @@ test('GET /notification-prefs enumerates every key: missing row ON, stored row h
   assert.ok(data(empty).prefs.every((p) => p.on === true));
 });
 
-test('PUT /notification-prefs upserts one key; locked -> 409 PREF_LOCKED; bad body -> 400', async () => {
-  let db = makeDb();
-  let res = await drive(db, 'put', '/notification-prefs', { body: { key: 'deadline', on: false } });
-  assert.equal(res.statusCode, 200);
-  assert.deepEqual(data(res), { key: 'deadline', on: false, locked: false });
-  assert.equal(db.runs.length, 1);
-  assert.match(db.runs[0][0], /INSERT INTO doctor_notification_prefs/);
-  assert.match(db.runs[0][0], /ON CONFLICT \(doctor_id, key\) DO UPDATE/);
-  assert.deepEqual(db.runs[0][1], ['doc_1', 'deadline', false]);
-
-  db = makeDb();
-  res = await drive(db, 'put', '/notification-prefs', { body: { key: 'offer', on: false } });
-  assert.equal(res.statusCode, 409); assert.equal(res._code, 'PREF_LOCKED');
-  assert.equal(db.runs.length, 0);
+test('PUT /notification-prefs: every key is locked -> 409 PREF_LOCKED and nothing written; bad body -> 400', async () => {
+  let db; let res;
+  for (const k of DOCTOR_PREF_KEYS) {
+    db = makeDb();
+    res = await drive(db, 'put', '/notification-prefs', { body: { key: k.key, on: false } });
+    assert.equal(res.statusCode, 409, k.key); assert.equal(res._code, 'PREF_LOCKED');
+    assert.equal(db.runs.length, 0);
+  }
 
   for (const body of [{}, { key: 'nope', on: true }, { key: 'deadline' }, { key: 'deadline', on: 'yes' }]) {
     db = makeDb();
@@ -325,9 +323,6 @@ test('PUT /notification-prefs upserts one key; locked -> 409 PREF_LOCKED; bad bo
     assert.equal(db.runs.length, 0);
   }
 
-  db = makeDb(); db.runThrows = true;
-  res = await drive(db, 'put', '/notification-prefs', { body: { key: 'files', on: true } });
-  assert.equal(res.statusCode, 500); assert.equal(res._code, 'PREF_SAVE_FAILED');
 });
 
 test('PUT /quiet-hours validates HH:MM, needs both ends to turn on, writes the three columns, keeps times when turning off', async () => {

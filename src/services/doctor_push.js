@@ -32,27 +32,36 @@ const push = require('../middleware/push');
 
 const LOG = '[doctor-push]';
 
-// The app's preference vocabulary. `locked` keys always push — 'offer' is the
-// notification the platform's acceptance window and SLA both depend on, and a
-// doctor who silenced it would be timing out cases without knowing they were
-// offered. `channel` tells the app which channels the key governs today:
-// deadline reminders also go out by email + WhatsApp (case_lifecycle
-// dispatchSlaReminders), offers by email + WhatsApp (notify/broadcast.js);
-// 'payout' has no emitter yet (no payout notification exists in the portal)
-// and is enumerated so the app's settings switch is complete when one lands.
+// The app's preference vocabulary.
+//
+// 2026-10-06 — every key is LOCKED: a doctor cannot switch any case
+// notification off (owner decision). The app shows them as always-on, PUT
+// refuses them, and a row stored as disabled before this date is ignored.
+//
+// `urgent` is the separate question of quiet hours. Only 'offer' breaks
+// through them — it is the notification the acceptance window and the SLA
+// both depend on. Every other key still waits for the doctor's quiet hours
+// to end, so "cannot be switched off" does not mean "a patient message at
+// 3am". `channel` tells the app which channels the key governs today;
+// 'payout' has no emitter yet and is enumerated so the app's list is
+// complete when one lands.
 const DOCTOR_PREF_KEYS = Object.freeze([
-  { key: 'offer',    locked: true,  channel: 'push_email' },
-  { key: 'window',   locked: false, channel: 'push' },
-  { key: 'deadline', locked: false, channel: 'push_email' },
-  { key: 'message',  locked: false, channel: 'push_email' },
-  { key: 'files',    locked: false, channel: 'push' },
-  { key: 'payout',   locked: false, channel: 'push_email' },
-  { key: 'news',     locked: false, channel: 'email' },
+  { key: 'offer',    locked: true, urgent: true,  channel: 'push_email' },
+  { key: 'window',   locked: true, urgent: false, channel: 'push' },
+  { key: 'deadline', locked: true, urgent: false, channel: 'push_email' },
+  { key: 'message',  locked: true, urgent: false, channel: 'push_email' },
+  { key: 'files',    locked: true, urgent: false, channel: 'push' },
+  { key: 'payout',   locked: true, urgent: false, channel: 'push_email' },
+  { key: 'news',     locked: true, urgent: false, channel: 'email' },
 ]);
 
 const LOCKED_KEYS = Object.freeze(
   DOCTOR_PREF_KEYS.filter((k) => k.locked).map((k) => k.key)
 );
+const URGENT_KEYS = Object.freeze(
+  DOCTOR_PREF_KEYS.filter((k) => k.urgent).map((k) => k.key)
+);
+const isUrgentKey = (key) => URGENT_KEYS.includes(String(key || ''));
 
 // template -> preference key. Every doctor-facing template registered in
 // notify/notification_titles.js or queued from notify.js, notify/broadcast.js,
@@ -185,12 +194,14 @@ function shouldPush({ key, prefs, quiet, nowCairoMinutes } = {}) {
   const k = String(key || '');
   if (!k) return { push: false, reason: 'no_key' };
 
-  // A locked key is not a preference — it pushes through a disabled row and
-  // through quiet hours alike.
-  if (isLockedKey(k)) return { push: true, reason: 'locked' };
+  // An urgent key pushes through everything, quiet hours included.
+  if (isUrgentKey(k)) return { push: true, reason: 'locked' };
 
+  // A locked key is not a preference: a disabled row cannot silence it. It
+  // still respects quiet hours below.
+  const locked = isLockedKey(k);
   const p = prefs && typeof prefs === 'object' ? prefs : {};
-  if (Object.prototype.hasOwnProperty.call(p, k) && p[k] === false) {
+  if (!locked && Object.prototype.hasOwnProperty.call(p, k) && p[k] === false) {
     return { push: false, reason: 'pref_disabled' };
   }
 
@@ -202,7 +213,7 @@ function shouldPush({ key, prefs, quiet, nowCairoMinutes } = {}) {
     if (inQuietWindow(now, from, to)) return { push: false, reason: 'quiet_hours' };
   }
 
-  return { push: true, reason: 'enabled' };
+  return { push: true, reason: locked ? 'locked' : 'enabled' };
 }
 
 // ── Reads ──────────────────────────────────────────────────────────────────
