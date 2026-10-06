@@ -722,8 +722,29 @@
                    href="/annotator.html?imageId=<%= encodeURIComponent(f.id) %>&caseId=<%= _orderIdEnc %>&lang=<%= _isAr ? 'ar' : 'en' %>&csrf=<%= encodeURIComponent(typeof csrfToken !== 'undefined' && csrfToken ? csrfToken : '') %>"
                    target="_blank" rel="noopener"
                    title="<%= tt('Circle, arrow and label findings on this image', 'Circle, arrow and label findings on this image', 'ضع دوائر وأسهم وملاحظات على الصورة') %>"><%= tt('Annotate', 'Annotate', 'تعليم') %></a>
+              <% } else if (/\.pdf\s*$/i.test(String(f.name || ''))) { %>
+                <%# 2026-10-06 — why there is no Annotate button on this row.
+                    Dr Mohammed Jamaleddin, 23 Sep 2026: "I uploaded the PDF for
+                    the case but I don't know how to add arrows and circles on
+                    the radiology images." The tool was working and the button
+                    simply was not there, because a PDF cannot be loaded into
+                    the fabric canvas. Silence read as a broken feature, so the
+                    absence now explains itself instead of being guessed at. %>
+                <span class="v2-chip" title="<%= tt('Annotation works on image files (JPG, PNG). Ask the patient for the scan as an image if you need to mark it up.', 'Annotation works on image files (JPG, PNG). Ask the patient for the scan as an image if you need to mark it up.', 'التعليم بالرسم متاح لملفات الصور (JPG، PNG). لو محتاج تعلّم على الأشعة، اطلب من المريض يرفعها كصورة.') %>"><%= tt('Images only', 'Images only', 'الصور فقط') %></span>
               <% } %>
+              <%# 2026-10-06 — Open vs Save.
+                  /files/:id used to force Content-Disposition: attachment on
+                  everything, so this button downloaded the file instead of
+                  showing it, and on a phone looked like it did nothing at all
+                  (Dr Seif Abd El Momen, 25 Sep 2026). The route now serves
+                  the types a browser renders inline, and keeps the download
+                  behind ?download=1 — which is this second control. Both are
+                  offered because a consultant reading on a laptop often wants
+                  the file on disk. %>
               <a class="v2-btn v2-btn--ghost v2-btn--sm" href="<%= f.url %>" target="_blank" rel="noopener"><%= tt('Open', 'Open', 'فتح') %></a>
+              <a class="v2-btn v2-btn--ghost v2-btn--sm"
+                 href="<%= f.url %><%= String(f.url).indexOf('?') === -1 ? '?' : '&' %>download=1"
+                 title="<%= tt('Save this file to your device', 'Save this file to your device', 'حفظ الملف على جهازك') %>"><%= tt('Download', 'Download', 'تحميل') %></a>
             </div>
           <% }); %>
         </div>

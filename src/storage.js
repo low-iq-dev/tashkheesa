@@ -62,8 +62,13 @@ async function uploadFile({ buffer, originalname, mimetype, folder = 'uploads', 
  * @param {string} key - R2 storage key
  * @param {number} [expiresIn=3600] - Seconds until expiry (default 1 hour)
  * @param {Object} [options]
- * @param {string} [options.downloadName] - If set, browser will save the file with this name
- *                                           (passed via ResponseContentDisposition header).
+ * @param {string} [options.downloadName] - If set, the filename in the
+ *                                           ResponseContentDisposition header.
+ * @param {boolean} [options.inline] - Serve for viewing in the browser rather
+ *                                      than saving. Default false (attachment),
+ *                                      which is the pre-2026-10-06 behaviour.
+ * @param {string} [options.contentType] - Override the object's stored
+ *                                          content-type (ResponseContentType).
  * @returns {Promise<string>} Signed URL
  */
 async function getSignedDownloadUrl(key, expiresIn = 3600, options = {}) {
@@ -71,7 +76,28 @@ async function getSignedDownloadUrl(key, expiresIn = 3600, options = {}) {
   if (options && options.downloadName) {
     // Strip quotes/control chars from filename to keep header well-formed.
     const safeName = String(options.downloadName).replace(/["\r\n]/g, '');
-    cmdOpts.ResponseContentDisposition = 'attachment; filename="' + safeName + '"';
+    // 2026-10-06 — `inline` serves the file for VIEWING instead of saving it.
+    //
+    // This function forced `attachment` on every file, so a doctor pressing
+    // "Open" on a scan or a PDF report never saw a document: the browser
+    // saved it instead, which on a phone looks like nothing happened at all.
+    // Dr Seif Abd El Momen reported exactly that on 25 Sep 2026 ("I pressed
+    // Open on the sonar and semen analysis reports and the result was not
+    // displayed") and it left no server error, because the 302 succeeded.
+    //
+    // The caller decides: src/server.js asks for inline on the types a
+    // browser can render and keeps attachment for ?download=1 and for
+    // everything else. Default (no `inline`) is unchanged, so every other
+    // caller behaves exactly as before.
+    cmdOpts.ResponseContentDisposition =
+      (options.inline ? 'inline' : 'attachment') + '; filename="' + safeName + '"';
+  }
+  // Without this, R2 replies with whatever content-type the object carries —
+  // often absent or application/octet-stream on rows seeded before the mime
+  // column existed — and an octet-stream is downloaded whatever the
+  // disposition says. Only set when the caller knows the type.
+  if (options && options.contentType) {
+    cmdOpts.ResponseContentType = String(options.contentType);
   }
   return getSignedUrl(s3, new GetObjectCommand(cmdOpts), { expiresIn });
 }

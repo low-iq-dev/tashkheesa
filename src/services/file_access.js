@@ -47,22 +47,33 @@ async function _defaultSafeGet(sql, params, fallback) {
  * @returns {Promise<{
  *   status: 200|403|404,
  *   source: (null|'order_files'|'messages'|'order_additional_files'),
- *   fileUrl: string, fileKey: string, fileLabel: string
+ *   fileUrl: string, fileKey: string, fileLabel: string, mimeType: string
  * }>}
+ *
+ * `mimeType` (2026-10-06) is the row's own type where the table has the
+ * column (order_files only), else sniffed from the label's extension. The
+ * callers need it to decide whether a browser can display the file — see
+ * GET /files/:fileId. It is advisory: never authorise on it.
  */
 async function resolveFileAccess(fileId, user, deps) {
   const safeGet = (deps && deps.safeGet) || _defaultSafeGet;
-  const out = { status: 404, source: null, fileUrl: '', fileKey: '', fileLabel: '' };
+  const out = { status: 404, source: null, fileUrl: '', fileKey: '', fileLabel: '', mimeType: '' };
 
   let order = null;        // order_files + order_additional_files
   let conversation = null; // messages
 
   // 1. order_files (canonical — highest traffic, fastest path)
-  const ofRow = await safeGet('SELECT id, order_id, url, label FROM order_files WHERE id = $1 LIMIT 1', [fileId], null);
+  // filename + mime_type: both codified in migration 043 and the only one of
+  // the three tables that carries them. `label` is frequently NULL on rows
+  // written by the upload wizard, and the download then fell back to the raw
+  // R2 key — a doctor received a file called bddf017f-e545-….pdf. Prefer the
+  // label a human set, then the real filename.
+  const ofRow = await safeGet('SELECT id, order_id, url, label, filename, mime_type FROM order_files WHERE id = $1 LIMIT 1', [fileId], null);
   if (ofRow) {
     out.source = 'order_files';
     out.fileUrl = String(ofRow.url || '').trim();
-    out.fileLabel = ofRow.label || '';
+    out.fileLabel = ofRow.label || ofRow.filename || '';
+    out.mimeType = String(ofRow.mime_type || '').trim().toLowerCase() || mimeFromName(ofRow.filename || ofRow.label);
     order = await safeGet('SELECT id, patient_id, doctor_id, accepted_at, status FROM orders_active WHERE id = $1 LIMIT 1', [ofRow.order_id], null);
   }
 
@@ -78,6 +89,8 @@ async function resolveFileAccess(fileId, user, deps) {
       out.fileUrl = String(msgRow.file_url || '').trim();
       out.fileKey = String(msgRow.file_key || '').trim();
       out.fileLabel = msgRow.file_name || '';
+      // No mime column on messages — sniff the extension.
+      out.mimeType = mimeFromName(msgRow.file_name);
       conversation = await safeGet('SELECT id, patient_id, doctor_id FROM conversations WHERE id = $1 LIMIT 1', [msgRow.conversation_id], null);
     }
   }
@@ -90,6 +103,9 @@ async function resolveFileAccess(fileId, user, deps) {
       out.fileUrl = String(adfRow.file_url || '').trim();
       out.fileKey = String(adfRow.file_key || '').trim();
       out.fileLabel = adfRow.label || '';
+      // No mime column on order_additional_files — sniff the extension, and
+      // fall back to the key's extension when the label carries none.
+      out.mimeType = mimeFromName(adfRow.label) || mimeFromName(adfRow.file_key || adfRow.file_url);
       order = await safeGet('SELECT id, patient_id, doctor_id, accepted_at, status FROM orders_active WHERE id = $1 LIMIT 1', [adfRow.order_id], null);
     }
   }
@@ -138,6 +154,44 @@ function isAnnotatableName(name) {
   return !!m && ANNOTATABLE_EXTENSIONS.indexOf(m[1].toLowerCase()) !== -1;
 }
 
+// 2026-10-06 — the two lists GET /files/:fileId needs to answer "can a
+// browser show this, or must it be saved?".
+//
+// Deliberately narrow. Only types every current browser renders natively go
+// inline; everything else (DOCX, ZIP, DICOM, HEIC, TIFF…) keeps the old
+// attachment behaviour, because an inline disposition on a type the browser
+// cannot render gives the doctor a blank tab instead of a saved file — worse
+// than the bug being fixed. TIFF is excluded for exactly that reason.
+const EXT_TO_MIME = Object.freeze({
+  pdf: 'application/pdf',
+  jpg: 'image/jpeg', jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  tif: 'image/tiff', tiff: 'image/tiff',
+  heic: 'image/heic',
+  txt: 'text/plain'
+});
+
+const INLINE_VIEWABLE_MIME = Object.freeze([
+  'application/pdf',
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'
+]);
+
+/** Best-guess mime from a file NAME or key. '' when the extension is unknown. */
+function mimeFromName(name) {
+  const m = /\.([a-z0-9]+)\s*$/i.exec(String(name || ''));
+  if (!m) return '';
+  return EXT_TO_MIME[m[1].toLowerCase()] || '';
+}
+
+/** True when a browser can display this type in a tab rather than save it. */
+function isInlineViewableMime(mime) {
+  const m = String(mime || '').trim().toLowerCase().split(';')[0];
+  return INLINE_VIEWABLE_MIME.indexOf(m) !== -1;
+}
+
 /** Sniff the common raster formats from magic bytes. '' when unknown. */
 function mimeFromBytes(buf) {
   if (!buf || buf.length < 12) return '';
@@ -150,4 +204,13 @@ function mimeFromBytes(buf) {
   return '';
 }
 
-module.exports = { resolveFileAccess, mimeFromBytes, isAnnotatableName, ANNOTATABLE_MIME, ANNOTATABLE_EXTENSIONS };
+module.exports = {
+  resolveFileAccess,
+  mimeFromBytes,
+  mimeFromName,
+  isInlineViewableMime,
+  isAnnotatableName,
+  ANNOTATABLE_MIME,
+  ANNOTATABLE_EXTENSIONS,
+  INLINE_VIEWABLE_MIME
+};

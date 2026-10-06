@@ -770,11 +770,18 @@ app.get('/files/:fileId', async function(req, res) {
   // annotator's same-origin byte route (/api/annotations/:imageId/source)
   // applies exactly this rule. The table walk, the per-source auth and the
   // 404-vs-403 policy are documented there.
+  // The call stays written out in full: tests/core/launch-eve-annotator-same
+  // -origin-source.test.js pins this exact expression so /files and the
+  // annotator's byte route can never end up with two authorisation
+  // implementations. `fileAccess` below is the same cached module, used only
+  // for the mime helpers further down.
   var access = await require('./services/file_access').resolveFileAccess(fileId, req.user, { safeGet: safeGet });
+  var fileAccess = require('./services/file_access');
   var source = access.source;
   var fileUrl = access.fileUrl;
   var fileKey = access.fileKey;
   var fileLabel = access.fileLabel;
+  var fileMime = access.mimeType || '';
 
   if (access.status === 404) {
     return sendErrorResponse(res, 404, 'File not found: ' + fileId, req.originalUrl, req.method, req.requestId);
@@ -813,7 +820,33 @@ app.get('/files/:fileId', async function(req, res) {
   try {
     var storage = require('./storage');
     var downloadName = safeFilename(fileLabel || path.basename(r2Key));
-    var signedUrl = await storage.getSignedDownloadUrl(r2Key, 3600, { downloadName: downloadName });
+
+    // ── View vs save (2026-10-06) ──────────────────────────────────────
+    //
+    // This route forced `attachment` on every file. A doctor pressing "Open"
+    // on a scan or a PDF report therefore never saw a document — the browser
+    // saved it, which on a phone looks like nothing happened. Dr Seif Abd El
+    // Momen reported precisely that on 25 Sep 2026 and it left no trace in
+    // error_logs, because the redirect itself succeeded.
+    //
+    // Open means open. A file whose type a browser renders is served inline;
+    // ?download=1 (the explicit Download control on the case page) keeps the
+    // old attachment behaviour, and so does every type a browser cannot
+    // render — an inline disposition there is a blank tab, which is worse.
+    //
+    // The mime comes from the row where the table has the column and from the
+    // extension otherwise, so a missing or octet-stream content-type on the
+    // stored object cannot force a download either.
+    var wantsDownload = ['1', 'true', 'yes'].indexOf(String(req.query.download || '').toLowerCase()) !== -1;
+    var mime = fileMime || fileAccess.mimeFromName(downloadName) || fileAccess.mimeFromName(r2Key);
+    var serveInline = !wantsDownload && fileAccess.isInlineViewableMime(mime);
+
+    var signOpts = { downloadName: downloadName };
+    if (serveInline) {
+      signOpts.inline = true;
+      signOpts.contentType = mime;
+    }
+    var signedUrl = await storage.getSignedDownloadUrl(r2Key, 3600, signOpts);
     return res.redirect(302, signedUrl);
   } catch (err) {
     logMajor('[FILES] R2 signed URL failed source=' + source + ' file=' + fileId + ' key=' + r2Key + ' err=' + (err && err.message ? err.message : String(err)) + ' req=' + req.requestId);

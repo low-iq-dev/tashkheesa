@@ -79,7 +79,8 @@ async function _submitted() {
        FROM orders o
        JOIN users u ON u.id = o.patient_id
        LEFT JOIN services s ON s.id = o.service_id
-      WHERE LOWER(o.status) = 'submitted'
+      WHERE o.deleted_at IS NULL
+        AND LOWER(o.status) = 'submitted'
         AND COALESCE(o.payment_status,'unpaid') <> 'paid'
         AND o.updated_at > NOW() - INTERVAL '${LOOKBACK_MINUTES} minutes'
         AND ${REAL_ORDER_SQL} AND ${STAFF_EMAIL_SQL}`);
@@ -106,6 +107,7 @@ async function _paid() {
        LEFT JOIN services s ON s.id = o.service_id
       WHERE o.paid_at > NOW() - INTERVAL '${LOOKBACK_MINUTES} minutes'
         AND o.payment_status = 'paid'
+        AND o.deleted_at IS NULL
         AND ${REAL_ORDER_SQL} AND ${STAFF_EMAIL_SQL}`);
   let n = 0;
   for (const o of rows || []) {
@@ -130,6 +132,7 @@ async function _delivered() {
        LEFT JOIN users d ON d.id = o.doctor_id
        LEFT JOIN services s ON s.id = o.service_id
       WHERE o.completed_at > NOW() - INTERVAL '${LOOKBACK_MINUTES} minutes'
+        AND o.deleted_at IS NULL
         AND ${REAL_ORDER_SQL} AND ${STAFF_EMAIL_SQL}`);
   let n = 0;
   for (const o of rows || []) {
