@@ -1,7 +1,7 @@
 # Watchtower — 6 October 2026
 
 Branch `feat/watchtower`, built in the worktree `../tashkheesa-watchtower`, rebased onto
-`origin/main` at `6421bfd`. No production writes from this work: every production query was
+`origin/main` at `3f9ac87`. No production writes from this work: every production query was
 a read, or a migration dry run that was forced to roll back and then verified as rolled back.
 
 **This document is current as of the follow-up pass** (same day), which rebased the branch and
@@ -226,7 +226,10 @@ A throwaway local Postgres database (`watchtower_scratch`) was brought to migrat
 | | Passed | Failed | Skipped |
 |---|---|---|---|
 | origin/main `6421bfd`, clean worktree | 2599 | **0** | 53 |
-| `feat/watchtower` rebased onto it | 2686 | **0** | 53 |
+| origin/main `3f9ac87` (main moved during the follow-up; re-measured) | 2596 | **0** | 53 |
+| `feat/watchtower` rebased onto `3f9ac87` | 2686 | **0** | 53 |
+
+Every test that passes on origin/main `3f9ac87` also passes on the branch (compared by name). Main's own count fell from 2599 to 2596 between the two commits although the newer one adds tests: main itself drops late results from the two fire-and-forget files described below; the branch does not.
 
 +87 passes are the three new test files (10 + 39 + 38). `orders-table-readers-allowlist` passes, with no file added to its allowlist.
 
@@ -616,7 +619,7 @@ The dry run takes a brief exclusive lock on `critical_alert_log` and the view; t
 
 ## Follow-up pass
 
-**Rebase.** Onto `6421bfd`, clean; git reconciled `src/server.js` without help.
+**Rebase.** Onto `6421bfd`, then again onto `3f9ac87` when main moved mid-pass. Both clean; git reconciled `src/server.js` without help.
 
 **1. `/healthz?strict=1`** — 503 when `workersOk` or `clockOk` is false, same body; plain `/healthz` unchanged. Already exempt from the canonical-host redirect, because that exemption (and CSRF's, and staging auth's) is decided on `req.path`; the test proves it over HTTP on a non-canonical Host with the real middleware.
 
