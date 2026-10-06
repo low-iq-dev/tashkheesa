@@ -77,7 +77,7 @@
 <div class="p-card mp-transfer<%= __hero ? ' mp-transfer--hero' : '' %>" id="transfer" style="border-color:var(--rule-strong);">
   <div class="p-card__header" style="display:block;">
     <div class="p-card__title" style="text-align:start;">
-      <%= cardEnabled ? L('Prefer to pay by transfer?', 'تفضّل الدفع بالتحويل؟') : L('Pay by InstaPay or bank transfer', 'ادفع بإنستاباي أو تحويل بنكي') %>
+      <%= (cardEnabled && !(typeof chooser !== 'undefined' && chooser)) ? L('Prefer to pay by transfer?', 'تفضّل الدفع بالتحويل؟') : L('Pay by InstaPay or bank transfer', 'ادفع بإنستاباي أو تحويل بنكي') %>
     </div>
     <div class="p-card__sub" style="margin-top:4px;"><%= L('Three steps, about two minutes. Your review starts as soon as we confirm the transfer.', 'ثلاث خطوات في دقيقتين. مراجعة حالتك تبدأ فور تأكيد التحويل.') %></div>
   </div>

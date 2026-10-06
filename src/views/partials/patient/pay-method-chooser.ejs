@@ -1,0 +1,84 @@
+<%
+  // Pay-method chooser (2026-10-06). Rendered by patient_payment_required.ejs
+  // ONLY when BOTH the card path and the transfer path are on for this
+  // patient. It adds two tiles — card (Kashier) / InstaPay-or-bank — above
+  // the two blocks the page already renders, and shows one at a time.
+  //
+  // It owns no payment logic. The card tile reveals the existing summary card
+  // (whose button calls POST /payments/paymob/create-intention → the hosted
+  // checkout); the transfer tile reveals the existing 1-2-3 transfer block
+  // (#transfer). Without JavaScript both blocks simply stay visible, exactly
+  // as before this partial existed.
+  //
+  // Locals: isAr, gateway ('Kashier' | 'Paymob'), startOn ('card' | 'transfer').
+  var __a = !!isAr;
+  function L(en, ar) { return __a ? ar : en; }
+  var __start = (startOn === 'transfer') ? 'transfer' : 'card';
+%>
+<style>
+  .pm-chooser__tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .pm-tile{appearance:none;-webkit-appearance:none;text-align:start;font:inherit;cursor:pointer;background:var(--surface);border:1.5px solid var(--rule-strong);border-radius:12px;padding:12px 12px 11px;display:flex;flex-direction:column;gap:4px;min-height:92px;color:var(--ink)}
+  .pm-tile:hover{border-color:var(--primary)}
+  .pm-tile[aria-pressed="true"]{border-color:var(--primary);background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--primary)}
+  .pm-tile:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+  .pm-tile__t{font-size:14px;font-weight:700;line-height:1.3;display:flex;align-items:center;gap:8px}
+  .pm-tile__d{font-size:12px;color:var(--ink-2);line-height:1.45}
+  .pm-tile__dot{flex:0 0 auto;width:14px;height:14px;border-radius:50%;border:1.5px solid var(--rule-strong);background:#fff}
+  .pm-tile[aria-pressed="true"] .pm-tile__dot{border-color:var(--primary);background:radial-gradient(circle,var(--primary) 0 4px,#fff 5px)}
+  /* The transfer block sits in the narrow side column here: let the bank
+     details wrap instead of running out of the card. */
+  .mp-transfer:not(.mp-transfer--hero) .mp-dest{grid-template-columns:1fr 1fr}
+  .mp-transfer:not(.mp-transfer--hero) .mp-dest>div:nth-child(3){grid-column:1 / -1}
+  @media (max-width:420px){.pm-chooser__tiles{grid-template-columns:1fr}.pm-tile{min-height:0}}
+</style>
+<div class="p-card pm-chooser" data-pm-chooser data-pm-start="<%= __start %>" style="border-color:var(--rule-strong);">
+  <div class="p-card__header" style="display:block;">
+    <div class="p-card__title" style="text-align:start;"><%= L('Choose how to pay', 'اختار طريقة الدفع') %></div>
+  </div>
+  <div class="p-card__body">
+    <div class="pm-chooser__tiles" role="group" aria-label="<%= L('Payment method', 'طريقة الدفع') %>">
+      <button type="button" class="pm-tile" data-pm-tile="card" aria-pressed="<%= __start === 'card' ? 'true' : 'false' %>">
+        <span class="pm-tile__t"><span class="pm-tile__dot" aria-hidden="true"></span><%= L('Card or wallet', 'بطاقة أو محفظة') %></span>
+        <span class="pm-tile__d"><%= L('Pay now on a secure ' + gateway + ' page. Your case starts right away.', 'ادفع دلوقتي على صفحة ' + gateway + ' الآمنة. حالتك تبدأ فورًا.') %></span>
+      </button>
+      <button type="button" class="pm-tile" data-pm-tile="transfer" aria-pressed="<%= __start === 'transfer' ? 'true' : 'false' %>">
+        <span class="pm-tile__t"><span class="pm-tile__dot" aria-hidden="true"></span><%= L('InstaPay or bank transfer', 'إنستاباي أو تحويل بنكي') %></span>
+        <span class="pm-tile__d"><%= L('Three steps. Your case starts once we confirm the transfer.', 'ثلاث خطوات. حالتك تبدأ بعد ما نأكد التحويل.') %></span>
+      </button>
+    </div>
+  </div>
+</div>
+<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+(function () {
+  function init() {
+    var box = document.querySelector('[data-pm-chooser]');
+    if (!box) return;
+    var payEl = document.querySelector('[data-paymob-create-intention], #addonForm');
+    var panels = {
+      card: payEl ? payEl.closest('.p-card') : null,
+      transfer: document.getElementById('transfer')
+    };
+    // If either block is missing there is nothing to choose between.
+    if (!panels.card || !panels.transfer) { box.style.display = 'none'; return; }
+    var tiles = box.querySelectorAll('[data-pm-tile]');
+    function show(which, scroll) {
+      Object.keys(panels).forEach(function (k) {
+        panels[k].style.display = (k === which) ? '' : 'none';
+      });
+      tiles.forEach(function (t) {
+        t.setAttribute('aria-pressed', t.getAttribute('data-pm-tile') === which ? 'true' : 'false');
+      });
+      if (scroll && panels[which].scrollIntoView && window.matchMedia && window.matchMedia('(max-width: 900px)').matches) {
+        panels[which].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+    tiles.forEach(function (t) {
+      t.addEventListener('click', function () { show(t.getAttribute('data-pm-tile'), true); });
+    });
+    var start = box.getAttribute('data-pm-start') === 'transfer' ? 'transfer' : 'card';
+    if (String(window.location.hash || '') === '#transfer') start = 'transfer';
+    show(start, false);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
+</script>

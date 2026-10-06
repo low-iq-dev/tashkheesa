@@ -312,8 +312,10 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
         }
         try {
           const { ensureKashierCheckout } = require('../services/kashier_checkout');
+          const kPatient = await queryOne('SELECT email FROM users WHERE id = $1', [req.user.id]);
           const out = await ensureKashierCheckout({
             order: order,
+            customer: { reference: req.user.id, email: kPatient && kPatient.email },
             amountCents: amountCents,
             currency: currency,
             lang: (res.locals && res.locals.lang) || (req.user && req.user.lang) || 'ar',

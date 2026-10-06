@@ -82,9 +82,10 @@ async function ensurePaymentLinkForOrder({ orderId, patientId, redirectionUrl })
       const kCurrency = String(order.currency || 'EGP').toUpperCase();
       if (kCurrency !== 'EGP') throw err('unsupported_currency', 'UNSUPPORTED_CURRENCY');
       const { ensureKashierCheckout } = require('./kashier_checkout');
-      const lang = await queryOne('SELECT lang FROM users WHERE id = $1', [patientId]);
+      const lang = await queryOne('SELECT lang, email FROM users WHERE id = $1', [patientId]);
       const out = await ensureKashierCheckout({
         order: order,
+        customer: { reference: patientId, email: lang && lang.email },
         amountCents: owedCentsForOrder({ price: order.price, addons_json: order.addons_json || null }),
         currency: kCurrency,
         lang: (lang && lang.lang) || 'ar',

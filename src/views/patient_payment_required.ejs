@@ -110,8 +110,13 @@
   // (tests/core/manual-payment-pay-page.test.js pins that).
   const __cardEnabled = (typeof cardEnabled === 'undefined') ? true : (cardEnabled !== false);
   const __mp = (typeof manualPayment !== 'undefined' && manualPayment) ? manualPayment : null;
+  // Two-option layout (2026-10-06): card AND transfer both on → a chooser
+  // shows one block at a time (partials/patient/pay-method-chooser.ejs).
+  const __both = __cardEnabled && !!__mp;
+  const __pmStart = (__mp && ((__mp.claim && (__mp.claim.status === 'pending' || __mp.claim.status === 'rejected')) || __mp.flash || __mp.errorCode)) ? 'transfer' : 'card';
   const __mpBlock = __mp ? include('partials/patient/manual-payment-block', {
     mp: __mp,
+    chooser: __both,
     isAr: __isAr,
     cardEnabled: __cardEnabled,
     cardAddons: __cardEnabled && hasAddons,
@@ -195,7 +200,7 @@
      data-video-price-egp="<%= __videoEgp %>"
      data-sla-price-egp="<%= __slaEgp %>"
      data-prescription-price-egp="<%= __rxEgp %>"
-     style="display:grid;grid-template-columns:<%= (!__cardEnabled && __mp) ? '1fr 320px' : (hasAddons ? '1fr 380px' : '1fr 340px') %>;gap:18px;align-items:start;">
+     style="display:grid;grid-template-columns:<%= (!__cardEnabled && __mp) ? '1fr 320px' : (__both ? '1fr 420px' : (hasAddons ? '1fr 380px' : '1fr 340px')) %>;gap:18px;align-items:start;">
 
   <!-- ── LEFT COLUMN ─────────────────────────────────────────────── -->
   <div class="stack"><% if (!__cardEnabled && __mp) { %>
@@ -364,7 +369,7 @@
 
   <!-- ── RIGHT COLUMN: Payment summary ───────────────────────────── -->
   <div class="stack">
-    <% if (!__cardEnabled) { %><% if (__mp) { %>
+    <% if (__both) { %><%- include('partials/patient/pay-method-chooser', { isAr: __isAr, gateway: __gw, startOn: __pmStart, cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : '' }) %><% } %><% if (!__cardEnabled) { %><% if (__mp) { %>
       <%
         const __tierRaw = String(__order.urgency_tier || __order.tier || 'standard').toLowerCase();
         const __tierLabel = __tierRaw === 'urgent' ? tt('Urgent · 4 hours', 'Urgent · 4 hours', 'عاجل · ٤ ساعات')

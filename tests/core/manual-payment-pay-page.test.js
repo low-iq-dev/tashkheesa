@@ -134,8 +134,21 @@ function renderWith(over, localsOver) {
 try {
   const html = renderWith({ cardEnabled: true, manualPayment: mp() });
   assert(/Pay securely with Paymob/.test(html), 'card on + manual on: Paymob button still rendered');
-  assert(/Prefer to pay by transfer\?/.test(html), 'card on + manual on: heading "Prefer to pay by transfer?"');
-  assert(html.indexOf('Pay securely with Paymob') < html.indexOf('Prefer to pay by transfer?'), 'transfer block sits BELOW the card button');
+  // 2026-10-06 — card + transfer both on is now a two-tile chooser (card /
+  // InstaPay-or-bank) above the same two blocks, shown one at a time.
+  assert(/data-pm-chooser/.test(html) && /Choose how to pay/.test(html), 'card on + manual on: the chooser is rendered');
+  assert(/data-pm-tile="card"/.test(html) && /data-pm-tile="transfer"/.test(html), 'chooser has a card tile and a transfer tile');
+  assert(/data-pm-start="card"/.test(html), 'chooser starts on the card option when there is no transfer claim');
+  assert(html.indexOf('data-pm-chooser') < html.indexOf('data-paymob-create-intention'), 'chooser sits ABOVE the card button');
+  assert(html.indexOf('data-paymob-create-intention') < html.indexOf('id="transfer"'), 'transfer block still follows the card block in the markup (both visible without JS)');
+  assert(/Pay by InstaPay or bank transfer/.test(html) && !/Prefer to pay by transfer\?/.test(html), 'transfer block is titled as an option, not an afterthought');
+  {
+    const pending = renderWith({ cardEnabled: true, manualPayment: Object.assign(mp(), { claim: { status: 'pending', method: 'instapay', reference: 'x', submittedAt: null } }) });
+    assert(/data-pm-start="transfer"/.test(pending), 'a patient with a pending transfer claim lands on the transfer option');
+    const cardOnly = renderWith({ cardEnabled: true, manualPayment: null });
+    const transferOnly = renderWith({ cardEnabled: false, manualPayment: mp() });
+    assert(!/data-pm-chooser/.test(cardOnly) && !/data-pm-chooser/.test(transferOnly), 'no chooser when only one way to pay is on');
+  }
   assert(/1,600/.test(html) && /TSH-2026-000417/.test(html), 'amount and order reference shown');
   assert(/tashkheesa@instapay/.test(html) && /ipn\.eg/.test(html), 'InstaPay handle and link shown');
   assert(/Tashkheesa LLC/.test(html) && /EG00000000000000000000000000/.test(html), 'bank details shown');
@@ -167,7 +180,7 @@ try {
   const html = renderWith({ cardEnabled: false, manualPayment: mp() }, { isAr: true, lang: 'ar' });
   assert(/ادفع بإنستاباي أو تحويل بنكي/.test(html), 'Arabic heading (card off)');
   const html2 = renderWith({ cardEnabled: true, manualPayment: mp() }, { isAr: true, lang: 'ar' });
-  assert(/تفضّل الدفع بالتحويل؟/.test(html2), 'Arabic heading (card on)');
+  assert(/اختار طريقة الدفع/.test(html2) && /إنستاباي أو تحويل بنكي/.test(html2), 'Arabic chooser (card on)');
 } catch (e) { t.fail(fileTag + ': arabic', e); }
 
 try {

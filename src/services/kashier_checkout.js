@@ -68,6 +68,7 @@ function publicBaseUrl() {
  * @param {string} a.currency
  * @param {string} [a.lang]       'ar' | 'en'
  * @param {string} [a.source]     'web_pay_page' | 'mobile_pay_page'
+ * @param {object} [a.customer]   { reference: users.id, email? } — passed to Kashier
  * @returns {Promise<{checkoutUrl: string, reused: boolean}>}
  */
 async function ensureKashierCheckout(a) {
@@ -119,6 +120,7 @@ async function ensureKashierCheckout(a) {
       redirectUrl: base + RETURN_PATH_PREFIX + encodeURIComponent(order.id),
       webhookUrl: base + WEBHOOK_PATH,
       lang: a.lang,
+      customer: a.customer || null,
       description: 'Tashkheesa ' + String(order.id).slice(0, 12).toUpperCase()
     });
   } catch (e) {

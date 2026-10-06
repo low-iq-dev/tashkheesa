@@ -392,13 +392,16 @@ check('createSession sends the documented request and returns the hosted URL', a
       return kashier.createSession({
         orderRef: ORDER_ID + '--a1', amountCents: 75000, currency: 'EGP',
         redirectUrl: 'https://tashkheesa.com/portal/patient/payment-return/k/' + ORDER_ID,
-        webhookUrl: 'https://tashkheesa.com/payments/kashier/webhook', lang: 'ar'
+        webhookUrl: 'https://tashkheesa.com/payments/kashier/webhook', lang: 'ar',
+        customer: { reference: 'patient-1', email: 'not-an-email' }
       });
     });
     assert(seen.url === 'https://test-api.kashier.io/v3/payment/sessions', 'url: ' + seen.url);
     assert(seen.opts.headers.Authorization === 's' && seen.opts.headers['api-key'] === 'k', 'auth headers');
     assert(seen.body.amount === '750.00' && seen.body.currency === 'EGP' && seen.body.merchantId === 'MID-1-1', 'amount/currency/mid');
     assert(seen.body.order === ORDER_ID + '--a1', 'order ref');
+    assert(seen.body.customer && seen.body.customer.reference === 'patient-1', 'customer.reference is required by Kashier');
+    assert(!('email' in seen.body.customer), 'a malformed e-mail must not be sent');
     assert(seen.body.serverWebhook === 'https://tashkheesa.com/payments/kashier/webhook', 'webhook');
     assert(seen.body.merchantRedirect.indexOf('?') === -1, 'redirect must carry no query string');
     assert(new Date(seen.body.expireAt).getTime() > Date.now(), 'expireAt not in the future');

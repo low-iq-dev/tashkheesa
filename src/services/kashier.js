@@ -130,6 +130,7 @@ function amountToCents(amount) {
  * @param {string} a.webhookUrl    absolute https URL
  * @param {string} [a.lang]        'ar' | 'en'
  * @param {string} [a.description] ≤120 chars, shown on the checkout
+ * @param {object} [a.customer]    { reference: users.id, email? }
  * @returns {Promise<{sessionId: string, checkoutUrl: string, expireAt: string, mode: string}>}
  */
 async function createSession(a) {
@@ -161,6 +162,15 @@ async function createSession(a) {
     brandColor: '#0B6B5F'
   };
   if (args.description) body.description = String(args.description).slice(0, 120);
+  // `customer` is REQUIRED by the live API (400 '"customer" is required' on the
+  // first real call, 6 Oct 2026) although the guide lists it as optional.
+  // `reference` is our users.id; e-mail only when the account has one —
+  // name + phone signups do not.
+  const cust = args.customer || {};
+  body.customer = { reference: String(cust.reference || args.orderRef) };
+  if (cust.email && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(cust.email))) {
+    body.customer.email = String(cust.email).trim();
+  }
 
   const ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
   const timer = ctrl ? setTimeout(function () { ctrl.abort(); }, REQUEST_TIMEOUT_MS) : null;

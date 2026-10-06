@@ -164,6 +164,13 @@ document.addEventListener('DOMContentLoaded', function() {
           refInput.readOnly = true;
           refBtn.style.display = 'none';
           updatePrice();
+          // 2026-10-06 — the discount is now on the order, but only the add-on
+          // summary re-computes in the browser. The big total, the service fee
+          // and — worst — the transfer block's "Send exactly" amount are
+          // rendered by the server and still showed the OLD price: a patient
+          // paying by transfer would have sent the full amount for a case that
+          // owes half. Reload so every figure on the page comes from the order.
+          setTimeout(function () { window.location.reload(); }, 900);
         } else {
           if (refResult) {
             refResult.style.color = '#991b1b';
