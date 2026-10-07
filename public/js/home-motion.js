@@ -69,3 +69,27 @@
   }, {rootMargin:'0px 0px -15% 0px'});
   els.forEach(function(el){ io.observe(el); });
 })();
+/* PORT ADDITION — not in the reference.
+   The opening's buttons must not be focusable or clickable while they cannot
+   be seen. Browsers with CSS scroll-driven animations do this in marketing.css
+   (rv-ctas: hidden until .rv-head is half faded in). This is the same switch
+   for the rest, read off .rv-head's own data-rv range so the two cannot drift.
+   Under reduced motion the opening is static and fully shown, so nothing is
+   hidden. */
+(function(){
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (window.CSS && CSS.supports && CSS.supports('animation-timeline: scroll()')) return;
+  var head = document.querySelector('.rv-head[data-rv]');
+  var ctas = head && head.querySelector('.ctas');
+  if (!ctas) return;
+  var r = head.getAttribute('data-rv').split(',').map(Number);
+  var showAt = r[0] + (r[1] - r[0]) / 2;
+  var ticking = false;
+  function update(){
+    var y = window.scrollY || window.pageYOffset;
+    ctas.style.visibility = y > showAt ? 'visible' : 'hidden';
+    ticking = false;
+  }
+  window.addEventListener('scroll', function(){ if(!ticking){ ticking = true; requestAnimationFrame(update); } }, {passive:true});
+  update();
+})();

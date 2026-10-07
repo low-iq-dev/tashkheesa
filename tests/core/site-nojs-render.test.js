@@ -97,8 +97,9 @@ module.exports = (async function run() {
       //    helper's fixture catalogue has two open specialties.
       try {
         const dl = (body.match(/<dl class="stats">([\s\S]*?)<\/dl>/) || [])[1] || '';
-        const stats = [...dl.matchAll(/<dt>([^<]*)<\/dt>/g)].map((x) => x[1].trim());
-        assert.deepStrictEqual(stats, ['280', '2', '48h', '4h'],
+        const stats = [...dl.matchAll(/<dt>([\s\S]*?)<\/dt>/g)].map((x) => x[1].replace(/<[^>]+>/g, '').trim());
+        // English "48h"; Arabic the figure with its unit beside it.
+        assert.deepStrictEqual(stats, p === '/ar/' ? ['280', '2', '48 ساعة', '4 ساعات'] : ['280', '2', '48h', '4h'],
           p + ' stat text must be the real figures with suffixes, got: ' + JSON.stringify(stats));
         t.pass(p + ': stats read 280 / 2 / 48h / 4h server-side, never 0');
       } catch (e) { t.fail(p + ': stats read 280 / 2 / 48h / 4h server-side, never 0', e); }
