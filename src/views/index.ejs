@@ -331,12 +331,12 @@
         <h2 class="display"><%= tt('home.hospital.title1', 'Backed by a hospital,', 'وراءنا مستشفى حقيقي،') %><br><%= tt('home.hospital.title2', 'not a marketplace.', 'مش مجرد منصة.') %></h2>
         <p><%= tt('home.hospital.body',
           'Every opinion on Tashkheesa is written by a consultant of Shifa Hospital Group — a GAHAR-accredited, ' + __beds + '-bed hospital in New Cairo with Centres of Excellence in Stroke, NICU and Oncology. No anonymous reviewers. No crowd-sourced answers. A name, a licence, and an institution that stands behind both.',
-          'كل رأي على تشخيصة بيكتبه استشاري من مجموعة مستشفيات شفا — مستشفى معتمد من GAHAR بسعة ' + __beds + ' سرير في القاهرة الجديدة، وعنده مراكز تميّز في السكتة الدماغية وحضانات الأطفال والأورام. مفيش مراجعين مجهولين. مفيش إجابات مجمّعة من الإنترنت. اسم، وترخيص، ومؤسسة واقفة ورا الاتنين.') %></p>
+          'كل رأي على تشخيصة بيكتبه استشاري من مجموعة مستشفيات شفا — مستشفى معتمد من GAHAR بسعة ' + __beds + ' سرير في القاهرة الجديدة، وعنده مراكز تميّز في السكتة الدماغية وحضانات الأطفال والأورام. مفيش مراجعين مجهولين. مفيش إجابات متجمّعة من الناس. اسم، وترخيص، ومؤسسة واقفة ورا الاتنين.') %></p>
         <a class="more" href="<%= locals.publicLinkPrefix || '' %>/about"><%= tt('home.hospital.more', 'About the hospital', 'عن المستشفى') %> <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
       </div>
       <dl class="stats">
         <div><dt><%= __beds %></dt><dd><%= tt('home.hospital.stat_beds', 'beds at Shifa Hospital, New Cairo', 'سرير في مستشفى شفا بالتجمع الخامس') %></dd></div>
-        <div><dt><%= __openCount %></dt><dd><%= __count(__openCount, 'home.hospital.stat_open', ['specialty open today', 'specialties open today'], { one: 'تخصص متاح النهارده', two: 'تخصص متاح النهارده', few: 'تخصصات متاحة النهارده', many: 'تخصص متاح النهارده' }) %></dd></div>
+        <div><dt><%= __openCount %></dt><dd><%= __count(__openCount, 'home.hospital.stat_open', ['specialty open today', 'specialties open today'], { one: 'تخصص متاح النهارده', two: 'تخصصين متاحين النهارده', few: 'تخصصات متاحة النهارده', many: 'تخصص متاح النهارده' }) %></dd></div>
         <div><dt><%- __hours(48) %></dt><dd><%= tt('home.hospital.stat_standard', 'standard turnaround, in writing', 'مدة التسليم القياسية، برأي مكتوب') %></dd></div>
         <div class="brass"><dt><%- __hours(4) %></dt><dd><%= tt('home.hospital.stat_urgent', 'fastest, with Urgent', 'أسرع تسليم، لو اخترت «عاجل»') %></dd></div>
       </dl>
