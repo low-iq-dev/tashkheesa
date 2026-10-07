@@ -320,13 +320,18 @@ p{margin:0}
 .not-emergency{font-size:13px;line-height:1.5;color:var(--on-dark-muted);opacity:.85}
 .cta .copy p.not-emergency{font-size:13px;margin-top:2px}
 .rv-head p.not-emergency{max-width:520px;margin-top:2px}
-/* The line makes the headline block taller (31px; 51px on phones, where it
-   wraps), and the laptop is sized from what is left of the viewport — the
-   reference's 560px / 470px budgets. Lid plus keyboard is 0.865 x the laptop's
-   width tall, so giving back 22px / 37px of budget puts the keyboard's bottom
-   edge exactly where the reference has it. */
-.rv-laptop{width:min(880px,82vw,calc((100vh - 582px) * 1.6))}
-@media (max-width:760px){.rv-laptop{width:min(92vw,calc((100vh - 507px) * 1.6))}}
+/* The line makes the headline block taller: 31px, or 51px on phones where it
+   wraps. On desktop the laptop keeps the reference's size and simply sits that
+   much lower — at 900px tall its keyboard still ends inside the stage. The
+   laptop is sized from what is left of the viewport (the reference's 560px /
+   470px budgets), and lid plus keyboard is 0.865 x its width tall, so where
+   the extra height WOULD push the keyboard off the stage the budget gives it
+   back: on phones (short screens), and in Arabic, whose headline block is
+   taller again (see the leading below). 160px is a floor for the very
+   shortest phones, where the reference would shrink it to nothing. */
+@media (max-width:760px){.rv-laptop{width:min(92vw,max(160px,calc((100vh - 507px) * 1.6)))}}
+html[lang="ar"] .rv-laptop{width:min(880px,82vw,calc((100vh - 576px) * 1.6))}
+@media (max-width:760px){html[lang="ar"] .rv-laptop{width:min(92vw,max(160px,calc((100vh - 547px) * 1.6)))}}
 
 /* ---- The opening's buttons are not reachable while they cannot be seen.
    .rv-head fades in over 380–820px of scroll; until it is half way (600px)
