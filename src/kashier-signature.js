@@ -158,8 +158,36 @@ async function verifyAndLog(body, headerSig, apiKey, ctx) {
   return result;
 }
 
+/**
+ * Is this delivery genuinely from Kashier, regardless of WHICH fields it signs?
+ *
+ * 7 Oct 2026 — Kashier sends events whose signatureKeys do not cover amount,
+ * currency and status (seen live from 6 Oct 13:00 UTC, user agent KASHIER).
+ * verifyKashierSignature rightly refuses to treat those as payment
+ * confirmations, but answering 401 made Kashier retry the same delivery ten
+ * times over a day, each raising a critical "signature failure" alert for
+ * something that was not an attack.
+ *
+ * This checks only the HMAC over the keys the delivery names. A true result
+ * means "Kashier sent this"; it NEVER means "this may mark an order paid" —
+ * only verifyKashierSignature can say that. The caller uses it to acknowledge
+ * and record an authentic event it cannot act on.
+ */
+function verifyKashierAuthenticity(body, headerSig, apiKey) {
+  if (!apiKey || !headerSig || typeof headerSig !== 'string') return false;
+  if (!body || typeof body !== 'object' || !body.data || typeof body.data !== 'object') return false;
+  const keys = body.data.signatureKeys;
+  if (!Array.isArray(keys) || keys.length === 0) return false;
+  const expected = crypto.createHmac('sha256', apiKey)
+    .update(buildSignatureString(body.data, keys), 'utf8').digest('hex');
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(headerSig.trim().toLowerCase(), 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 module.exports = {
   verifyKashierSignature: verifyKashierSignature,
+  verifyKashierAuthenticity: verifyKashierAuthenticity,
   verifyAndLog: verifyAndLog,
   SIGNATURE_HEADER: SIGNATURE_HEADER,
   REQUIRED_SIGNED_FIELDS: REQUIRED_SIGNED_FIELDS,

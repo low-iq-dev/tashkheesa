@@ -93,6 +93,43 @@ async function processKashierEvent(input, d) {
   // ── 1. Signature ─────────────────────────────────────────────────────────
   const sig = d.verifyKashierSignature(body, input.headerSig, cfg.apiKey);
   if (!sig.ok) {
+    // 7 Oct 2026 — an AUTHENTIC Kashier delivery that simply does not sign
+    // amount/currency/status is not an attack and not a payment confirmation.
+    // Record what it was and acknowledge it, so Kashier stops retrying and the
+    // operator is not paged ten times. Nothing is marked paid on this path.
+    if (String(sig.reason || '').indexOf('unsigned_critical_fields') === 0) {
+      let authentic = false;
+      try { authentic = !!require('../kashier-signature').verifyKashierAuthenticity(body, input.headerSig, cfg.apiKey); } catch (_) {}
+      if (authentic) {
+        const dd = (body && body.data) || {};
+        const pick = function (v) { return v == null ? null : String(v).slice(0, 80); };
+        try {
+          await d.execute(
+            `INSERT INTO payment_events (id, event_type, payload_json, hmac_verified, received_at)
+             VALUES ($1, 'webhook_ignored', $2, true, NOW())`,
+            [
+              'pe-' + crypto.randomUUID(),
+              JSON.stringify({
+                provider: 'kashier',
+                reason: sig.reason,
+                event: pick(body.event),
+                signatureKeys: (Array.isArray(dd.signatureKeys) ? dd.signatureKeys : []).slice(0, 30).map(pick),
+                fields: Object.keys(dd).slice(0, 40),
+                status: pick(dd.status),
+                method: pick(dd.method),
+                merchantOrderId: pick(dd.merchantOrderId),
+                transactionId: pick(dd.transactionId),
+                request_id: input.requestId || null
+              })
+            ]
+          );
+        } catch (auditErr) {
+          d.logErrorToDb(auditErr, { context: 'kashier_webhook_ignored_audit' });
+        }
+        console.warn('[kashier-webhook] authentic but not actionable, acknowledged:', String(body.event || ''), sig.reason);
+        return { http: 200, json: { ok: true, ignored: true } };
+      }
+    }
     console.warn('[kashier-webhook] signature rejected:', sig.reason, 'ip:', input.ip);
     try {
       await d.execute(

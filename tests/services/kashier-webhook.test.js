@@ -98,7 +98,7 @@ function world(opts) {
         return { rowCount: 1 };
       }
       if (/INSERT INTO payment_events/.test(sql)) {
-        const m = sql.match(/'(hmac_failure|amount_mismatch)'/);
+        const m = sql.match(/'(hmac_failure|amount_mismatch|webhook_ignored)'/);
         w.events.push({ txn: null, event_type: m ? m[1] : 'other' });
         return { rowCount: 1 };
       }
@@ -226,6 +226,27 @@ check('a bad signature is 401 and changes nothing', async function () {
   assert(out.http === 401, 'expected 401, got ' + out.http);
   assert(w.order.payment_status !== 'paid' && w.markCasePaid === 0, 'paid on a bad signature');
   assert(w.alerts.indexOf('kashier_hmac_failure') !== -1, 'no alert');
+});
+
+check('an AUTHENTIC Kashier event that does not sign amount/currency/status is acknowledged, recorded, and pays nothing', async function () {
+  // Seen live 6-7 Oct 2026: Kashier retried such a delivery for a day because
+  // we answered 401, paging the operator each time.
+  const w = world();
+  const data = { merchantOrderId: ORDER_ID, kashierOrderId: 'K-1', transactionId: 'TX-9', signatureKeys: ['merchantOrderId', 'kashierOrderId', 'transactionId'] };
+  const out = await w.send({ event: 'pay', data: data });
+  assert(out.http === 200 && out.json.ignored === true, 'expected 200 ignored, got ' + out.http + ' ' + JSON.stringify(out.json));
+  assert(w.order.payment_status !== 'paid' && w.markCasePaid === 0, 'an event with unsigned amount/status must never pay');
+  assert(w.events.some(function (e) { return e.event_type === 'webhook_ignored'; }), 'ignored event was not recorded');
+  assert(w.alerts.length === 0, 'an authentic non-actionable event must not page the operator');
+});
+
+check('the same shape with a BAD signature is still 401 and still alerts', async function () {
+  const w = world();
+  const data = { merchantOrderId: ORDER_ID, transactionId: 'TX-9', signatureKeys: ['merchantOrderId', 'transactionId'] };
+  const out = await w.send({ event: 'pay', data: data }, 'deadbeef');
+  assert(out.http === 401, 'expected 401, got ' + out.http);
+  assert(w.alerts.indexOf('kashier_hmac_failure') !== -1, 'forged delivery did not alert');
+  assert(w.markCasePaid === 0, 'paid on a forged delivery');
 });
 
 check('a valid signature made with a DIFFERENT key (test vs live) is refused', async function () {
