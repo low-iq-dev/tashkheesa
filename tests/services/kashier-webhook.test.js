@@ -249,6 +249,50 @@ check('the same shape with a BAD signature is still 401 and still alerts', async
   assert(w.markCasePaid === 0, 'paid on a forged delivery');
 });
 
+check('a session-expiry style delivery signed another way (secret key, raw body) is acknowledged without paging', async function () {
+  // 7 Oct 2026: the delivery Kashier repeats after an unpaid session expires
+  // did not verify under the documented scheme. Whatever scheme it does use,
+  // once recognised it must be acknowledged, recorded, and page nobody.
+  const w = world({ cfg: { secretKey: 'unit_test_secret_key' } });
+  const body = { event: 'session_expired', data: { merchantOrderId: ORDER_ID, sessionId: 'S-1', signatureKeys: ['merchantOrderId', 'sessionId'] } };
+  const raw = Buffer.from(JSON.stringify(body));
+  const sigHex = crypto.createHmac('sha256', 'unit_test_secret_key').update(raw).digest('hex');
+  const out = await processKashierEvent({ body: body, rawBody: raw, headerSig: sigHex, ip: '127.0.0.1' }, w.d);
+  assert(out.http === 200 && out.json.ignored === true, 'expected 200 ignored, got ' + out.http);
+  assert(w.alerts.length === 0, 'paged for a recognised, harmless delivery');
+  assert(w.markCasePaid === 0 && w.order.payment_status !== 'paid', 'paid on an unactionable delivery');
+  assert(sigLib.probeKashierAuthenticity(body, raw, sigHex, { apiKey: API_KEY, secretKey: 'unit_test_secret_key' }) === 'secret:raw_body:hex', 'scheme not identified');
+  assert(sigLib.probeKashierAuthenticity(body, raw, 'deadbeef', { apiKey: API_KEY, secretKey: 'unit_test_secret_key' }) === null, 'a bad signature was recognised');
+});
+
+check('an unverifiable unsigned-fields delivery pages once, then stays quiet for its retries', async function () {
+  const w = world();
+  const body = { event: 'mystery', data: { merchantOrderId: ORDER_ID, signatureKeys: ['merchantOrderId'] } };
+  const first = await w.send(body, 'deadbeef');
+  assert(first.http === 401 && w.alerts.length === 1, 'first delivery must be refused and page once');
+  const realQueryOne = w.d.queryOne;
+  w.d.queryOne = async function (sql, params) {
+    if (/unsigned_critical_fields/.test(sql)) return w.events.some(function (e) { return e.event_type === 'hmac_failure'; }) ? { seen: 1 } : null;
+    return realQueryOne(sql, params);
+  };
+  const second = await w.send(body, 'deadbeef');
+  assert(second.http === 401, 'retry must still be refused');
+  assert(w.alerts.length === 1, 'the retry paged again');
+  assert(w.events.filter(function (e) { return e.event_type === 'hmac_failure'; }).length === 2, 'retry was not recorded');
+  assert(w.markCasePaid === 0, 'paid on an unverifiable delivery');
+});
+
+check('a forged PAYMENT (all fields signed, wrong signature) pages every time, never throttled', async function () {
+  const w = world();
+  w.d.queryOne = (function (orig) { return async function (sql, params) {
+    if (/unsigned_critical_fields/.test(sql)) return { seen: 1 };
+    return orig(sql, params);
+  }; })(w.d.queryOne);
+  await w.send(payload(), 'deadbeef');
+  await w.send(payload(), 'deadbeef');
+  assert(w.alerts.length === 2, 'a forged payment confirmation must page every time, got ' + w.alerts.length);
+});
+
 check('a valid signature made with a DIFFERENT key (test vs live) is refused', async function () {
   const w = world();
   const body = payload();

@@ -36,7 +36,12 @@ const router = express.Router();
 // router that takes JSON parses it itself, exactly as routes/payments.js does.
 // Without this line req.body is undefined and every webhook fails signature
 // verification as 'malformed_payload'.
-router.use(express.json({ limit: '1mb' }));
+router.use(express.json({
+  limit: '1mb',
+  // Keep the exact bytes Kashier sent: one way a provider signs a delivery is
+  // over the raw body, and a re-serialised object is not the same bytes.
+  verify: function (req, _res, buf) { req.rawBody = buf; }
+}));
 
 const PROVISIONAL_EVENT_TYPE = 'webhook_processing';
 const CLAIM_TAKEOVER_SECONDS = 60;
@@ -97,38 +102,72 @@ async function processKashierEvent(input, d) {
     // amount/currency/status is not an attack and not a payment confirmation.
     // Record what it was and acknowledge it, so Kashier stops retrying and the
     // operator is not paged ten times. Nothing is marked paid on this path.
-    if (String(sig.reason || '').indexOf('unsigned_critical_fields') === 0) {
-      let authentic = false;
-      try { authentic = !!require('../kashier-signature').verifyKashierAuthenticity(body, input.headerSig, cfg.apiKey); } catch (_) {}
-      if (authentic) {
-        const dd = (body && body.data) || {};
-        const pick = function (v) { return v == null ? null : String(v).slice(0, 80); };
+    // The non-secret SHAPE of what arrived: names and short identifiers only —
+    // no amounts, no card data, no signature. Recorded on every rejected or
+    // ignored delivery so it can be identified without guessing.
+    const dd = (body && body.data && typeof body.data === 'object') ? body.data : {};
+    const pick = function (v) { return v == null ? null : String(v).slice(0, 80); };
+    const shape = {
+      event: pick(body && body.event),
+      top: Object.keys(body || {}).slice(0, 20).map(pick),
+      signatureKeys: (Array.isArray(dd.signatureKeys) ? dd.signatureKeys : []).slice(0, 30).map(pick),
+      fields: Object.keys(dd).slice(0, 40).map(pick),
+      status: pick(dd.status),
+      method: pick(dd.method),
+      merchantOrderId: pick(dd.merchantOrderId),
+      transactionId: pick(dd.transactionId),
+      sigLen: input.headerSig ? String(input.headerSig).length : 0
+    };
+
+    // 7 Oct 2026 — a delivery that does not sign amount/currency/status can
+    // never be a payment confirmation, whoever sent it. Kashier sends one such
+    // delivery about eight minutes after an unpaid payment session expires and
+    // retries it ten times over a day; answering 401 and raising a CRITICAL
+    // alert each time paged the operator all day for an abandoned checkout.
+    const unsigned = String(sig.reason || '').indexOf('unsigned_critical_fields') === 0;
+    if (unsigned) {
+      let scheme = null;
+      try {
+        scheme = require('../kashier-signature').probeKashierAuthenticity(
+          body, input.rawBody, input.headerSig, { apiKey: cfg.apiKey, secretKey: cfg.secretKey });
+      } catch (_) {}
+      if (scheme) {
+        // Kashier sent it and we cannot act on it: record, acknowledge so the
+        // retries stop, page nobody. Nothing is marked paid on this path.
         try {
           await d.execute(
             `INSERT INTO payment_events (id, event_type, payload_json, hmac_verified, received_at)
              VALUES ($1, 'webhook_ignored', $2, true, NOW())`,
             [
               'pe-' + crypto.randomUUID(),
-              JSON.stringify({
-                provider: 'kashier',
-                reason: sig.reason,
-                event: pick(body.event),
-                signatureKeys: (Array.isArray(dd.signatureKeys) ? dd.signatureKeys : []).slice(0, 30).map(pick),
-                fields: Object.keys(dd).slice(0, 40),
-                status: pick(dd.status),
-                method: pick(dd.method),
-                merchantOrderId: pick(dd.merchantOrderId),
-                transactionId: pick(dd.transactionId),
+              JSON.stringify(Object.assign({
+                provider: 'kashier', reason: sig.reason, scheme: scheme,
                 request_id: input.requestId || null
-              })
+              }, shape))
             ]
           );
         } catch (auditErr) {
           d.logErrorToDb(auditErr, { context: 'kashier_webhook_ignored_audit' });
         }
-        console.warn('[kashier-webhook] authentic but not actionable, acknowledged:', String(body.event || ''), sig.reason);
+        console.warn('[kashier-webhook] authentic but not actionable, acknowledged:', String(body.event || ''), sig.reason, scheme);
         return { http: 200, json: { ok: true, ignored: true } };
       }
+    }
+
+    // Unverifiable. Still refused, still recorded. An unsigned-fields delivery
+    // pages once a day at most (it is harmless by construction, and Kashier
+    // repeats it for a day); every other signature failure pages every time.
+    let alreadyPaged = false;
+    if (unsigned) {
+      try {
+        const seen = await d.queryOne(
+          `SELECT 1 AS seen FROM payment_events
+            WHERE event_type = 'hmac_failure'
+              AND received_at > NOW() - INTERVAL '24 hours'
+              AND payload_json::text LIKE '%unsigned_critical_fields%'
+            LIMIT 1`, []);
+        alreadyPaged = !!seen;
+      } catch (_) { alreadyPaged = false; }
     }
     console.warn('[kashier-webhook] signature rejected:', sig.reason, 'ip:', input.ip);
     try {
@@ -142,17 +181,21 @@ async function processKashierEvent(input, d) {
             reason: sig.reason,
             ip: input.ip || null,
             user_agent: input.userAgent || null,
-            request_id: input.requestId || null
+            request_id: input.requestId || null,
+            paged: !alreadyPaged,
+            shape: shape
           })
         ]
       );
     } catch (auditErr) {
       d.logErrorToDb(auditErr, { context: 'kashier_webhook_hmac_failure_audit' });
     }
-    safeAlert(d,
-      'Kashier webhook signature failure (' + sig.reason + ') from ip=' +
-      (input.ip || 'unknown') + ' req=' + (input.requestId || 'n/a'),
-      'kashier_hmac_failure');
+    if (!alreadyPaged) {
+      safeAlert(d,
+        'Kashier webhook signature failure (' + sig.reason + ') from ip=' +
+        (input.ip || 'unknown') + ' req=' + (input.requestId || 'n/a'),
+        'kashier_hmac_failure');
+    }
     return { http: 401, json: { ok: false, error: 'unauthorized' } };
   }
 
@@ -622,6 +665,7 @@ router.post('/webhook', async function (req, res, next) {
   try {
     const out = await processKashierEvent({
       body: req.body,
+      rawBody: req.rawBody,
       headerSig: req.get(d.SIGNATURE_HEADER),
       ip: req.ip,
       userAgent: req.get('user-agent'),

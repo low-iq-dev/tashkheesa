@@ -185,9 +185,77 @@ function verifyKashierAuthenticity(body, headerSig, apiKey) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+/**
+ * Work out HOW an unactionable delivery was signed, if at all.
+ *
+ * 7 Oct 2026 — the delivery Kashier kept retrying (it arrives eight minutes
+ * after an unpaid live payment session expires) names no amount, currency or
+ * status, AND does not verify under the one documented scheme. Kashier does
+ * not document that event. Rather than guess, try the plausible ways of
+ * signing the same delivery and report WHICH one matched.
+ *
+ * A match means only "Kashier sent this". It is used solely to acknowledge and
+ * record a delivery we were already refusing to act on. It can never mark an
+ * order paid: that path goes through verifyKashierSignature and nothing else.
+ *
+ * @returns {string|null} the name of the matching scheme, or null
+ */
+function probeKashierAuthenticity(body, rawBody, headerSig, secrets) {
+  try {
+    if (!headerSig || typeof headerSig !== 'string') return null;
+    if (!body || typeof body !== 'object') return null;
+    const data = (body.data && typeof body.data === 'object') ? body.data : {};
+    const keys = Array.isArray(data.signatureKeys) ? data.signatureKeys.map(String) : [];
+    const want = headerSig.trim();
+    const named = [];
+    const s = secrets || {};
+    if (s.apiKey) named.push(['api', s.apiKey]);
+    if (s.secretKey) named.push(['secret', s.secretKey]);
+    if (named.length === 0) return null;
+
+    const val = function (v, mode) {
+      if (v == null) return '';
+      const str = (typeof v === 'object') ? JSON.stringify(v) : String(v);
+      return mode === 'enc' ? strictEncode(str) : str;
+    };
+    const join = function (order, mode) {
+      return order.map(function (k) { return k + '=' + val(data[k], mode); }).join('&');
+    };
+    const subjects = [];
+    if (keys.length > 0) {
+      const sorted = keys.slice().sort();
+      subjects.push(['sorted_encoded', join(sorted, 'enc')]);
+      subjects.push(['sorted_plain', join(sorted, 'raw')]);
+      subjects.push(['listed_encoded', join(keys, 'enc')]);
+      subjects.push(['listed_plain', join(keys, 'raw')]);
+    }
+    if (rawBody && rawBody.length) subjects.push(['raw_body', rawBody]);
+    subjects.push(['data_json', JSON.stringify(data)]);
+
+    const same = function (a, b) {
+      const x = Buffer.from(String(a), 'utf8');
+      const y = Buffer.from(String(b), 'utf8');
+      return x.length === y.length && crypto.timingSafeEqual(x, y);
+    };
+    for (let i = 0; i < named.length; i++) {
+      for (let j = 0; j < subjects.length; j++) {
+        const mac = crypto.createHmac('sha256', named[i][1]).update(subjects[j][1]);
+        const hex = mac.digest('hex');
+        if (same(hex, want.toLowerCase())) return named[i][0] + ':' + subjects[j][0] + ':hex';
+        const b64 = Buffer.from(hex, 'hex').toString('base64');
+        if (same(b64, want)) return named[i][0] + ':' + subjects[j][0] + ':base64';
+      }
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
 module.exports = {
   verifyKashierSignature: verifyKashierSignature,
   verifyKashierAuthenticity: verifyKashierAuthenticity,
+  probeKashierAuthenticity: probeKashierAuthenticity,
   verifyAndLog: verifyAndLog,
   SIGNATURE_HEADER: SIGNATURE_HEADER,
   REQUIRED_SIGNED_FIELDS: REQUIRED_SIGNED_FIELDS,
