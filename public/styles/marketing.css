@@ -8,7 +8,10 @@
  * Do not retune the :root tokens, the @keyframes, the
  * @supports (animation-timeline: scroll()) block or the prefers-reduced-motion
  * block: with the data-rv / animation-range pairs in
- * views/partials/hero-reveal.ejs they are the choreography.
+ * views/partials/hero-reveal.ejs they are the choreography. What the portal
+ * needed beyond the reference (the phone menu, the emergency line, Arabic,
+ * the live specialty grid) is in the PORT ADDITIONS block at the end and
+ * overrides by cascade; it never edits a rule above it.
  *
  * Loaded by views/index.ejs only. It must NOT be loaded next to /styles.css or
  * the portal sheets: its element rules (body, a, h1-h3, p, img) are unscoped
@@ -306,33 +309,104 @@ p{margin:0}
 
 /* ============================================================
    PORT ADDITIONS — not in the reference.
-   Nothing below changes how the English page renders.
    ============================================================ */
 
 /* Booking held shut (src/services/public_cta.js): "Start your case" renders as
    an inert span instead of a link. */
 .btn.is-cta-locked{background:rgba(248,245,239,.14);color:rgba(248,245,239,.62);box-shadow:none;transform:none;cursor:not-allowed;pointer-events:none}
 
-/* "Not for emergencies" under the closing CTA (the 6 Oct 2026 safety line; the
-   reference has none). Out-specifies .cta .copy p. */
-.cta .copy p.not-emergency{font-size:13px;opacity:.8;margin-top:2px}
+/* ---- "Not for emergencies" (the 6 Oct 2026 safety line; the reference has
+   none). Under the Start button in the opening and under the closing CTA. ---- */
+.not-emergency{font-size:13px;line-height:1.5;color:var(--on-dark-muted);opacity:.85}
+.cta .copy p.not-emergency{font-size:13px;margin-top:2px}
+.rv-head p.not-emergency{max-width:520px;margin-top:2px}
+/* The line makes the headline block taller (31px; 51px on phones, where it
+   wraps), and the laptop is sized from what is left of the viewport — the
+   reference's 560px / 470px budgets. Lid plus keyboard is 0.865 x the laptop's
+   width tall, so giving back 22px / 37px of budget puts the keyboard's bottom
+   edge exactly where the reference has it. */
+.rv-laptop{width:min(880px,82vw,calc((100vh - 582px) * 1.6))}
+@media (max-width:760px){.rv-laptop{width:min(92vw,calc((100vh - 507px) * 1.6))}}
+
+/* ---- The opening's buttons are not reachable while they cannot be seen.
+   .rv-head fades in over 380–820px of scroll; until it is half way (600px)
+   its CTAs are visibility:hidden — out of the tab order, not clickable. Only
+   the buttons: the <h1> stays in the accessibility tree throughout. The range
+   repeats .rv-head's data-rv (tests/core/home-laptop-reveal.test.js checks the
+   two agree); browsers without scroll timelines get the same switch from
+   public/js/home-motion.js. If neither runs, the buttons simply stay reachable. ---- */
+@keyframes rv-ctas{0%,50%{visibility:hidden}50.01%,100%{visibility:visible}}
+@supports (animation-timeline: scroll()){
+  .rv-head .ctas{animation-name:rv-ctas;animation-timing-function:linear;animation-fill-mode:both;animation-timeline:scroll(root);animation-range:380px 820px}
+}
+@media (prefers-reduced-motion: reduce){.rv-head .ctas{animation:none !important}}
+
+/* ---- Phone / tablet header. The reference hides every nav link at ≤900px
+   and leaves the logo and Start; this adds a menu button and a panel holding
+   the links, Sign in and the language switch. A native <details>: no script
+   needed to open it. One row at every width down to 320px.
+   The menu takes over at ≤1100px, not ≤900px: the full link row needs about
+   1,080px (1,100px in Arabic), and between 901px and there the reference
+   wraps it onto a second row that covers the top of the opening. ---- */
+.menu{display:none}
+.menu summary{list-style:none;cursor:pointer;width:44px;height:44px;border-radius:12px;border:1.5px solid rgba(248,245,239,.35);color:var(--cream);display:inline-flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent}
+.menu summary::-webkit-details-marker{display:none}
+.menu summary::marker{content:""}
+.menu[open] summary{background:rgba(248,245,239,.12)}
+.menu .i-close{display:none}
+.menu[open] .i-close{display:block}
+.menu[open] .i-open{display:none}
+.menu summary:focus-visible,.menu-panel a:focus-visible{outline:2px solid var(--brass-light);outline-offset:3px}
+.menu-panel{position:absolute;top:100%;inset-inline:0;display:flex;flex-direction:column;padding:6px 20px 20px;background:var(--teal-ink);border-top:1px solid rgba(248,245,239,.08);border-bottom:1px solid rgba(248,245,239,.12);box-shadow:0 28px 40px -28px rgba(0,0,0,.7);max-height:calc(100vh - 73px);max-height:calc(100dvh - 73px);overflow-y:auto}
+.menu-panel a{display:flex;align-items:center;min-height:50px;color:var(--cream);text-decoration:none;font-weight:500;font-size:17px;border-bottom:1px solid rgba(248,245,239,.08)}
+.menu-panel a:hover{color:var(--brass-light)}
+.menu-panel a.menu-lang{align-self:flex-start;min-height:44px;margin-top:14px;padding:0 16px;border:1px solid rgba(248,245,239,.35);border-radius:999px;font-family:var(--font-ar);font-weight:600;font-size:15px}
+.menu-panel a.menu-lang:lang(en){font-family:var(--font-body)}
+@media (max-width:1100px){
+  .nav a.link,.nav .ar{display:none}
+  .menu{display:block}
+  .nav{flex-wrap:nowrap;gap:10px}
+  .nav .btn{white-space:nowrap}
+  .brand{min-width:0}
+}
+@media (min-width:761px) and (max-width:1100px){.menu-panel{padding-left:40px;padding-right:40px}}
+@media (max-width:420px){
+  .nav .btn{padding:12px 14px;font-size:14px}
+}
+@media (max-width:374px){
+  .wrap.nav{padding-left:14px;padding-right:14px}
+  .nav{gap:8px}
+  .brand{gap:8px}
+  .brand .tile{width:32px;height:32px;border-radius:9px}
+  .brand .name b{font-size:16px}
+  .nav .btn{padding:12px 12px}
+  .menu-panel{padding-left:14px;padding-right:14px}
+}
+@media (max-width:339px){.brand .name{display:none}}
+
+/* ---- The specialty grid is the live catalogue, so the number of cards varies.
+   Same columns as the reference's flex row (200px minimum, 14px gap) — a full
+   row is laid out identically — but as a grid, so a short last row keeps the
+   card width instead of stretching two cards across the page. ---- */
+.specs{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
 
 /* The Play badge row (partials/app_badge) sits under the closing CTA and in the
    footer, only when PLAY_STORE_URL is set. */
 .cta .tk-app-badge-row{margin-top:4px}
 
-/* The specialty grid is the live catalogue, so the number of cards varies. Same
-   columns as the reference's flex row (200px minimum, 14px gap) — a full row is
-   laid out identically — but as a grid, so a short last row keeps the card
-   width instead of stretching two cards across the page. */
-.specs{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
-
-/* Arabic (/ar/). Latin keeps Inter / Fraunces; Arabic glyphs, which neither
-   face has, fall through to Noto Sans Arabic. */
+/* ---- Arabic (/ar/). ---- */
+/* Latin keeps Inter / Fraunces; Arabic glyphs, which neither face has, fall
+   through to Noto Sans Arabic. */
 html[lang="ar"]{--font-display:Fraunces,'Noto Sans Arabic',Georgia,serif;--font-body:Inter,'Noto Sans Arabic',system-ui,sans-serif}
 /* Letter-spacing pulls joined Arabic letters apart. :lang() follows the nearest
-   lang attribute, so blocks still marked lang="en" keep the reference tracking. */
-.eyebrow:lang(ar),.display:lang(ar),.footer .col .h:lang(ar),.tier .k:lang(ar),.rv-card .k:lang(ar),.rv-cue:lang(ar){letter-spacing:0}
+   lang attribute, so the English screen mock keeps the reference tracking. */
+h1:lang(ar),h2:lang(ar),h3:lang(ar),.eyebrow:lang(ar),.display:lang(ar),.footer .col .h:lang(ar),.tier .k:lang(ar),.rv-card .k:lang(ar),.rv-cue:lang(ar){letter-spacing:0}
+/* Arabic sits taller on the line than Latin (marks above, tails below); the
+   reference's 1.02–1.06 display leading makes two-line Arabic headings touch. */
+.display:lang(ar){line-height:1.3}
+.rv-head h1:lang(ar){line-height:1.22}
+/* "48 ساعة": the figure, then its unit small beside it (English is "48h"). */
+.tier .big small,.stats dt small{font-family:var(--font-body);font-size:.36em;font-weight:600;letter-spacing:0}
 /* The language switch reads "English" on the Arabic page. */
 .nav .ar:lang(en){font-family:var(--font-body)}
 /* Direction-neutral spellings of the reference's physical offsets. Each pair
@@ -342,3 +416,5 @@ html[lang="ar"]{--font-display:Fraunces,'Noto Sans Arabic',Georgia,serif;--font-
 .receive .tags{left:auto;inset-inline-start:24px}
 .tier.vip .badge{left:auto;inset-inline-start:24px}
 .rv-ui .doc a{margin-left:0;margin-inline-start:auto}
+/* "→" links point the way the text runs. */
+html[dir="rtl"] .hospital .more svg,html[dir="rtl"] .pay a svg,html[dir="rtl"] .faq .intro a svg{transform:scaleX(-1)}
