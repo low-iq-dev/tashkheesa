@@ -185,7 +185,8 @@
   // Facts main settled in the 6 Oct 2026 sweep (7589f6e), after the reference
   // was drawn — the reference said 220 beds, "Meeza", "USD, AED and SAR" and a
   // report "in your inbox":
-  //   * 280 beds, and it is the New Cairo hospital's figure, not the group's
+  //   * 280 beds, and it is the New Cairo hospital's figure, not the group's —
+  //     the same goes for the GAHAR accreditation (Ziad, 7 Oct 2026)
   //   * payment: card or mobile wallet, InstaPay, bank transfer; international
   //     cards are accepted and charged in Egyptian pounds (same as /faq)
   //   * the report is delivered to the account and on WhatsApp, not by email
@@ -257,12 +258,12 @@
 <section class="strip" aria-label="<%= tt('home.strip.aria', 'Trust', 'الثقة') %>">
   <div class="wrap">
     <span><i class="dot"></i><%= tt('home.strip.hospital', 'Shifa Hospital Group · New Cairo', 'مجموعة مستشفيات شفا · القاهرة الجديدة') %></span>
-    <span><%= tt('home.strip.gahar', 'GAHAR-accredited', 'معتمدة من GAHAR') %></span>
+    <span><%= tt('home.strip.gahar', 'GAHAR-accredited', 'معتمد من GAHAR') %></span>
     <span><%= tt('home.strip.beds', __beds + ' beds', __beds + ' سرير') %></span>
     <% if (__openCount > 0) { %><span><%= __count(__openCount, 'home.strip.open', ['{n} specialty open', '{n} specialties open'], { one: 'تخصص واحد متاح', two: 'تخصصين متاحين', few: '{n} تخصصات متاحة', many: '{n} تخصص متاح' }) %></span><% } %>
     <% if (__fromPrice) { %><span><%= __fromPrice %></span><% } %>
     <span><%= tt('home.strip.refund', 'Refund until a consultant is assigned', 'استرداد لحد ما يتعيّن استشاري') %></span>
-    <span><%= tt('home.strip.encrypted', 'Encrypted end to end', 'تشفير من طرف إلى طرف') %></span>
+    <span><%= tt('home.strip.encrypted', 'Encrypted in transit and at rest', 'مشفّر أثناء النقل والتخزين') %></span>
   </div>
 </section>
 
@@ -276,7 +277,7 @@
     <article class="moment m-teal card"><span class="num">01</span><h3><%= tt('home.moments.1.title', 'Surgery has been recommended', 'الدكتور نصحك بعملية') %></h3><p><%= tt('home.moments.1.body', 'Is it the right operation, the right time — or is there a conservative route first?', 'هل دي العملية المناسبة، وده وقتها المناسب — ولا فيه علاج تحفّظي الأول؟') %></p></article>
     <article class="moment m-tint card"><span class="num">02</span><h3><%= tt('home.moments.2.title', 'Two doctors, two answers', 'دكتورين، وإجابتين') %></h3><p><%= tt('home.moments.2.body', 'A third, independent reading of the same files helps you choose between them.', 'قراءة تالتة مستقلة لنفس الملفات بتساعدك تختار بينهم.') %></p></article>
     <article class="moment m-brass card"><span class="num">03</span><h3><%= tt('home.moments.3.title', 'A result you don\'t understand', 'نتيجة مش فاهمها') %></h3><p><%= tt('home.moments.3.body', 'A scan or lab report full of words no one explained. We translate it, in plain Arabic and English.', 'أشعة أو تحليل مليان كلام محدش شرحهولك. بنشرحهولك بعربي وإنجليزي بسيط.') %></p></article>
-    <article class="moment m-tint card"><span class="num">04</span><h3><%= tt('home.moments.4.title', 'A treatment isn\'t working', 'علاج مش جايب نتيجة') %></h3><p><%= tt('home.moments.4.body', 'Months in, no better. A specialist looks at the whole file and says what they would do next.', 'شهور ومفيش تحسّن. استشاري بيبص على الملف كله وبيقولك هو كان هيعمل إيه بعد كده.') %></p></article>
+    <article class="moment m-tint card"><span class="num">04</span><h3><%= tt('home.moments.4.title', 'A treatment isn\'t working', 'علاج مش جايب نتيجة') %></h3><p><%= tt('home.moments.4.body', 'Months in, no better. A specialist looks at the whole file and gives a written opinion on your options.', 'شهور ومفيش تحسّن. استشاري بيبص على الملف كله وبيكتبلك رأيه في الاختيارات اللي قدامك.') %></p></article>
   </div>
 </section>
 
@@ -286,7 +287,7 @@
   <div class="sec-head">
     <p class="eyebrow"><%= tt('home.how.eyebrow', 'How it works', 'إزاي بتشتغل') %></p>
     <h2 class="display"><%= tt('home.how.heading', 'Four steps. No waiting room.', '4 خطوات. من غير أوضة انتظار.') %></h2>
-    <p class="lede"><%= tt('home.how.lede', 'Most patients finish the first three in under ten minutes. The fourth is on us.', 'أغلب المرضى بيخلّصوا أول 3 خطوات في أقل من 10 دقايق. والرابعة علينا.') %></p>
+    <p class="lede"><%= tt('home.how.lede', 'The first three take about ten minutes. The fourth is on us.', 'أول 3 خطوات بياخدوا حوالي 10 دقايق. والرابعة علينا.') %></p>
   </div>
   <ol class="steps">
     <li class="step"><span class="n">1</span><h3><%= tt('home.how.1.title', 'Tell us what you need', 'قولنا محتاج إيه') %></h3><p><%= tt('home.how.1.body', 'Pick the specialty and how fast you need an answer: Standard 48h, VIP 18h or Urgent 4h.', 'اختار التخصص وعايز الرد بسرعة قد إيه: قياسي 48 ساعة، VIP 18 ساعة، أو عاجل 4 ساعات.') %></p></li>
@@ -330,8 +331,8 @@
         <p class="eyebrow"><%= tt('home.hospital.eyebrow', 'Why Tashkheesa', 'ليه تشخيصة') %></p>
         <h2 class="display"><%= tt('home.hospital.title1', 'Backed by a hospital,', 'وراءنا مستشفى حقيقي،') %><br><%= tt('home.hospital.title2', 'not a marketplace.', 'مش مجرد منصة.') %></h2>
         <p><%= tt('home.hospital.body',
-          'Every opinion on Tashkheesa is written by a consultant of Shifa Hospital Group — a GAHAR-accredited, ' + __beds + '-bed hospital in New Cairo with Centres of Excellence in Stroke, NICU and Oncology. No anonymous reviewers. No crowd-sourced answers. A name, a licence, and an institution that stands behind both.',
-          'كل رأي على تشخيصة بيكتبه استشاري من مجموعة مستشفيات شفا — مستشفى معتمد من GAHAR بسعة ' + __beds + ' سرير في القاهرة الجديدة، وعنده مراكز تميّز في السكتة الدماغية وحضانات الأطفال والأورام. مفيش مراجعين مجهولين. مفيش إجابات متجمّعة من الناس. اسم، وترخيص، ومؤسسة واقفة ورا الاتنين.') %></p>
+          'Every opinion on Tashkheesa is written by a consultant of Shifa Hospital Group. The group\'s New Cairo hospital is GAHAR-accredited, with ' + __beds + ' beds and Centres of Excellence in Stroke, NICU and Oncology. No anonymous reviewers. No crowd-sourced answers. A name, a licence, and an institution that stands behind both.',
+          'كل رأي على تشخيصة بيكتبه استشاري من مجموعة مستشفيات شفا. مستشفى المجموعة في القاهرة الجديدة معتمد من GAHAR، وفيه ' + __beds + ' سرير ومراكز تميّز في السكتة الدماغية والأورام والرعاية المركزة لحديثي الولادة. مفيش مراجعين مجهولين. مفيش إجابات متجمّعة من الناس. اسم، وترخيص، ومؤسسة واقفة ورا الاتنين.') %></p>
         <a class="more" href="<%= locals.publicLinkPrefix || '' %>/about"><%= tt('home.hospital.more', 'About the hospital', 'عن المستشفى') %> <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
       </div>
       <dl class="stats">
@@ -376,7 +377,7 @@
       <p class="lede"><%= tt('home.tiers.lede', 'Every tier gets the same named consultant and the same written, bilingual report. You only pay more for speed.', 'أي مستوى تختاره، بيراجع حالتك استشاري باسمه وبتستلم نفس التقرير المكتوب باللغتين. بتدفع زيادة بس عشان السرعة.') %></p>
     </div>
     <div class="row">
-      <article class="tier card"><span class="k"><%= tt('home.tiers.standard.k', 'Standard', 'قياسي') %></span><span class="big"><%- __hours(48) %></span><p><%= tt('home.tiers.standard.body', 'Included in every service price. Most patients choose this.', 'داخل في سعر كل خدمة. وأغلب المرضى بيختاروه.') %></p><% if (__fromPrice) { %><span class="price"><%= __fromPrice %></span><% } %></article>
+      <article class="tier card"><span class="k"><%= tt('home.tiers.standard.k', 'Standard', 'قياسي') %></span><span class="big"><%- __hours(48) %></span><p><%= tt('home.tiers.standard.body', 'Included in every service price.', 'داخل في سعر كل خدمة.') %></p><% if (__fromPrice) { %><span class="price"><%= __fromPrice %></span><% } %></article>
       <article class="tier vip card"><span class="badge"><%= tt('home.tiers.vip.badge', 'Priority', 'أولوية') %></span><span class="k"><%= tt('home.tiers.vip.k', 'VIP', 'VIP') %></span><span class="big"><%- __hours(18) %></span><p><%= tt('home.tiers.vip.body', 'Your case goes to the front of the consultant\'s queue.', 'حالتك بتبقى أول الدور عند الاستشاري.') %></p><span class="price"><%= tt('home.tiers.vip.price', 'Service price + priority surcharge', 'سعر الخدمة + رسوم الأولوية') %></span></article>
       <article class="tier urgent card"><span class="k"><%= tt('home.tiers.urgent.k', 'Urgent', 'عاجل') %></span><span class="big"><%- __hours(4) %></span><p><%= tt('home.tiers.urgent.body', '7 AM – 7 PM Cairo time. Cases confirmed overnight start at 7 AM.', 'من 7 الصبح لـ 7 بالليل بتوقيت القاهرة. والحالات اللي تتأكد بالليل بتبدأ 7 الصبح.') %></p><span class="price"><%= tt('home.tiers.urgent.price', 'Service price + urgent surcharge', 'سعر الخدمة + رسوم الاستعجال') %></span></article>
     </div>
@@ -395,7 +396,7 @@
       <a href="<%= locals.publicLinkPrefix || '' %>/faq"><%= tt('home.faq.all', 'Read all questions', 'اقرا كل الأسئلة') %> <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
     </div>
     <div class="list">
-      <details><summary><%= tt('home.faq.1.q', 'Will my own doctor be offended?', 'هل دكتوري هيتضايق؟') %><i>+</i></summary><p><%= tt('home.faq.1.a', 'Good doctors expect it. A second opinion is standard practice before major decisions, and your report is written to be shared with — not hidden from — the doctor treating you.', 'الدكاترة الكويسين بيتوقعوا ده. الرأي التاني حاجة معتادة قبل القرارات الكبيرة، وتقريرك مكتوب عشان تشاركه مع دكتورك المعالج — مش عشان تخبّيه عنه.') %></p></details>
+      <details><summary><%= tt('home.faq.1.q', 'Will my own doctor be offended?', 'هل دكتوري هيتضايق؟') %><i>+</i></summary><p><%= tt('home.faq.1.a', 'A second opinion is standard practice before major decisions, and your report is written to be shared with — not hidden from — the doctor treating you.', 'الرأي التاني حاجة معتادة قبل القرارات الكبيرة، وتقريرك مكتوب عشان تشاركه مع دكتورك المعالج — مش عشان تخبّيه عنه.') %></p></details>
       <details><summary><%= tt('home.faq.2.q', 'Is this written by AI?', 'هل الرأي ده بيكتبه ذكاء اصطناعي؟') %><i>+</i></summary><p><%= tt('home.faq.2.a', 'No. A named consultant reads your files and writes the opinion. Software helps us organise your uploads and keep them secure; it does not form the opinion.', 'لأ، مش ذكاء اصطناعي. استشاري باسمه بيقرا ملفاتك وبيكتب الرأي. البرامج بتساعدنا ننظّم ملفاتك ونحافظ على أمانها، لكن مش هي اللي بتكوّن الرأي.') %></p></details>
       <details><summary><%= tt('home.faq.3.q', 'Who can see my files?', 'مين يقدر يشوف ملفاتي؟') %><i>+</i></summary><p><%= tt('home.faq.3.a', 'Your assigned consultant and a small number of senior Tashkheesa staff for support and quality checks. Files are encrypted in transit and at rest, and handled under Egypt\'s data protection law.', 'الاستشاري المسؤول عن حالتك وعدد قليل من كبار أعضاء فريق تشخيصة للدعم ومراجعة الجودة. الملفات مشفّرة أثناء النقل والتخزين، وبنتعامل معاها حسب قانون حماية البيانات الشخصية المصري.') %></p></details>
     </div>
@@ -444,12 +445,12 @@
           'Written second medical opinions from named consultants of Shifa Hospital Group. Second opinion only — not diagnosis or treatment.',
           'آراء طبية تانية مكتوبة من استشاريين بأسمائهم في مجموعة مستشفيات شفا. رأي تاني بس — مش تشخيص ولا علاج.') %></p>
         <p style="font-size:13px;color:#8A96A3"><%= tt('home.footer.hospital',
-          'Shifa Hospital Group · Tagammo & Sherouk branches · New Cairo',
-          'مجموعة مستشفيات شفا · فرع التجمع وفرع الشروق · القاهرة الجديدة') %></p>
+          'Shifa Hospital Group · New Cairo & Sherouk City',
+          'مجموعة مستشفيات شفا · القاهرة الجديدة ومدينة الشروق') %></p>
       </div>
       <div class="col"><span class="h"><%= tt('home.footer.col_patients', 'Patients', 'للمرضى') %></span><a href="<%= locals.publicLinkPrefix || '' %>/services"><%= tt('home.footer.services', 'Services & prices', 'الخدمات والأسعار') %></a><a href="<%= locals.publicLinkPrefix || '' %>/specialties"><%= tt('nav.specialties', 'Specialties', 'التخصصات') %></a><a href="<%= locals.publicLinkPrefix || '' %>/#how-it-works"><%= tt('home.how.kicker', 'How it works', 'إزاي بتشتغل') %></a><a href="<%= locals.publicLinkPrefix || '' %>/faq"><%= tt('nav.faq', 'FAQ', 'الأسئلة الشائعة') %></a><a href="/login<%= locals.langParam ? '?' + locals.langParam : '' %>"><%= tt('home.footer.patient_portal', 'Patient portal', 'بوابة المريض') %></a></div>
       <div class="col"><span class="h"><%= tt('home.footer.col_company', 'Company', 'الشركة') %></span><a href="<%= locals.publicLinkPrefix || '' %>/about"><%= tt('home.footer.about', 'About', 'من نحن') %></a><a href="<%= locals.publicLinkPrefix || '' %>/blog"><%= tt('home.footer.blog', 'Blog', 'المدونة') %></a><a href="<%= locals.publicLinkPrefix || '' %>/apply"><%= tt('home.footer.for_doctors', 'For doctors', 'للأطباء') %></a><a href="<%= locals.publicLinkPrefix || '' %>/contact"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a></div>
-      <div class="col" style="flex-basis:220px"><span class="h"><%= tt('home.footer.col_legal', 'Legal', 'السياسات') %></span><a href="<%= locals.publicLinkPrefix || '' %>/privacy"><%= tt('home.footer.privacy', 'Privacy policy', 'سياسة الخصوصية') %></a><a href="<%= locals.publicLinkPrefix || '' %>/terms"><%= tt('home.footer.terms', 'Terms of service', 'شروط الخدمة') %></a><a href="<%= locals.publicLinkPrefix || '' %>/refund-policy"><%= tt('home.footer.refund', 'Refunds & cancellation', 'الاسترجاع والإلغاء') %></a><a href="<%= locals.publicLinkPrefix || '' %>/delivery-policy"><%= tt('home.footer.delivery', 'Delivery policy', 'سياسة التسليم') %></a><a href="<%= locals.publicLinkPrefix || '' %>/delete-account"><%= tt('home.footer.delete_account', 'Delete your account', 'حذف حسابك') %></a></div>
+      <div class="col" style="flex-basis:220px"><span class="h"><%= tt('home.footer.col_legal', 'Legal', 'السياسات') %></span><a href="<%= locals.publicLinkPrefix || '' %>/privacy"><%= tt('home.footer.privacy', 'Privacy policy', 'سياسة الخصوصية') %></a><a href="<%= locals.publicLinkPrefix || '' %>/terms"><%= tt('home.footer.terms', 'Terms of service', 'شروط الخدمة') %></a><a href="<%= locals.publicLinkPrefix || '' %>/refund-policy"><%= tt('home.footer.refund', 'Refunds & cancellation', 'الاسترداد والإلغاء') %></a><a href="<%= locals.publicLinkPrefix || '' %>/delivery-policy"><%= tt('home.footer.delivery', 'Delivery policy', 'سياسة التسليم') %></a><a href="<%= locals.publicLinkPrefix || '' %>/delete-account"><%= tt('home.footer.delete_account', 'Delete your account', 'حذف حسابك') %></a></div>
       <div class="col" style="flex-basis:240px"><span class="h"><%= tt('home.footer.col_reach', 'Reach us', 'تواصل معنا') %></span><a href="mailto:<%= __email %>"><%= __email %></a><a href="https://wa.me/201102009886" target="_blank" rel="noopener"><bdi dir="ltr"><%= __phone %></bdi> · WhatsApp</a><a href="https://www.instagram.com/tashkheesaa/" target="_blank" rel="noopener">Instagram</a><a href="https://www.facebook.com/profile.php?id=927504083784815" target="_blank" rel="noopener">Facebook</a><span><%= tt('home.footer.address', __address, 'مستشفى شفا، ١٦٦ شارع التسعين الشمالي، التجمع الخامس، القاهرة الجديدة') %></span>
         <% if (locals.appFunnel) { %><div class="tk-app-badge-row tk-app-badge-row--start"><%- include('partials/app_badge', { placement: 'footer' }) %></div><% } %>
       </div>

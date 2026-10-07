@@ -391,6 +391,19 @@ html[lang="ar"] .rv-laptop{width:min(880px,82vw,calc((100vh - 576px) * 1.6))}
 }
 @media (max-width:339px){.brand .name{display:none}}
 
+/* ---- Floating cards on tablets. The reference keeps all four down to 761px,
+   where they sit on top of the laptop's screen (the laptop is 82vw wide there).
+   Up to 1100px they now get what phones get: the three side cards go and
+   "Report ready" stays, in its phone size and place. These are the reference's
+   own <=760px card rules, on a wider query. ---- */
+@media (max-width:1100px){
+  .rv-card{width:190px}
+  .rv-card .in{padding:12px 14px}
+  .rv-card b{font-size:13px}
+  .rv-c1,.rv-c2,.rv-c3{display:none}
+  .rv-c4{right:4%;bottom:13%}
+}
+
 /* ---- The specialty grid is the live catalogue, so the number of cards varies.
    Same columns as the reference's flex row (200px minimum, 14px gap) — a full
    row is laid out identically — but as a grid, so a short last row keeps the
