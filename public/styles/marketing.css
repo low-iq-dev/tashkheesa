@@ -321,6 +321,12 @@ p{margin:0}
    footer, only when PLAY_STORE_URL is set. */
 .cta .tk-app-badge-row{margin-top:4px}
 
+/* The specialty grid is the live catalogue, so the number of cards varies. Same
+   columns as the reference's flex row (200px minimum, 14px gap) — a full row is
+   laid out identically — but as a grid, so a short last row keeps the card
+   width instead of stretching two cards across the page. */
+.specs{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+
 /* Arabic (/ar/). Latin keeps Inter / Fraunces; Arabic glyphs, which neither
    face has, fall through to Noto Sans Arabic. */
 html[lang="ar"]{--font-display:Fraunces,'Noto Sans Arabic',Georgia,serif;--font-body:Inter,'Noto Sans Arabic',system-ui,sans-serif}

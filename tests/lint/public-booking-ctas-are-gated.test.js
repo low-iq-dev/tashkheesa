@@ -41,7 +41,10 @@ const PUBLIC_VIEWS = [
   // bubble. Hence the second pattern.
   'partials/service_assistant.ejs',
   // Paid-ads landing page (26 Sep 2026).
-  'start.ejs'
+  'start.ejs',
+  // The home page's opening (7 Oct 2026). Its "Start your case" is the first
+  // booking link a visitor meets, and it lives in a partial, not in index.ejs.
+  'partials/hero-reveal.ejs'
 ];
 
 // An href into the wizard, or into registration via the submitUrl helper.

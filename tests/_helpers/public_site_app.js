@@ -68,10 +68,22 @@ function fakeSafeAll(sql, params) {
   return Promise.resolve([]);
 }
 
+// The homepage specialty grid, from the SAME fixture services /services
+// renders, through the REAL shaping rule (site_stats.shapeSpecialtyList is
+// pure). So the fixture has two open specialties (Cardiology, Radiology — one
+// bookable service each) and one coming soon (Dermatology).
+function fixtureSpecialtyList() {
+  const { shapeSpecialtyList } = loadReal(src('services/site_stats'));
+  return shapeSpecialtyList(FIXTURE_SERVICES.map((s) => ({
+    name: s.specialty_name, name_ar: s.specialty_name_ar, bookable: s.is_bookable ? 1 : 0
+  })));
+}
+
 const fakeSiteStats = {
   getVisibleSpecialtyCount: async () => 7,
   getVisibleServiceCount: async () => 70,
-  getCatalogueStats: async () => ({ total: 183, totalSpecialties: 23, bookable: 70, minPrice: 1600, maxPrice: 5500 })
+  getCatalogueStats: async () => ({ total: 183, totalSpecialties: 23, bookable: 70, minPrice: 1600, maxPrice: 5500 }),
+  getSpecialtyList: async () => fixtureSpecialtyList()
 };
 
 function buildPublicSiteApp(opts) {
@@ -105,10 +117,14 @@ function buildPublicSiteApp(opts) {
   app.get('/__offscheme/about', (req, res) => res.render('about', { BUSINESS_INFO: {} }));
 
   // server.js renderHomepage, minus the database.
-  app.get('/', async (req, res) => res.render('index', {
-    businessEmail: 'info@tashkheesa.com', businessPhone: '+20 110 200 9886', businessAddress: 'Cairo, Egypt',
-    currency: 'EGP', specialtyCount: 7, priceRangeMin: '1,600', priceRangeMax: '5,500'
-  }));
+  app.get('/', async (req, res) => {
+    const stats = opts.siteStats || fakeSiteStats;
+    res.render('index', Object.assign({
+      businessEmail: 'info@tashkheesa.com', businessPhone: '+20 110 200 9886', businessAddress: 'Cairo, Egypt',
+      currency: 'EGP', specialtyCount: 7, priceRangeMin: '1,600', priceRangeMax: '5,500',
+      homeSpecialties: typeof stats.getSpecialtyList === 'function' ? await stats.getSpecialtyList() : undefined
+    }, opts.homeLocals || {}));
+  });
 
   const staticOpts = {
     execute: async () => ({ rowCount: 0, rows: [] }),
@@ -160,5 +176,5 @@ function readHead(body) {
 
 module.exports = {
   loadReal, buildPublicSiteApp, startPublicSiteApp, readHead, decodeEntities,
-  fakeSafeAll, fakeSiteStats, FIXTURE_SPECIALTIES, FIXTURE_SERVICES
+  fakeSafeAll, fakeSiteStats, fixtureSpecialtyList, FIXTURE_SPECIALTIES, FIXTURE_SERVICES
 };
