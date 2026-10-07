@@ -54,14 +54,52 @@ module.exports = function (db, helpers, deploy) {
   });
 
   // General API limiter
-  const apiLimiter = rateLimit({
+  //
+  // 2026-10-07 — this was 100 requests / 15 min PER IP for every caller. One
+  // patient using the app normally (home, cases, messages, a case wizard)
+  // spends that in a few minutes, and everyone behind the same router or the
+  // same carrier CGNAT address shares the one bucket: on launch-day testing
+  // the owner's phone, the Command app and an emulator on one Wi-Fi locked
+  // each other out with "Request failed (status 429)" on every screen.
+  //
+  // Signed-in callers are now counted per token, so one busy patient cannot
+  // lock out the people around them; callers with no token are counted per
+  // IP. A much higher per-IP ceiling stays in front as the abuse backstop —
+  // it also bounds anyone minting throwaway Authorization headers to get
+  // fresh buckets.
+  const crypto = require('crypto');
+  const RATE_LIMITED_BODY = { success: false, error: 'Too many requests. Slow down.', code: 'RATE_LIMITED' };
+  const bearerOf = (req) => {
+    const h = String((req.headers && req.headers.authorization) || '');
+    return /^Bearer\s+\S{20,}/i.test(h) ? h.slice(7).trim() : '';
+  };
+  const ipOf = (req) => String(req.ip || (req.socket && req.socket.remoteAddress) || 'unknown');
+  const ipCeilingLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100,
+    max: 3000,
     validate: false,
-    message: { success: false, error: 'Too many requests. Slow down.', code: 'RATE_LIMITED' },
+    keyGenerator: (req) => 'ip:' + ipOf(req),
+    message: RATE_LIMITED_BODY,
+    standardHeaders: false,
+    legacyHeaders: false,
+  });
+  const callerLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    // Per signed-in caller: 600 (40/min sustained). Anonymous, per IP: 300.
+    max: (req) => (bearerOf(req) ? 600 : 300),
+    validate: false,
+    keyGenerator: (req) => {
+      const t = bearerOf(req);
+      return t
+        ? 'tok:' + crypto.createHash('sha256').update(t).digest('hex').slice(0, 32)
+        : 'ip:' + ipOf(req);
+    },
+    message: RATE_LIMITED_BODY,
     standardHeaders: true,
     legacyHeaders: false,
   });
+  const apiLimiter = (req, res, next) =>
+    ipCeilingLimiter(req, res, (err) => (err ? next(err) : callerLimiter(req, res, next)));
 
   // AUDIT-APP-H4 — apiLimiter is 100 req / 15 min PER IP and was applied to
   // every route. The patient app polls /health every 30s (permanently), the
