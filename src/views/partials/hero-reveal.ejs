@@ -1,0 +1,110 @@
+<%#
+  The home page opening — the laptop reveal.
+
+  Ported from docs/redesign/home-laptop-reveal.html (<section class="rv">).
+  Styles: public/styles/marketing.css. Fallback driver for browsers without CSS
+  scroll-driven animations: public/js/home-motion.js.
+
+  THE NUMBERS ARE THE CHOREOGRAPHY. Every animated element carries
+  data-rv="A,B" and an inline animation-range:Apx Bpx — scroll pixels at which
+  its animation starts and ends. The CSS reads the inline range; the JS
+  fallback reads data-rv. Change one and you must change the other, and
+  tests/core/home-laptop-reveal.test.js pins every pair.
+
+  The <h1>, lede and CTAs are server-rendered here, in the DOM from the first
+  byte. They start transparent and rise in at 380–820px of scroll by design;
+  never lazy-render or inject them.
+
+  Locals, passed by index.ejs:
+    heroCta  { on, href, offLabel } — the booking gate (services/public_cta.js).
+             Missing or malformed → the CTA renders locked. Fail closed.
+
+  Language. The opening is centred and is not mirrored for Arabic. On /ar/ the
+  headline block uses the Arabic strings the previous home page already
+  carried; the copy that has no Arabic yet (the cue, the four cards) stays
+  English and is marked lang="en" dir="ltr" so it is announced and punctuated
+  correctly. The laptop screen is a picture of the English portal: always LTR,
+  role="img" so its mock <main>/<aside>/link are not exposed as real landmarks
+  or a real link, and the mock link is out of the tab order. TODO i18n: home.rv.aria, home.rv.cue, home.rv.card1–4.*
+%>
+<%
+  var __hrIsAr = (typeof isAr !== 'undefined') ? !!isAr
+    : (String((typeof lang !== 'undefined' && lang) || 'en').toLowerCase() === 'ar');
+  var __hrEn = __hrIsAr ? ' lang="en" dir="ltr"' : '';
+  var __hrCta = (typeof heroCta !== 'undefined' && heroCta) ? heroCta : {};
+  var __ctaOn = !!(__hrCta.on && __hrCta.href);
+  var __startHref = __ctaOn ? String(__hrCta.href) : '';
+  var __ctaOffLabel = __hrCta.offLabel ? String(__hrCta.offLabel) : '';
+%>
+<section class="rv" aria-label="<%= tt('home.rv.aria', 'Opening') %>">
+  <div class="rv-stage">
+    <img class="rv-bg" data-rv="0,700" style="animation-range:0px 700px" src="/site/img/home/shifa-night.jpg" alt="" aria-hidden="true">
+    <div class="rv-scrim" aria-hidden="true"></div>
+
+    <div class="rv-lock" data-rv="120,420" style="animation-range:120px 420px" aria-hidden="true">
+      <span class="tile"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l9 9-9 9-9-9 9-9z" fill="#06352F"/><path d="M12 8l4 4-4 4-4-4 4-4z" fill="#B38B3E"/></svg></span>
+      <b>Tashkheesa</b><span lang="ar" dir="rtl">تشخيصة</span>
+    </div>
+    <div class="rv-cue" data-rv="200,500" style="animation-range:200px 500px"<%- __hrEn %>><span><%= tt('home.rv.cue', 'Scroll to open') %></span></div>
+
+    <div class="rv-head" data-rv="380,820" style="animation-range:380px 820px">
+      <p class="eyebrow" style="color:var(--brass-light)"><%= tt('home.rv.eyebrow', 'Consultants of Shifa Hospital Group', 'استشاريو مجموعة مستشفيات شفا') %></p>
+      <%# The English headline carries its own markup (line break, the italic
+          "name"), so it is written out; Arabic is the existing hero title. %>
+      <h1 class="display"><% if (__hrIsAr) { %><%= tt('home.hero.title', 'A second opinion with a name on it.', 'رأي طبي ثانٍ مكتوب من استشاري باسمه — خلال ٤٨ ساعة') %><% } else { %>A second opinion<br>with a <em>name</em> on it.<% } %></h1>
+      <p class="lede"><%= tt('home.hero.body',
+        'Upload your scans, lab results or reports. A named consultant reviews them and writes you a clear opinion — within 48 hours.',
+        'ابعت تقريرك أو أشعتك، واستشاري معتمد من مجموعة مستشفيات شفا يراجعها ويرد عليك كتابةً. آمن، سريع، ومبسّط.') %></p>
+      <div class="ctas">
+        <% if (__ctaOn) { %><a class="btn btn-brass" href="<%= __startHref %>"><%= tt('home.cta.start', 'Start your case', 'ابدأ حالتك') %></a>
+        <% } else { %><span class="btn btn-brass is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('home.cta.start', 'Start your case', 'ابدأ حالتك') %></span><% } %>
+        <a class="btn btn-ghost-dark" href="<%= locals.publicLinkPrefix || '' %>/services"><%= tt('home.hero.view_services', 'See services & prices', 'شوف الخدمات والأسعار') %></a>
+      </div>
+    </div>
+
+    <div class="rv-laptop" data-rv="300,900" style="animation-range:300px 900px">
+      <div class="rv-body">
+        <div class="rv-lid" data-rv="520,1600" style="animation-range:520px 1600px">
+          <div class="rv-lidback" aria-hidden="true"><span class="tile"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l9 9-9 9-9-9 9-9z" fill="#B38B3E" opacity=".85"/></svg></span></div>
+          <div class="rv-screen" data-rv="1150,1650" style="animation-range:1150px 1650px">
+            <span class="rv-notch" aria-hidden="true"></span>
+            <div class="rv-ui" data-rv="1100,1600" style="animation-range:1100px 1600px" role="img" aria-label="Patient portal preview" lang="en" dir="ltr">
+              <aside>
+                <span class="b"><i></i>Tashkheesa</span>
+                <span class="on">My cases</span><span>New case</span><span>Reports</span><span>Messages</span><span>Settings</span>
+              </aside>
+              <main>
+                <div class="top"><span class="t">Welcome back</span><span class="n">+ New case</span></div>
+                <div class="case">
+                  <div class="r"><b>Knee MRI review — one question</b><span class="pill-ok"><i></i>Report ready</span></div>
+                  <span class="m">TSH-2026-000017 · Standard 48h · delivered in 31h</span>
+                  <div class="doc"><i></i><span class="w"><b>Consultant Orthopaedic Surgeon</b><span>Shifa Hospital Group · Licence verified</span></span><a href="#" tabindex="-1">Open report</a></div>
+                </div>
+                <div class="steps">
+                  <div><span>Step 1</span><b>Choose a specialty</b></div>
+                  <div><span>Step 2</span><b>Upload your files</b></div>
+                  <div><span>Step 3</span><b>Receive the report</b></div>
+                </div>
+              </main>
+            </div>
+          </div>
+        </div>
+        <div class="rv-deck" aria-hidden="true"><div class="rv-deckglow" data-rv="1150,1650" style="animation-range:1150px 1650px"></div></div>
+        <div class="rv-floor" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <article class="rv-card rv-c1" data-rv="1500,2000" style="--dx:-140px;--dy:80px;animation-range:1500px 2000px"<%- __hrEn %>><div class="in">
+      <span class="k"><%= tt('home.rv.card1.k', 'Specialist review') %></span><b><%= tt('home.rv.card1.title', 'Consultant Orthopaedic Surgeon') %></b><span class="s"><%= tt('home.rv.card1.sub', 'Shifa Hospital Group · reading your MRI now') %></span>
+    </div></article>
+    <article class="rv-card rv-c2" data-rv="1650,2150" style="--dx:140px;--dy:60px;animation-range:1650px 2150px"<%- __hrEn %>><div class="in">
+      <span class="k"><%= tt('home.rv.card2.k', 'Consultant verified') %></span><b><%= tt('home.rv.card2.title', '✓ Licence checked') %></b><span class="s"><%= tt('home.rv.card2.sub', 'Board-certified · in practice at the hospital') %></span>
+    </div></article>
+    <article class="rv-card rv-c3" data-rv="1800,2300" style="--dx:-120px;--dy:-60px;animation-range:1800px 2300px"<%- __hrEn %>><div class="in">
+      <span class="k"><%= tt('home.rv.card3.k', 'Your question') %></span><b><%= tt('home.rv.card3.title', '"Do I really need the surgery now?"') %></b><span class="s"><%= tt('home.rv.card3.sub', 'Answered in writing, Arabic + English') %></span>
+    </div></article>
+    <article class="rv-card rv-c4" data-rv="1950,2450" style="--dx:120px;--dy:-70px;animation-range:1950px 2450px"<%- __hrEn %>><div class="in">
+      <span class="pill-ok" style="align-self:flex-start"><i></i><%= tt('home.rv.card4.k', 'Report ready') %></span><b><%= tt('home.rv.card4.title', 'Delivered in 31 hours') %></b><span class="s"><%= tt('home.rv.card4.sub', 'Signed PDF · yours to keep') %></span>
+    </div></article>
+  </div>
+</section>

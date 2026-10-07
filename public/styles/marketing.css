@@ -313,6 +313,10 @@ p{margin:0}
    an inert span instead of a link. */
 .btn.is-cta-locked{background:rgba(248,245,239,.14);color:rgba(248,245,239,.62);box-shadow:none;transform:none;cursor:not-allowed;pointer-events:none}
 
+/* "Not for emergencies" under the closing CTA (the 6 Oct 2026 safety line; the
+   reference has none). Out-specifies .cta .copy p. */
+.cta .copy p.not-emergency{font-size:13px;opacity:.8;margin-top:2px}
+
 /* The Play badge row (partials/app_badge) sits under the closing CTA and in the
    footer, only when PLAY_STORE_URL is set. */
 .cta .tk-app-badge-row{margin-top:4px}
