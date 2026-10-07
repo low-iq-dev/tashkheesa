@@ -22,7 +22,8 @@
   Language. The opening is centred and is not mirrored for Arabic. Every
   string has its Arabic; the Arabic H1 is the one the SEO work specified (it is
   pinned by tests/core/seo-titles-meta.test.js), not a translation of the
-  English headline. The laptop screen is a picture of the English portal: it
+  English headline — with Western digits since 7 Oct 2026, like the rest of the
+  page (the <title> keeps its own). The laptop screen is a picture of the English portal: it
   stays LTR and English, is role="img" so its mock <main>/<aside>/link are not
   exposed as real landmarks or a real link, and the mock link is out of the
   tab order.
@@ -54,7 +55,7 @@
       <p class="eyebrow" style="color:var(--brass-light)"><%= tt('home.rv.eyebrow', 'Consultants of Shifa Hospital Group', 'استشاريو مجموعة مستشفيات شفا') %></p>
       <%# The English headline carries its own markup (line break, the italic
           "name"), so it is written out; Arabic is the existing hero title. %>
-      <h1 class="display"><% if (__hrIsAr) { %><%= tt('home.hero.title', 'A second opinion with a name on it.', 'رأي طبي ثانٍ مكتوب من استشاري باسمه — خلال ٤٨ ساعة') %><% } else { %>A second opinion<br>with a <em>name</em> on it.<% } %></h1>
+      <h1 class="display"><% if (__hrIsAr) { %><%= tt('home.hero.title', 'A second opinion with a name on it.', 'رأي طبي ثانٍ مكتوب من استشاري باسمه — خلال 48 ساعة') %><% } else { %>A second opinion<br>with a <em>name</em> on it.<% } %></h1>
       <p class="lede"><%= tt('home.hero.body',
         'Upload your scans, lab results or reports. A named consultant reviews them and writes you a clear opinion — within 48 hours.',
         'ارفع الأشعة أو التحاليل أو التقارير بتاعتك. استشاري باسمه بيراجعها ويكتبلك رأي واضح — في خلال 48 ساعة.') %></p>

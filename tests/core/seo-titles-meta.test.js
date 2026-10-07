@@ -96,7 +96,8 @@ module.exports = (async function run() {
       const h1 = (b) => helper.decodeEntities(((b.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/) || [])[1] || '')
         .replace(/<br\s*\/?>/g, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim());
       assert.strictEqual(h1(en), 'A second opinion with a name on it.');
-      assert.strictEqual(h1(ar), 'رأي طبي ثانٍ مكتوب من استشاري باسمه — خلال ٤٨ ساعة');
+      // 7 Oct 2026 (Ziad): the H1 uses Western digits like the rest of the page. The <title> above keeps ٤٨.
+      assert.strictEqual(h1(ar), 'رأي طبي ثانٍ مكتوب من استشاري باسمه — خلال 48 ساعة');
     });
 
     await check('specialty snippet: cut at a word boundary + suffix; too short → full sentence', async () => {

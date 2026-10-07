@@ -239,7 +239,8 @@ module.exports = (async function run() {
       assert.strictEqual(head.htmlLang, 'ar');
       assert.strictEqual(head.htmlDir, 'rtl');
       // The Arabic H1 is the SEO-specified one (seo-titles-meta pins it too), not a translation of the English.
-      assert.strictEqual(h1(ar.body), 'رأي طبي ثانٍ مكتوب من استشاري باسمه — خلال ٤٨ ساعة');
+      // Western digits since 7 Oct 2026, like the rest of the page.
+      assert.strictEqual(h1(ar.body), 'رأي طبي ثانٍ مكتوب من استشاري باسمه — خلال 48 ساعة');
       assert.ok(/<a class="link ar nav-lang" href="\/" rel="alternate" hreflang="en" lang="en">English<\/a>/.test(ar.body), 'language switch on /ar/');
       assert.ok(/<a class="link ar nav-lang" href="\/ar\/" rel="alternate" hreflang="ar-EG" lang="ar">/.test(en.body), 'language switch on /');
       // Sections follow the page direction; the only English island is the laptop-screen mock.
@@ -329,6 +330,37 @@ module.exports = (async function run() {
         assert.ok(arB.includes('<span>10 تخصصات متاحة</span>') && arB.includes('<span>من 750 جنيه</span>') && arB.includes('و13 تخصص كمان في الطريق.'));
         assert.ok(arB.includes('قريبًا: جراحة القلب والصدر · الأمراض الجلدية · طب الطوارئ'), 'coming-soon names in Arabic');
       } finally { await app.close(); }
+    });
+
+    await check('claims the 7 Oct copy pass removed stay removed, in both languages', async () => {
+      const enText = text(en.body), arText = text(ar.body);
+      // Security: the page says what the FAQ says, not "end to end" (staff can open files for support).
+      assert.ok(!/end[ -]to[ -]end/i.test(enText) && /<span>Encrypted in transit and at rest<\/span>/.test(en.body), 'trust strip encryption wording (EN)');
+      assert.ok(!/من طرف إلى طرف|من الطرف للطرف/.test(arText) && /<span>مشفّر أثناء النقل والتخزين<\/span>/.test(ar.body), 'trust strip encryption wording (AR)');
+      // Unsupported "most patients" claims, and the two lines that leaned on the patient's own doctor.
+      for (const gone of ['Most patients', 'Good doctors expect it', 'what they would do next', 'Tagammo & Sherouk branches']) {
+        assert.ok(enText.indexOf(gone) === -1, 'removed English copy is back: "' + gone + '"');
+      }
+      for (const gone of ['أغلب المرضى', 'الدكاترة الكويسين', 'كان هيعمل إيه', 'حضانات الأطفال', 'الاسترجاع', '٤٨ ساعة —', 'معتمدة من GAHAR']) {
+        assert.ok(arText.indexOf(gone) === -1, 'removed Arabic copy is back: "' + gone + '"');
+      }
+      assert.ok(enText.includes('The first three take about ten minutes. The fourth is on us.') && enText.includes('gives a written opinion on your options.'));
+      // 280 beds and the GAHAR accreditation belong to the New Cairo hospital, not to the group.
+      assert.ok(enText.includes("The group's New Cairo hospital is GAHAR-accredited, with 280 beds"), 'hospital paragraph (EN)');
+      assert.ok(arText.includes('مستشفى المجموعة في القاهرة الجديدة معتمد من GAHAR، وفيه 280 سرير'), 'hospital paragraph (AR)');
+      assert.ok(arText.includes('الرعاية المركزة لحديثي الولادة'), 'NICU is neonatal intensive care in Arabic, not "nurseries"');
+      assert.ok(enText.includes('Shifa Hospital Group · New Cairo & Sherouk City') && arText.includes('مجموعة مستشفيات شفا · القاهرة الجديدة ومدينة الشروق'), 'footer line');
+      assert.ok(/>الاسترداد والإلغاء<\/a>/.test(ar.body), 'the refund-policy link says refund (استرداد), not returns');
+      // The hospital's name: شفا — no hamza, no ال — everywhere on the page.
+      assert.ok(!/شفاء|الشفا/.test(arText), 'the hospital is «شفا» on the home page');
+    });
+
+    await check('tablets get the phone card treatment: three side cards hidden up to 1100px', async () => {
+      const css = read('public/styles/marketing.css');
+      const block = (css.match(/@media \(max-width:1100px\)\{\s*\.rv-card\{width:190px\}[\s\S]*?\n\}/) || [''])[0];
+      assert.ok(/\.rv-c1,\.rv-c2,\.rv-c3\{display:none\}/.test(block) && /\.rv-c4\{right:4%;bottom:13%\}/.test(block), 'the <=1100px card rule: ' + block.slice(0, 200));
+      // All four cards are still in the markup with their choreography; only CSS hides three of them.
+      assert.strictEqual((opening(en.body).match(/<article class="rv-card rv-c[1-4]"/g) || []).length, 4);
     });
 
     // ── 6. The phone / tablet menu ─────────────────────────────────────────
