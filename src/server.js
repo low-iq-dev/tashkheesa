@@ -978,8 +978,13 @@ async function renderHomepage(req, res) {
   // BOOKABLE-only: a coming-soon service must never move the quoted range.
   var cat = await stats.getCatalogueStats();
   var fmt = function (n) { return Number(n || 0).toLocaleString('en-US'); };
+  // The specialty grid: one card per specialty that can be booked today, with
+  // its bookable-service count — nothing about the catalogue is typed into
+  // the template.
+  var homeSpecialties = await stats.getSpecialtyList();
   return res.render('index', Object.assign({}, homepageLocals, {
     specialtyCount: specialtyCount,
+    homeSpecialties: homeSpecialties,
     priceRangeMin: fmt(cat.minPrice),
     priceRangeMax: fmt(cat.maxPrice)
   }));

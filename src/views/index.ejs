@@ -269,7 +269,7 @@
     </div>
     <div class="visual">
       <div class="frame">
-        <img src="/site/img/home/report.jpg" alt="<%= tt('home.receive.img_alt', 'A signed printed report on a desk beside reading glasses and a pen') %>" loading="lazy" decoding="async">
+        <img src="/site/img/home/report.jpg" alt="<%= tt('home.receive.img_alt', 'A signed printed report on a desk beside reading glasses and a pen') %>">
         <div class="tags"><span><%= tt('home.receive.tag1', 'Signed PDF') %></span><span><%= tt('home.receive.tag2', 'Stays in your account') %></span><span class="t"><%= tt('home.receive.tag3', 'Share with any doctor') %></span></div>
       </div>
     </div>
@@ -281,7 +281,7 @@
     and the specialty figure is live. %>
 <section class="hospital"<%- __en %>>
   <div class="wrap reveal">
-    <img class="photo" src="/site/img/home/shifa-night.jpg" alt="<%= tt('home.hospital.img_alt', 'Shifa Hospital Group, Tagammo, lit at night from above') %>" loading="lazy" decoding="async">
+    <img class="photo" src="/site/img/home/shifa-night.jpg" alt="<%= tt('home.hospital.img_alt', 'Shifa Hospital Group, Tagammo, lit at night from above') %>">
     <div class="cols">
       <div class="copy">
         <p class="eyebrow"><%= tt('home.hospital.eyebrow', 'Why Tashkheesa') %></p>
@@ -374,13 +374,15 @@
           page's Start button and loop-sweep-2026-10-06.test.js requires it on
           the page. It sits under the closing CTA rather than in the opening,
           whose headline block is sized to fit one viewport with the laptop.
-          It already has Arabic, so on /ar/ it is the one Arabic line here. %>
-      <p class="not-emergency"<%- __homeIsAr ? ' lang="ar" dir="rtl"' : '' %>><%= tt('home.hero.not_emergency',
+          It already has Arabic, so on /ar/ it is the one Arabic line in this
+          still-English card: RTL text, kept under the buttons it belongs to
+          (drop the text-align with __en when the card is translated). %>
+      <p class="not-emergency"<%- __homeIsAr ? ' lang="ar" dir="rtl" style="text-align:left"' : '' %>><%= tt('home.hero.not_emergency',
         'Not for emergencies. In an emergency, go to the nearest hospital or call 123.',
         'الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بـ 123.') %></p>
       <% if (locals.appFunnel) { %><div class="tk-app-badge-row tk-app-badge-row--start"><%- include('partials/app_badge', { placement: 'home' }) %></div><% } %>
     </div>
-    <img src="/site/img/home/patient.jpg" alt="<%= tt('home.closing.img_alt', 'A woman at her kitchen table reading her printed report with a calm smile') %>" loading="lazy" decoding="async">
+    <img src="/site/img/home/patient.jpg" alt="<%= tt('home.closing.img_alt', 'A woman at her kitchen table reading her printed report with a calm smile') %>">
   </div>
 </section>
 
