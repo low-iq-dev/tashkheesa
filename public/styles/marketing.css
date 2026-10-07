@@ -322,7 +322,9 @@ p{margin:0}
 .rv-head p.not-emergency{max-width:520px;margin-top:2px}
 /* The line makes the headline block taller: 31px, or 51px on phones where it
    wraps. On desktop the laptop keeps the reference's size and simply sits that
-   much lower — at 900px tall its keyboard still ends inside the stage. The
+   much lower. The stage crops whatever of the keyboard falls below it, as the
+   reference already does on screens taller than about 900px; that now starts
+   about 30px sooner (at 1440x900 the front ~22px of the trackpad edge). The
    laptop is sized from what is left of the viewport (the reference's 560px /
    470px budgets), and lid plus keyboard is 0.865 x its width tall, so where
    the extra height WOULD push the keyboard off the stage the budget gives it
