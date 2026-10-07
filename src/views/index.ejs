@@ -97,25 +97,34 @@
     }
   }
   </script>
-  <%# No-JS fallback. animations.css hides .reveal/.reveal-left/.reveal-right
-      only under html.js, and this snippet is what sets that class — with JS
-      off it never runs and every card ships visible. It must stay INLINE and
-      SYNCHRONOUS, before the animations.css <link> below: a deferred script
-      would let the page paint unhidden and then blink out. The nonce keeps it
-      runnable under the CSP (script-src has no 'unsafe-inline' — server.js). %>
-  <script<%- __nonceAttr %>>document.documentElement.classList.add('js');</script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/site/css/variables.css" />
-  <link rel="stylesheet" href="/site/css/styles.css" />
-  <link rel="stylesheet" href="/site/css/animations.css" />
-  <link rel="stylesheet" href="/site/css/responsive.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..700&family=Inter:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@500;700&display=swap" rel="stylesheet" />
+  <%# The home page's only stylesheet: the approved laptop-reveal reference,
+      ported verbatim (docs/redesign/BRIEF.md). It is served through the /site
+      mount, which falls back to public/ — there is no /styles mount. Do not
+      also load /styles.css or the old /site/css/* sheets here: marketing.css
+      styles body, a, h1–h3 and p unscoped and shares class names with them. %>
+  <link rel="stylesheet" href="/site/styles/marketing.css" />
+  <%# No-JS fallback. The opening is driven by CSS scroll-driven animations and,
+      where the browser has none, by /js/home-motion.js. With neither — JS off
+      in such a browser — nothing would ever fade the headline in, so show the
+      opening's final, static state (the same one prefers-reduced-motion
+      gets). A browser that has the CSS feature ignores this block and animates
+      as normal, JS or not. %>
+  <noscript><style>
+    @supports not (animation-timeline: scroll()){
+      .rv{height:auto}.rv-stage{position:relative;height:auto;padding-bottom:160px}
+      .rv-bg{opacity:.42}.rv-lock,.rv-cue{display:none}
+      .rv-head,.rv-laptop,.rv-ui,.rv-card,.rv-pills,.rv-deckglow{opacity:1}.rv-lid{transform:rotateX(14deg)}
+      .rv-card,.rv-pills{position:static;margin:12px auto 0}
+    }
+  </style></noscript>
   <link rel="icon" href="/site/assets/favicons/favicon.svg" type="image/svg+xml" />
   <link rel="icon" type="image/png" sizes="32x32" href="/site/assets/favicons/favicon-32x32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/site/assets/favicons/favicon-16x16.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/site/assets/favicons/apple-touch-icon.png" />
-  <meta name="theme-color" content="#1e3a8a" />
+  <meta name="theme-color" content="#06352F" />
   <%# App funnel 2026-09-23 — Play badge + Android smart banner. Nothing below
       renders unless PLAY_STORE_URL is set (locals.appFunnel is null). %>
   <% if (locals.appFunnel) { %><link rel="stylesheet" href="/css/app-funnel.css" /><% } %>
@@ -123,451 +132,295 @@
 <body data-meta-pixel="1">
 <%- include('partials/app_smart_banner') %>
 <script src="/js/meta_pixel.js" defer></script>
-  <!-- Navigation -->
-  <nav class="site-nav">
-    <div class="nav-inner">
-      <a href="<%= locals.publicLinkPrefix || '' %>/" class="nav-logo">
-        <img src="/site/assets/brand/tashkheesa-logo-primary.svg" alt="Tashkheesa" height="40" />
-      </a>
-      <div class="nav-links">
-        <a href="<%= locals.publicLinkPrefix || '' %>/services"><%= tt('nav.services', 'Services', 'الخدمات') %></a>
-        <a href="<%= locals.publicLinkPrefix || '' %>/about"><%= tt('nav.about', 'About', 'عن تشخيصة') %></a>
-        <a href="<%= locals.publicLinkPrefix || '' %>/specialties"><%= tt('nav.specialties', 'Specialties', 'التخصصات') %></a>
-        <a href="<%= locals.publicLinkPrefix || '' %>/blog"><%= tt('nav.blog', 'Blog', 'المدونة') %></a>
-        <a href="<%= locals.publicLinkPrefix || '' %>/faq"><%= tt('nav.faq', 'FAQ', 'الأسئلة الشائعة') %></a>
-        <a href="<%= locals.publicLinkPrefix || '' %>/contact"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a>
-        <div class="nav-lang-toggle">
-          <a href="/" class="lang-btn <%= lang === 'en' ? 'active' : '' %>" id="lang-en" rel="alternate" hreflang="en" lang="en">EN</a>
-          <a href="/ar/" class="lang-btn <%= lang === 'ar' ? 'active' : '' %>" id="lang-ar" rel="alternate" hreflang="ar-EG" lang="ar">AR</a>
-        </div>
-        <a href="/login<%= locals.langParam ? '?' + locals.langParam : '' %>" class="nav-signin"><%= tt('nav.signin', 'Sign In', 'تسجيل الدخول') %></a>
-        <div class="nav-cta">
-          <% if (__ctaOn) { %><a class="btn-primary btn-sm" href="/register<%= locals.langParam ? '?' + locals.langParam : '' %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
-          <% } else { %><span class="btn-primary btn-sm is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></span><% } %>
-        </div>
-      </div>
-      <button class="hamburger" aria-label="<%= tt('nav.toggle_menu', 'Toggle menu', 'افتح القائمة') %>">
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
-    </div>
-    <div class="nav-overlay"></div>
+<%
+  // ── Booking links ────────────────────────────────────────────────────────
+  // Same rule as /services: a logged-out visitor (nearly everyone here — a
+  // signed-in user is redirected away from `/`) registers first and is carried
+  // into the case wizard by `next`; the page language rides as a TOP-LEVEL
+  // parameter, never inside next. Every link built from this sits behind
+  // __ctaOn (tests/lint/public-booking-ctas-are-gated.test.js).
+  var __wizard = '/patient/new-case';
+  var __loggedIn = !!(typeof user !== 'undefined' && user && user.id);
+  var __startHref = __loggedIn ? __wizard : '/register?next=' + encodeURIComponent(__wizard);
+  if (locals.langParam) __startHref += (__startHref.indexOf('?') === -1 ? '?' : '&') + locals.langParam;
+  var __startLabel = tt('home.cta.start', 'Start your case', 'ابدأ حالتك');
+
+  // ── Language ─────────────────────────────────────────────────────────────
+  // The header, the opening's headline block and the footer carry the Arabic
+  // strings the site already had. The section copy below is new and has no
+  // Arabic yet: each string is behind a tt() key with only its English text
+  // (TODO i18n — add the Arabic as the third argument, or in src/i18n.js), and
+  // until then those sections are marked lang="en" dir="ltr" on /ar/ so the
+  // English is announced as English and its punctuation sits on the right
+  // side. Drop __en from a section once its keys have Arabic.
+  var __en = __homeIsAr ? ' lang="en" dir="ltr"' : '';
+
+  // ── Live catalogue figures ───────────────────────────────────────────────
+  // Nothing about the catalogue is typed into this page. The specialty grid,
+  // its service counts, the "N specialties open" figure and the starting price
+  // all come from services/site_stats.js (server.js renderHomepage), the same
+  // rule /services uses: a specialty is OPEN when at least one of its services
+  // can be booked. If the catalogue read fails the grid is simply not drawn.
+  var __specs = (typeof homeSpecialties !== 'undefined' && homeSpecialties) ? homeSpecialties : {};
+  var __openSpecs = Array.isArray(__specs.open) ? __specs.open : [];
+  var __soonSpecs = Array.isArray(__specs.soon) ? __specs.soon : [];
+  var __openCount = __openSpecs.length
+    ? __openSpecs.length
+    : (typeof specialtyCount !== 'undefined' ? specialtyCount : 7);
+  var __fromPrice = (typeof priceRangeMin !== 'undefined' && priceRangeMin)
+    ? ((typeof currency !== 'undefined' && currency ? currency : 'EGP') + ' ' + priceRangeMin)
+    : '';
+  // Facts main settled in the 6 Oct 2026 sweep (7589f6e), after the reference
+  // was drawn — the reference said 220 beds, "Meeza" and "USD, AED and SAR":
+  //   * 280 beds, and it is the New Cairo hospital's figure, not the group's
+  //   * payment: card or mobile wallet, InstaPay, bank transfer; international
+  //     cards are accepted and charged in Egyptian pounds (same as /faq)
+  var __beds = 280;
+  var __email = (typeof businessEmail !== 'undefined' && businessEmail) ? businessEmail : 'info@tashkheesa.com';
+  var __phone = (typeof businessPhone !== 'undefined' && businessPhone) ? businessPhone : '+20 110 200 9886';
+  var __address = (typeof businessAddress !== 'undefined' && businessAddress) ? businessAddress : 'New Cairo, Egypt';
+%>
+
+<header class="site-header">
+  <nav class="wrap nav" aria-label="<%= tt('home.nav.aria', 'Main') %>">
+    <a class="brand brand-lockup" href="<%= locals.publicLinkPrefix || '' %>/" aria-label="<%= __homeIsAr ? ('تشخيصة — ' + tt('nav.home', 'Home', 'الرئيسية')) : 'Tashkheesa home' %>">
+      <span class="tile"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l9 9-9 9-9-9 9-9z" fill="#06352F"/><path d="M12 8l4 4-4 4-4-4 4-4z" fill="#B38B3E"/></svg></span>
+      <span class="name"><b>Tashkheesa</b><span lang="ar" dir="rtl">تشخيصة</span></span>
+    </a>
+    <a class="link" href="<%= locals.publicLinkPrefix || '' %>/services"><%= tt('nav.services', 'Services', 'الخدمات') %></a>
+    <a class="link" href="<%= locals.publicLinkPrefix || '' %>/specialties"><%= tt('nav.specialties', 'Specialties', 'التخصصات') %></a>
+    <a class="link" href="<%= locals.publicLinkPrefix || '' %>/#how-it-works"><%= tt('home.how.kicker', 'How it works', 'إزاي بتشتغل') %></a>
+    <a class="link" href="<%= locals.publicLinkPrefix || '' %>/about"><%= tt('home.nav.hospital', 'The hospital', 'عن تشخيصة') %></a>
+    <a class="link" href="<%= locals.publicLinkPrefix || '' %>/faq"><%= tt('nav.faq', 'FAQ', 'الأسئلة الشائعة') %></a>
+    <%# The language switch: a plain link to the page's other URL, so a crawler
+        can follow it. One tag per line — the link lint reads rel/hreflang off
+        the same line as the href. %>
+    <% if (__homeIsAr) { %>
+    <a class="link ar nav-lang" href="/" rel="alternate" hreflang="en" lang="en">English</a>
+    <% } else { %>
+    <a class="link ar nav-lang" href="/ar/" rel="alternate" hreflang="ar-EG" lang="ar">العربية</a>
+    <% } %>
+    <a class="link" href="/login<%= locals.langParam ? '?' + locals.langParam : '' %>"><%= tt('nav.signin', 'Sign in', 'تسجيل الدخول') %></a>
+    <% if (__ctaOn) { %><a class="btn btn-brass" href="<%= __startHref %>"><%= __startLabel %></a>
+    <% } else { %><span class="btn btn-brass is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= __startLabel %></span><% } %>
   </nav>
+</header>
 
-  <main>
-    <!-- Hero Section -->
-    <section class="site-hero">
-      <div class="site-container hero-grid">
-        <div class="hero-content">
-          <span class="hero-kicker hero-fade-in"><%= tt('home.hero.kicker',
-            'Trusted Medical Second Opinions',
-            'آراء طبية تانية تقدر تثق فيها') %></span>
-          <h1 class="hero-fade-in"><%= tt('home.hero.title',
-            'A written second opinion from a named Egyptian consultant — within 48 hours',
-            'رأي طبي ثانٍ مكتوب من استشاري باسمه — خلال ٤٨ ساعة') %></h1>
-          <p class="hero-fade-in"><%= tt('home.hero.body',
-            'Send your report or scan and a verified Shifa Hospital Group consultant reviews it and answers in writing. Secure, fast, and built for clarity.',
-            'ابعت تقريرك أو أشعتك، واستشاري معتمد من مجموعة مستشفيات شفا يراجعها ويرد عليك كتابةً. آمن، سريع، ومبسّط.') %></p>
-          <div class="hero-buttons hero-fade-in">
-            <% if (__ctaOn) { %><a class="btn-primary" href="/register<%= locals.langParam ? '?' + locals.langParam : '' %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
-            <% } else { %><span class="btn-primary is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></span><% } %>
-            <a href="<%= locals.publicLinkPrefix || '' %>/services" class="btn-outline"><%= tt('home.hero.view_services',
-              'View Services & Pricing',
-              'شوف الخدمات والأسعار') %></a>
-          </div>
-          <p class="hero-fade-in" style="margin-top:14px;font-size:13px;opacity:.8;"><%= tt('home.hero.not_emergency',
-            'Not for emergencies. In an emergency, go to the nearest hospital or call 123.',
-            'الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بـ 123.') %></p>
-        </div>
-        <div class="hero-visual" aria-hidden="true">
-          <article class="hero-device-shell hero-fade-in">
-            <header class="hero-device-topbar">
-              <span class="hero-device-brand"><%= tt('home.device.brand',
-                'Tashkheesa Review Workspace',
-                'مساحة مراجعة تشخيصة') %></span>
-              <span class="hero-device-toolbar">
-                <span></span>
-                <span></span>
-                <span></span>
-              </span>
-            </header>
-            <div class="hero-device-body">
-              <p class="hero-device-heading"><%= tt('home.device.summary_report',
-                'Medical Summary Report',
-                'تقرير ملخص طبي') %></p>
-              <div class="hero-device-lines">
-                <span></span>
-                <span></span>
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
-              <div class="hero-device-meta">
-                <span><%= tt('home.device.assigned_consultant',
-                  'Assigned Consultant',
-                  'الدكتور المسؤول') %></span>
-                <span><%= tt('home.device.pending_followup',
-                  'Pending Follow-up',
-                  'في انتظار متابعة') %></span>
-              </div>
-              <div class="hero-device-action"><%= tt('home.device.draft_complete',
-                'Report Draft Complete',
-                'مسودة التقرير اتعملت') %></div>
-            </div>
-          </article>
-          <article class="floating-card floating-card-a">
-            <h3><%= tt('home.float.intake.title', 'Case Intake', 'استلام الحالة') %></h3>
-            <p><%= tt('home.float.intake.body',
-              'Files uploaded and triaged with clear review instructions.',
-              'الملفات اترفعت واتفرزت بتعليمات مراجعة واضحة.') %></p>
-          </article>
-          <article class="floating-card floating-card-b">
-            <h3><%= tt('home.float.review.title',
-              'Specialist Review',
-              'مراجعة الدكتور المتخصص') %></h3>
-            <p><%= tt('home.float.review.body',
-              'Consultant-led assessment with structured findings.',
-              'تقييم بقيادة الاستشاري بنتايج منظمة.') %></p>
-          </article>
-          <article class="floating-card floating-card-c">
-            <h3><%= tt('home.float.report.title', 'Written Report', 'تقرير مكتوب') %></h3>
-            <p><%= tt('home.float.report.body',
-              'Concise, decision-ready summary for your next step.',
-              'ملخص مختصر وجاهز يساعدك تاخد خطوتك الجاية.') %></p>
-          </article>
-        </div>
-      </div>
-    </section>
+<main id="main-content">
 
-    <!-- Features Section -->
-    <section class="site-section bg-light">
-      <div class="site-container">
-        <div class="section-header">
-          <span class="section-kicker"><%= tt('home.features.kicker',
-            'Why Choose Us',
-            'ليه تختارنا') %></span>
-          <h2><%= tt('home.features.title',
-            'Healthcare Built Around You',
-            'رعاية صحية معمولة على مقاسك') %></h2>
-          <p class="section-subtitle"><%= tt('home.features.subtitle',
-            'Everything you need for confident medical decisions, in one secure platform.',
-            'كل اللي تحتاجه عشان تاخد قرارات طبية بثقة، في منصة واحدة آمنة.') %></p>
-        </div>
-        <div class="features-grid">
-          <div class="feature-card reveal stagger-1">
-            <div class="feature-icon">
-              <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-            </div>
-            <h3><%= tt('home.feature.quick.title',
-              'Written Specialist Report',
-              'تقرير استشاري مكتوب') %></h3>
-            <p><%= tt('home.feature.quick.body',
-              'A named consultant reads your scans, labs and reports and writes a structured opinion.',
-              'استشاري باسمه يقرا الأشعة والتحاليل والتقارير بتاعتك ويكتب رأي منظم.') %></p>
-          </div>
-          <div class="feature-card reveal stagger-2">
-            <div class="feature-icon">
-              <svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
-            </div>
-            <h3><%= tt('home.feature.verified.title',
-              'Verified Doctors',
-              'دكاترة معتمدين') %></h3>
-            <p><%= tt('home.feature.verified.body',
-              'Every specialist is hospital-based, credentialed, and peer-reviewed.',
-              'كل دكتور بيشتغل في مستشفى ومعتمد وبيتراجع من زمايله.') %></p>
-          </div>
-          <div class="feature-card reveal stagger-3">
-            <div class="feature-icon">
-              <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-            </div>
-            <h3><%= tt('home.feature.secure.title',
-              'Secure & Private',
-              'آمن وسري') %></h3>
-            <p><%= tt('home.feature.secure.body',
-              'Encrypted in transit and at rest for all uploads, records, and communication.',
-              'مشفّر أثناء النقل والتخزين لكل الملفات والسجلات والمحادثات.') %></p>
-          </div>
-          <div class="feature-card reveal stagger-4">
-            <div class="feature-icon">
-              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-            <h3><%= tt('home.feature.always.title',
-              'Read It Anytime',
-              'اقراه في أي وقت') %></h3>
-            <p><%= tt('home.feature.always.body',
-              'Your report and your files stay in your account, on any device.',
-              'تقريرك وملفاتك محفوظين في حسابك، من أي جهاز.') %></p>
-          </div>
-        </div>
-      </div>
-    </section>
+<!-- ================= THE OPENING ================= -->
+<%- include('partials/hero-reveal', { heroCta: { on: __ctaOn, href: __startHref, offLabel: __ctaOffLabel } }) %>
 
-    <!-- How It Works — id anchors the /how-it-works 301 (static-pages.js) -->
-    <section class="site-section" id="how-it-works">
-      <div class="site-container">
-        <div class="section-header">
-          <span class="section-kicker"><%= tt('home.how.kicker',
-            'How It Works',
-            'إزاي بتشتغل') %></span>
-          <h2><%= tt('home.how.title',
-            'Four Simple Steps to Medical Clarity',
-            '4 خطوات بسيطة للوضوح الطبي') %></h2>
-          <p class="section-subtitle"><%= tt('home.how.subtitle',
-            'A focused workflow built for speed, readability, and confidence.',
-            'خطوات مركّزة معمولة للسرعة والوضوح والثقة.') %></p>
-        </div>
-        <div class="timeline">
-          <div class="timeline-step reveal stagger-1">
-            <div class="step-number">1</div>
-            <h3><%= tt('home.step1.title',
-              'Create Profile',
-              'اعمل حساب') %></h3>
-            <p><%= tt('home.step1.body',
-              'Sign up in under a minute with your basic information.',
-              'سجّل في أقل من دقيقة بمعلوماتك الأساسية.') %></p>
-          </div>
-          <div class="timeline-step reveal stagger-2">
-            <div class="step-number">2</div>
-            <h3><%= tt('home.step2.title',
-              'Choose Your Review',
-              'اختار المراجعة اللي محتاجها') %></h3>
-            <p><%= tt('home.step2.body',
-              'Pick the specialty and the turnaround you need. We match you with a verified specialist in that field.',
-              'اختار التخصص وسرعة التسليم اللي محتاجها. واحنا نوصّلك بدكتور معتمد في المجال ده.') %></p>
-          </div>
-          <div class="timeline-step reveal stagger-3">
-            <div class="step-number">3</div>
-            <h3><%= tt('home.step3.title',
-              'Upload Your Files',
-              'ارفع ملفاتك') %></h3>
-            <p><%= tt('home.step3.body',
-              'Submit your medical files and receive a structured specialist review.',
-              'ابعت ملفاتك الطبية واستنى مراجعة منظمة من الدكتور المتخصص.') %></p>
-          </div>
-          <div class="timeline-step reveal stagger-4">
-            <div class="step-number">4</div>
-            <h3><%= tt('home.step4.title',
-              'Get Your Report',
-              'استلم تقريرك') %></h3>
-            <p><%= tt('home.step4.body',
-              'Receive a clear, actionable medical report in 48 hours standard, 18 hours with VIP, or as fast as 4 hours with Urgent.',
-              'هيوصلك تقرير طبي واضح وعملي في خلال 48 ساعة قياسي، أو 18 ساعة مع VIP، وحتى 4 ساعات للحالات العاجلة.') %></p>
-          </div>
-        </div>
-      </div>
-    </section>
+<!-- ================= THE PAGE ================= -->
+<div class="page">
 
-    <!-- Hospital-backed trust -->
-    <section class="site-section bg-light">
-      <div class="site-container">
-        <div class="section-header">
-          <span class="section-kicker"><%= tt('home.trust.kicker',
-            'Why Tashkheesa',
-            'ليه تشخيصة') %></span>
-          <h2><%= tt('home.trust.title',
-            'Backed by a Hospital, Not a Marketplace',
-            'وراءنا مستشفى حقيقي، مش مجرد منصة') %></h2>
-          <p class="section-subtitle"><%= tt('home.trust.subtitle',
-            'We don\'t list anonymous reviewers. Every opinion carries the name of a Shifa Hospital Group consultant and the accountability of an accredited institution.',
-            'مفيش مراجعين مجهولين. كل رأي طبي بيحمل اسم استشاري من مجموعة مستشفيات شفا ومسؤولية مؤسسة طبية معتمدة.') %></p>
-        </div>
-        <div class="testimonials-wrapper">
-          <div class="testimonials-track">
-            <div class="testimonial-card">
-              <div class="testimonial-inner">
-                <blockquote><%= tt('home.trust1.body',
-                  '"Every case on Tashkheesa is reviewed by consultants of Shifa Hospital Group — a GAHAR-accredited, 280-bed hospital in New Cairo with Centers of Excellence in Stroke, NICU, and Oncology."',
-                  '"كل حالة على تشخيصة بيراجعها استشاريو مجموعة مستشفيات شفا — مستشفى معتمد من GAHAR بسعة 280 سرير في القاهرة الجديدة، وعنده مراكز تميّز في السكتة الدماغية وحضانات الأطفال والأورام."') %></blockquote>
-                <p class="testimonial-author"><%= tt('home.trust1.author',
-                  'A Real Hospital Behind Every Opinion',
-                  'مستشفى حقيقي ورا كل رأي طبي') %></p>
-                <p class="testimonial-role"><%= tt('home.trust1.role',
-                  'Shifa Hospital Group · New Cairo',
-                  'مجموعة مستشفيات شفا · القاهرة الجديدة') %></p>
-              </div>
-            </div>
-            <div class="testimonial-card">
-              <div class="testimonial-inner">
-                <blockquote><%= tt('home.trust2.body',
-                  '"No anonymous reviewers. Your case is assigned to a named, licensed Shifa Hospital Group consultant in the right specialty — and their name and credentials appear on your report."',
-                  '"مفيش مراجعين مجهولين. حالتك بتتعيّن لاستشاري معتمد بالاسم من مجموعة مستشفيات شفا في التخصص المناسب — واسمه وبياناته بيظهروا على تقريرك."') %></blockquote>
-                <p class="testimonial-author"><%= tt('home.trust2.author',
-                  'Named, Licensed Consultants',
-                  'استشاريين معتمدين بالاسم') %></p>
-                <%# 2026-08-25: Nephrology removed. This list is hardcoded and
-                    never followed specialties.is_visible, so it kept
-                    advertising Nephrology after migration 087 hid it for
-                    having no doctor at all — the homepage promised a
-                    consultant in a specialty the wizard would not even offer.
-                    Kept hardcoded rather than made dynamic: it is marketing
-                    copy in a testimonial card, not a catalogue, and a live
-                    query here would make the homepage's headline claim shift
-                    silently every time a doctor is paused. Whoever edits the
-                    visible-specialty set edits this line too. %>
-                <p class="testimonial-role"><%= tt('home.trust2.role',
-                  'Orthopedics · Radiology · OB/GYN · Cardiology · Urology · Internal Medicine',
-                  'عظام · أشعة · نسا وتوليد · قلب · مسالك بولية · باطنة') %></p>
-              </div>
-            </div>
-            <div class="testimonial-card">
-              <div class="testimonial-inner">
-                <blockquote><%= tt('home.trust3.body',
-                  '"A structured, bilingual medical report within your chosen turnaround — 48 hours as standard, as fast as 4 hours with Urgent — and a full refund if you cancel before a specialist is assigned."',
-                  '"تقرير طبي منظم وثنائي اللغة في المدة اللي تختارها — 48 ساعة كوقت أساسي، وحتى 4 ساعات للحالات العاجلة — مع استرداد كامل لو لغيت قبل تعيين الدكتور."') %></blockquote>
-                <p class="testimonial-author"><%= tt('home.trust3.author',
-                  'A Clear Report, Guaranteed',
-                  'تقرير واضح ومضمون') %></p>
-                <p class="testimonial-role"><%= tt('home.trust3.role',
-                  'Standard 48h turnaround · Full refund before assignment',
-                  'تسليم أساسي 48 ساعة · استرداد كامل قبل التعيين') %></p>
-              </div>
-            </div>
-          </div>
-          <div class="testimonial-dots">
-            <button class="testimonial-dot active" aria-label="<%= tt('home.testimonial.slide', 'Slide', 'شريحة') %> 1"></button>
-            <button class="testimonial-dot" aria-label="<%= tt('home.testimonial.slide', 'Slide', 'شريحة') %> 2"></button>
-            <button class="testimonial-dot" aria-label="<%= tt('home.testimonial.slide', 'Slide', 'شريحة') %> 3"></button>
-          </div>
-        </div>
-      </div>
-    </section>
+<%# TODO i18n: home.strip.* %>
+<section class="strip" aria-label="<%= tt('home.strip.aria', 'Trust') %>"<%- __en %>>
+  <div class="wrap">
+    <span><i class="dot"></i><%= tt('home.strip.hospital', 'Shifa Hospital Group · New Cairo') %></span><span><%= tt('home.strip.gahar', 'GAHAR-accredited') %></span><span><%= tt('home.strip.beds', __beds + ' beds') %></span><span><%= __openCount %> <%= __openCount === 1 ? tt('home.strip.specialty_open', 'specialty open') : tt('home.strip.specialties_open', 'specialties open') %></span><% if (__fromPrice) { %><span><%= tt('home.strip.from', 'From') %> <%= __fromPrice %></span><% } %><span><%= tt('home.strip.refund', 'Refund until a consultant is assigned') %></span><span><%= tt('home.strip.encrypted', 'Encrypted end to end') %></span>
+  </div>
+</section>
 
-    <!-- Stats -->
-    <section class="site-section bg-dark">
-      <div class="site-container">
-        <%# The element's text is the REAL figure, suffix included — with JS
-            off it is all a visitor ever sees, and it used to be a literal 0
-            ("0 Beds · 0 Consultants"). site-animations.js resets it to 0
-            itself before counting up, so only a page that is actually
-            running JS ever shows a zero. %>
-        <div class="stats-grid">
-          <div class="stat-item reveal stagger-1">
-            <div class="stat-number" data-count-to="280" data-count-suffix="">280</div>
-            <div class="stat-label"><%= tt('home.stat.beds',
-              'Beds at Shifa Hospital, New Cairo',
-              'سرير في مستشفى شفا بالتجمع الخامس') %></div>
-          </div>
-          <div class="stat-item reveal stagger-2">
-            <div class="stat-number" data-count-to="150" data-count-suffix="+">150+</div>
-            <div class="stat-label"><%= tt('home.stat.consultants',
-              'Shifa Hospital Group Consultants',
-              'استشاري في مجموعة مستشفيات شفا') %></div>
-          </div>
-          <div class="stat-item reveal stagger-3">
-            <% var __specialtyStat = typeof specialtyCount !== 'undefined' ? specialtyCount : 7; %>
-            <div class="stat-number" data-count-to="<%= __specialtyStat %>" data-count-suffix=""><%= __specialtyStat %></div>
-            <div class="stat-label"><%= tt('home.stat.specialties',
-              'Specialties on Tashkheesa',
-              'تخصص طبي على تشخيصة') %></div>
-          </div>
-          <div class="stat-item reveal stagger-4">
-            <div class="stat-number" data-count-to="48" data-count-suffix="h">48h</div>
-            <div class="stat-label"><%= tt('home.stat.turnaround',
-              'Standard Report Turnaround',
-              'وقت تسليم التقرير الأساسي') %></div>
-          </div>
-        </div>
-      </div>
-    </section>
+<%# TODO i18n: home.moments.* %>
+<section class="wrap sec reveal"<%- __en %>>
+  <div class="sec-head">
+    <p class="eyebrow"><%= tt('home.moments.eyebrow', 'When people come to us') %></p>
+    <h2 class="display"><%= tt('home.moments.title', 'The moments a second opinion is worth having.') %></h2>
+    <p class="lede"><%= tt('home.moments.lede', 'It isn\'t doubt in your doctor. It\'s one more qualified pair of eyes before a decision you can\'t easily undo.') %></p>
+  </div>
+  <div class="row">
+    <article class="moment m-teal card"><span class="num">01</span><h3><%= tt('home.moments.1.title', 'Surgery has been recommended') %></h3><p><%= tt('home.moments.1.body', 'Is it the right operation, the right time — or is there a conservative route first?') %></p></article>
+    <article class="moment m-tint card"><span class="num">02</span><h3><%= tt('home.moments.2.title', 'Two doctors, two answers') %></h3><p><%= tt('home.moments.2.body', 'A third, independent reading of the same files helps you choose between them.') %></p></article>
+    <article class="moment m-brass card"><span class="num">03</span><h3><%= tt('home.moments.3.title', 'A result you don\'t understand') %></h3><p><%= tt('home.moments.3.body', 'A scan or lab report full of words no one explained. We translate it, in plain Arabic and English.') %></p></article>
+    <article class="moment m-tint card"><span class="num">04</span><h3><%= tt('home.moments.4.title', 'A treatment isn\'t working') %></h3><p><%= tt('home.moments.4.body', 'Months in, no better. A specialist looks at the whole file and says what they would do next.') %></p></article>
+  </div>
+</section>
 
-    <!-- CTA Section -->
-    <section class="site-section cta-section">
-      <div class="site-container">
-        <h2 class="reveal"><%= tt('home.cta.title',
-          'Ready for Medical Clarity?',
-          'مستعد توصل لوضوح طبي؟') %></h2>
-        <p class="reveal"><%= tt('home.cta.body',
-          'Get a specialist second opinion in 48 hours standard, as fast as 4 hours with Urgent. Start your secure medical review today.',
-          'خد رأي تاني من دكتور متخصص في 48 ساعة قياسي، وحتى 4 ساعات للحالات العاجلة. ابدأ مراجعتك الطبية الآمنة النهارده.') %></p>
-        <% if (__ctaOn) { %><a class="btn-primary reveal" href="/register<%= locals.langParam ? '?' + locals.langParam : '' %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
-        <% } else { %><span class="btn-primary reveal is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></span><% } %>
-        <% if (locals.appFunnel) { %><div class="tk-app-badge-row"><%- include('partials/app_badge', { placement: 'home' }) %></div><% } %>
-      </div>
-    </section>
-  </main>
+<%# id="how-it-works" anchors the /how-it-works 301 (static-pages.js) and the
+    header/footer "How it works" links. TODO i18n: home.how.* %>
+<section id="how-it-works" class="wrap sec reveal" style="padding-top:0"<%- __en %>>
+  <div class="sec-head">
+    <p class="eyebrow"><%= tt('home.how.eyebrow', 'How it works') %></p>
+    <h2 class="display"><%= tt('home.how.heading', 'Four steps. No waiting room.') %></h2>
+    <p class="lede"><%= tt('home.how.lede', 'Most patients finish the first three in under ten minutes. The fourth is on us.') %></p>
+  </div>
+  <ol class="steps">
+    <li class="step"><span class="n">1</span><h3><%= tt('home.how.1.title', 'Tell us what you need') %></h3><p><%= tt('home.how.1.body', 'Pick the specialty and how fast you need an answer: Standard 48h, VIP 18h or Urgent 4h.') %></p></li>
+    <li class="step"><span class="n">2</span><h3><%= tt('home.how.2.title', 'Upload your files') %></h3><p><%= tt('home.how.2.body', 'Scans, lab results, reports — PDF, photos or DICOM. Write the question you want answered.') %></p></li>
+    <li class="step"><span class="n">3</span><h3><%= tt('home.how.3.title', 'A consultant reads everything') %></h3><p><%= tt('home.how.3.body', 'A named Shifa Hospital Group consultant in that specialty reviews your whole file — not a summary of it.') %></p></li>
+    <li class="step last"><span class="n">4</span><h3><%= tt('home.how.4.title', 'Receive your written opinion') %></h3><p><%= tt('home.how.4.body', 'A signed, bilingual report in your account and inbox. Yours to keep, and to show any doctor you choose.') %></p></li>
+  </ol>
+</section>
 
-  <!-- Footer -->
-  <footer class="site-footer">
-    <div class="site-container">
-      <div class="footer-grid">
-        <div class="footer-brand">
-          <img src="/site/assets/brand/tashkheesa-logo-white.svg" alt="Tashkheesa" class="footer-logo" />
-          <p><%= tt('home.footer.brand_blurb',
-            'Hospital-based specialist medical second opinions. Expert consultations delivered with speed and clarity.',
-            'آراء طبية تانية من دكاترة بتشتغل في مستشفيات. استشارات طبية بتوصلك بسرعة ووضوح.') %></p>
-          <%# Only channels that actually exist: Instagram (@tashkheesaa, the
-              live channel) first, then the Facebook Page (id 927504083784815)
-              linked to it. Twitter and LinkedIn were href="#" with no account
-              behind them — dead links, removed. %>
-          <div class="footer-social">
-            <%# WhatsApp first: card payment is down, so a message to the
-                switchboard is the shortest route a patient has to a paid case.
-                It was on /services and the inner pages but not here. %>
-            <a href="https://wa.me/201102009886" target="_blank" rel="noopener"
-               aria-label="<%= tt('home.footer.whatsapp', 'Tashkheesa on WhatsApp', 'تشخيصة على واتساب') %>">
-              <svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347M12.05 21.785h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-            </a>
-            <a href="https://www.instagram.com/tashkheesaa/" target="_blank" rel="noopener"
-               aria-label="<%= tt('home.footer.instagram', 'Tashkheesa on Instagram', 'تشخيصة على إنستجرام') %>">
-              <svg viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
-            </a>
-            <a href="https://www.facebook.com/profile.php?id=927504083784815" target="_blank" rel="noopener"
-               aria-label="<%= tt('home.footer.facebook', 'Tashkheesa on Facebook', 'تشخيصة على فيسبوك') %>">
-              <svg viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>
-            </a>
-          </div>
-        </div>
-        <div class="footer-col">
-          <h4><%= tt('home.footer.quick_links', 'Quick Links', 'روابط سريعة') %></h4>
-          <ul>
-            <li><a href="<%= locals.publicLinkPrefix || '' %>/"><%= tt('nav.home', 'Home', 'الرئيسية') %></a></li>
-            <li><a href="<%= locals.publicLinkPrefix || '' %>/services"><%= tt('nav.services', 'Services', 'الخدمات') %></a></li>
-            <li><a href="<%= locals.publicLinkPrefix || '' %>/about"><%= tt('home.footer.about_us', 'About Us', 'عن تشخيصة') %></a></li>
-            <li><a href="<%= locals.publicLinkPrefix || '' %>/contact"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a></li>
-          </ul>
-        </div>
-        <div class="footer-col">
-          <h4><%= tt('home.footer.resources', 'Resources', 'صفحات مفيدة') %></h4>
-          <ul>
-            <li><a href="<%= locals.publicLinkPrefix || '' %>/blog"><%= tt('home.footer.blog', 'Blog', 'المدونة') %></a></li>
-            <li><a href="<%= locals.publicLinkPrefix || '' %>/privacy"><%= tt('home.footer.privacy', 'Privacy Policy', 'سياسة الخصوصية') %></a></li>
-            <li><a href="<%= locals.publicLinkPrefix || '' %>/terms"><%= tt('home.footer.terms', 'Terms of Service', 'شروط الخدمة') %></a></li>
-            <li><a href="<%= locals.publicLinkPrefix || '' %>/refund-policy"><%= tt('home.footer.refund', 'Refund & Cancellation', 'الاسترجاع والإلغاء') %></a></li>
-            <li><a href="<%= locals.publicLinkPrefix || '' %>/delivery-policy"><%= tt('home.footer.delivery', 'Delivery Policy', 'سياسة التسليم') %></a></li>
-            <%# The homepage carries its own footer rather than partials/footer.ejs,
-                so the deletion link has to be added here too — and this is the
-                page a Play reviewer is most likely to land on. %>
-            <li><a href="<%= locals.publicLinkPrefix || '' %>/delete-account"><%= tt('home.footer.delete_account', 'Delete Your Account', 'حذف حسابك') %></a></li>
-            <li><a href="/login<%= locals.langParam ? '?' + locals.langParam : '' %>"><%= tt('home.footer.patient_portal', 'Patient Portal', 'بوابة المريض') %></a></li>
-          </ul>
-        </div>
-        <div class="footer-col">
-          <h4><%= tt('nav.contact', 'Contact', 'كلمنا') %></h4>
-          <ul>
-            <li><%= businessEmail %></li>
-            <li><%= businessPhone %></li>
-            <li><%= tt('home.footer.address',
-              businessAddress,
-              'مستشفى شفا، ١٦٦ شارع التسعين الشمالي، التجمع الخامس، القاهرة الجديدة') %></li>
-          </ul>
-          <% if (locals.appFunnel) { %><div class="tk-app-badge-row tk-app-badge-row--start"><%- include('partials/app_badge', { placement: 'footer' }) %></div><% } %>
-        </div>
-      </div>
-      <div class="footer-bottom">
-        <span><%= tt('home.footer.copyright',
-          '© 2026 Tashkheesa. All rights reserved.',
-          '© 2026 تشخيصة. جميع الحقوق محفوظة.') %></span>
-        <div class="footer-bottom-links">
-          <a href="<%= locals.publicLinkPrefix || '' %>/privacy"><%= tt('home.footer.privacy_short', 'Privacy', 'الخصوصية') %></a>
-          <a href="<%= locals.publicLinkPrefix || '' %>/terms"><%= tt('home.footer.terms_short', 'Terms', 'الشروط') %></a>
-        </div>
+<%# TODO i18n: home.receive.* %>
+<section class="receive"<%- __en %>>
+  <div class="wrap reveal">
+    <div class="copy">
+      <p class="eyebrow"><%= tt('home.receive.eyebrow', 'What you receive') %></p>
+      <h2 class="display" style="font-size:clamp(34px,4.5vw,48px)"><%= tt('home.receive.title1', 'Not a chat that disappears.') %><br><%= tt('home.receive.title2', 'A document you keep.') %></h2>
+      <p style="font-size:18px;color:var(--body)"><%= tt('home.receive.lede', 'Every Tashkheesa case ends in the same place: a structured report you can read tonight, print tomorrow, and put on your own doctor\'s desk next week.') %></p>
+      <ul>
+        <li><span class="check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg></span><span><strong><%= tt('home.receive.1.label', 'Who reviewed it') %></strong> <%= tt('home.receive.1.body', '— the consultant\'s name, specialty and licence, on the first page.') %></span></li>
+        <li><span class="check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg></span><span><strong><%= tt('home.receive.2.label', 'What they found') %></strong> <%= tt('home.receive.2.body', '— your results explained in plain language, line by line.') %></span></li>
+        <li><span class="check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg></span><span><strong><%= tt('home.receive.3.label', 'What they recommend') %></strong> <%= tt('home.receive.3.body', '— and the questions worth asking your treating doctor next.') %></span></li>
+        <li><span class="check brass"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg></span><span><strong><%= tt('home.receive.4.label', 'In Arabic and English') %></strong> <%= tt('home.receive.4.body', '— the same report, both languages, one PDF.') %></span></li>
+      </ul>
+      <p style="font-size:14px;color:var(--muted)"><%= tt('home.receive.disclaimer', 'Tashkheesa gives a professional second medical opinion. It does not diagnose or treat, and it never replaces your own doctor.') %></p>
+    </div>
+    <div class="visual">
+      <div class="frame">
+        <img src="/site/img/home/report.jpg" alt="<%= tt('home.receive.img_alt', 'A signed printed report on a desk beside reading glasses and a pen') %>" loading="lazy" decoding="async">
+        <div class="tags"><span><%= tt('home.receive.tag1', 'Signed PDF') %></span><span><%= tt('home.receive.tag2', 'Stays in your account') %></span><span class="t"><%= tt('home.receive.tag3', 'Share with any doctor') %></span></div>
       </div>
     </div>
-  </footer>
+  </div>
+</section>
 
-  <script src="/site/js/site-main.js"></script>
-  <script src="/site/js/site-animations.js"></script>
+<%# TODO i18n: home.hospital.* — the bed count is __beds (see the top of the
+    body), the turnaround figures are the ones the previous home page carried,
+    and the specialty figure is live. %>
+<section class="hospital"<%- __en %>>
+  <div class="wrap reveal">
+    <img class="photo" src="/site/img/home/shifa-night.jpg" alt="<%= tt('home.hospital.img_alt', 'Shifa Hospital Group, Tagammo, lit at night from above') %>" loading="lazy" decoding="async">
+    <div class="cols">
+      <div class="copy">
+        <p class="eyebrow"><%= tt('home.hospital.eyebrow', 'Why Tashkheesa') %></p>
+        <h2 class="display"><%= tt('home.hospital.title1', 'Backed by a hospital,') %><br><%= tt('home.hospital.title2', 'not a marketplace.') %></h2>
+        <p><%= tt('home.hospital.body', 'Every opinion on Tashkheesa is written by a consultant of Shifa Hospital Group — a GAHAR-accredited, ' + __beds + '-bed hospital in New Cairo with Centres of Excellence in Stroke, NICU and Oncology. No anonymous reviewers. No crowd-sourced answers. A name, a licence, and an institution that stands behind both.') %></p>
+        <a class="more" href="<%= locals.publicLinkPrefix || '' %>/about"><%= tt('home.hospital.more', 'About the hospital') %> <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+      </div>
+      <dl class="stats">
+        <div><dt><%= __beds %></dt><dd><%= tt('home.hospital.stat_beds', 'beds at Shifa Hospital, New Cairo') %></dd></div>
+        <div><dt><%= __openCount %></dt><dd><%= __openCount === 1 ? tt('home.hospital.stat_specialty', 'specialty open today') : tt('home.hospital.stat_specialties', 'specialties open today') %></dd></div>
+        <div><dt>48h</dt><dd><%= tt('home.hospital.stat_standard', 'standard turnaround, in writing') %></dd></div>
+        <div class="brass"><dt>4h</dt><dd><%= tt('home.hospital.stat_urgent', 'fastest, with Urgent') %></dd></div>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<%# The grid is the live catalogue (see the note at the top of the body): one
+    card per specialty that can be booked today, with its bookable-service
+    count, linking to that specialty's section on /services (same anchor rule
+    as services.ejs). Flex-wrap, so it reflows for any number of cards.
+    TODO i18n: home.specialties.* (the cards already carry nameAr). %>
+<section id="specialties" class="wrap sec reveal"<%- __en %>>
+  <div class="sec-head">
+    <p class="eyebrow"><%= tt('home.specialties.eyebrow', 'Specialties') %></p>
+    <h2 class="display"><%= tt('home.specialties.title', 'Open for review today.') %></h2>
+    <p class="lede"><%= tt('home.specialties.lede', 'Only specialties with a consultant on the roster are shown as open.') %><% if (__soonSpecs.length) { %> <%= __soonSpecs.length %> <%= tt('home.specialties.lede_more', 'more are being onboarded.') %><% } %></p>
+  </div>
+  <% if (__openSpecs.length) { %>
+  <div class="specs">
+    <% __openSpecs.forEach(function (sp) { %>
+    <a class="spec" href="<%= locals.publicLinkPrefix || '' %>/services#<%= sp.anchor %>"><b><%= sp.name %></b><span><%= sp.services %> <%= sp.services === 1 ? tt('home.specialties.service', 'service') : tt('home.specialties.services', 'services') %></span></a>
+    <% }); %>
+  </div>
+  <% } %>
+  <% if (__soonSpecs.length) { %>
+  <p class="soon"><%= tt('home.specialties.soon', 'Coming soon:') %> <%= __soonSpecs.map(function (sp) { return sp.name; }).join(' · ') %></p>
+  <% } %>
+</section>
+
+<%# TODO i18n: home.tiers.* — the Urgent hours match services/urgency_window.js
+    (07:00–19:00 Cairo). %>
+<section class="tiers"<%- __en %>>
+  <div class="wrap sec reveal">
+    <div class="sec-head">
+      <p class="eyebrow"><%= tt('home.tiers.eyebrow', 'Turnaround & price') %></p>
+      <h2 class="display"><%= tt('home.tiers.title', 'Choose how fast. The report is the same.') %></h2>
+      <p class="lede"><%= tt('home.tiers.lede', 'Every tier gets the same named consultant and the same written, bilingual report. You only pay more for speed.') %></p>
+    </div>
+    <div class="row">
+      <article class="tier card"><span class="k"><%= tt('home.tiers.standard.k', 'Standard') %></span><span class="big">48h</span><p><%= tt('home.tiers.standard.body', 'Included in every service price. Most patients choose this.') %></p><% if (__fromPrice) { %><span class="price"><%= tt('home.tiers.standard.from', 'From') %> <%= __fromPrice %></span><% } %></article>
+      <article class="tier vip card"><span class="badge"><%= tt('home.tiers.vip.badge', 'Priority') %></span><span class="k"><%= tt('home.tiers.vip.k', 'VIP') %></span><span class="big">18h</span><p><%= tt('home.tiers.vip.body', 'Your case goes to the front of the consultant\'s queue.') %></p><span class="price"><%= tt('home.tiers.vip.price', 'Service price + priority surcharge') %></span></article>
+      <article class="tier urgent card"><span class="k"><%= tt('home.tiers.urgent.k', 'Urgent') %></span><span class="big">4h</span><p><%= tt('home.tiers.urgent.body', '7 AM – 7 PM Cairo time. Cases confirmed overnight start at 7 AM.') %></p><span class="price"><%= tt('home.tiers.urgent.price', 'Service price + urgent surcharge') %></span></article>
+    </div>
+    <div class="pay">
+      <span><%= tt('home.tiers.pay.methods', 'Card or mobile wallet · InstaPay · bank transfer') %></span><span><%= tt('home.tiers.pay.international', 'International cards accepted, charged in Egyptian pounds') %></span>
+      <a href="<%= locals.publicLinkPrefix || '' %>/services"><%= tt('home.tiers.pay.all', 'All services and prices') %> <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+    </div>
+  </div>
+</section>
+
+<%# TODO i18n: home.faq.* %>
+<section class="faq"<%- __en %>>
+  <div class="wrap reveal">
+    <div class="intro">
+      <p class="eyebrow"><%= tt('home.faq.eyebrow', 'Good questions') %></p>
+      <h2 class="display"><%= tt('home.faq.title', 'The things people ask before they start.') %></h2>
+      <a href="<%= locals.publicLinkPrefix || '' %>/faq"><%= tt('home.faq.all', 'Read all questions') %> <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+    </div>
+    <div class="list">
+      <details><summary><%= tt('home.faq.1.q', 'Will my own doctor be offended?') %><i>+</i></summary><p><%= tt('home.faq.1.a', 'Good doctors expect it. A second opinion is standard practice before major decisions, and your report is written to be shared with — not hidden from — the doctor treating you.') %></p></details>
+      <details><summary><%= tt('home.faq.2.q', 'Is this written by AI?') %><i>+</i></summary><p><%= tt('home.faq.2.a', 'No. A named consultant reads your files and writes the opinion. Software helps us organise your uploads and keep them secure; it does not form the opinion.') %></p></details>
+      <details><summary><%= tt('home.faq.3.q', 'Who can see my files?') %><i>+</i></summary><p><%= tt('home.faq.3.a', 'Your assigned consultant and a small number of senior Tashkheesa staff for support and quality checks. Files are encrypted in transit and at rest, and handled under Egypt\'s data protection law.') %></p></details>
+    </div>
+  </div>
+</section>
+
+<%# TODO i18n: home.closing.* %>
+<section class="cta-wrap"<%- __en %>>
+  <div class="cta reveal">
+    <div class="copy">
+      <h2 class="display"><%= tt('home.closing.title1', 'Before your next decision,') %><br><%= tt('home.closing.title2', 'get a second opinion in writing.') %></h2>
+      <p><%= tt('home.closing.body', 'Ten minutes to upload. A signed report within 48 hours. A full refund if you change your mind before a consultant is assigned.') %></p>
+      <div class="ctas">
+        <% if (__ctaOn) { %><a class="btn btn-brass" href="<%= __startHref %>"><%= tt('home.closing.start', 'Start your case') %></a>
+        <% } else { %><span class="btn btn-brass is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('home.closing.start', 'Start your case') %></span><% } %>
+        <a class="btn btn-ghost-dark" href="https://wa.me/201102009886" target="_blank" rel="noopener"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-13.3 7.9L3 21l1.1-4.7A9 9 0 1 1 21 12z"/></svg><%= tt('home.closing.whatsapp', 'Ask us on WhatsApp') %></a>
+      </div>
+      <%# Not in the reference. The 6 Oct sweep put this line under the home
+          page's Start button and loop-sweep-2026-10-06.test.js requires it on
+          the page. It sits under the closing CTA rather than in the opening,
+          whose headline block is sized to fit one viewport with the laptop.
+          It already has Arabic, so on /ar/ it is the one Arabic line here. %>
+      <p class="not-emergency"<%- __homeIsAr ? ' lang="ar" dir="rtl"' : '' %>><%= tt('home.hero.not_emergency',
+        'Not for emergencies. In an emergency, go to the nearest hospital or call 123.',
+        'الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بـ 123.') %></p>
+      <% if (locals.appFunnel) { %><div class="tk-app-badge-row tk-app-badge-row--start"><%- include('partials/app_badge', { placement: 'home' }) %></div><% } %>
+    </div>
+    <img src="/site/img/home/patient.jpg" alt="<%= tt('home.closing.img_alt', 'A woman at her kitchen table reading her printed report with a calm smile') %>" loading="lazy" decoding="async">
+  </div>
+</section>
+
+</div>
+</main>
+
+<%# The home page carries its own footer rather than partials/footer.ejs (that
+    one closes the public layout's wrappers and is styled by /styles.css).
+    Arabic here is the wording the previous home footer and the shared footer
+    already used. Two things the reference footer did not have are kept
+    because the site depends on them: the Instagram / Facebook links (the only
+    live social channels) and the Play badge. /delete-account stays — Play
+    requires the deletion link, and this is the page a reviewer lands on. %>
+<footer class="footer">
+  <div class="wrap">
+    <div class="cols">
+      <div class="col brandcol">
+        <span style="display:flex;align-items:center;gap:10px;color:#fff"><span style="width:32px;height:32px;border-radius:9px;background:var(--brass);display:inline-flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l9 9-9 9-9-9 9-9z" fill="#0F1E2D"/><path d="M12 8l4 4-4 4-4-4 4-4z" fill="#B38B3E"/></svg></span><b style="font-size:17px">Tashkheesa</b><span lang="ar" dir="rtl" style="font-family:var(--font-ar);font-weight:700;font-size:14px;color:var(--brass-light)">تشخيصة</span></span>
+        <p style="font-size:14px"><%= tt('home.footer.blurb',
+          'Written second medical opinions from named consultants of Shifa Hospital Group. Second opinion only — not diagnosis or treatment.',
+          'آراء طبية تانية من دكاترة بتشتغل في مستشفيات. استشارات طبية بتوصلك بسرعة ووضوح.') %></p>
+        <p style="font-size:13px;color:#8A96A3"><%= tt('home.footer.hospital',
+          'Shifa Hospital Group · Tagammo & Sherouk branches · New Cairo',
+          'مجموعة مستشفيات شفا · القاهرة الجديدة') %></p>
+      </div>
+      <div class="col"><span class="h"><%= tt('home.footer.col_patients', 'Patients', 'الخدمات') %></span><a href="<%= locals.publicLinkPrefix || '' %>/services"><%= tt('home.footer.services', 'Services & prices', 'الخدمات والأسعار') %></a><a href="<%= locals.publicLinkPrefix || '' %>/specialties"><%= tt('nav.specialties', 'Specialties', 'التخصصات') %></a><a href="<%= locals.publicLinkPrefix || '' %>/#how-it-works"><%= tt('home.how.kicker', 'How it works', 'إزاي بتشتغل') %></a><a href="<%= locals.publicLinkPrefix || '' %>/faq"><%= tt('nav.faq', 'FAQ', 'الأسئلة الشائعة') %></a><a href="/login<%= locals.langParam ? '?' + locals.langParam : '' %>"><%= tt('home.footer.patient_portal', 'Patient portal', 'بوابة المريض') %></a></div>
+      <div class="col"><span class="h"><%= tt('home.footer.col_company', 'Company', 'عن تشخيصة') %></span><a href="<%= locals.publicLinkPrefix || '' %>/about"><%= tt('home.footer.about', 'About', 'من نحن') %></a><a href="<%= locals.publicLinkPrefix || '' %>/blog"><%= tt('home.footer.blog', 'Blog', 'المدونة') %></a><a href="<%= locals.publicLinkPrefix || '' %>/apply"><%= tt('home.footer.for_doctors', 'For doctors', 'للأطباء') %></a><a href="<%= locals.publicLinkPrefix || '' %>/contact"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a></div>
+      <div class="col" style="flex-basis:220px"><span class="h"><%= tt('home.footer.col_legal', 'Legal', 'السياسات') %></span><a href="<%= locals.publicLinkPrefix || '' %>/privacy"><%= tt('home.footer.privacy', 'Privacy policy', 'سياسة الخصوصية') %></a><a href="<%= locals.publicLinkPrefix || '' %>/terms"><%= tt('home.footer.terms', 'Terms of service', 'شروط الخدمة') %></a><a href="<%= locals.publicLinkPrefix || '' %>/refund-policy"><%= tt('home.footer.refund', 'Refunds & cancellation', 'الاسترجاع والإلغاء') %></a><a href="<%= locals.publicLinkPrefix || '' %>/delivery-policy"><%= tt('home.footer.delivery', 'Delivery policy', 'سياسة التسليم') %></a><a href="<%= locals.publicLinkPrefix || '' %>/delete-account"><%= tt('home.footer.delete_account', 'Delete your account', 'حذف حسابك') %></a></div>
+      <div class="col" style="flex-basis:240px"><span class="h"><%= tt('home.footer.col_reach', 'Reach us', 'تواصل معنا') %></span><a href="mailto:<%= __email %>"><%= __email %></a><a href="https://wa.me/201102009886" target="_blank" rel="noopener"><bdi dir="ltr"><%= __phone %></bdi> · WhatsApp</a><a href="https://www.instagram.com/tashkheesaa/" target="_blank" rel="noopener">Instagram</a><a href="https://www.facebook.com/profile.php?id=927504083784815" target="_blank" rel="noopener">Facebook</a><span><%= tt('home.footer.address', __address, 'مستشفى شفا، ١٦٦ شارع التسعين الشمالي، التجمع الخامس، القاهرة الجديدة') %></span>
+        <% if (locals.appFunnel) { %><div class="tk-app-badge-row tk-app-badge-row--start"><%- include('partials/app_badge', { placement: 'footer' }) %></div><% } %>
+      </div>
+    </div>
+    <div class="bottom"><span><%= tt('home.footer.copyright', '© 2026 Tashkheesa. All rights reserved.', '© 2026 تشخيصة. جميع الحقوق محفوظة.') %></span><span<%- __en %>><%= tt('home.footer.payments', 'Payments processed by Kashier · Data handled under Egypt\'s Personal Data Protection Law') %></span></div>
+  </div>
+</footer>
+
+<%# Drives the opening where CSS scroll-driven animations are missing, and the
+    section reveals where view() timelines are. External + defer: script-src
+    has no 'unsafe-inline' (server.js). %>
+<script src="/js/home-motion.js" defer></script>
 <%# Soft launch 2026-09-25 — the home page closes its own body and never
     includes partials/footer, so the floating WhatsApp button has to be
     included here explicitly. Same partial as every other public page. %>
