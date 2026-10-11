@@ -1736,6 +1736,18 @@ _dbReady.then(async function() {
     intervalIds.push(funnelDigestInterval);
     logMajor('Funnel digest registered (every 15 min, sends once/day after 09:00 Cairo)');
 
+    // PAYOUT REMINDER 2026-10-11 — one WhatsApp + quiet Command push in the
+    // last working days of the month, only when doctors are owed money for
+    // delivered work. Once per month (claim row); see services/payout_reminder.
+    var payoutReminderInterval = setInterval(function() {
+      require('./services/payout_reminder').runPayoutReminder().then(function(r) {
+        if (r && r.month) logMajor('[payout-reminder] ' + r.month + ' delivered=' + r.delivered);
+      }).catch(function(err) { console.error('[payout-reminder] error', err); });
+    }, 15 * 60 * 1000);
+    if (payoutReminderInterval && payoutReminderInterval.unref) payoutReminderInterval.unref();
+    intervalIds.push(payoutReminderInterval);
+    logMajor('Payout reminder registered (every 15 min, sends once/month near month-end)');
+
     // BUSINESS PULSE 2026-09-29 — quiet Command pushes for the events that mean
     // the business is working: signup, checkout, paid, delivered, real enquiry.
     // services/business_pulse.js reads the columns every door stamps, so no

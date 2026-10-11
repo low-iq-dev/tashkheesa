@@ -38,6 +38,8 @@ const KIND_CATALOGUE = Object.freeze([
     en: 'Payment amount mismatch',          ar: 'مبلغ الدفع مش مطابق' },
   { kind: 'refund_requested',       group: 'money',   def: 'quiet',
     en: 'Refund requested',                 ar: 'طلب استرداد' },
+  { kind: 'payout_reminder',        group: 'money',   def: 'quiet',
+    en: 'Doctor payouts due (month-end)',   ar: 'مستحقات الأطباء آخر الشهر' },
 
   // ── Growth ───────────────────────────────────────────────────────────────
   { kind: 'patient_signup',         group: 'growth',  def: 'quiet',
