@@ -2,6 +2,9 @@ const { addNonceMiddleware } = require('./middleware-nonce-fix');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const { rateLimit } = require('express-rate-limit');
+// Every per-address limiter below keys on the caller, not req.ip — on this
+// service req.ip is an edge hop that changes per request (./middleware/client_ip.js).
+const { clientIpKey } = require('./middleware/client_ip');
 const { verify, getTokenFromRequest } = require('./auth');
 const { t: translate } = require('./i18n');
 const { normalizeLang, getDir } = require('./utils/lang');
@@ -130,7 +133,6 @@ function baseMiddlewares(app) {
   //   * It is keyed on the visitor, not req.ip. req.ip is an edge address on
   //     this service (src/middleware/client_ip.js), so the bucket was shared
   //     with strangers and useless against one abuser.
-  const { clientIpKey } = require('./middleware/client_ip');
   const limiter = rateLimit({
     windowMs: 1 * 60 * 1000,
     max: 100,
@@ -151,6 +153,7 @@ function baseMiddlewares(app) {
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 30, // per IP per window
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many attempts. Please wait 15 minutes and try again.'
@@ -165,6 +168,7 @@ function baseMiddlewares(app) {
     windowMs: 1 * 60 * 1000, // 1 minute
     max: 50, // 50 downloads per minute per IP
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many download requests. Please wait a moment and try again.',
@@ -184,6 +188,7 @@ function baseMiddlewares(app) {
     windowMs: 1 * 60 * 1000, // 1 minute
     max: 10, // 10 requests per minute per IP
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many requests to internal endpoints. Please try again later.'
@@ -202,6 +207,7 @@ function baseMiddlewares(app) {
     windowMs: 60 * 1000,
     max: 20,
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many payment callback requests.'
@@ -214,6 +220,7 @@ function baseMiddlewares(app) {
     windowMs: 60 * 1000,
     max: 10,
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many referral requests. Please wait a moment and try again.'
@@ -243,6 +250,7 @@ function baseMiddlewares(app) {
     windowMs: 15 * 60 * 1000,
     max: 10,
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many submissions. Please wait 15 minutes and try again.'
@@ -257,6 +265,7 @@ function baseMiddlewares(app) {
     windowMs: 15 * 60 * 1000,
     max: 10,
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many case submissions. Please wait 15 minutes and try again.'
@@ -267,6 +276,7 @@ function baseMiddlewares(app) {
     windowMs: 60 * 60 * 1000,
     max: 10,
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many waitlist submissions. Please try again later.'

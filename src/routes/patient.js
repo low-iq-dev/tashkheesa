@@ -3159,33 +3159,23 @@ router.get('/portal/patient/payment-return/k/:id', async (req, res) => {
 // the app treats it as "ask the server now" (the signed webhook is still the
 // only thing that marks an order paid).
 //
-// A visitor with a web session that owns the order gets exactly what the web
-// route gives — so the website behaves the same whichever session was used.
-router.get('/portal/patient/payment-return/k/:id/app', async (req, res) => {
+// It ALWAYS hands back, session or not. Android's Custom Tabs share Chrome's
+// cookies, so a patient who has ever signed in on the website arrives here
+// with a web session. Sending them on to the web success page (as the route
+// above does) would leave the sheet open on the portal and the app waiting —
+// and those web pages are App Link paths, which would bounce a second screen
+// into the app. Only sessions minted for the app carry this path, and the
+// website is never handed one (kashier_checkout.js re-uses a session only for
+// the same return target), so there is no web visitor to serve here.
+router.get('/portal/patient/payment-return/k/:id/app', (req, res) => {
   const appReturn = require('../services/app_payment_return');
   const orderId = String(req.params.id || '').trim();
-  const failed = appReturn.isFailedReturn(req.query);
-
-  let owned = null;
-  if (orderId && req.user && req.user.id && String(req.user.role || '').toLowerCase() === 'patient') {
-    try {
-      owned = await queryOne(
-        'SELECT id FROM orders_active WHERE id = $1 AND patient_id = $2',
-        [orderId, req.user.id]
-      );
-    } catch (_) { owned = null; }
-  }
-  if (owned) {
-    if (failed) return res.redirect('/portal/patient/pay/' + encodeURIComponent(orderId) + '?failed=1');
-    return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId) + '/payment-success');
-  }
-
   const isAr = String(getLang(req, res) || 'ar').toLowerCase() !== 'en';
   res.set('Cache-Control', 'no-store');
   res.set('X-Robots-Tag', 'noindex');
   return res.status(200).send(appReturn.renderAppReturnPage({
     orderId: orderId,
-    failed: failed,
+    failed: appReturn.isFailedReturn(req.query),
     isAr: isAr,
     nonce: res.locals && res.locals.cspNonce
   }));

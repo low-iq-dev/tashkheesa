@@ -51,6 +51,8 @@ module.exports = function (deps) {
     windowMs: 60 * 1000,
     max: 30,
     validate: false,
+    // The caller, not req.ip (an edge hop here — middleware/client_ip.js).
+    keyGenerator: (req) => require('../../middleware/client_ip').clientIpKey(req),
     message: { success: false, error: 'Too many requests. Slow down.', code: 'RATE_LIMITED' },
     standardHeaders: true,
     legacyHeaders: false,

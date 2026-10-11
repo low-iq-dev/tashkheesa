@@ -123,16 +123,40 @@ test('the app route exists beside the web route, which is still there', () => {
   assert.ok(appRouteAt > webRouteAt, 'app hand-back route missing');
 });
 
-test('the app route is display-only: no write, no payment_status, no mark-paid', () => {
-  assert.ok(!/\bexecute\(|withTransaction\(|UPDATE |INSERT |markCasePaid|payment_status/.test(appRoute),
-    'the hand-back route must not touch payment state');
-  assert.ok(/SELECT id FROM orders_active WHERE id = \$1 AND patient_id = \$2/.test(appRoute), 'ownership check missing');
+test('the app route is display-only: no database at all, no payment_status, no mark-paid', () => {
+  assert.ok(!/\bexecute\(|withTransaction\(|queryOne\(|queryAll\(|UPDATE |INSERT |SELECT |markCasePaid/.test(appRoute),
+    'the hand-back route must not touch the database');
+  assert.ok(!/payment_status\s*=/.test(appRoute));
 });
 
-test('a web session that owns the order gets the web behaviour from the app route too', () => {
-  assert.ok(appRoute.includes("res.redirect('/portal/patient/pay/' + encodeURIComponent(orderId) + '?failed=1')"));
-  assert.ok(appRoute.includes("res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId) + '/payment-success')"));
-  assert.ok(appRoute.indexOf('if (owned) {') < appRoute.indexOf('renderAppReturnPage('), 'the web branch must be decided before the hand-back page');
+test('the app route ALWAYS hands back — it never redirects into the web portal', () => {
+  // Android Custom Tabs share Chrome's cookies: a patient with a web session
+  // must still be handed back to the app, not sent to the web success page
+  // (an App Link path, which would bounce a second screen into the app).
+  const body = appRoute.slice(appRoute.indexOf("router.get('/portal/patient/payment-return/k/:id/app'"));
+  assert.ok(!/res\.redirect\(/.test(body), 'the hand-back route must not redirect');
+  assert.ok(!/req\.user/.test(body), 'the hand-back route must not branch on a web session');
+  assert.ok(/renderAppReturnPage\(/.test(body));
+});
+
+test('the phone-backfill gate lets the hand-back page through (and nothing else new)', () => {
+  const { requirePhone } = require('../../src/middleware/requirePhone');
+  const gate = requirePhone();
+  const run = (path) => {
+    let outcome = null;
+    gate(
+      { user: { role: 'patient', phone: '' }, path, originalUrl: path },
+      { redirect: (to) => { outcome = 'redirect:' + to; } },
+      () => { outcome = 'next'; }
+    );
+    return outcome;
+  };
+  assert.strictEqual(run('/portal/patient/payment-return/k/' + ID + '/app'), 'next');
+  assert.strictEqual(run('/portal/patient/payment-return/k/' + ID + '/app/'), 'next');
+  // The web landing and everything else keep the gate exactly as it was.
+  assert.ok(/^redirect:\/portal\/patient\/onboarding/.test(run('/portal/patient/payment-return/k/' + ID)));
+  assert.ok(/^redirect:/.test(run('/portal/patient/payment-return/k/' + ID + '/app/extra')));
+  assert.ok(/^redirect:/.test(run('/dashboard')));
 });
 
 test('the web landing page is byte-for-byte what it was (no hand-back in it)', () => {

@@ -325,6 +325,8 @@ function fileKind(mime, name) {
 // single shared instance (one in-memory store) across the router's lifetime.
 const inviteIpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 10, validate: false,
+  // The caller, not req.ip (an edge hop here — middleware/client_ip.js).
+  keyGenerator: (req) => require('../../middleware/client_ip').clientIpKey(req),
   standardHeaders: true, legacyHeaders: false,
   message: { ok: false, error: 'too_many_requests' },
 });

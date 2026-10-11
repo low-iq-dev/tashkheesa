@@ -329,6 +329,22 @@ const via = (caller, edge) => ({ 'CF-Connecting-IP': caller, 'X-Forwarded-For': 
     assert.ok(/max:\s*100/.test(block) && /windowMs:\s*1 \* 60 \* 1000/.test(block), 'website budget unchanged (100 / minute)');
   });
 
+  await test('every per-address limiter in middleware.js, api/admin.js and api/ops_checks.js keys on the caller, with its cap unchanged', () => {
+    const mw = read('src/middleware.js');
+    const blocks = mw.match(/rateLimit\(\{[\s\S]*?\n  \}\)/g) || [];
+    assert.ok(blocks.length >= 9, 'expected the 9 limiters of middleware.js, found ' + blocks.length);
+    blocks.forEach((b) => assert.ok(/keyGenerator:/.test(b) && /clientIpKey/.test(b), 'limiter still keyed on req.ip:\n' + b.slice(0, 160)));
+    assert.ok(!/req\.ip\b/.test(mw.replace(/\/\/.*$/gm, '')), 'middleware.js must not key anything on req.ip');
+    // The caps this batch did NOT change.
+    const caps = blocks.map((b) => (/max:\s*(\d+)/.exec(b) || [])[1]).join(',');
+    assert.strictEqual(caps, '100,30,50,10,20,10,10,10,10', 'limiter caps changed: ' + caps);
+
+    const invite = (read('src/routes/api/admin.js').match(/const inviteIpLimiter = rateLimit\(\{[\s\S]*?\}\);/) || [''])[0];
+    assert.ok(/clientIpKey/.test(invite) && /max:\s*10\b/.test(invite));
+    const ops = (read('src/routes/api/ops_checks.js').match(/const limiter = rateLimit\(\{[\s\S]*?\}\);/) || [''])[0];
+    assert.ok(/clientIpKey/.test(ops) && /max:\s*30\b/.test(ops));
+  });
+
   await test('OTP per-phone caps are unchanged (60s cooldown, 3 sends, 5 verifies per 15 min)', () => {
     const src = read('src/middleware/otp_phone_limits.js');
     assert.ok(/otpSendCooldown = rateLimit\(\{\s*windowMs: 60 \* 1000, max: 1,/.test(src));
