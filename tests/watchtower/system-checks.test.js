@@ -265,6 +265,41 @@ function post(server, body, headers) {
     return sent.every((e) => e.data.screen === 'system') ? null : 'a push does not open the System screen';
   });
 
+  await check('stale grouping: a whole reporter going silent is ONE push, small groups and sourceless rows keep their own', async () => {
+    const sent = [];
+    const at = new Date('2026-10-07T14:20:00Z');
+    const mini = [];
+    for (let i = 0; i < 17; i++) mini.push({ check_key: 'mini.c' + i, area: i === 0 ? 'site' : 'mini', source: 'mini', checked_at: at, expected_every_seconds: 900 });
+    const rows = mini.concat([
+      { check_key: 'money.a', area: 'money', source: 'portal', checked_at: at, expected_every_seconds: 300 },
+      { check_key: 'cases.b', area: 'cases', source: 'portal', checked_at: at, expected_every_seconds: 300 },
+      { check_key: 'growth.c', area: 'growth', checked_at: at, expected_every_seconds: 300 },
+    ]);
+    const out = await sc.processPushes({
+      claimTransitions: async () => [], claimBriefs: async () => [], claimStale: async () => rows,
+      pushOpsEvent: async (e) => { sent.push(e); return { sent: true }; },
+    });
+    if (sent.length !== 4) return 'expected 1 grouped push + 3 single pushes, got ' + sent.length;
+    const g = sent.find((e) => e.dedupeKey === 'source:mini');
+    if (!g) return 'no grouped push for the mini';
+    if (g.kind !== 'system_check_stale') return 'grouped push has the wrong kind';
+    if (g.title !== 'Stopped reporting: the Mac mini (17 checks)') return 'title wrong: ' + g.title;
+    if (g.defaultMode !== 'loud') return 'a group holding a site check should be loud';
+    if (g.data.screen !== 'system' || g.data.source !== 'mini' || g.data.checkKeys.length !== 17) return 'grouped data wrong';
+    if (g.body.length > 300 || g.body.indexOf('and 13 more') === -1) return 'body wrong: ' + g.body;
+    for (const k of ['money.a', 'cases.b', 'growth.c']) if (!sent.find((e) => e.dedupeKey === k)) return k + ' lost its own push';
+    if (out.stale !== 20) return 'stale count should be every row, got ' + out.stale;
+    // A group with no loud area stays quiet.
+    const quiet = [];
+    await sc.processPushes({
+      claimTransitions: async () => [], claimBriefs: async () => [],
+      claimStale: async () => mini.slice(1, 4),
+      pushOpsEvent: async (e) => { quiet.push(e); return { sent: true }; },
+    });
+    if (quiet.length !== 1 || quiet[0].defaultMode !== 'quiet') return 'a group with no site check should be one quiet push';
+    return /RETURNING[^;]*\bsource\b/.test(sc.claimStale.toString()) ? null : 'claimStale does not return source';
+  });
+
   await check('site.workers and cases.paid_unassigned fail QUIET; every other site / cases / money check stays loud', async () => {
     const sent = [];
     const keys = [['site.workers', 'site'], ['cases.paid_unassigned', 'cases'], ['cases.sla_overdue', 'cases'],

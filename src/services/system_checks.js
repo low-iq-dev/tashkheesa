@@ -333,8 +333,37 @@ async function claimStale() {
   await execute('UPDATE ops_checks SET stale_pushed = false WHERE stale_pushed = true AND NOT (' + staleSql + ')', []);
   return (await queryAll(
     'UPDATE ops_checks SET stale_pushed = true WHERE stale_pushed = false AND ' + staleSql +
-    ' RETURNING check_key, area, status, summary, checked_at, expected_every_seconds', []
+    ' RETURNING check_key, area, status, summary, checked_at, expected_every_seconds, source', []
   )) || [];
+}
+
+// When one reporter stops (the Mac mini is switched off most nights), every
+// check it owns goes stale in the same pass. From this many upwards they are
+// sent as ONE push naming the reporter instead of one push per check.
+const STALE_GROUP_MIN = 3;
+const SOURCE_LABELS = Object.freeze({ mini: 'the Mac mini', portal: 'the portal', claude: 'Claude' });
+function _sourceLabel(src) { return SOURCE_LABELS[src] || String(src); }
+
+/**
+ * Split freshly-stale rows into grouped pushes (one per source with
+ * STALE_GROUP_MIN or more rows) and the rows that keep their own push.
+ * Rows with no source are never grouped.
+ */
+function groupStale(rows) {
+  const bySource = new Map();
+  const singles = [];
+  for (const r of rows || []) {
+    const src = r && r.source ? String(r.source) : '';
+    if (!src) { singles.push(r); continue; }
+    if (!bySource.has(src)) bySource.set(src, []);
+    bySource.get(src).push(r);
+  }
+  const groups = [];
+  for (const [source, list] of bySource) {
+    if (list.length >= STALE_GROUP_MIN) groups.push({ source, rows: list });
+    else for (const r of list) singles.push(r);
+  }
+  return { groups, singles };
 }
 
 /** Claim every claude.brief.* row written since it was last pushed. */
@@ -379,7 +408,23 @@ async function processPushes(deps) {
   } catch (err) { logErrorToDb(err, { context: 'system_checks.transitions', category: 'system_checks' }); }
 
   try {
-    for (const r of await _stale()) {
+    const split = groupStale(await _stale());
+    for (const g of split.groups) {
+      const keys = g.rows.map((r) => r.check_key);
+      const lastHeard = g.rows.map((r) => _iso(r.checked_at)).filter(Boolean).sort().pop();
+      const shown = keys.slice(0, 4).map(_label).join(', ') + (keys.length > 4 ? ' and ' + (keys.length - 4) + ' more' : '');
+      await _push({
+        kind: 'system_check_stale',
+        dedupeKey: 'source:' + g.source,
+        title: 'Stopped reporting: ' + _sourceLabel(g.source) + ' (' + keys.length + ' checks)',
+        body: ('Last heard ' + (lastHeard || 'never') + '. ' + shown + '.').slice(0, 300),
+        data: { screen: 'system', source: g.source, checkKeys: keys.slice(0, 40), stale: true },
+        // Loud if ANY check in the group would have been loud on its own.
+        defaultMode: g.rows.some((r) => staleMode(r.area) === 'loud') ? 'loud' : 'quiet',
+      });
+      out.stale += keys.length;
+    }
+    for (const r of split.singles) {
       await _push({
         kind: 'system_check_stale',
         dedupeKey: r.check_key,
@@ -681,7 +726,7 @@ module.exports = {
   HISTORY_RETENTION_DAYS, BRIEF_PREFIX, BRIEF_PERIODS, UPSERT_SQL,
   validateCheck, validateBody, upsertCheck, upsertChecks,
   isStale, effectiveStatus, buildSystemPayload, readSystem,
-  transitionKind, failedMode, staleMode, QUIET_FAIL_KEYS, claimTransitions, claimStale, claimBriefs, processPushes,
+  transitionKind, failedMode, staleMode, QUIET_FAIL_KEYS, claimTransitions, claimStale, claimBriefs, processPushes, groupStale, STALE_GROUP_MIN,
   classifyAiSpend, classifySignups, criticalSummary, aiSpendSummary, computeInternalChecks, runSystemChecks,
   pruneCheckHistory, digestCounts,
 };
