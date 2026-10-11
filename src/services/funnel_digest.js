@@ -22,7 +22,9 @@
 const crypto = require('crypto');
 const { queryAll, queryOne, execute } = require('../pg');
 
-const STEPS = new Set(['start_view', 'start_view_meta', 'services_view', 'services_view_meta', 'register_view', 'start_cta', 'start_wa', 'wa_redirect']);
+const STEPS = new Set(['start_view', 'start_view_meta', 'services_view', 'services_view_meta', 'register_view', 'start_cta', 'start_wa', 'wa_redirect',
+  // 11 Oct 2026 — taps on the services page (hero Start / bottom CTA, a service or specialty card, the help link)
+  'services_cta', 'services_card', 'services_help']);
 // Per-campaign split (2 Oct 2026): '<page>_view@<utm_campaign>' so each ad's landing
 // views can be told apart. Slug is sanitised and capped; anything else is rejected.
 const CAMPAIGN_STEP = /^(start|services)_view@[a-z0-9][a-z0-9_-]{0,39}$/;
@@ -185,6 +187,7 @@ function formatDigest(f, since) {
     '',
     'Landing /start views: ' + fmt(views) + (f.start_view_meta ? ' (Meta ' + f.start_view_meta + ')' : ''),
     'Services page views: ' + fmt(f.services_view || 0) + (f.services_view_meta ? ' (Meta ' + f.services_view_meta + ')' : ''),
+    'Services page taps: Start ' + fmt(f.services_cta || 0) + ' · service cards ' + fmt(f.services_card || 0) + ' · help ' + fmt(f.services_help || 0),
     'Taps on Start: ' + fmt(f.start_cta || 0) + pct(f.start_cta || 0, views) + ' · WhatsApp taps: ' + fmt(f.start_wa || 0),
     'WhatsApp ad clicks: ' + fmt(f.wa_redirect || 0),
     'Register page views: ' + fmt(f.register_view || 0),

@@ -391,6 +391,20 @@
         const __heroMin = (services || []).filter(x => x && x.is_bookable && x.base_price > 0)
           .reduce((m, x) => (m == null || x.base_price < m ? x.base_price : m), null);
         const __heroAr = !!(typeof isAr !== 'undefined' && isAr);
+        // 11 Oct 2026 — the hero button used to open /start, a second landing
+        // page, so an ad visitor needed two taps to reach sign-up. It now goes
+        // straight to sign-up (or the case form when signed in), exactly like
+        // every booking link further down this page.
+        const __heroLp = (typeof langParam !== 'undefined' && langParam) ? langParam : '';
+        const __heroIn = !!(typeof user !== 'undefined' && user && user.id);
+        // While the booking gate is shut no link on this page may open sign-up
+        // or the case form, so the hero keeps its old /start destination.
+        const __heroCtaOn = (typeof bookingCtaEnabled !== 'undefined') ? !!bookingCtaEnabled : false;
+        const __heroStartHref = !__heroCtaOn
+          ? (locals.publicLinkPrefix || '') + '/start'
+          : __heroIn
+            ? '/patient/new-case' + (__heroLp ? '?' + __heroLp : '')
+            : '/register?next=' + encodeURIComponent('/patient/new-case') + (__heroLp ? '&' + __heroLp : '');
       %>
       <% if (__heroMin) { %>
       <div style="display:inline-block;margin-top:14px;background:#0B6B5F;color:#F8F5EF;padding:8px 18px;border-radius:50px;font-weight:700;font-size:15px;"><%= __heroAr ? ('تقارير مكتوبة تبدأ من ' + Number(__heroMin).toLocaleString('en-US') + ' جنيه') : ('Written reports from EGP ' + Number(__heroMin).toLocaleString('en-US')) %></div><br>
@@ -399,10 +413,10 @@
       <%# 6 Oct 2026 — paid Instagram traffic lands here; the top of the page
           had a price but no way to act on it. %>
       <div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:16px;">
-        <a href="<%= locals.publicLinkPrefix || '' %>/start" style="display:inline-block;background:#0B6B5F;color:#fff;padding:12px 26px;border-radius:50px;font-weight:700;font-size:15px;text-decoration:none;"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
+        <a href="<%= __heroStartHref %>" data-funnel="services_cta" style="display:inline-block;background:#0B6B5F;color:#fff;padding:12px 26px;border-radius:50px;font-weight:700;font-size:15px;text-decoration:none;"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
         <a href="<%= locals.publicLinkPrefix || '' %>/wa" rel="nofollow" style="display:inline-block;background:#fff;color:#0B6B5F;border:1.5px solid #0B6B5F;padding:12px 26px;border-radius:50px;font-weight:700;font-size:15px;text-decoration:none;"><%= tt('svc.hero.whatsapp', 'Ask us on WhatsApp', 'اسألنا على واتساب') %></a>
       </div>
-      <a href="<%= locals.publicLinkPrefix || '' %>/help-me-choose" style="display:inline-block;margin-top:16px;background:#eff6ff;color:#2563eb;border:1.5px solid #93c5fd;padding:10px 22px;border-radius:50px;font-weight:600;font-size:14px;text-decoration:none;"><%= tt('svc.hero.help_cta',
+      <a href="<%= locals.publicLinkPrefix || '' %>/help-me-choose" data-funnel="services_help" style="display:inline-block;margin-top:16px;background:#eff6ff;color:#2563eb;border:1.5px solid #93c5fd;padding:10px 22px;border-radius:50px;font-weight:600;font-size:14px;text-decoration:none;"><%= tt('svc.hero.help_cta',
         '🩺 Not sure which service you need? Ask our assistant →',
         '🩺 مش متأكد محتاج إيه؟ اسأل المساعد بتاعنا ←') %></a>
     </section>
@@ -674,7 +688,7 @@
           %><% if (__specIsLive && __fromPrice[specName]) { %> &nbsp;·&nbsp; <strong><%= __isAr ? ('من ' + __fmt(__fromPrice[specName]) + ' جنيه') : ('from EGP ' + __fmt(__fromPrice[specName])) %></strong><% } %></div>
         </div>
         <% if (__specIsLive && __ctaOn) { %>
-        <a href="<%= bookHref('specialty=' + encodeURIComponent(specName)) %>" class="see-all-link">
+        <a href="<%= bookHref('specialty=' + encodeURIComponent(specName)) %>" class="see-all-link" data-funnel="services_card">
           <%= tt('svc.book_review', 'Book a review →', 'احجز مراجعة ←') %>
         </a>
         <% } else if (__specIsLive) { %>
@@ -715,7 +729,7 @@
         </div>
         <% } else { %>
         <%# else-branch of the (!isBookable || !__ctaOn) gate above — bookable and open. %>
-        <a href="<%= bookHref('service_id=' + encodeURIComponent(service.id)) %>" class="service-card">
+        <a href="<%= bookHref('service_id=' + encodeURIComponent(service.id)) %>" class="service-card" data-funnel="services_card">
           <h3><%= svcName(service) %></h3>
           <p><%= (__isAr && service.description_ar) || service.description || tt('svc.default_desc',
             'Board-certified specialist review with detailed written report in English and Arabic.',
@@ -747,7 +761,7 @@
              ? ('احجز مراجعة ' + specDisplayName(specName) + ' ←')
              : ('Get ' + enArticle(specDisplayName(specName)) + ' ' + specDisplayName(specName) + ' review →'); %>
         <% if (__specIsLive && __ctaOn) { %>
-        <a href="<%= bookHref('specialty=' + encodeURIComponent(specName)) %>" class="specialty-cta-btn"><%= __ctaLabel %></a>
+        <a href="<%= bookHref('specialty=' + encodeURIComponent(specName)) %>" class="specialty-cta-btn" data-funnel="services_card"><%= __ctaLabel %></a>
         <% } else { %>
         <span class="specialty-cta-btn is-cta-locked" aria-disabled="true" title="<%= __specIsLive ? __ctaOffLabel : tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %>"><%= __specIsLive ? __ctaLabel : tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %></span>
         <% } %>
@@ -770,7 +784,7 @@
         'Submit your case in minutes. A written specialist review, delivered to your account and on WhatsApp.',
         'ابعت حالتك في دقايق. مراجعة مكتوبة من دكتور متخصص بتوصلك على حسابك وعلى واتساب.') %></p>
       <% if (__ctaOn) { %>
-      <a href="<%= bookHref('') %>" class="btn-cta"><%= tt('svc.cta.submit',
+      <a href="<%= bookHref('') %>" class="btn-cta" data-funnel="services_cta"><%= tt('svc.cta.submit',
         'Submit Your Case Now',
         'ابعت حالتك دلوقتي') %></a>
       <% } else { %>
@@ -809,6 +823,13 @@
   }
   document.addEventListener('visibilitychange', arm);
   arm();
+  // 11 Oct 2026 — count taps as well (unique visitors per day), so the digest
+  // shows what people do on this page and not only that they saw it.
+  Array.prototype.forEach.call(document.querySelectorAll('[data-funnel]'), function (a) {
+    a.addEventListener('click', function () {
+      try { fetch('/f/e?s=' + encodeURIComponent(a.getAttribute('data-funnel')), { keepalive: true, credentials: 'same-origin' }); } catch (e) {}
+    });
+  });
 })();
 </script>
 

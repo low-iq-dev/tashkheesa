@@ -593,7 +593,7 @@ function setupStaticPages(opts) {
         fd.bumpLandingView(step === 'start_view' ? 'start' : 'services', Object.assign(Object.create(req), {
           query: { utm_source: (req.query && req.query.src) || '', utm_campaign: (req.query && req.query.c) || '' }
         }));
-      } else if (step === 'start_cta' || step === 'start_wa') {
+      } else if (step === 'start_cta' || step === 'start_wa' || step === 'services_cta' || step === 'services_card' || step === 'services_help') {
         fd.bumpFunnelCount(step, req);
       }
     } catch (_) {}
