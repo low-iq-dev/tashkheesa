@@ -265,6 +265,25 @@ check('a session-expiry style delivery signed another way (secret key, raw body)
   assert(sigLib.probeKashierAuthenticity(body, raw, 'deadbeef', { apiKey: API_KEY, secretKey: 'unit_test_secret_key' }) === null, 'a bad signature was recognised');
 });
 
+check('session_expired (only merchantOrderId, unverifiable) is acknowledged, recorded, pages nobody, pays nothing', async function () {
+  // The exact shape seen live on 7 Oct 2026.
+  const w = world();
+  const body = { platform: 'kashier', event: 'session_expired', data: { merchantOrderId: ORDER_ID + '--abc', signatureKeys: ['merchantOrderId'] } };
+  const out = await w.send(body, 'a'.repeat(64));
+  assert(out.http === 200 && out.json.ignored === true, 'expected 200 ignored, got ' + out.http);
+  assert(w.alerts.length === 0, 'paged for an expired session');
+  assert(w.events.some(function (e) { return e.event_type === 'webhook_ignored'; }), 'not recorded');
+  assert(w.markCasePaid === 0 && w.order.payment_status !== 'paid', 'paid on a session_expired notice');
+});
+
+check('a "session_expired" that carries money fields is NOT waved through', async function () {
+  const w = world();
+  const body = { event: 'session_expired', data: { merchantOrderId: ORDER_ID, amount: 750, status: 'SUCCESS', signatureKeys: ['merchantOrderId'] } };
+  const out = await w.send(body, 'a'.repeat(64));
+  assert(out.http === 401, 'expected 401, got ' + out.http);
+  assert(w.alerts.length === 1 && w.markCasePaid === 0, 'must be refused, paged, and pay nothing');
+});
+
 check('an unverifiable unsigned-fields delivery pages once, then stays quiet for its retries', async function () {
   const w = world();
   const body = { event: 'mystery', data: { merchantOrderId: ORDER_ID, signatureKeys: ['merchantOrderId'] } };

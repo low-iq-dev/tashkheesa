@@ -154,6 +154,38 @@ async function processKashierEvent(input, d) {
       }
     }
 
+    // 7 Oct 2026 — identified from the recorded shape: the delivery is
+    // `session_expired`, carrying only merchantOrderId, sent when an unpaid
+    // payment session lapses. Its signature matches none of the schemes we can
+    // check and Kashier does not document it. It asks us to do nothing and we
+    // do nothing, so there is nothing a forged one could gain: acknowledge it
+    // (ending Kashier's ten retries per abandoned checkout), record it as
+    // unverified, page nobody. Strictly this event name AND no money fields —
+    // anything else unverifiable is still refused below.
+    const NOTICE_ONLY_EVENTS = ['session_expired'];
+    const moneyFields = ['amount', 'currency', 'status', 'transactionId', 'kashierOrderId', 'method', 'card'];
+    const noticeOnly = unsigned &&
+      NOTICE_ONLY_EVENTS.indexOf(String(body.event || '').toLowerCase()) !== -1 &&
+      !moneyFields.some(function (f) { return Object.prototype.hasOwnProperty.call(dd, f); });
+    if (noticeOnly) {
+      try {
+        await d.execute(
+          `INSERT INTO payment_events (id, event_type, payload_json, hmac_verified, received_at)
+           VALUES ($1, 'webhook_ignored', $2, false, NOW())`,
+          [
+            'pe-' + crypto.randomUUID(),
+            JSON.stringify(Object.assign({
+              provider: 'kashier', reason: 'notice_only_unverified', scheme: null,
+              ip: input.ip || null, request_id: input.requestId || null
+            }, shape))
+          ]
+        );
+      } catch (auditErr) {
+        d.logErrorToDb(auditErr, { context: 'kashier_webhook_ignored_audit' });
+      }
+      return { http: 200, json: { ok: true, ignored: true } };
+    }
+
     // Unverifiable. Still refused, still recorded. An unsigned-fields delivery
     // pages once a day at most (it is harmless by construction, and Kashier
     // repeats it for a day); every other signature failure pages every time.
