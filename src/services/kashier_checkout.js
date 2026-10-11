@@ -23,6 +23,8 @@
 
 const crypto = require('crypto');
 const kashier = require('./kashier');
+// Pure, no requires of its own — see the note at the top of that file.
+const { resolveCaseReference } = require('../notify/case_label');
 
 const KASHIER_INTENTION_PREFIX = 'kashier:';
 const WEBHOOK_PATH = '/payments/kashier/webhook';
@@ -31,6 +33,19 @@ const RETURN_PATH_PREFIX = '/portal/patient/payment-return/k/';
 // Reuse a session for this long. Comfortably inside the session's own TTL so
 // a reused link is never one Kashier has already expired.
 const REUSE_MINUTES = Math.max(5, Math.min(60, kashier.SESSION_TTL_MINUTES - 30));
+
+// RETURN TARGET (2026-10-11). The mobile app now opens the hosted page in the
+// system browser sheet, and asks for a session that comes back to the app:
+//   'web'  …/payment-return/k/<id>      the landing every session used so far
+//   'app'  …/payment-return/k/<id>/app  the same landing + a hand-back link
+//                                       that closes the sheet (routes/patient.js)
+// The redirect is fixed when a session is minted, so a stored session is only
+// reused for a request that wants the SAME target. A session minted before
+// this change has no `returnTo` in its audit row and counts as 'web' — which
+// is what it is. Callers that do not pass returnTo (the web Pay button, every
+// already-installed app build) therefore behave exactly as before.
+const APP_RETURN_SUFFIX = '/app';
+function returnTargetOf(v) { return v === 'app' ? 'app' : 'web'; }
 
 const D = {
   pg: function () { return require('../pg'); },
@@ -68,6 +83,8 @@ function publicBaseUrl() {
  * @param {string} a.currency
  * @param {string} [a.lang]       'ar' | 'en'
  * @param {string} [a.source]     'web_pay_page' | 'mobile_pay_page'
+ * @param {string} [a.returnTo]   'app' | 'web' (default). Where Kashier sends the
+ *                                browser afterwards — see RETURN TARGET below.
  * @param {object} [a.customer]   { reference: users.id, email? } — passed to Kashier
  * @returns {Promise<{checkoutUrl: string, reused: boolean}>}
  */
@@ -77,6 +94,8 @@ async function ensureKashierCheckout(a) {
   const amountCents = Number(a.amountCents);
   const currency = String(a.currency || 'EGP').toUpperCase();
   if (!Number.isInteger(amountCents) || amountCents <= 0) throw cerr('invalid_amount', 'INVALID_AMOUNT');
+
+  const returnTo = returnTargetOf(a.returnTo);
 
   const { queryOne, execute } = D.pg();
 
@@ -98,7 +117,8 @@ async function ensureKashierCheckout(a) {
       if (p && typeof p.checkoutUrl === 'string' && /^https:\/\//i.test(p.checkoutUrl) &&
           Number(p.amountCents) === amountCents &&
           String(p.currency || '').toUpperCase() === currency &&
-          p.mode === kashier.readConfig().mode) {
+          p.mode === kashier.readConfig().mode &&
+          returnTargetOf(p.returnTo) === returnTo) {
         return { checkoutUrl: p.checkoutUrl, reused: true };
       }
     } catch (reuseErr) {
@@ -111,17 +131,39 @@ async function ensureKashierCheckout(a) {
   const base = publicBaseUrl();
   const orderRef = D.buildSpecialReference(order.id);
 
+  // 2026-10-11 — the line the patient reads on the hosted checkout. It was a
+  // slice of orders.id ("Tashkheesa 3F1C2B4A-111"), which appears nowhere in
+  // their account and which support cannot search for; it now carries the
+  // case reference (orders.reference_id — the number on their case and in
+  // every message about it). Neither caller's SELECT loads that column, so it
+  // is read here, once, on the mint path only. Display text and nothing else:
+  // the description is not part of `order`, the amount, or anything Kashier
+  // signs back to us (kashier-signature REQUIRED_SIGNED_FIELDS). Like the
+  // reuse check, it must never block a payment — any failure, and a case with
+  // no reference, keeps the description this always sent.
+  let caseReference = resolveCaseReference(null, order);
+  if (!caseReference) {
+    try {
+      const refRow = await queryOne('SELECT reference_id FROM orders_active WHERE id = $1', [order.id]);
+      caseReference = resolveCaseReference(null, { id: order.id, reference_id: refRow && refRow.reference_id });
+    } catch (refErr) {
+      D.logErrorToDb(refErr, { context: 'kashier_checkout_reference_lookup', orderId: order.id });
+    }
+  }
+  const description = 'Tashkheesa ' + (caseReference || String(order.id).slice(0, 12).toUpperCase());
+
   let session;
   try {
     session = await kashier.createSession({
       orderRef: orderRef,
       amountCents: amountCents,
       currency: currency,
-      redirectUrl: base + RETURN_PATH_PREFIX + encodeURIComponent(order.id),
+      redirectUrl: base + RETURN_PATH_PREFIX + encodeURIComponent(order.id) +
+        (returnTo === 'app' ? APP_RETURN_SUFFIX : ''),
       webhookUrl: base + WEBHOOK_PATH,
       lang: a.lang,
       customer: a.customer || null,
-      description: 'Tashkheesa ' + String(order.id).slice(0, 12).toUpperCase()
+      description: description
     });
   } catch (e) {
     try {
@@ -169,7 +211,8 @@ async function ensureKashierCheckout(a) {
           currency: currency,
           special_reference: orderRef,
           expireAt: session.expireAt,
-          source: a.source || null
+          source: a.source || null,
+          returnTo: returnTo
         })
       ]
     );
@@ -186,6 +229,7 @@ module.exports = {
   KASHIER_INTENTION_PREFIX,
   WEBHOOK_PATH,
   RETURN_PATH_PREFIX,
+  APP_RETURN_SUFFIX,
   REUSE_MINUTES,
   __setTestDeps
 };

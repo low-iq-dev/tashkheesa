@@ -3140,6 +3140,57 @@ router.get('/portal/patient/payment-return/k/:id', async (req, res) => {
   return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId) + '/payment-success');
 });
 
+// GET /portal/patient/payment-return/k/:id/app — the same landing, for the
+// mobile app's browser sheet (2026-10-11).
+//
+// The app now opens the hosted card page in the system browser sheet (Chrome
+// Custom Tabs / an iOS authentication session) instead of an embedded WebView.
+// A sheet has to be told when to close: this page sends it to the app's own
+// link, tashkheesa://payment-return, which the sheet hands back to the app.
+// Sessions created for the app (GET /api/v1/cases/:id/payment?return=app →
+// services/kashier_checkout.js) carry THIS path as their redirect; every other
+// session keeps the route above, which is not touched.
+//
+// The marker is in the PATH, not a query string, for the reason given above:
+// Kashier appends its own query to merchantRedirect.
+//
+// Like the route above this is a DISPLAY decision only. Nothing here reads or
+// writes payment_status, and the link it opens carries no proof of anything:
+// the app treats it as "ask the server now" (the signed webhook is still the
+// only thing that marks an order paid).
+//
+// A visitor with a web session that owns the order gets exactly what the web
+// route gives — so the website behaves the same whichever session was used.
+router.get('/portal/patient/payment-return/k/:id/app', async (req, res) => {
+  const appReturn = require('../services/app_payment_return');
+  const orderId = String(req.params.id || '').trim();
+  const failed = appReturn.isFailedReturn(req.query);
+
+  let owned = null;
+  if (orderId && req.user && req.user.id && String(req.user.role || '').toLowerCase() === 'patient') {
+    try {
+      owned = await queryOne(
+        'SELECT id FROM orders_active WHERE id = $1 AND patient_id = $2',
+        [orderId, req.user.id]
+      );
+    } catch (_) { owned = null; }
+  }
+  if (owned) {
+    if (failed) return res.redirect('/portal/patient/pay/' + encodeURIComponent(orderId) + '?failed=1');
+    return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId) + '/payment-success');
+  }
+
+  const isAr = String(getLang(req, res) || 'ar').toLowerCase() !== 'en';
+  res.set('Cache-Control', 'no-store');
+  res.set('X-Robots-Tag', 'noindex');
+  return res.status(200).send(appReturn.renderAppReturnPage({
+    orderId: orderId,
+    failed: failed,
+    isAr: isAr,
+    nonce: res.locals && res.locals.cspNonce
+  }));
+});
+
 // GET /portal/patient/orders/:id/payment-success — post-payment landing page.
 // Re-queries the DB on every visit; never trusts redirect query params for
 // state. Handles the "we're confirming your payment" interim case when the

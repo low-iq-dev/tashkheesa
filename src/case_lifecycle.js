@@ -734,8 +734,9 @@ function isUnpaidReminderEligible(orderRow) {
 // payment_claims (migration 117) holds "I paid by InstaPay/bank" statements
 // waiting for a superadmin to check. While one is 'pending' the case is neither
 // reminded nor expired: the patient is waiting on US. A 'rejected' claim is
-// history, not a hold — both resume. 'confirmed' never reaches the sweep
-// (mark-paid stamps paid_at).
+// history, not a hold — both resume, expiry on a window that restarts at the
+// rejection (see LATEST_REJECTED_PAYMENT_CLAIM_AT_SQL below). 'confirmed' never
+// reaches the sweep (mark-paid stamps paid_at).
 //
 // The sweep SELECT carries the answer on each row as `payment_claim_pending`,
 // generated from the fragment below; the same fragment guards the expiry
@@ -765,6 +766,63 @@ async function loadPendingPaymentClaim(orderId) {
   } catch (e) {
     console.error('[unpaid-reminder] pending-claim lookup failed', e && e.message);
     return true;
+  }
+}
+
+// ── A REJECTED claim restarts the hold (2026-10-11) ────────────────────────
+//
+// Expiry is clocked on last activity (orders.updated_at — UNPAID_CASE_TTL).
+// Filing a claim touches it; rejecting one does not, on purpose:
+// manual_payment.rejectClaim writes payment_claims and nothing else. A pending
+// claim pauses expiry, so a claim that waited longer than the TTL for an answer
+// came back 'rejected' onto a clock that had already run out, and the next tick
+// expired the case — minutes after the patient was told the transfer could not
+// be matched, with no time left to pay any other way.
+//
+// The window now runs from the LATER of last activity and the latest rejection.
+// The rejection time is read from the claim row itself (resolved_at, which
+// rejectClaim stamps; updated_at is written by the same statement and stands in
+// for a row without it) — never from a side effect on orders. It is said in
+// three places, for the same reason the pending guard is:
+//   * the sweep SELECT projects it as `payment_claim_rejected_at`, which
+//     unpaidTtlAgeSeconds reads — so the hold quoted in a reminder agrees;
+//   * the pre-filter's expiry arms and the expiry UPDATE carry
+//     NOT EXISTS (a claim rejected inside the window): the same test, as SQL.
+const LATEST_REJECTED_PAYMENT_CLAIM_AT_SQL =
+  `(SELECT MAX(COALESCE(pc.resolved_at, pc.updated_at)) FROM payment_claims pc` +
+  ` WHERE pc.order_id::text = ${CASE_TABLE}.id::text AND pc.status = 'rejected')`;
+
+function recentRejectedClaimExistsSql(hours) {
+  return `EXISTS (SELECT 1 FROM payment_claims pc` +
+    ` WHERE pc.order_id::text = ${CASE_TABLE}.id::text AND pc.status = 'rejected'` +
+    ` AND COALESCE(pc.resolved_at, pc.updated_at) > NOW() - INTERVAL '${assertSqlSafeHours(hours)} hours')`;
+}
+
+// Epoch ms of the latest rejection carried on the row, or null. pg returns a
+// timestamptz as a Date; a test or a JSON round-trip hands over a string.
+function rejectedPaymentClaimAtMs(orderRow) {
+  const raw = orderRow && orderRow.payment_claim_rejected_at;
+  if (!raw) return null;
+  const ms = new Date(raw).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+// For a row that did not come from the sweep SELECT. Fails CLOSED like the
+// pending lookup above, but reports the failure instead of inventing a
+// timestamp: the caller stands the whole tick down, so a database blip can
+// neither expire a case nor quote a hold it could not compute.
+async function loadLatestRejectedPaymentClaimAt(orderId) {
+  if (!HAS_PAYMENT_CLAIMS_TABLE) return { ok: true, rejectedAt: null };
+  try {
+    const row = await queryOne(
+      `SELECT MAX(COALESCE(resolved_at, updated_at)) AS rejected_at
+         FROM payment_claims WHERE order_id::text = $1 AND status = 'rejected'`,
+      [String(orderId)]
+    );
+    return { ok: true, rejectedAt: (row && row.rejected_at) || null };
+  } catch (e) {
+    console.error('[unpaid-reminder] rejected-claim lookup failed', e && e.message);
+    return { ok: false, rejectedAt: null };
   }
 }
 
@@ -871,7 +929,10 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
       // the ones who got no payment reminder at all. Generated from
       // UNPAID_CASE_TTL, so it cannot disagree with the per-row decision below.
       // `force` skips it: an operator forcing a re-send means every row.
-      const workClause = force ? '' : `\n           AND (${buildUnpaidSweepWorkPredicateSql({ hasSubmittedAt: HAS_SUBMITTED_AT_COLUMN })})`;
+      const workClause = force ? '' : `\n           AND (${buildUnpaidSweepWorkPredicateSql({
+        hasSubmittedAt: HAS_SUBMITTED_AT_COLUMN,
+        hasPaymentClaims: HAS_PAYMENT_CLAIMS_TABLE
+      })})`;
 
       // E2E 2026-10-06 — a pending transfer claim means no work at all for
       // this row (no reminder, no expiry), so it is filtered here rather than
@@ -883,8 +944,13 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
         ? `\n           AND NOT ${PENDING_PAYMENT_CLAIM_EXISTS_SQL}`
         : '';
 
+      // 2026-10-11 — and each row carries its latest claim rejection, which
+      // restarts the expiry window (see LATEST_REJECTED_PAYMENT_CLAIM_AT_SQL).
+      const rejectedAtSql = HAS_PAYMENT_CLAIMS_TABLE ? LATEST_REJECTED_PAYMENT_CLAIM_AT_SQL : 'NULL';
+
       const rows = await queryAll(
-        `SELECT *, FALSE AS payment_claim_pending
+        `SELECT *, FALSE AS payment_claim_pending,
+                ${rejectedAtSql} AS payment_claim_rejected_at
          FROM ${CASE_TABLE}
          WHERE created_at IS NOT NULL${paymentClause}
            AND COALESCE(status, '') NOT IN (${placeholders})
@@ -934,6 +1000,17 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
     return { ok: true, sentCount: 0, skipped: 'payment_claim_pending' };
   }
 
+  // 2026-10-11 — the latest REJECTED claim restarts the expiry window. Same
+  // arrangement: sweep rows carry it (NULL when there is none), anything else
+  // is asked, and a lookup that fails stands this tick down.
+  if (orderRow.payment_claim_rejected_at === undefined) {
+    const rejected = await loadLatestRejectedPaymentClaimAt(caseId);
+    if (!rejected.ok) {
+      return { ok: true, sentCount: 0, skipped: 'payment_claim_lookup_failed' };
+    }
+    orderRow.payment_claim_rejected_at = rejected.rejectedAt;
+  }
+
   const elapsedSeconds = secondsSinceSubmitted(orderRow);
   if (elapsedSeconds == null) {
     return { ok: true, sentCount: 0, skipped: 'missing_created_at' };
@@ -960,6 +1037,10 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
   // closes a race the blacklist could not: a draft that the patient submits
   // between the SELECT and this UPDATE is no longer expired on the draft's
   // 30-day clock, because it is no longer a draft.
+  //
+  // 2026-10-11 — and it re-asserts that no claim was rejected inside the TTL,
+  // so a row whose rejection the in-memory copy does not know about (rejected
+  // between the SELECT and here) keeps the fresh window it is owed.
   const ttl = unpaidTtlFor(orderRow.status);
   if (!force && ttl && isUnpaidExpiryDue(orderRow)) {
     const ts = nowIso();
@@ -971,7 +1052,8 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
         AND paid_at IS NULL
         AND (payment_status IS NULL OR LOWER(TRIM(payment_status)) NOT IN (${UNPAID_SWEEP_STATUS_SQL_LIST}))
         AND UPPER(COALESCE(status, '')) IN (${upperStatusVariantsSqlFor(orderRow.status)})${
-          HAS_PAYMENT_CLAIMS_TABLE ? `\n        AND NOT ${PENDING_PAYMENT_CLAIM_EXISTS_SQL}` : ''}
+          HAS_PAYMENT_CLAIMS_TABLE ? `\n        AND NOT ${PENDING_PAYMENT_CLAIM_EXISTS_SQL}` : ''}${
+          HAS_PAYMENT_CLAIMS_TABLE ? `\n        AND NOT ${recentRejectedClaimExistsSql(ttl.expireAfterHours)}` : ''}
     `, [orderRow.id, ts]);
 
     if (result && result.rowCount > 0) {
@@ -1032,10 +1114,11 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
 
   // How long this case is still held, from UNPAID_CASE_TTL — see
   // queuePaymentReminder for why this number is no longer a constant. Measured
-  // on the TTL's own clock (updated_at for DRAFT/SUBMITTED), NOT on
-  // elapsedSeconds: the reminder LADDER asks "how long since you started" and
-  // the release window asks "how long since you last touched it", and they are
-  // different questions with different answers.
+  // on the TTL's own clock (updated_at for DRAFT/SUBMITTED, or the latest claim
+  // rejection when that is later), NOT on elapsedSeconds: the reminder LADDER
+  // asks "how long since you started" and the release window asks "how long
+  // since you last touched it", and they are different questions with different
+  // answers.
   const hoursRemaining = unpaidTtlHoursRemaining(orderRow);
 
   const thresholds = [
@@ -1044,19 +1127,23 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
     { level: '24h', seconds: 24 * 60 * 60 }
   ];
 
-  // E2E 2026-10-06 — only the HIGHEST level that is due goes out. The loop
-  // used to send every due level, which is invisible while a case walks the
-  // ladder one tick at a time (the lower levels are already deduped) and a
-  // burst of nine messages when it does not: a case first seen by the sweep
-  // hours after submission — a claim that was pending and then rejected, a
-  // worker that was down, a row whose anchor was just backfilled — would get
-  // 30m, 6h and 24h on three channels in one tick. `force` keeps its meaning
-  // (every level, for an operator re-send).
-  const dueLevel = pickUnpaidReminderLevel(elapsedSeconds, thresholds);
-
+  // 2026-10-11 — EVERY due level, each once. For five days (E2E 2026-10-06)
+  // only the HIGHEST due level went out per tick, to stop a burst: a case first
+  // seen by the sweep hours after submission — a claim that was pending and
+  // then rejected, a worker that was down — gets 30m, 6h and 24h on three
+  // channels in one tick. But "already sent" is a notifications row carrying
+  // dedupe_key payment_reminder:<level>:<channel>:<case>:<user>, which has no
+  // time in it, and nothing ever goes back for a lower level: a case first seen
+  // after the 6h mark never received its 30m reminder at all. Dropping
+  // reminders was not what that change was for, so the loop is back to what it
+  // was — the dedupe lookup in queuePaymentReminder is what makes each level a
+  // once-only, and a case that walks the ladder tick by tick sees no
+  // difference. The burst is the known cost
+  // (tests/core/unpaid-sweep-rejection-and-ladder pins both). `force` keeps its
+  // meaning (every level, for an operator re-send).
   const sent = [];
   for (const t of thresholds) {
-    if (force || (dueLevel && t.level === dueLevel)) {
+    if (force || elapsedSeconds >= t.seconds) {
       sent.push(await queuePaymentReminder({
         caseId,
         referenceId: orderRow.reference_id || null,
@@ -1474,22 +1561,6 @@ const UNPAID_TTL_NEVER_EXPIRES = Object.freeze({
 // tests/core/unpaid-sweep-ttl asserts it.
 const UNPAID_REMINDER_STATUSES = Object.freeze([CASE_STATUS.SUBMITTED]);
 
-// Highest ladder level whose threshold has passed, or null. Pure, exported for
-// the guard test.
-function pickUnpaidReminderLevel(elapsedSeconds, thresholds) {
-  const ladder = thresholds || [
-    { level: '30m', seconds: 30 * 60 },
-    { level: '6h', seconds: 6 * 3600 },
-    { level: '24h', seconds: 24 * 3600 }
-  ];
-  if (!Number.isFinite(elapsedSeconds)) return null;
-  let due = null;
-  for (const t of ladder) {
-    if (elapsedSeconds >= t.seconds) due = t.level;
-  }
-  return due;
-}
-
 function unpaidTtlFor(status) {
   const key = normalizeStatus(status);
   return Object.prototype.hasOwnProperty.call(UNPAID_CASE_TTL, key)
@@ -1501,14 +1572,21 @@ function unpaidTtlFor(status) {
 // back to created_at: a row that has never been touched since creation is
 // legitimately as old as it looks, and NULL must not read as "age zero,
 // therefore immortal".
+//
+// 2026-10-11 — a rejected transfer claim restarts the window: the age is
+// measured from the LATER of the clock above and the row's latest rejection
+// (payment_claim_rejected_at — see LATEST_REJECTED_PAYMENT_CLAIM_AT_SQL). A row
+// that carries no rejection is aged exactly as before.
 function unpaidTtlAgeSeconds(orderRow, ttl, nowMs) {
   if (!orderRow || !ttl) return null;
   const raw = (ttl.clock === 'updated_at')
     ? (orderRow.updated_at || orderRow.created_at)
     : orderRow.created_at;
   if (!raw) return null;
-  const ms = new Date(raw).getTime();
+  let ms = new Date(raw).getTime();
   if (!Number.isFinite(ms)) return null;
+  const rejectedMs = rejectedPaymentClaimAtMs(orderRow);
+  if (rejectedMs != null && rejectedMs > ms) ms = rejectedMs;
   return Math.floor(((Number.isFinite(nowMs) ? nowMs : Date.now()) - ms) / 1000);
 }
 
@@ -1590,8 +1668,15 @@ const UNPAID_REMINDER_WINDOW_HOURS = 25;
 // the UNPAID_REMINDER_STATUSES whitelist and the same anchor the per-row ladder
 // uses (submission, falling back to creation). `hasSubmittedAt: false` is for a
 // database that has not run migration 129 yet.
+//
+// 2026-10-11 — each expiry arm also excludes a case whose transfer claim was
+// rejected inside that status's TTL: `clock <= cutoff AND no rejection after
+// cutoff` is "the later of the two is past the cutoff", which is exactly what
+// unpaidTtlAgeSeconds computes. `hasPaymentClaims: false` is for a database
+// without migration 117.
 function buildUnpaidSweepWorkPredicateSql(opts) {
   const hasSubmittedAt = !(opts && opts.hasSubmittedAt === false);
+  const hasPaymentClaims = !(opts && opts.hasPaymentClaims === false);
   const anchor = hasSubmittedAt ? 'COALESCE(submitted_at, created_at)' : 'created_at';
   const reminderStatuses = [...new Set(
     UNPAID_REMINDER_STATUSES.flatMap((k) => dbStatusValuesFor(k).map((v) => String(v).toUpperCase()))
@@ -1605,7 +1690,9 @@ function buildUnpaidSweepWorkPredicateSql(opts) {
     const clock = ttl.clock === 'updated_at' ? 'COALESCE(updated_at, created_at)' : 'created_at';
     arms.push(
       `(UPPER(COALESCE(status, '')) IN (${upperStatusVariantsSqlFor(canonKey)})` +
-      ` AND ${clock} <= NOW() - INTERVAL '${assertSqlSafeHours(ttl.expireAfterHours)} hours')`
+      ` AND ${clock} <= NOW() - INTERVAL '${assertSqlSafeHours(ttl.expireAfterHours)} hours'` +
+      (hasPaymentClaims ? ` AND NOT ${recentRejectedClaimExistsSql(ttl.expireAfterHours)}` : '') +
+      `)`
     );
   }
   return arms.join('\n              OR ');
@@ -3800,7 +3887,6 @@ module.exports = {
   hasPendingPaymentClaim,
   unpaidReminderAnchor,
   secondsSinceSubmitted,
-  pickUnpaidReminderLevel,
   buildUnpaidSweepWorkPredicateSql,
   DB_STATUS,
   toCanonStatus,

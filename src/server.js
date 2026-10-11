@@ -318,6 +318,21 @@ require('express-async-errors');
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 
+// 2026-10-11 — process lifecycle, read by /healthz (src/routes/health.js).
+//   ready     the port is bound. That only happens after migrations, so
+//             "ready" also means "the schema this code needs is in place".
+//   draining  SIGTERM / SIGINT received: finishing what is in flight.
+var lifecycle = { ready: false, draining: false };
+module.exports._lifecycle = lifecycle;
+
+// While draining, ask every client to hang up after its response. Render's
+// proxy holds keep-alive sockets to this process; without this they sit idle
+// until the keep-alive timeout and hold the shutdown open for nothing.
+app.use(function(req, res, next) {
+  if (lifecycle.draining) res.setHeader('Connection', 'close');
+  return next();
+});
+
 // Baseline security headers
 app.use(function(req, res, next) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -883,7 +898,8 @@ app.use(function(req, res, next) {
 // Health endpoints
 app.use('/', setupHealthRoutes({
   MODE: MODE, CONFIG: CONFIG, pool: pool, pkg: pkg,
-  GIT_SHA: GIT_SHA, SERVER_STARTED_AT: SERVER_STARTED_AT, SERVER_STARTED_AT_ISO: SERVER_STARTED_AT_ISO
+  GIT_SHA: GIT_SHA, SERVER_STARTED_AT: SERVER_STARTED_AT, SERVER_STARTED_AT_ISO: SERVER_STARTED_AT_ISO,
+  lifecycle: lifecycle
 }));
 
 // Verify endpoints
@@ -1823,6 +1839,9 @@ _dbReady.then(async function() {
   var PORT = CONFIG.PORT;
   var server = app.listen(PORT, function() {
     var baseUrl = String(process.env.BASE_URL || '').trim();
+    // Migrations are done (this runs inside _dbReady.then) and the port is
+    // bound: /healthz may answer 200 from here on.
+    lifecycle.ready = true;
     logMajor('Tashkheesa portal running on port ' + PORT + (baseUrl ? ' (' + baseUrl + ')' : ''));
   });
 
@@ -1833,12 +1852,33 @@ _dbReady.then(async function() {
 });
 
 // Graceful shutdown
+//
+// 2026-10-11 — the order is: stop taking new work, let what is in flight
+// finish, close the pool, exit. What changed:
+//   * It runs once. SIGTERM followed by SIGINT (or two SIGTERMs) used to start
+//     a second shutdown on top of the first.
+//   * /healthz answers 503 from this moment and responses carry
+//     `Connection: close` (see `lifecycle` above).
+//   * Idle keep-alive sockets are swept until the server has closed
+//     (src/http_drain.js) instead of being waited on.
+//   * The hard deadline is 25s, not 10s. Render sends SIGKILL 30 seconds after
+//     SIGTERM by default; at 10s a file upload or a report PDF still in flight
+//     was cut off with two thirds of the allowance unused. SHUTDOWN_TIMEOUT_MS
+//     overrides it — keep it under the service's shutdown delay.
+var SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS) > 0
+  ? Number(process.env.SHUTDOWN_TIMEOUT_MS)
+  : 25000;
 function gracefulShutdown(signal) {
+  if (lifecycle.draining) {
+    logMajor('Graceful shutdown already in progress (' + signal + ' ignored)');
+    return;
+  }
+  lifecycle.draining = true;
   logMajor('Graceful shutdown started (' + signal + ')');
   var forceTimer = setTimeout(function() {
     logFatal('Graceful shutdown timed out — forcing exit');
     process.exit(1);
-  }, 10000);
+  }, SHUTDOWN_TIMEOUT_MS);
   if (forceTimer.unref) forceTimer.unref();
 
   try {
@@ -1915,7 +1955,9 @@ function gracefulShutdown(signal) {
 
   var server = module.exports._server;
   if (server) {
-    server.close(async function() {
+    // Stop accepting connections, let in-flight requests finish, sweep idle
+    // keep-alive sockets; THEN close the pool (a request still running needs it).
+    require('./http_drain').drainHttpServer(server).then(async function() {
       try { await jobQueueStopped; } catch (e) {}
       try { await analyticsFlushed; } catch (e) {}
       try { if (pool && typeof pool.end === 'function') await pool.end(); } catch (e) { logFatal('Error closing DB pool during shutdown', e); }

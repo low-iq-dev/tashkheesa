@@ -301,31 +301,30 @@ try {
   };
   expect(cl.secondsSinceSubmitted(lateSubmit, NOW) === 600,
     'ladder age must be measured from submitted_at; got ' + cl.secondsSinceSubmitted(lateSubmit, NOW));
-  expect(cl.pickUnpaidReminderLevel(cl.secondsSinceSubmitted(lateSubmit, NOW)) === null,
-    'a case submitted 10 minutes ago must get NO reminder, however old its draft is');
+  expect(cl.secondsSinceSubmitted(lateSubmit, NOW) < 30 * 60,
+    'a case submitted 10 minutes ago is below the first rung and must get NO reminder, however old its draft is');
 
   // No stamp (pre-129 row): created_at is the fallback.
   expect(cl.secondsSinceSubmitted(row('SUBMITTED', 2 * HOUR), NOW) === 7200,
     'without submitted_at the ladder falls back to created_at');
-
-  // Only the highest due level — never a burst of all three.
-  expect(cl.pickUnpaidReminderLevel(29 * 60) === null, 'nothing before 30 minutes');
-  expect(cl.pickUnpaidReminderLevel(31 * 60) === '30m', '30m level');
-  expect(cl.pickUnpaidReminderLevel(7 * 3600) === '6h', '6h level');
-  expect(cl.pickUnpaidReminderLevel(30 * 3600) === '24h', '24h level');
 
   const CODE = stripComments(fs.readFileSync(path.join(ROOT, 'src', 'case_lifecycle.js'), 'utf8'));
   const start = CODE.indexOf('async function dispatchUnpaidCaseReminders');
   const sweep = CODE.slice(start, CODE.indexOf('const CASE_STATUS = Object.freeze', start));
   expect(/secondsSinceSubmitted\s*\(\s*orderRow\s*\)/.test(sweep) && !/secondsSinceCreated/.test(CODE),
     'the sweep must age the ladder with secondsSinceSubmitted');
-  expect(/t\.level === dueLevel/.test(sweep),
-    'only the highest due level may be queued per tick — a case first seen 30h after ' +
-    'submission must not receive 30m + 6h + 24h on three channels at once');
+  // 2026-10-11 — this used to pin `t.level === dueLevel` (highest due level
+  // only, 6 Oct). That silently dropped every lower level a case had not been
+  // seen for — the dedupe key below has no time in it and nothing goes back —
+  // so every due level is queued again and dedupe makes each a once-only. The
+  // behaviour, burst included, is driven in unpaid-sweep-rejection-and-ladder.
+  expect(/if \(force \|\| elapsedSeconds >= t\.seconds\)/.test(sweep) && !/dueLevel/.test(sweep),
+    'every due level must be queued (each deduped) — a highest-level-only pick loses the lower ' +
+    'reminders of a case first seen late');
   // Dedupe key has no time component, so a backfilled submitted_at cannot re-send.
   expect(/`payment_reminder:\$\{level\}:\$\{channel\}:\$\{caseId\}:\$\{userId\}`/.test(CODE),
     'the reminder dedupe key must stay payment_reminder:<level>:<channel>:<case>:<user>');
-  t.pass('ladder anchored on submitted_at; one level per tick; dedupe key shape unchanged');
+  t.pass('ladder anchored on submitted_at; every due level once; dedupe key shape unchanged');
 } catch (e) { t.fail('ladder anchored on submission', e); }
 
 // ── 12. A pending transfer claim pauses reminders AND expiry ───────────────

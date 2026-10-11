@@ -47,9 +47,12 @@ function err(message, code, extra) {
  * @param {string} args.orderId
  * @param {string} args.patientId       scope: the order must belong to this patient
  * @param {string} args.redirectionUrl  Paymob post-payment return URL (built by the caller)
+ * @param {string} [args.returnTo]      'app' = the mobile app's browser sheet asked (Kashier
+ *                                      only): the session returns to the app hand-back page.
+ *                                      Anything else = today's web return.
  * @returns {Promise<{alreadyPaid: true} | {checkoutUrl: string}>}
  */
-async function ensurePaymentLinkForOrder({ orderId, patientId, redirectionUrl }) {
+async function ensurePaymentLinkForOrder({ orderId, patientId, redirectionUrl, returnTo }) {
   const id = orderId ? String(orderId).trim() : '';
   if (!id) throw err('order_not_found', 'ORDER_NOT_FOUND');
 
@@ -89,7 +92,8 @@ async function ensurePaymentLinkForOrder({ orderId, patientId, redirectionUrl })
         amountCents: owedCentsForOrder({ price: order.price, addons_json: order.addons_json || null }),
         currency: kCurrency,
         lang: (lang && lang.lang) || 'ar',
-        source: 'mobile_pay_page'
+        source: 'mobile_pay_page',
+        returnTo: returnTo === 'app' ? 'app' : 'web'
       });
       return { checkoutUrl: out.checkoutUrl };
     }

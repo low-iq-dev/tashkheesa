@@ -13,7 +13,7 @@
  */
 
 const express = require('express');
-const rateLimit = require('express-rate-limit');
+const { buildApiLimiters } = require('../middleware/api_rate_limits');
 const apiResponse = require('../middleware/apiResponse');
 const { requireJWT, requireRole } = require('../middleware/requireJWT');
 const { getSignedDownloadUrl } = require('../storage');
@@ -42,67 +42,22 @@ module.exports = function (db, helpers, deploy) {
   });
 
   // ─── Rate Limiting ─────────────────────────────────────────
-
-  // Stricter limits on auth endpoints
-  const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 20,
-    validate: false,
-    message: { success: false, error: 'Too many attempts. Try again in 15 minutes.', code: 'RATE_LIMITED' },
-    standardHeaders: true,
-    legacyHeaders: false,
-  });
-
-  // General API limiter
   //
-  // 2026-10-07 — this was 100 requests / 15 min PER IP for every caller. One
-  // patient using the app normally (home, cases, messages, a case wizard)
-  // spends that in a few minutes, and everyone behind the same router or the
-  // same carrier CGNAT address shares the one bucket: on launch-day testing
-  // the owner's phone, the Command app and an emulator on one Wi-Fi locked
-  // each other out with "Request failed (status 429)" on every screen.
-  //
-  // Signed-in callers are now counted per token, so one busy patient cannot
-  // lock out the people around them; callers with no token are counted per
-  // IP. A much higher per-IP ceiling stays in front as the abuse backstop —
-  // it also bounds anyone minting throwaway Authorization headers to get
-  // fresh buckets.
-  const crypto = require('crypto');
-  const RATE_LIMITED_BODY = { success: false, error: 'Too many requests. Slow down.', code: 'RATE_LIMITED' };
-  const bearerOf = (req) => {
-    const h = String((req.headers && req.headers.authorization) || '');
-    return /^Bearer\s+\S{20,}/i.test(h) ? h.slice(7).trim() : '';
-  };
-  const ipOf = (req) => String(req.ip || (req.socket && req.socket.remoteAddress) || 'unknown');
-  const ipCeilingLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 3000,
-    validate: false,
-    keyGenerator: (req) => 'ip:' + ipOf(req),
-    message: RATE_LIMITED_BODY,
-    standardHeaders: false,
-    legacyHeaders: false,
-  });
-  const callerLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    // Per signed-in caller: 600 (40/min sustained). Anonymous, per IP: 300.
-    max: (req) => (bearerOf(req) ? 600 : 300),
-    validate: false,
-    keyGenerator: (req) => {
-      const t = bearerOf(req);
-      return t
-        ? 'tok:' + crypto.createHash('sha256').update(t).digest('hex').slice(0, 32)
-        : 'ip:' + ipOf(req);
-    },
-    message: RATE_LIMITED_BODY,
-    standardHeaders: true,
-    legacyHeaders: false,
-  });
-  const apiLimiter = (req, res, next) =>
-    ipCeilingLimiter(req, res, (err) => (err ? next(err) : callerLimiter(req, res, next)));
+  // The limiters live in ../middleware/api_rate_limits.js (one place, testable
+  // without a server). In short:
+  //   apiLimiter           every route below except the two exemptions:
+  //                        600 / 15 min per signed-in token, 300 per address
+  //                        when anonymous, 3000 per address as the ceiling.
+  //   authLimiter          sign-in / sign-up / OTP / reset attempts: 20 / 15 min
+  //                        per address. Skips refresh and sign-out.
+  //   tokenLimiter         refresh and sign-out: 20 / 15 min per token.
+  //   loginAccountLimiter  wrong passwords: 10 / 15 min per account.
+  // "Per address" means the caller's address (../middleware/client_ip.js), not
+  // req.ip, which on this service is an edge hop.
+  const { apiLimiter, authLimiter, tokenLimiter, loginAccountLimiter } = buildApiLimiters();
 
-  // AUDIT-APP-H4 — apiLimiter is 100 req / 15 min PER IP and was applied to
-  // every route. The patient app polls /health every 30s (permanently), the
+  // AUDIT-APP-H4 — apiLimiter WAS 100 req / 15 min PER IP and was applied to
+  // every route. The patient app polled /health every 30s (permanently), the
   // payment status every 5s for up to 120 polls, and chat every 10s — one
   // 10-minute checkout alone issues ~150 requests. The limiter tripped
   // mid-payment, the 429 was swallowed by the app, and a patient who HAD paid
@@ -112,6 +67,10 @@ module.exports = function (db, helpers, deploy) {
   // /health and the payment-status poll are cheap, read-only and safety-
   // critical to the checkout, so they are exempted. Everything else keeps the
   // limit. The app-side polling is also backed off separately.
+  //
+  // 2026-10-11 — until today this exemption was only half true: the app-wide
+  // limiter in src/middleware.js (100 / minute / address, plain-text 429) ran
+  // first and counted both paths anyway. It now skips /api/v1 entirely.
   const RATE_LIMIT_EXEMPT = /^\/health$|^\/cases\/[^/]+\/payment$/;
   router.use((req, res, next) => {
     if (RATE_LIMIT_EXEMPT.test(req.path)) return next();
@@ -129,7 +88,9 @@ module.exports = function (db, helpers, deploy) {
   // tokens was dumped on the login screen on EVERY app launch.
   // Mounted here explicitly, ahead of the public /auth routes.
   router.get('/auth/me', requireJWT, (req, res) => authRoutes.meHandler(req, res));
-  router.use('/auth', authLimiter, authRoutes);
+  // Wrong passwords are counted per account as well as per address.
+  router.post('/auth/login', loginAccountLimiter);
+  router.use('/auth', authLimiter, tokenLimiter, authRoutes);
 
   // ─── Health check ──────────────────────────────────────────
 
@@ -148,7 +109,7 @@ module.exports = function (db, helpers, deploy) {
   // and its protected routes gate on 'superadmin' (not 'patient'). The login/
   // refresh surface gets the strict auth limiter; /admin/health uses the
   // general apiLimiter so the dashboard can poll. See src/routes/api/admin.js.
-  router.use('/admin/auth', authLimiter);
+  router.use('/admin/auth', authLimiter, tokenLimiter);
   const adminRoutes = require('./api/admin')(db, helpers, deploy);
   router.use('/admin', adminRoutes);
 
@@ -159,7 +120,7 @@ module.exports = function (db, helpers, deploy) {
   // /doctor/* API mounts here in a later batch; /doctor/auth must stay ahead
   // of it and of the patient gate.
   const doctorAuthRoutes = require('./api/doctor_auth')(db, helpers);
-  router.use('/doctor/auth', authLimiter, doctorAuthRoutes);
+  router.use('/doctor/auth', authLimiter, tokenLimiter, doctorAuthRoutes);
 
   // ─── Doctor cases (the app's queue) ────────────────────────
   // Mounted here, beside /doctor/auth and ahead of the patient gate below,

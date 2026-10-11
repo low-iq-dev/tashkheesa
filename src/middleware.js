@@ -118,13 +118,30 @@ function baseMiddlewares(app) {
     }
   }));
 
-  // Rate limiter
+  // Rate limiter (website and web portal).
+  //
+  // 2026-10-11 — two corrections, same numbers.
+  //   * It skips /api/v1. This limiter is mounted app-wide, so it also ran in
+  //     front of the mobile API, which has its own budget (per signed-in token,
+  //     see src/middleware/api_rate_limits.js). Its 429 is plain text, and the
+  //     patient app printed exactly that on 7 Oct: "Request failed (status
+  //     429)" on Home and Messages, and a "No internet connection" pill,
+  //     because the app's /api/v1/health probe was refused here too.
+  //   * It is keyed on the visitor, not req.ip. req.ip is an edge address on
+  //     this service (src/middleware/client_ip.js), so the bucket was shared
+  //     with strangers and useless against one abuser.
+  const { clientIpKey } = require('./middleware/client_ip');
   const limiter = rateLimit({
     windowMs: 1 * 60 * 1000,
     max: 100,
     validate: false,
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: (req) => clientIpKey(req),
+    skip: (req) => {
+      const p = req.path || '';
+      return p === '/api/v1' || p.startsWith('/api/v1/');
+    },
   });
   app.use(limiter);
 

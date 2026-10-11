@@ -208,15 +208,84 @@ try {
   t.pass('OpenClaw bodies (' + checked + ' renders): no id, no placeholder, no empty "()", no dangling "case"');
 } catch (e) { t.fail('OpenClaw bodies', e); }
 
-// ── 6. Meta HSM params never carry an internal id ──────────────────────────
+// ── 6. Meta HSM {{case_ref}}: the real reference, else the label — never empty
+//
+// 2026-10-11 — this section used to assert `case_ref === ''` for a case with
+// no reference (6 Oct: "a send Meta rejects is better than a patient being sent
+// an internal id"). Both halves of that were right and the conclusion was not:
+// an HSM text parameter may not be empty, so Meta refuses the WHOLE message and
+// the patient hears nothing on that channel. The parameter now falls back the
+// way every other channel does — the case label for a patient ("your case"),
+// the id handle for staff — and is asserted non-empty for every template in the
+// map that sends one, for every recipient role, with the worst payloads.
 try {
-  Object.keys(whatsappTemplateMap).forEach(function (tpl) {
-    const params = whatsappTemplateMap[tpl].paramBuilder({ case_id: ORDER_ID, order_id: ORDER_ID, caseReference: SLICE });
-    if (!('case_ref' in params)) return;
-    eq(params.case_ref, '', tpl + ' case_ref with only an id available');
-    eq(whatsappTemplateMap[tpl].paramBuilder({ case_id: ORDER_ID, caseReference: REF }).case_ref, REF, tpl + ' case_ref with a real reference');
+  const { getWhatsAppTemplate } = require(path.join(ROOT, 'src', 'notify', 'whatsappTemplateMap.js'));
+  const WITH_CASE_REF = Object.keys(whatsappTemplateMap).filter(function (tpl) {
+    return 'case_ref' in whatsappTemplateMap[tpl].paramBuilder({ caseReference: REF });
   });
-  t.pass('Meta param builders: case_ref is the real reference or empty — never the case id');
+  expect(WITH_CASE_REF.length >= 30, 'expected the real template map; only ' + WITH_CASE_REF.length + ' entries send case_ref');
+
+  const NO_REF_PAYLOADS = [
+    {},                                                              // nothing at all
+    { case_id: ORDER_ID, order_id: ORDER_ID, caseReference: SLICE }, // an id slice passed off as the reference
+    { caseId: ORDER_ID, caseReference: '' },                         // what the worker hands over for a patient
+    { case_id: ORDER_ID, reference_id: null, caseReference: null }
+  ];
+  let checked = 0;
+  WITH_CASE_REF.forEach(function (tpl) {
+    const order = Object.keys(whatsappTemplateMap[tpl].paramBuilder({ caseReference: REF })).join(',');
+    ['patient', 'doctor', 'superadmin', null].forEach(function (role) {
+      NO_REF_PAYLOADS.forEach(function (payload) {
+        const data = Object.assign({}, payload, role ? { recipientRole: role } : {});
+        const params = whatsappTemplateMap[tpl].paramBuilder(data);
+        const where = tpl + ' / ' + (role || 'no role') + ' / ' + JSON.stringify(payload);
+        checked++;
+        expect(typeof params.case_ref === 'string' && params.case_ref.trim() !== '',
+          'case_ref must never be empty — Meta rejects the whole template: ' + where);
+        // Positional: {{1}}, {{2}} are Object.values() in this order.
+        eq(Object.keys(params).join(','), order, 'the fallback must not reorder the HSM parameters: ' + where);
+        Object.keys(params).forEach(function (k) {
+          if (k !== 'case_ref') expect(params[k] !== 'your case', 'the fallback must only fill case_ref: ' + where);
+        });
+        if (!cl.isStaffFacingTemplate(tpl, data)) {
+          eq(params.case_ref, 'your case', 'a patient with no reference is told about "your case": ' + where);
+          expect(!ID_FRAGMENT.test(params.case_ref) && params.case_ref.indexOf(ORDER_ID) === -1,
+            'a patient is never sent an internal id: ' + where);
+        } else if (payload.case_id || payload.caseId) {
+          eq(params.case_ref, SLICE, 'staff keep the id handle, as on email and OpenClaw: ' + where);
+        }
+      });
+    });
+    // A real reference always wins, for everyone.
+    eq(whatsappTemplateMap[tpl].paramBuilder({ case_id: ORDER_ID, caseReference: REF }).case_ref, REF, tpl + ' case_ref with a real reference');
+    eq(whatsappTemplateMap[tpl].paramBuilder({ case_id: ORDER_ID, reference_id: REF, caseReference: SLICE, recipientRole: 'doctor' }).case_ref, REF,
+      tpl + ' case_ref with a real reference beside a slice');
+  });
+  expect(checked >= 30 * 16, 'sweep covered too few (template, role, payload) combinations: ' + checked);
+
+  // Through the resolver the worker uses. The label is in the language of the
+  // HSM that is actually submitted — English for everyone today, because no
+  // Arabic template is approved — not in the recipient's language.
+  const viaAr = getWhatsAppTemplate('payment_success_patient', 'ar');
+  eq(viaAr.lang, 'en', 'no approved Arabic HSM → the English template is sent');
+  eq(viaAr.paramBuilder({ caseId: ORDER_ID, recipientRole: 'patient', amount: '500 EGP' }).case_ref, 'your case',
+    'an English template gets the English label, even for an Arabic-speaking patient');
+  eq(viaAr.paramBuilder({ caseId: ORDER_ID, recipientRole: 'patient', amount: '500 EGP' }).amount, '500 EGP',
+    'the other parameters are untouched');
+  eq(getWhatsAppTemplate('payment_success_patient', 'en').paramBuilder({ caseId: ORDER_ID, caseReference: REF }).case_ref, REF,
+    'the resolver passes a real reference straight through');
+  // The day an Arabic HSM clears approval the label follows it.
+  eq(whatsappTemplateMap.payment_success_patient.paramBuilder({ caseId: ORDER_ID, recipientRole: 'patient' }, 'ar').case_ref, 'حالتك',
+    'an Arabic template gets the Arabic patient label');
+  // Dual-role templates split on the recipient, exactly as OpenClaw does.
+  eq(whatsappTemplateMap.sla_reminder_6h.paramBuilder({ caseId: ORDER_ID, recipientRole: 'doctor' }).case_ref, SLICE, 'SLA reminder, doctor side');
+  eq(whatsappTemplateMap.sla_reminder_6h.paramBuilder({ caseId: ORDER_ID, recipientRole: 'patient' }).case_ref, 'your case', 'SLA reminder, patient side');
+  // Staff copy with neither a reference nor an id (not reachable from the
+  // worker, which always has the order id) still sends something.
+  eq(whatsappTemplateMap.order_assigned_doctor.paramBuilder({}).case_ref, 'a case', 'staff, nothing known, English');
+  eq(whatsappTemplateMap.order_assigned_doctor.paramBuilder({}, 'ar').case_ref, 'الحالة', 'staff, nothing known, Arabic');
+  t.pass('Meta param builders (' + checked + ' builds over ' + WITH_CASE_REF.length +
+    ' templates): case_ref is the real reference, else "your case" (patient) / the handle (staff) — never empty');
 } catch (e) { t.fail('Meta param builders', e); }
 
 // ── 7. queueNotification resolves the reference before rendering/storing ───

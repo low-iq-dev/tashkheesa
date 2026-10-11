@@ -18,6 +18,9 @@
 // trust-proxy req.ip shape varies at the Render edge).
 
 const { rateLimit } = require('express-rate-limit');
+// 2026-10-11 — the no-phone fallback keys on the caller, not req.ip (an edge
+// hop on this service; see ./client_ip.js). Caps and windows are unchanged.
+const { clientIpKey } = require('./client_ip');
 
 // Normalises {countryCode, phone} into a stable limiter key. Runs BEFORE the
 // limiters so they have something to key on; falls back to the IP so a
@@ -25,7 +28,7 @@ const { rateLimit } = require('express-rate-limit');
 function otpPhoneScope(req, _res, next) {
   const cc = String((req.body && req.body.countryCode) || '').replace(/[^0-9+]/g, '');
   const ph = String((req.body && req.body.phone) || '').replace(/[^0-9]/g, '');
-  req.otpPhone = { key: (cc + ph) || ('ip:' + (req.ip || 'unknown')) };
+  req.otpPhone = { key: (cc + ph) || ('ip:' + clientIpKey(req)) };
   next();
 }
 const otpPhoneKey = (req) => (req.otpPhone && req.otpPhone.key) || 'unknown';
