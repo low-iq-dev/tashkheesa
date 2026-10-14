@@ -33,7 +33,9 @@ function render(user, langParam, ctaShut) {
   }, { views: [VIEWS], filename: path.join(VIEWS, 'services.ejs') });
 }
 function heroStart(html) {
-  const m = html.match(/<a href="([^"]*)" data-funnel="services_cta" style="display:inline-block;background:#0B6B5F;/);
+  // v3 (14 Oct 2026): the hero button is the first services_cta on the page,
+  // styled by class instead of inline.
+  const m = html.match(/<a href="([^"]*)" data-funnel="services_cta" class="sv3-btn sv3-btn--hero"/);
   return m ? m[1].replace(/&amp;/g, '&') : null;
 }
 

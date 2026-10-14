@@ -1,812 +1,674 @@
 <%- include('partials/header', { title: tt('svc.page_title', 'Services & Pricing', 'الخدمات والأسعار'), layout: "public", showNav: true }) %>
+<%#
+  Services page, v3 (14 Oct 2026). The colourful redesign approved on the
+  Claude Design canvas ("Services page on iPhone: before, v2 and v3").
 
+  Everything that decides WHAT a visitor may do is unchanged from the page it
+  replaces: the booking gate (__ctaOn), bookHref(), isBookable(), the hero's
+  sign-up destination, the coming-soon partition and the funnel tags. Only the
+  presentation changed. Styles are scoped under .sv3 so nothing leaks into the
+  shared header and footer.
+%>
 <style>
-.services-hero {
-  text-align: center;
-  max-width: 700px;
-  margin: 0 auto 56px;
-  padding: 48px 20px 0;
-}
-.services-hero h1 {
-  font-size: 42px;
-  color: #1f2937;
-  margin-bottom: 14px;
-  font-weight: 700;
-}
-.services-hero .subtitle {
-  font-size: 18px;
-  color: #6b7280;
-  line-height: 1.6;
-}
+.sv3{text-align:start;--ink:#0F1E2D;--ink2:#33474F;--mute:#4A5F6B;--teal:#0B6B5F;--teal-d:#084C45;--teal-2:#128174;--teal-3:#0E7A6D;--gold:#F2C76E;--bg:#F5F8FA;--line:#E6ECEF;--card:#FFFFFF;--wa:#1E8E4E;--wa-bg:#E7F7EE;
+  background:var(--bg);color:var(--ink);padding:14px 0 56px;}
+.sv3 *{box-sizing:border-box}
+.sv3 a{text-decoration:none}
+.sv3 h1,.sv3 h2,.sv3 h3{color:inherit;margin:0}
+.sv3-wrap{max-width:1120px;margin:0 auto;padding:0 14px}
+.sv3-sec{margin-top:34px}
+.sv3-h2{font-size:22px;font-weight:700;line-height:1.35;margin:0 4px 14px;color:var(--ink)}
+.sv3-h2-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:0 4px 14px}
+.sv3-h2-row .sv3-h2{margin:0}
+.sv3-meta{font-size:13px;color:var(--mute)}
+.sv3-ic{display:flex;align-items:center;justify-content:center;flex:none;border-radius:13px}
+.sv3-ic svg{display:block}
 
-/* ── Featured spotlight ───────────────────────────── */
-.featured-section {
-  background: linear-gradient(135deg, #0f2d48 0%, #1a4a6e 100%);
-  border-radius: 20px;
-  padding: 48px 40px;
-  margin-bottom: 64px;
-  color: white;
-}
-.featured-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(255,255,255,0.15);
-  color: #93c5fd;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  padding: 6px 14px;
-  border-radius: 20px;
-  margin-bottom: 20px;
-}
-.featured-section h2 {
-  font-size: 28px;
-  font-weight: 700;
-  /* Explicit, not inherited from .featured-section's `color: white`: the
-     global `h2 { color: ... }` rule is an element selector, and an element
-     selector beats inheritance no matter how specific the ancestor is. This
-     heading was rendering dark navy on the dark navy panel. */
-  color: #fff;
-  margin-bottom: 8px;
-}
-.featured-section .featured-sub {
-  color: #93c5fd;
-  font-size: 15px;
-  margin-bottom: 32px;
-}
-.featured-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 16px;
-}
-.featured-card {
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 14px;
-  padding: 22px;
-  text-decoration: none;
-  color: white;
-  transition: all 0.2s;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  position: relative;
-  overflow: hidden;
-}
-.featured-card:hover {
-  background: rgba(255,255,255,0.15);
-  border-color: rgba(255,255,255,0.35);
-  transform: translateY(-3px);
-}
-.featured-card .fc-specialty {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  color: #7dd3fc;
-}
-.featured-card .fc-name {
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.3;
-}
-.featured-card .fc-price {
-  font-size: 22px;
-  font-weight: 700;
-  color: #38bdf8;
-  margin-top: auto;
-}
-.featured-card .fc-price span {
-  font-size: 12px;
-  font-weight: 500;
-  color: #7dd3fc;
-}
-.featured-card .fc-badge {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  background: #f59e0b;
-  color: #1f2937;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 3px 8px;
-  border-radius: 10px;
-  text-transform: uppercase;
-}
+/* Hero */
+.sv3-hero{background:var(--teal);border-radius:26px;padding:24px 20px 20px;color:#fff;position:relative;overflow:hidden}
+.sv3-hero:before{content:"";position:absolute;width:240px;height:240px;border-radius:50%;background:var(--teal-2);top:-100px;inset-inline-end:-80px}
+.sv3-hero:after{content:"";position:absolute;width:130px;height:130px;border-radius:50%;background:var(--teal-3);bottom:-56px;inset-inline-start:42%}
+.sv3-hero-in{position:relative;z-index:1;display:grid;gap:18px}
+.sv3-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.14);border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600;justify-self:start}
+.sv3-hero h1{font-size:30px;line-height:1.32;font-weight:700;color:#fff;margin-top:10px}
+.sv3-hero h1 span{color:var(--gold)}
+.sv3-hero p.sv3-lead{font-size:15px;line-height:1.7;color:#DDF0EC;margin:10px 0 0}
+.sv3-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.sv3-chip{background:rgba(255,255,255,.14);border-radius:999px;padding:5px 11px;font-size:12px;font-weight:600;color:#fff}
+.sv3-chip--solid{background:#fff;color:var(--teal);font-weight:700}
+.sv3-hero-img{width:100%;height:190px;object-fit:cover;border-radius:18px;display:block}
+.sv3-btns{display:grid;gap:10px;margin-top:4px}
+.sv3-btn{display:flex;align-items:center;justify-content:center;gap:8px;min-height:52px;border-radius:16px;font-size:17px;font-weight:700;padding:10px 18px;text-align:center;border:0;cursor:pointer;font-family:inherit}
+.sv3-btn--hero{background:#fff;color:var(--teal)}
+.sv3-btn--hero span{font-weight:500;color:var(--mute)}
+.sv3-btn--ghost{background:transparent;color:#fff;border:1.5px solid rgba(255,255,255,.55);font-size:15px}
+.sv3-btn--teal{background:var(--teal);color:#fff}
+.sv3-btn--teal:hover{background:var(--teal-d)}
+.sv3-btn--wa{background:var(--wa-bg);color:var(--wa);font-size:16px}
+.sv3 .urgent-window-note{color:#CDE7E2;font-size:13px;line-height:1.55;margin:2px 0 0}
 
-/* ── Specialty sections ───────────────────────────── */
-.specialty-section {
-  margin-bottom: 56px;
-}
-.specialty-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-  padding-bottom: 14px;
-  border-bottom: 2px solid #e5e7eb;
-}
-.specialty-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.specialty-icon { font-size: 28px; }
-.specialty-title h2 {
-  font-size: 22px;
-  color: #1f2937;
-  font-weight: 700;
-  margin: 0;
-}
-.specialty-count {
-  font-size: 13px;
-  color: #9ca3af;
-  margin-top: 2px;
-}
-.see-all-link {
-  color: #2563eb;
-  font-weight: 600;
-  text-decoration: none;
-  font-size: 14px;
-  white-space: nowrap;
-  transition: opacity 0.15s;
-}
-.see-all-link:hover { opacity: 0.7; }
+/* Trust */
+.sv3-trust{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.sv3-tile{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:12px 14px;display:flex;align-items:center;gap:12px;box-shadow:0 1px 2px rgba(15,30,45,.04)}
+.sv3-tile b{display:block;font-size:20px;font-weight:700;line-height:1.2;direction:ltr;text-align:start}
+.sv3-tile small{display:block;font-size:12px;color:var(--mute)}
 
-.services-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 16px;
-}
-.service-card {
-  background: #f9fafb;
-  border: 1.5px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 22px;
-  transition: all 0.2s;
-  cursor: pointer;
-  text-decoration: none;
-  color: inherit;
-  display: flex;
-  flex-direction: column;
-}
-.service-card:hover {
-  border-color: #2563eb;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 14px rgba(37,99,235,0.12);
-  background: white;
-}
-.service-card h3 {
-  font-size: 16px;
-  color: #1f2937;
-  margin-bottom: 8px;
-  font-weight: 600;
-}
-.service-card p {
-  font-size: 13px;
-  color: #6b7280;
-  line-height: 1.5;
-  margin-bottom: 14px;
-  flex: 1;
-}
-.service-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 14px;
-  border-top: 1px solid #e5e7eb;
-}
-.service-price {
-  font-size: 22px;
-  font-weight: 700;
-  color: #2563eb;
-}
-.service-price .currency {
-  font-size: 12px;
-  font-weight: 600;
-}
-.service-sla {
-  font-size: 12px;
-  color: #6b7280;
-  background: #f3f4f6;
-  padding: 5px 10px;
-  border-radius: 10px;
-  font-weight: 500;
-}
+/* Speeds */
+.sv3-speeds{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.sv3-speed{border-radius:18px;padding:14px 8px;text-align:center}
+.sv3-speed .k{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;font-weight:600;letter-spacing:.06em;direction:ltr}
+.sv3-speed .v{font-size:32px;font-weight:700;line-height:1.15;margin-top:4px;direction:ltr}
+.sv3-speed .u{font-size:13px;color:var(--ink2)}
+.sv3-note{font-size:13px;color:var(--mute);line-height:1.6;margin:10px 4px 0}
 
-/* Show-more → Conversion CTA row */
-.specialty-cta-row {
-  margin-top: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: #f0f9ff;
-  border: 1.5px solid #bae6fd;
-  border-radius: 10px;
-  padding: 14px 20px;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-.specialty-cta-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.specialty-cta-count {
-  font-size: 13px;
-  font-weight: 700;
-  color: #0369a1;
-}
-.specialty-cta-hint {
-  font-size: 12px;
-  color: #64748b;
-}
-.specialty-cta-btn {
-  background: #0f2d48;
-  color: white;
-  font-size: 13px;
-  font-weight: 700;
-  padding: 10px 22px;
-  border-radius: 8px;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: background 0.15s, transform 0.15s;
-}
-.specialty-cta-btn:hover {
-  background: #1a4a6e;
-  transform: translateY(-1px);
-}
+/* Specialty tiles */
+.sv3-specs{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sv3-spec{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:8px;color:var(--ink);box-shadow:0 1px 2px rgba(15,30,45,.04);transition:transform .15s,box-shadow .15s}
+.sv3-spec:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(15,30,45,.08);color:var(--ink)}
+.sv3-spec .n{font-size:15px;font-weight:700;line-height:1.3}
+.sv3-spec .s{font-size:12px;color:var(--mute)}
 
-/* ── CTA ──────────────────────────────────────────── */
-.cta-section {
-  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-  border: 2px solid #93c5fd;
-  border-radius: 16px;
-  padding: 48px 32px;
-  text-align: center;
-  margin: 64px auto 40px;
-  max-width: 800px;
-}
-.cta-section h2 { color: #1e40af; font-size: 26px; margin-bottom: 10px; }
-.cta-section p { color: #1e40af; margin-bottom: 24px; opacity: 0.9; font-size: 16px; }
-.btn-cta {
-  background: #2563eb;
-  color: white;
-  padding: 15px 40px;
-  border-radius: 10px;
-  font-weight: 600;
-  font-size: 16px;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: inline-block;
-  text-decoration: none;
-}
-.btn-cta:hover {
-  background: #1d4ed8;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(37,99,235,0.3);
-}
-.services-note {
-  max-width: 800px;
-  margin: 0 auto 40px;
-  padding: 20px 24px;
-  background: #fefce8;
-  border: 1px solid #fde047;
-  border-radius: 8px;
-  font-size: 14px;
-  color: #713f12;
-  line-height: 1.6;
-  text-align: center;
-}
-@media (max-width: 768px) {
-  .services-hero h1 { font-size: 30px; }
-  .featured-section { padding: 32px 24px; }
-  .featured-grid { grid-template-columns: 1fr 1fr; }
-  .services-grid { grid-template-columns: 1fr; }
-  .specialty-header { flex-direction: column; align-items: flex-start; gap: 8px; }
-}
-@media (max-width: 480px) {
-  .featured-grid { grid-template-columns: 1fr; }
-}
-/* Coming Soon — public catalogue (NOT the doctor-portal .v2-chip--soon, which
-   is scoped to body.doctor-theme.portal-v2 and unstyled here). */
-.service-card--soon {
-  cursor: default;
-  opacity: 0.9;
-}
-.service-card--soon:hover {
-  border-color: #e5e7eb;
-  transform: none;
-  box-shadow: none;
-  background: #f9fafb;
-}
-/* Pill beside a specialty heading whose services are all coming soon.
-   Same amber as the per-service badge so the two read as one signal. */
-.soon-pill {
-  display: inline-block;
-  vertical-align: middle;
-  margin-inline-start: 10px;
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: .4px;
-  text-transform: uppercase;
-  color: #8E6C2C;
-  background: #FAF1DD;
-  border: 1px solid #EBD9AE;
-  border-radius: 999px;
-  padding: 3px 10px;
-  white-space: nowrap;
-}
+/* Help card */
+.sv3-help{margin-top:14px;background:#FFF5D9;border-radius:20px;padding:16px 18px;display:flex;gap:12px;align-items:flex-start}
+.sv3-help h3{font-size:17px;font-weight:700}
+.sv3-help p{font-size:14px;line-height:1.65;color:#5B4A1E;margin:4px 0 8px}
+.sv3-help a{font-size:14px;font-weight:700;color:var(--teal)}
 
-/* A CTA that is deliberately shut (services/public_cta.js), NOT a broken one.
-   Rendered as a span, so there is nothing to click and nothing to tab to; this
-   only has to make that legible. Kept visually quiet rather than error-red —
-   it is a "not yet", not a failure. */
-.is-cta-locked {
-  background: #e5e7eb !important;
-  background-image: none !important;
-  color: #6b7280 !important;
-  border-color: #d1d5db !important;
-  cursor: not-allowed;
-  box-shadow: none !important;
-  transform: none !important;
-  pointer-events: none;
-  opacity: 1;
-}
-.is-cta-locked:hover { background: #e5e7eb !important; transform: none !important; box-shadow: none !important; }
-/* The featured cards are tinted panels on a dark ground, not solid buttons —
-   the button treatment above would black them out, so they only lose their
-   affordance. */
-.featured-card.is-cta-locked {
-  background: rgba(255,255,255,0.08) !important;
-  border-color: rgba(255,255,255,0.15) !important;
-  color: inherit !important;
-  cursor: default;
-}
+/* Specialty sections */
+.sv3-cat{background:var(--card);border:1px solid var(--line);border-radius:22px;overflow:hidden;margin-top:14px;scroll-margin-top:80px}
+.sv3-cat-hd{padding:16px;display:flex;gap:14px;align-items:center}
+.sv3-cat-hd .sv3-ic{width:52px;height:52px;border-radius:16px;background:#fff}
+.sv3-cat-hd h2{font-size:21px;font-weight:700;line-height:1.3}
+.sv3-cat-hd .d{font-size:13px;color:var(--ink2);line-height:1.5}
+.sv3-cat-hd .m{font-size:12px;color:var(--mute);margin-top:2px}
+.sv3-rows{padding:10px 12px 4px;display:grid;gap:8px}
+.sv3 .service-card{min-height:56px;background:var(--bg);border:1px solid transparent;border-radius:14px;padding:8px 12px 8px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--ink);transition:border-color .15s,background .15s}
+.sv3 .service-card{flex-direction:row;height:auto;box-shadow:none;transform:none}
+.sv3 a.service-card:hover{border-color:var(--teal);background:#fff;transform:none;box-shadow:0 4px 14px rgba(11,107,95,.10)}
+.sv3 .service-card h3{flex:1;min-width:0;text-align:start;font-size:15px;font-weight:600;line-height:1.45;margin:0}
+.sv3 .service-card .sla{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12.5px;line-height:1.55;color:var(--mute);font-weight:400;margin-top:2px}
+.sv3-price{flex:none;background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:14px;font-weight:700;color:var(--teal);direction:ltr;white-space:nowrap}
+.sv3-price small{font-size:11px;font-weight:600;color:var(--mute)}
+.sv3-more{padding:0 12px}
+.sv3-more summary{list-style:none;cursor:pointer;font-size:14px;font-weight:700;color:var(--teal);padding:10px 4px}
+.sv3-more summary::-webkit-details-marker{display:none}
+.sv3-more[open] summary{display:none}
+.sv3-more .sv3-rows{padding:0 0 4px}
+.sv3-cat-ft{padding:10px 12px 14px}
+.sv3-cat-ft .sv3-btn{min-height:48px;font-size:15px}
+.service-soon-badge{display:inline-block;font-size:12px;font-weight:700;color:#8E6C2C;background:#FAF1DD;border-radius:999px;padding:5px 10px}
+.sv3-soon{margin-top:14px;background:var(--card);border:1px dashed #C9D5DA;border-radius:20px;padding:16px 18px;text-align:center}
+.sv3-soon h3{font-size:16px;font-weight:700}
+.sv3-soon p{font-size:14px;line-height:1.7;color:var(--mute);margin:6px 0 0}
+.sv3-soon a{color:var(--teal);font-weight:700}
 
-.service-soon-badge {
-  display: inline-block;
-  font-size: 12px;
-  font-weight: 700;
-  color: #8E6C2C;
-  background: #FAF1DD;
-  border-radius: 10px;
-  padding: 5px 10px;
+/* Steps */
+.sv3-steps{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:6px 16px}
+.sv3-step{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid var(--line)}
+.sv3-step:last-child{border-bottom:0}
+.sv3-step .sv3-ic{width:40px;height:40px;border-radius:50%;font-weight:700;font-size:17px}
+.sv3-step h3{font-size:16px;font-weight:700}
+.sv3-step p{font-size:14px;line-height:1.6;color:var(--mute);margin:3px 0 0}
+
+/* Report sample */
+.sv3-report{background:#EDEFFC;border-radius:24px;padding:18px 16px}
+.sv3-paper{background:#fff;border-radius:16px;padding:16px;box-shadow:0 10px 28px rgba(40,50,120,.12);position:relative;overflow:hidden}
+.sv3-paper-hd{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--teal);padding-bottom:10px}
+.sv3-paper-hd b{font-size:15px}
+.sv3-paper-hd small{display:block;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:var(--mute);direction:ltr;text-align:start}
+.sv3-paper-sec{margin-top:12px}
+.sv3-paper-sec b{font-size:13px;color:var(--teal)}
+.sv3-bar{height:7px;border-radius:4px;background:#E9EEF0;margin-top:7px}
+.sv3-paper-sign{display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:12px;color:var(--mute)}
+.sv3-stamp{position:absolute;inset-inline-end:16px;bottom:52px;transform:rotate(-12deg);border:2px solid #3B4BBD;color:#3B4BBD;border-radius:10px;padding:2px 10px;font-weight:700;font-size:14px;background:rgba(255,255,255,.85)}
+.sv3-points{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:9px}
+.sv3-points li{display:flex;gap:10px;align-items:flex-start;font-size:14px;font-weight:600;line-height:1.5}
+.sv3-points li span.sv3-ic{width:22px;height:22px;border-radius:50%;background:#fff;margin-top:1px}
+
+/* Consultants */
+.sv3-docs{display:flex;gap:10px;overflow-x:auto;padding:2px 4px 8px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
+.sv3-doc{flex:0 0 168px;scroll-snap-align:start;border-radius:20px;padding:10px;text-align:center}
+.sv3-doc img{width:100%;aspect-ratio:4/5;object-fit:cover;border-radius:14px;display:block;background:#fff}
+.sv3-doc b{display:block;font-size:14px;margin-top:8px}
+.sv3-doc span{display:inline-block;margin-top:5px;font-size:12px;font-weight:600;border-radius:999px;padding:3px 10px;background:#fff}
+
+/* When */
+.sv3-whens{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sv3-when{border-radius:18px;padding:14px;font-size:14px;font-weight:700;line-height:1.5;display:flex;flex-direction:column;gap:8px}
+
+/* Ladder */
+.sv3-ladder{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:4px 16px}
+.sv3-rung{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--line)}
+.sv3-rung:last-child{border-bottom:0}
+.sv3-rung i{flex:none;width:5px;height:30px;border-radius:3px}
+.sv3-rung .t{flex:1;font-size:14px;line-height:1.5;color:var(--ink2)}
+.sv3-rung .p{flex:none;font-size:17px;font-weight:700;direction:ltr}
+.sv3-rung .p small{font-size:11px;color:var(--mute);font-weight:600}
+.sv3-pay{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 4px 0;font-size:13px;color:var(--mute)}
+.sv3-pay b{background:#E3F3F0;color:var(--teal);border-radius:999px;padding:5px 12px;font-size:13px}
+
+/* Privacy */
+.sv3-priv{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.sv3-priv div{border-radius:18px;padding:14px}
+.sv3-priv h3{font-size:15px;font-weight:700;margin-top:6px}
+.sv3-priv p{font-size:13px;line-height:1.6;color:var(--ink2);margin:4px 0 0}
+
+/* FAQ */
+.sv3-faq{background:var(--card);border:1px solid var(--line);border-radius:22px;overflow:hidden}
+.sv3-faq details{border-bottom:1px solid var(--line)}
+.sv3-faq details:last-child{border-bottom:0}
+.sv3-faq summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px;font-size:15px;font-weight:700}
+.sv3-faq summary::-webkit-details-marker{display:none}
+.sv3-faq summary:after{content:"";flex:none;width:9px;height:9px;border-right:2px solid var(--ink2);border-bottom:2px solid var(--ink2);transform:rotate(45deg);margin-top:-4px;transition:transform .15s}
+.sv3-faq details[open] summary:after{transform:rotate(-135deg);margin-top:4px}
+.sv3-faq p{margin:0;padding:0 16px 16px;font-size:14px;line-height:1.7;color:var(--mute)}
+.sv3-faq-more{display:block;text-align:center;margin-top:12px;font-size:14px;font-weight:700;color:var(--teal)}
+
+/* Final CTA */
+.sv3-final{background:var(--teal);color:#fff;border-radius:26px;padding:24px 20px;position:relative;overflow:hidden}
+.sv3-final:before{content:"";position:absolute;width:200px;height:200px;border-radius:50%;background:var(--teal-2);bottom:-90px;inset-inline-start:-60px}
+.sv3-final>*{position:relative}
+.sv3-final h2{font-size:26px;line-height:1.35;font-weight:700;color:#fff}
+.sv3-final h2 span{color:var(--gold)}
+.sv3-final p{color:#DDF0EC;font-size:14px;line-height:1.6;margin:8px 0 16px}
+.sv3-final .sv3-btns{max-width:420px}
+.sv3-disclaimer{font-size:12px;line-height:1.7;color:var(--mute);text-align:center;margin:18px auto 0;max-width:640px}
+
+/* Locked CTAs: deliberately shut (services/public_cta.js), not broken. */
+.is-cta-locked{background:#E5E7EB !important;color:#6B7280 !important;border-color:#D1D5DB !important;cursor:not-allowed;box-shadow:none !important;pointer-events:none}
+
+@media (min-width:760px){
+  .sv3{padding-top:24px}
+  .sv3-wrap{padding:0 24px}
+  .sv3-hero{padding:40px 40px 36px;border-radius:32px}
+  .sv3-hero-in{grid-template-columns:1.15fr 1fr;align-items:center;gap:32px}
+  .sv3-hero h1{font-size:44px}
+  .sv3-hero p.sv3-lead{font-size:17px;max-width:520px}
+  .sv3-hero-img{height:100%;min-height:300px}
+  .sv3-btns{grid-template-columns:1fr 1fr}
+  .sv3-trust{grid-template-columns:repeat(4,1fr)}
+  .sv3-specs{grid-template-columns:repeat(5,1fr)}
+  .sv3-cats{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+  .sv3-cats .sv3-cat{margin-top:0}
+  .sv3-two{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
+  .sv3-two>.sv3-sec{margin-top:34px}
+  .sv3-whens{grid-template-columns:repeat(4,1fr)}
+  .sv3-sec{margin-top:48px}
+  .sv3-h2{font-size:26px}
+  .sv3-final{padding:40px;display:grid;grid-template-columns:1.2fr 1fr;gap:24px;align-items:center}
+  .sv3-final h2{font-size:34px}
+  .sv3-final .sv3-btns{grid-template-columns:1fr}
 }
 </style>
+<%
+  // ── Booking links. Unchanged rules, see the comments on each. ──────────
+  const __heroMin = (services || []).filter(x => x && x.is_bookable && x.base_price > 0)
+    .reduce((m, x) => (m == null || x.base_price < m ? x.base_price : m), null);
+  const __heroAr = !!(typeof isAr !== 'undefined' && isAr);
+  // 11 Oct 2026 — the hero button goes straight to sign-up (or the case form
+  // when signed in), exactly like every booking link further down this page.
+  const __heroLp = (typeof langParam !== 'undefined' && langParam) ? langParam : '';
+  const __heroIn = !!(typeof user !== 'undefined' && user && user.id);
+  // While the booking gate is shut no link on this page may open sign-up
+  // or the case form, so the hero keeps its old /start destination.
+  const __heroCtaOn = (typeof bookingCtaEnabled !== 'undefined') ? !!bookingCtaEnabled : false;
+  const __heroStartHref = !__heroCtaOn
+    ? (locals.publicLinkPrefix || '') + '/start'
+    : __heroIn
+      ? '/patient/new-case' + (__heroLp ? '?' + __heroLp : '')
+      : '/register?next=' + encodeURIComponent('/patient/new-case') + (__heroLp ? '&' + __heroLp : '');
+  const __lpx = locals.publicLinkPrefix || '';
 
-<main class="page-shell">
-  <div class="page-inner">
-    <section class="services-hero">
-      <h1><%= tt('svc.hero.title', 'Our Medical Services', 'خدماتنا الطبية') %></h1>
-      <p class="subtitle"><%= tt('svc.hero.subtitle',
-        'Expert second opinions from board-certified specialists. Detailed bilingual reports in English and Arabic, delivered in 48 hours standard, 18 hours with VIP, as fast as 4 hours with Urgent.',
-        'آراء طبية تانية من دكاترة متخصصين معتمدين. تقارير مفصلة بالعربي والإنجليزي، بتوصلك في 48 ساعة قياسي، 18 ساعة مع VIP، و4 ساعات للحالات العاجلة.') %></p>
-      <%
-        // Declared here, not in the big scriptlet below: that block's consts
-        // are in the temporal dead zone at this point in the template.
-        const __heroMin = (services || []).filter(x => x && x.is_bookable && x.base_price > 0)
-          .reduce((m, x) => (m == null || x.base_price < m ? x.base_price : m), null);
-        const __heroAr = !!(typeof isAr !== 'undefined' && isAr);
-        // 11 Oct 2026 — the hero button used to open /start, a second landing
-        // page, so an ad visitor needed two taps to reach sign-up. It now goes
-        // straight to sign-up (or the case form when signed in), exactly like
-        // every booking link further down this page.
-        const __heroLp = (typeof langParam !== 'undefined' && langParam) ? langParam : '';
-        const __heroIn = !!(typeof user !== 'undefined' && user && user.id);
-        // While the booking gate is shut no link on this page may open sign-up
-        // or the case form, so the hero keeps its old /start destination.
-        const __heroCtaOn = (typeof bookingCtaEnabled !== 'undefined') ? !!bookingCtaEnabled : false;
-        const __heroStartHref = !__heroCtaOn
-          ? (locals.publicLinkPrefix || '') + '/start'
-          : __heroIn
-            ? '/patient/new-case' + (__heroLp ? '?' + __heroLp : '')
-            : '/register?next=' + encodeURIComponent('/patient/new-case') + (__heroLp ? '&' + __heroLp : '');
-      %>
-      <% if (__heroMin) { %>
-      <div style="display:inline-block;margin-top:14px;background:#0B6B5F;color:#F8F5EF;padding:8px 18px;border-radius:50px;font-weight:700;font-size:15px;"><%= __heroAr ? ('تقارير مكتوبة تبدأ من ' + Number(__heroMin).toLocaleString('en-US') + ' جنيه') : ('Written reports from EGP ' + Number(__heroMin).toLocaleString('en-US')) %></div><br>
-      <% } %>
-      <%- include('partials/urgent-window-note', { style: 'margin:10px auto 0;max-width:720px;font-size:14px;line-height:1.55;color:#475569;' }) %>
-      <%# 6 Oct 2026 — paid Instagram traffic lands here; the top of the page
-          had a price but no way to act on it. %>
-      <div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:16px;">
-        <a href="<%= __heroStartHref %>" data-funnel="services_cta" style="display:inline-block;background:#0B6B5F;color:#fff;padding:12px 26px;border-radius:50px;font-weight:700;font-size:15px;text-decoration:none;"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
-        <a href="<%= locals.publicLinkPrefix || '' %>/wa" rel="nofollow" style="display:inline-block;background:#fff;color:#0B6B5F;border:1.5px solid #0B6B5F;padding:12px 26px;border-radius:50px;font-weight:700;font-size:15px;text-decoration:none;"><%= tt('svc.hero.whatsapp', 'Ask us on WhatsApp', 'اسألنا على واتساب') %></a>
-      </div>
-      <a href="<%= locals.publicLinkPrefix || '' %>/help-me-choose" data-funnel="services_help" style="display:inline-block;margin-top:16px;background:#eff6ff;color:#2563eb;border:1.5px solid #93c5fd;padding:10px 22px;border-radius:50px;font-weight:600;font-size:14px;text-decoration:none;"><%= tt('svc.hero.help_cta',
-        '🩺 Not sure which service you need? Ask our assistant →',
-        '🩺 مش متأكد محتاج إيه؟ اسأل المساعد بتاعنا ←') %></a>
-    </section>
+  // Logged-out visitors go to REGISTER, not login (see public-cta tests).
+  const __loggedIn = !!(typeof user !== 'undefined' && user && user.id);
+  const submitUrl = __loggedIn ? '/patient/new-case' : '/register?next=/patient/new-case';
+  const __lp = (typeof langParam !== 'undefined' && langParam) ? langParam : '';
+  // One builder for every booking link on this page. `next` is encoded as a
+  // whole so a specialty name containing '&' cannot split it.
+  function bookHref(qs) {
+    const target = '/patient/new-case' + (qs ? '?' + qs : '');
+    const base = __loggedIn ? target : '/register?next=' + encodeURIComponent(target);
+    return __lp ? base + (base.indexOf('?') === -1 ? '?' : '&') + __lp : base;
+  }
 
-    <%
-    // Logged-out visitors (almost all of them new — they arrive from ads and
-    // search) go to REGISTER, not login: a sign-in form is a dead end for
-    // someone without an account. register.ejs links to sign-in for returning
-    // patients and keeps `next`, so the chosen service survives either path.
-    const __loggedIn = !!(typeof user !== 'undefined' && user && user.id);
-    const submitUrl = __loggedIn ? '/patient/new-case' : '/register?next=/patient/new-case';
-    const __lp = (typeof langParam !== 'undefined' && langParam) ? langParam : '';
-    // One builder for every booking link on this page. `next` is encoded as a
-    // whole so a specialty name containing '&' (Obstetrics & Gynecology)
-    // cannot split it.
-    function bookHref(qs) {
-      const target = '/patient/new-case' + (qs ? '?' + qs : '');
-      const base = __loggedIn ? target : '/register?next=' + encodeURIComponent(target);
-      return __lp ? base + (base.indexOf('?') === -1 ? '?' : '&') + __lp : base;
-    }
-    // SEO 2026-09-13 (review): booking/login links carry the page's language —
-    // the portal is cookie-driven and a public page no longer sets the cookie.
-    const __langAmp = (typeof langParam !== 'undefined' && langParam) ? '&' + langParam : '';
-    // submitUrl already carries a query when logged out (/login?next=…), so the
-    // language joins it with '&' — with '?' it would end up inside `next`.
-    const __langQs = (typeof langParam !== 'undefined' && langParam) ? (submitUrl.indexOf('?') === -1 ? '?' : '&') + langParam : '';
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __specNameArMap = (typeof specialtyNameArMap === 'object' && specialtyNameArMap) ? specialtyNameArMap : {};
+  function specDisplayName(enName) {
+    return (__isAr && __specNameArMap[enName]) ? __specNameArMap[enName] : enName;
+  }
+  // English article by SOUND, not letter ("an OB/GYN", "a Urology").
+  const AN_DESPITE_CONSONANT = /^(OB\/?GYN|ENT|MRI|ECG|EEG|X-ray|MSK|hour|honest)/i;
+  const A_DESPITE_VOWEL = /^(uro|uri|uni|use|usu|util|euro|eu[a-z]|one\b)/i;
+  function enArticle(name) {
+    const n = String(name || '').trim();
+    if (AN_DESPITE_CONSONANT.test(n)) return 'an';
+    if (A_DESPITE_VOWEL.test(n)) return 'a';
+    return /^[aeiou]/i.test(n) ? 'an' : 'a';
+  }
+  // Orderable only if the shared SQL rule (serviceBookableClause) said so.
+  function isBookable(sv) { return !!(sv && sv.is_bookable); }
+  function svcName(sv) {
+    if (!sv) return '';
+    return (__isAr && sv.name_ar) ? sv.name_ar : sv.name;
+  }
+  const __specLive = (typeof specialtyLiveMap !== 'undefined' && specialtyLiveMap) ? specialtyLiveMap : {};
+  const __isLiveSpec = (sp) => !!__specLive[sp];
+  // The public booking gate (services/public_cta.js). When off, every CTA
+  // renders as an inert grey control instead of an anchor.
+  const __ctaOn = (typeof bookingCtaEnabled !== 'undefined') ? !!bookingCtaEnabled : false;
+  const __ctaOffLabel = tt('svc.cta.locked', 'Booking opens soon', 'الحجز هيفتح قريب');
 
-    // Bilingual rendering: keep specialtyMeta keyed by English (so icon/desc
-    // still resolve), but swap to name_ar in section headers when isAr.
-    const __isAr = !!(typeof isAr !== 'undefined' && isAr);
-    const __specNameArMap = (typeof specialtyNameArMap === 'object' && specialtyNameArMap) ? specialtyNameArMap : {};
-    function specDisplayName(enName) {
-      return (__isAr && __specNameArMap[enName]) ? __specNameArMap[enName] : enName;
-    }
+  // ── Catalogue, grouped. ────────────────────────────────────────────────
+  const seen = new Set();
+  const uniqueServices = (services || []).filter(s => {
+    if (seen.has(s.id)) return false;
+    seen.add(s.id);
+    return true;
+  });
+  const bySpecialty = {};
+  uniqueServices.forEach(s => {
+    const sp = s.specialty_name || 'Other';
+    if (!bySpecialty[sp]) bySpecialty[sp] = [];
+    bySpecialty[sp].push(s);
+  });
+  // Bookable first, then cheapest first, so each list opens on the price a
+  // visitor can actually start at.
+  Object.keys(bySpecialty).forEach(sp => {
+    bySpecialty[sp].sort((a, b) =>
+      (isBookable(b) - isBookable(a)) || ((a.base_price || 0) - (b.base_price || 0)));
+  });
+  const __fromPrice = {};
+  uniqueServices.forEach(s => {
+    if (!isBookable(s) || !(s.base_price > 0)) return;
+    const sp = s.specialty_name || 'Other';
+    if (__fromPrice[sp] == null || s.base_price < __fromPrice[sp]) __fromPrice[sp] = s.base_price;
+  });
+  const __minPrice = Object.values(__fromPrice).reduce((m, v) => (m == null || v < m ? v : m), null);
+  const __fmt = v => Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
 
-    // "Get a Internal Medicine review", "Get a OB/GYN review" and "Get a
-    // Orthopedics review" all shipped, because the article was a hardcoded
-    // "a" concatenated onto whatever the specialty was called.
-    //
-    // The rule is the SOUND, not the letter: OB/GYN starts with a consonant
-    // but is read "oh-bee-gee-why-en", so it takes "an". A naive
-    // /^[aeiou]/ test gets it wrong in exactly the case that is on the page.
-    // Only used on the English side; Arabic has no indefinite article.
-    // Consonant LETTER, vowel SOUND — these take "an".
-    const AN_DESPITE_CONSONANT = /^(OB\/?GYN|ENT|MRI|ECG|EEG|X-ray|MSK|hour|honest)/i;
-    // Vowel LETTER, consonant sound — these take "a". "Urology" is read
-    // "yoo-rology", so a plain /^[aeiou]/ test produces "an Urology review",
-    // which is the same mistake in the opposite direction. Getting the first
-    // version of this wrong is exactly why the rule is written out.
-    const A_DESPITE_VOWEL = /^(uro|uri|uni|use|usu|util|euro|eu[a-z]|one\b)/i;
-    // A service is orderable only if the shared SQL rule said so. The page
-    // renders everything; this decides which cards link and which get a pill.
-    // `service.coming_soon` alone is NOT the test — a service can be perfectly
-    // fine in itself and still unorderable because its specialty is hidden,
-    // which is true of 128 of the 183 services on this page.
-    function isBookable(sv) { return !!(sv && sv.is_bookable); }
+  // Descriptions (unchanged copy) + the v3 colour, tint and icon per specialty.
+  const specialtyMeta = {
+    'Radiology':                { desc: 'X-ray, MRI, CT scan & ultrasound review',         desc_ar: 'مراجعة الأشعة العادية والرنين والمقطعية والسونار' },
+    'Cardiology':               { desc: 'ECG, echo, Holter & cardiac imaging',             desc_ar: 'رسم القلب، الإيكو، الهولتر، وأشعة القلب' },
+    'Oncology':                 { desc: 'Cancer staging, bone marrow & tumor review',      desc_ar: 'تحديد مرحلة الورم، نخاع العظم، ومراجعة الأورام' },
+    'Neurology':                { desc: 'Brain MRI, EEG, EMG/NCS & spine imaging',         desc_ar: 'رنين المخ، رسم المخ، رسم العصب، وأشعة العمود الفقري' },
+    'Lab & Pathology':          { desc: 'Blood work, hormones, histopathology & microbiology', desc_ar: 'تحاليل الدم، الهرمونات، الباثولوجي، والميكروبيولوجي' },
+    'Orthopedics':              { desc: 'Joint MRI, fracture review & surgical opinion',    desc_ar: 'رنين المفاصل، مراجعة الكسور، ورأي تاني للعمليات' },
+    'Gastroenterology':         { desc: 'Endoscopy, liver, MRCP & IBD workup',              desc_ar: 'المنظار، الكبد، أشعة القنوات المرارية، والتهابات الأمعاء' },
+    'Endocrinology':            { desc: 'Thyroid, diabetes, PCOS & metabolic review',       desc_ar: 'الغدة الدرقية، السكر، تكيس المبايض، ومراجعة الأيض' },
+    'Internal Medicine':        { desc: 'General medical case review & diagnostics',        desc_ar: 'مراجعة طبية عامة وتشخيص' },
+    'Pediatrics':               { desc: 'Pediatric case review & child health',             desc_ar: 'مراجعة حالات الأطفال وصحتهم' },
+    'OB/GYN':                   { desc: 'Obstetric ultrasound, fertility & pelvic MRI',     desc_ar: 'سونار الحوامل، الخصوبة، ورنين الحوض' },
+    'Urology':                  { desc: 'Prostate MRI, PSA review & renal imaging',         desc_ar: 'رنين البروستاتا، تحليل PSA، وأشعة الكلى' },
+    'Nephrology':               { desc: 'Kidney function, stones, dialysis & biopsy review', desc_ar: 'وظائف الكلى، الحصوات، الغسيل، ومراجعة العينات' },
+    'Clinical Nutrition':       { desc: 'Therapeutic diet and nutrition review',            desc_ar: 'مراجعة التغذية العلاجية' }
+  };
+  function metaDesc(sp) {
+    const m = specialtyMeta[sp];
+    return (__isAr && m && m.desc_ar) ? m.desc_ar : (m && m.desc) || '';
+  }
+  const I = {
+    heart: 'M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z M8 12h2l1-2 2 4 1-2h2',
+    scan: 'M4 8V5h3 M17 5h3v3 M20 16v3h-3 M7 19H4v-3 M9 12a3 3 0 1 0 6 0 3 3 0 1 0-6 0',
+    bone: 'M16.5 3.5a2.5 2.5 0 0 1 2.2 3.7 2.5 2.5 0 0 1-1.9 3.6L10.8 16.8a2.5 2.5 0 0 1-3.6 1.9 2.5 2.5 0 0 1-3.7-2.2 2.5 2.5 0 0 1 3.7-2.2l6.2-6.2a2.5 2.5 0 0 1 3.1-4.6z',
+    baby: 'M5 13a7 7 0 1 0 14 0 7 7 0 1 0-14 0 M9.5 15.5c1.5 1.2 3.5 1.2 5 0 M10 11.5h.01 M14 11.5h.01 M12 6c0-1.5 1-2.5 2.5-2.5',
+    fem: 'M7 9a5 5 0 1 0 10 0 5 5 0 1 0-10 0 M12 14v7 M9 18h6',
+    drop: 'M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z',
+    steth: 'M6 3v6a5 5 0 0 0 10 0V3 M11 14v2a4 4 0 0 0 8 0v-2 M17 12a2 2 0 1 0 4 0 2 2 0 1 0-4 0',
+    kidney: 'M15 4c-3 0-5 2-5 5 0 1.5 1.5 2 1.5 3.5S10 15 10 16.5C10 19 12 21 14.5 21 18 21 20 17 20 12.5S18 4 15 4z',
+    gut: 'M9 3v4c0 2-3 3-3 7a6 6 0 0 0 12 0c0-3-2-4-4-4h-2',
+    apple: 'M12 7c-2-2-7-1.5-7 4 0 4 3 9 5 9 1 0 1.5-.5 2-.5s1 .5 2 .5c2 0 5-5 5-9 0-5.5-5-6-7-4z M12 7c0-2 1-3.5 3-4',
+    plus: 'M12 5v14 M5 12h14',
+    file: 'M7 3h7l5 5v13H7z M14 3v5h5 M10 13h6 M10 17h6',
+    bed: 'M3 18v-8 M3 14h18v4 M21 14v-2a3 3 0 0 0-3-3h-7v5 M7 11.5a1.5 1.5 0 1 0 0 .01',
+    shield: 'M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z M9 12l2 2 4-4',
+    cut: 'M6 6l12 12 M4 4a2 2 0 1 0 4 4 2 2 0 1 0-4-4 M16 16a2 2 0 1 0 4 4 2 2 0 1 0-4-4',
+    doc: 'M6 3h9l3 3v15H6z M9 9h6 M9 13h6 M9 17h3',
+    two: 'M4 7h7v10H4z M13 7h7v10h-7z',
+    home: 'M4 11l8-7 8 7v9H4z M10 20v-6h4v6',
+    lock: 'M6 11h12v10H6z M8 11V8a4 4 0 0 1 8 0v3',
+    info: 'M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18 M12 11v5 M12 8h.01',
+    bulb: 'M9 18h6 M10 21h4 M12 3a6 6 0 0 0-4 10.5c.8.8 1 1.5 1 2.5h6c0-1 .2-1.7 1-2.5A6 6 0 0 0 12 3z',
+    check: 'M5 12.5l4.5 4.5L19 7.5'
+  };
+  const SKIN = {
+    'Cardiology':         { c: '#D9661F', t: '#FDEFE3', i: I.heart },
+    'Radiology':          { c: '#4C5FD5', t: '#EDEFFC', i: I.scan },
+    'Orthopedics':        { c: '#1F74D1', t: '#E8F1FC', i: I.bone },
+    'Pediatrics':         { c: '#C98A00', t: '#FFF5D9', i: I.baby },
+    'OB/GYN':             { c: '#7A5AC9', t: '#F1ECFB', i: I.fem },
+    'Urology':            { c: '#0E8FA8', t: '#E2F5F9', i: I.drop },
+    'Internal Medicine':  { c: '#0B6B5F', t: '#E3F3F0', i: I.steth },
+    'Nephrology':         { c: '#2E9D5B', t: '#E6F6EC', i: I.kidney },
+    'Gastroenterology':   { c: '#6E8E14', t: '#F0F5DF', i: I.gut },
+    'Clinical Nutrition': { c: '#B5651D', t: '#FBEEE1', i: I.apple }
+  };
+  const skin = sp => SKIN[sp] || { c: '#0B6B5F', t: '#E3F3F0', i: I.plus };
+  function svg(d, color, size, sw) {
+    return '<svg aria-hidden="true" width="' + (size || 22) + '" height="' + (size || 22) + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="' + (sw || 2) + '" stroke-linecap="round" stroke-linejoin="round"><path d="' + d + '"/></svg>';
+  }
 
-    // Service names in the reader's language. services.name_ar was added in
-    // migration 102 — before it, an Arabic visitor read Arabic chrome wrapped
-    // around 183 English medical terms. Falls back to the English name rather
-    // than rendering blank, so a service added after 102 still shows something.
-    function svcName(sv) {
-      if (!sv) return '';
-      return (__isAr && sv.name_ar) ? sv.name_ar : sv.name;
-    }
+  // Display order: hand-ordered names first, then the rest; every bookable
+  // specialty before every coming-soon one.
+  const specOrder = ['Cardiology','Radiology','Orthopedics','Pediatrics','OB/GYN','Urology',
+    'Internal Medicine','Nephrology','Gastroenterology','Clinical Nutrition'];
+  const __allSpecs = [
+    ...specOrder.filter(sp => bySpecialty[sp]),
+    ...Object.keys(bySpecialty).filter(sp => !specOrder.includes(sp)).sort()
+  ];
+  // A live specialty lists only what can be booked; specialties with no
+  // consultant yet are one short line at the bottom.
+  const __liveSpecs = __allSpecs.filter(sp => __isLiveSpec(sp) && (bySpecialty[sp] || []).length);
+  const __soonSpecs = __allSpecs.filter(sp => !__isLiveSpec(sp) && (bySpecialty[sp] || []).length);
+  const __listFor = sp => {
+    const all = bySpecialty[sp] || [];
+    const b = all.filter(isBookable);
+    return b.length ? b : all;
+  };
+  const __bookableCount = uniqueServices.filter(isBookable).length;
+  const sectionId = sp => sp.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+  const egp = __isAr ? 'جنيه' : 'EGP';
+  const fromTxt = v => __isAr ? ('من ' + __fmt(v)) : ('from ' + __fmt(v));
+  function typesTxt(n) {
+    // "N من الأنواع" style avoided: a plain "N types" reads right in both.
+    return __isAr ? (n + ' ' + (n >= 3 && n <= 10 ? 'أنواع' : 'نوع')) : (n + (n === 1 ? ' report type' : ' report types'));
+  }
 
-    // Which specialties have anything orderable. Declared HERE, above the
-    // featured spotlight, because that block filters on it too — a `const`
-    // declared further down is in the temporal dead zone and throws.
-    const __specLive = (typeof specialtyLiveMap !== 'undefined' && specialtyLiveMap) ? specialtyLiveMap : {};
-    const __isLiveSpec = (sp) => !!__specLive[sp];
-
-    // One place asks whether the public site may link into the wizard. Held
-    // off deliberately (see services/public_cta.js); when off, every CTA
-    // renders as an inert grey control instead of an anchor.
-    const __ctaOn = (typeof bookingCtaEnabled !== 'undefined') ? !!bookingCtaEnabled : false;
-    const __ctaOffLabel = tt('svc.cta.locked', 'Booking opens soon', 'الحجز هيفتح قريب');
-
-    function enArticle(name) {
-      const n = String(name || '').trim();
-      if (AN_DESPITE_CONSONANT.test(n)) return 'an';
-      if (A_DESPITE_VOWEL.test(n)) return 'a';
-      return /^[aeiou]/i.test(n) ? 'an' : 'a';
-    }
-
-    // Deduplicate by service id
-    const seen = new Set();
-    const uniqueServices = (services || []).filter(s => {
-      if (seen.has(s.id)) return false;
-      seen.add(s.id);
-      return true;
+  // Price ladder: the prices are whatever is bookable today; the line under
+  // each is the kind of review that sits at that price.
+  const LADDER_TXT = {
+    750:  ['Report read — one question', 'قراءة تقرير — سؤال واحد'],
+    1200: ['ECG, plain X-ray, ultrasound, blood count', 'رسم القلب، أشعة عادية، سونار، صورة دم'],
+    1600: ['Echo, MRI, CT, Holter', 'إيكو، رنين، مقطعية، هولتر'],
+    2400: ['Coronary CT, endoscopy, full case review', 'مقطعية الشرايين، المنظار، مراجعة الحالة كاملة'],
+    3500: ['Pre-surgery opinion, chronic kidney follow-up', 'رأي قبل العملية، متابعة الكلى المزمنة']
+  };
+  const LADDER_C = ['#0B6B5F', '#1F74D1', '#4C5FD5', '#D9661F', '#C98A00', '#7A5AC9'];
+  const __ladder = Array.from(new Set(uniqueServices.filter(s => isBookable(s) && s.base_price > 0).map(s => Number(s.base_price))))
+    .sort((a, b) => a - b)
+    .map(function (p, i) {
+      const known = LADDER_TXT[p];
+      const t = known ? known[__isAr ? 1 : 0]
+        : uniqueServices.filter(s => isBookable(s) && Number(s.base_price) === p).slice(0, 2).map(svcName).join(__isAr ? '، ' : ', ');
+      return { p: p, t: t, c: LADDER_C[i % LADDER_C.length] };
     });
 
-    // Group by specialty
-    const bySpecialty = {};
-    uniqueServices.forEach(s => {
-      const sp = s.specialty_name || 'Other';
-      if (!bySpecialty[sp]) bySpecialty[sp] = [];
-      bySpecialty[sp].push(s);
-    });
-    // 2026-09-29 price cut: the SQL returns rows in id order, so a specialty's
-    // three preview cards were whatever sorted first alphabetically — never the
-    // new 750 entry read. Bookable first, then cheapest first, so the preview
-    // opens on the price a visitor can actually start at.
-    Object.keys(bySpecialty).forEach(sp => {
-      bySpecialty[sp].sort((a, b) =>
-        (isBookable(b) - isBookable(a)) || ((a.base_price || 0) - (b.base_price || 0)));
-    });
-    // Lowest bookable price per specialty and overall — drives the hero chip,
-    // the "from" strip and each specialty header.
-    const __fromPrice = {};
-    uniqueServices.forEach(s => {
-      if (!isBookable(s) || !(s.base_price > 0)) return;
-      const sp = s.specialty_name || 'Other';
-      if (__fromPrice[sp] == null || s.base_price < __fromPrice[sp]) __fromPrice[sp] = s.base_price;
-    });
-    const __minPrice = Object.values(__fromPrice).reduce((m, v) => (m == null || v < m ? v : m), null);
-    const __fmt = v => Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+  // Consultants who have agreed to be named and pictured in our marketing.
+  const DOCS = [
+    { img: 'dr-nancy',  en: 'Dr Nancy Ghoneim',     ar: 'د. نانسي غنيم',       sp: 'Internal Medicine' },
+    { img: 'dr-jamal',  en: 'Dr Mohammed Jamaleddin', ar: 'د. محمد جمال الدين', sp: 'Orthopedics' },
+    { img: 'dr-sultan', en: 'Dr Khaled Sultan',     ar: 'د. خالد سلطان',       sp: 'OB/GYN' },
+    { img: 'dr-zaky',   en: 'Dr Ibrahim Zaky',      ar: 'د. إبراهيم زكي',      sp: 'Urology' },
+    { img: 'dr-hassan', en: 'Dr Hassan Khaled',     ar: 'د. حسن خالد',         sp: 'OB/GYN' }
+  ];
+%>
 
-    // Specialty metadata: icon + description + "star" services to feature.
-    // desc_ar is the Egyptian-Arabic description; resolved via metaDesc() below.
-    const specialtyMeta = {
-      'Radiology':                { icon: '🩻', desc: 'X-ray, MRI, CT scan & ultrasound review',         desc_ar: 'مراجعة الأشعة العادية والرنين والمقطعية والسونار', color: '#0ea5e9' },
-      'Cardiology':               { icon: '❤️', desc: 'ECG, echo, Holter & cardiac imaging',             desc_ar: 'رسم القلب، الإيكو، الهولتر، وأشعة القلب',          color: '#ef4444' },
-      'Oncology':                 { icon: '🔬', desc: 'Cancer staging, bone marrow & tumor review',      desc_ar: 'تحديد مرحلة الورم، نخاع العظم، ومراجعة الأورام',  color: '#8b5cf6' },
-      'Neurology':                { icon: '🧠', desc: 'Brain MRI, EEG, EMG/NCS & spine imaging',         desc_ar: 'رنين المخ، رسم المخ، رسم العصب، وأشعة العمود الفقري', color: '#6366f1' },
-      'Pathology':                { icon: '🧪', desc: 'Histopathology, biopsy & cytology review',         desc_ar: 'الباثولوجي، العينات، ومراجعة الخلايا',             color: '#10b981' },
-      'Lab & Pathology':          { icon: '🧪', desc: 'Blood work, hormones, histopathology & microbiology', desc_ar: 'تحاليل الدم، الهرمونات، الباثولوجي، والميكروبيولوجي', color: '#10b981' },
-      'Orthopedics':              { icon: '🦴', desc: 'Joint MRI, fracture review & surgical opinion',    desc_ar: 'رنين المفاصل، مراجعة الكسور، ورأي تاني للعمليات',  color: '#f59e0b' },
-      'Gastroenterology':         { icon: '🫀', desc: 'Endoscopy, liver, MRCP & IBD workup',              desc_ar: 'المنظار، الكبد، أشعة القنوات المرارية، والتهابات الأمعاء', color: '#14b8a6' },
-      'Endocrinology':            { icon: '⚗️', desc: 'Thyroid, diabetes, PCOS & metabolic review',       desc_ar: 'الغدة الدرقية، السكر، تكيس المبايض، ومراجعة الأيض', color: '#84cc16' },
-      'ENT (Ear Nose & Throat)':  { icon: '👂', desc: 'Ear, nose & throat specialist review',             desc_ar: 'مراجعة دكتور أنف وأذن وحنجرة',                     color: '#a855f7' },
-      'General Surgery':          { icon: '🏥', desc: 'Surgical case review & second opinion',            desc_ar: 'مراجعة حالات الجراحة ورأي تاني',                   color: '#64748b' },
-      'Internal Medicine':        { icon: '🩺', desc: 'General medical case review & diagnostics',        desc_ar: 'مراجعة طبية عامة وتشخيص',                          color: '#0d9488' },
-      'Pediatrics':               { icon: '👶', desc: 'Pediatric case review & child health',             desc_ar: 'مراجعة حالات الأطفال وصحتهم',                      color: '#f472b6' },
-      'Pulmonology':              { icon: '🫁', desc: 'Chest CT, PFT & respiratory case review',          desc_ar: 'أشعة الصدر المقطعية، وظائف الرئة، ومراجعة حالات الجهاز التنفسي', color: '#0284c7' },
-      'OB/GYN':                   { icon: '🌸', desc: 'Obstetric ultrasound, fertility & pelvic MRI',     desc_ar: 'سونار الحوامل، الخصوبة، ورنين الحوض',              color: '#ec4899' },
-      'Dermatology':              { icon: '✨', desc: 'Skin photo, dermoscopy & biopsy review',           desc_ar: 'صور الجلد، فحص الجلد، ومراجعة العينات',            color: '#f97316' },
-      'Ophthalmology':            { icon: '👁️', desc: 'OCT, fundus, glaucoma & retinal imaging',          desc_ar: 'OCT، قاع العين، المياه الزرقاء، وأشعة الشبكية',     color: '#06b6d4' },
-      'Urology':                  { icon: '🫘', desc: 'Prostate MRI, PSA review & renal imaging',         desc_ar: 'رنين البروستاتا، تحليل PSA، وأشعة الكلى',           color: '#3b82f6' },
-      'Hematology':               { icon: '🩸', desc: 'CBC, bone marrow, flow cytometry & coagulation',   desc_ar: 'صورة الدم، نخاع العظم، الفلو سيتومتري، والتجلط',   color: '#dc2626' },
-    };
-    function metaDesc(meta) {
-      return (__isAr && meta && meta.desc_ar) ? meta.desc_ar : (meta && meta.desc) || '';
-    }
+<main class="sv3">
+ <div class="sv3-wrap">
 
-    // Featured services: hand-picked high-value, high-demand
-    const featuredIds = [
-      // Oncology staging — cancer patients most motivated
-      'onc_ct_mri_staging',
-      'onc_bone_marrow_biopsy',
-      // High-demand Egypt specialties
-      'gastro_hbv_hcv',
-      'endo_diabetes_mgmt',
-      'endo_pcos',
-      // Premium imaging
-      'neuro_eeg',
-      'card_ctca',
-      'obgyn_fetal_echo',
-      // High-ticket
-      'hema_bone_marrow',
-      'opht_diabetic_retina',
-      'pulm_hrct',
-      'derm_dermoscopy',
-    ];
-    // The hand-picked list above is a PREFERENCE, not the answer.
-    //
-    // 2026-08-29 visual audit: this panel rendered exactly ONE card in a
-    // container sized for a full row — about 70% dark empty space under a
-    // heading promising our most requested reviews. Thirteen of the fourteen
-    // ids resolved to nothing, because most name services under specialties
-    // that migrations 060/066/087 hid, and those rows never reach
-    // uniqueServices. The list was written when far more of the catalogue was
-    // live and silently decayed as the catalogue shrank.
-    //
-    // So: honour whichever picks still resolve, then top up from what is
-    // actually bookable — the dearest service in each specialty not yet
-    // represented, which is a defensible reading of "high-value" and, unlike
-    // the fixed list, cannot decay. Capped at 6, which fills the row at every
-    // breakpoint (the grid is minmax(220px, 1fr)).
-    // 2026-09-29: the strip used to top up with the DEAREST service in each
-    // specialty, so after the price cut the first thing a visitor saw was still
-    // 2,400–3,500 and the page "looked the same". It now shows where each open
-    // specialty STARTS, cheapest first, and jumps to that specialty's section.
-    // featuredIds above is kept for reference but no longer drives the strip.
-    const FEATURED_TARGET = 8;
-    const featuredSpecs = Object.keys(__fromPrice).filter(__isLiveSpec)
-      .sort((a, b) => (__fromPrice[a] - __fromPrice[b]) || a.localeCompare(b))
-      .slice(0, FEATURED_TARGET);
-    const featuredServices = featuredSpecs; // non-empty check below
-    // Display order for specialties
-    const specOrder = [
-      'Radiology','Cardiology','Oncology','Neurology','Pathology','Lab & Pathology',
-      'Orthopedics','Gastroenterology','Endocrinology','Internal Medicine',
-      'ENT (Ear Nose & Throat)','General Surgery','Pediatrics','Pulmonology',
-      'OB/GYN','Dermatology','Ophthalmology','Urology','Hematology'
-    ];
-    // Hand-ordered names first, then anything the list does not know about —
-    // and then the whole thing partitioned so every bookable specialty comes
-    // before every coming-soon one. A visitor scrolling from the top hits what
-    // they can buy today before what they cannot.
-    const __allSpecs = [
-      ...specOrder.filter(sp => bySpecialty[sp]),
-      ...Object.keys(bySpecialty).filter(sp => !specOrder.includes(sp)).sort()
-    ];
-    const orderedSpecs = [
-      ...__allSpecs.filter(__isLiveSpec),
-      ...__allSpecs.filter(sp => !__isLiveSpec(sp))
-    ];
-    %>
-
-    <!-- ── FEATURED SPOTLIGHT ─────────────────────────── -->
-    <% if (featuredServices.length > 0) { %>
-    <div class="featured-section">
-      <%# "Most Requested" was a claim about order volume on a platform where
-          no card payment has ever settled. These are a hand-picked selection
-          topped up from the live catalogue, so say that instead. %>
-      <div class="featured-label"><%= tt('svc.from.label', 'Starting prices', 'الأسعار تبدأ من') %></div>
-      <h2><%= __isAr ? ('ابدأ من ' + __fmt(__minPrice) + ' جنيه') : ('Start from EGP ' + __fmt(__minPrice)) %></h2>
-      <p class="featured-sub"><%= tt('svc.from.sub',
-        'The entry read: a consultant reads your report and answers one question in writing. Fuller reviews in each specialty below.',
-        'قراءة تقرير: استشاري يقرا تقريرك ويجاوب على سؤال واحد كتابةً. والمراجعات الأشمل في كل تخصص تحت.') %></p>
-      <div class="featured-grid">
-        <% featuredSpecs.forEach(function(sp) { %>
-        <a href="#<%= sp.replace(/[^a-z0-9]/gi, '-').toLowerCase() %>" class="featured-card">
-          <div class="fc-specialty"><%= specDisplayName(sp) %></div>
-          <div class="fc-name"><%= metaDesc(specialtyMeta[sp]) %></div>
-          <div class="fc-price">
-            <span><%= tt('svc.from', 'from', 'من') %> </span><%= formatMoney(__fromPrice[sp], 'EGP') %>
-          </div>
-        </a>
-        <% }); %>
-      </div>
+  <%# ── HERO ─────────────────────────────────────────────────────────── %>
+  <section class="sv3-hero" aria-labelledby="sv3-h1">
+   <div class="sv3-hero-in">
+    <div>
+     <div class="sv3-badge"><%- svg(I.shield, '#F2C76E', 14, 2.4) %> <%= tt('svc3.hero.badge', 'Shifa Hospital Group · GAHAR-accredited', 'مجموعة مستشفيات شفا · معتمدة من GAHAR') %></div>
+     <h1 id="sv3-h1"><%= tt('svc3.hero.h1a', 'A written second medical opinion,', 'رأي طبي ثانٍ مكتوب،') %><br><span><%= tt('svc3.hero.h1b', 'from a named consultant.', 'من استشاري باسمه.') %></span></h1>
+     <p class="sv3-lead"><%= tt('svc3.hero.lead',
+       'Upload your scans or lab results from your phone and receive a report in Arabic and English, with the consultant\'s name and signature.',
+       'ارفع أشعتك أو تحاليلك من موبايلك، واستلم تقرير بالعربي والإنجليزي، باسم الاستشاري وتوقيعه.') %></p>
+     <div class="sv3-chips">
+      <% if (__heroMin) { %><span class="sv3-chip sv3-chip--solid"><%= __heroAr ? ('من ' + __fmt(__heroMin) + ' جنيه') : ('From EGP ' + __fmt(__heroMin)) %></span><% } %>
+      <span class="sv3-chip"><%= tt('svc3.hero.chip_time', 'In 48 hours or less', 'في 48 ساعة أو أقل') %></span>
+      <span class="sv3-chip"><%= tt('svc3.hero.chip_ai', 'Not AI', 'مش ذكاء اصطناعي') %></span>
+     </div>
     </div>
-    <% } %>
+    <div style="display:grid;gap:12px">
+     <img class="sv3-hero-img" src="/assets/services/hero-desk.webp" width="900" height="558" alt="<%= tt('svc3.hero.img_alt', 'A consultant\'s desk with a printed report and reading glasses', 'مكتب استشاري عليه تقرير مطبوع ونظارة') %>">
+     <div class="sv3-btns">
+      <%# The hero CTA keeps its /start destination while the gate is shut
+          (__heroCtaOn above), so it is an anchor in both states. %>
+      <a href="<%= __heroStartHref %>" data-funnel="services_cta" class="sv3-btn sv3-btn--hero"><%= tt('svc3.cta.start', 'Start your request', 'ابدأ طلبك') %><% if (__heroMin) { %> <span>· <%= __heroAr ? ('من ' + __fmt(__heroMin) + ' جنيه') : ('from EGP ' + __fmt(__heroMin)) %></span><% } %></a>
+      <a href="#sv3-report" class="sv3-btn sv3-btn--ghost"><%= tt('svc3.hero.see_report', 'See what the report looks like', 'شوف شكل التقرير') %></a>
+     </div>
+     <%- include('partials/urgent-window-note', {}) %>
+    </div>
+   </div>
+  </section>
 
-    <!-- ── SPECIALTY SECTIONS ─────────────────────────── -->
-    <%
-    // 6 Oct 2026 — the page was 26 phone screens long, most of it things a
-    // patient cannot buy. Specialties with no consultant yet are now one short
-    // line at the bottom (__soonSpecs) instead of a full section each, and a
-    // live specialty lists only the services that can actually be booked.
-    const __soonSpecs = [];
-    orderedSpecs.forEach(function(specName) {
-      const __specAll = bySpecialty[specName] || [];
-      if (!__specAll.length) return;
-      const __specIsLive = __isLiveSpec(specName);
-      if (!__specIsLive) { __soonSpecs.push(specName); return; }
-      const __specBookable = __specAll.filter(isBookable);
-      const specServices = __specBookable.length ? __specBookable : __specAll;
-      const meta = specialtyMeta[specName] || { icon: '🏥', desc: '', color: '#6b7280' };
-      const preview = specServices.slice(0, 3);
-      const rest = specServices.slice(3);
-      const sectionId = specName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-    %>
-    <div class="specialty-section" id="<%= sectionId %>">
-      <div class="specialty-header">
-        <div>
-          <div class="specialty-title">
-            <span class="specialty-icon"><%= meta.icon %></span>
-            <h2><%= specDisplayName(specName) %></h2>
-            <% if (!__specIsLive) { %>
-            <span class="soon-pill"><%= tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %></span>
-            <% } %>
-          </div>
-          <div class="specialty-count"><%= metaDesc(meta) %> &nbsp;·&nbsp; <%
-            if (__isAr) { %><%= specServices.length %> <%= tt('svc.unit.service', 'service', 'خدمة') %><% }
-            else { %><%= specServices.length %> service<%= specServices.length !== 1 ? 's' : '' %><% }
-          %><% if (__specIsLive && __fromPrice[specName]) { %> &nbsp;·&nbsp; <strong><%= __isAr ? ('من ' + __fmt(__fromPrice[specName]) + ' جنيه') : ('from EGP ' + __fmt(__fromPrice[specName])) %></strong><% } %></div>
-        </div>
-        <% if (__specIsLive && __ctaOn) { %>
-        <a href="<%= bookHref('specialty=' + encodeURIComponent(specName)) %>" class="see-all-link" data-funnel="services_card">
-          <%= tt('svc.book_review', 'Book a review →', 'احجز مراجعة ←') %>
-        </a>
-        <% } else if (__specIsLive) { %>
-        <span class="see-all-link is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>">
-          <%= tt('svc.book_review', 'Book a review →', 'احجز مراجعة ←') %>
-        </span>
-        <% } %>
-      </div>
+  <%# ── TRUST ───────────────────────────────────────────────────────── %>
+  <div class="sv3-trust">
+   <div class="sv3-tile"><span class="sv3-ic" style="width:42px;height:42px;background:#E3F3F0"><%- svg(I.steth, '#0B6B5F') %></span><div><b><%= __liveSpecs.length %></b><small><%= tt('svc3.trust.specs', 'specialties open now', 'تخصصات متاحة') %></small></div></div>
+   <div class="sv3-tile"><span class="sv3-ic" style="width:42px;height:42px;background:#EDEFFC"><%- svg(I.file, '#4C5FD5') %></span><div><b><%= __bookableCount %></b><small><%= tt('svc3.trust.types', 'report types', 'نوع تقرير') %></small></div></div>
+   <div class="sv3-tile"><span class="sv3-ic" style="width:42px;height:42px;background:#FDEFE3"><%- svg(I.bed, '#D9661F') %></span><div><b>220</b><small><%= tt('svc3.trust.beds', 'hospital beds', 'سرير في المستشفى') %></small></div></div>
+   <div class="sv3-tile"><span class="sv3-ic" style="width:42px;height:42px;background:#FFF5D9"><%- svg(I.shield, '#B07800') %></span><div><b>GAHAR</b><small><%= tt('svc3.trust.gahar', 'accredited', 'اعتماد') %></small></div></div>
+  </div>
 
-      <div class="services-grid">
-        <% preview.forEach(function(service) { %>
-        <% if (!isBookable(service) || !__ctaOn) { %>
-        <%# Two different states share this branch and must NOT share a look.
-            A service that is genuinely not orderable gets the muted
-            --soon treatment. A perfectly bookable one, rendered unlinked only
-            because the site-wide CTA is held shut, keeps its normal card and
-            its price — greying the whole catalogue would tell a visitor the
-            catalogue is unavailable, when it is the checkout that is. %>
-        <div class="service-card<%= isBookable(service) ? '' : ' service-card--soon' %>"<% if (!isBookable(service)) { %> role="link" aria-disabled="true" tabindex="-1"<% } %>>
-          <h3><%= svcName(service) %></h3>
-          <p><%= (__isAr && service.description_ar) || service.description || tt('svc.default_desc',
-            'Board-certified specialist review with detailed written report in English and Arabic.',
-            'مراجعة من دكتور متخصص معتمد بتقرير مكتوب مفصل بالإنجليزي والعربي.') %></p>
-          <div class="service-meta">
-            <% if (!isBookable(service)) { %>
-            <span class="service-soon-badge"><%= tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %></span>
-            <% } else { %>
-            <%# Bookable, but the site-wide booking CTA is held off. Keep the
-                price — it is true and useful — and simply do not link. %>
-            <div class="service-price">
-              <span class="currency">EGP</span> <%= service.base_price ? Number(service.base_price).toLocaleString('en-GB', { maximumFractionDigits: 0 }) : '—' %>
-            </div>
-            <% } %>
-            <div class="service-sla"><%# A4/A7 (fix plan 2026-09-15): tiers are 48/18/4 — there is no
-                24-hour tier. This page shows the service's own standard turnaround, so
-                print the real number instead of a retired bucket label. %><%= __isAr ? ((service.sla_hours || 48) + ' ساعة') : ((service.sla_hours || 48) + '-hour') %></div>
-          </div>
-        </div>
-        <% } else { %>
-        <%# else-branch of the (!isBookable || !__ctaOn) gate above — bookable and open. %>
-        <a href="<%= bookHref('service_id=' + encodeURIComponent(service.id)) %>" class="service-card" data-funnel="services_card">
-          <h3><%= svcName(service) %></h3>
-          <p><%= (__isAr && service.description_ar) || service.description || tt('svc.default_desc',
-            'Board-certified specialist review with detailed written report in English and Arabic.',
-            'مراجعة من دكتور متخصص معتمد بتقرير مكتوب مفصل بالإنجليزي والعربي.') %></p>
-          <div class="service-meta">
-            <div class="service-price">
-              <span class="currency">EGP</span> <%= service.base_price ? Number(service.base_price).toLocaleString('en-GB', { maximumFractionDigits: 0 }) : '—' %>
-            </div>
-            <div class="service-sla"><%# A4/A7 (fix plan 2026-09-15): tiers are 48/18/4 — there is no
-                24-hour tier. This page shows the service's own standard turnaround, so
-                print the real number instead of a retired bucket label. %><%= __isAr ? ((service.sla_hours || 48) + ' ساعة') : ((service.sla_hours || 48) + '-hour') %></div>
-          </div>
-        </a>
-        <% } %>
-        <% }); %>
-      </div>
+  <%# ── SPEEDS ──────────────────────────────────────────────────────── %>
+  <section class="sv3-sec" aria-labelledby="sv3-speeds">
+   <h2 class="sv3-h2" id="sv3-speeds"><%= tt('svc3.speed.title', 'Choose the speed that suits you', 'اختار السرعة اللي تناسبك') %></h2>
+   <div class="sv3-speeds">
+    <div class="sv3-speed" style="background:#E3F3F0"><div class="k" style="color:#0B6B5F">STANDARD</div><div class="v">48</div><div class="u"><%= tt('svc3.unit.hours', 'hours', 'ساعة') %></div></div>
+    <div class="sv3-speed" style="background:#EDEFFC"><div class="k" style="color:#4C5FD5">VIP</div><div class="v">18</div><div class="u"><%= tt('svc3.unit.hours', 'hours', 'ساعة') %></div></div>
+    <div class="sv3-speed" style="background:#FDEFE3"><div class="k" style="color:#B5541A">URGENT</div><div class="v">4</div><div class="u"><%= tt('svc3.unit.hours4', 'hours', 'ساعات') %></div></div>
+   </div>
+   <p class="sv3-note"><%= tt('svc3.speed.note',
+     'Prices below are Standard. VIP and Urgent add a priority fee. Radiology is Standard and VIP only.',
+     'الأسعار تحت لسرعة Standard، وفي رسوم أولوية إضافية على VIP والعاجل. الأشعة متاحة Standard وVIP بس.') %></p>
+  </section>
 
-      <% if (rest.length > 0) { %>
-      <div class="specialty-cta-row">
-        <div class="specialty-cta-text">
-          <span class="specialty-cta-count"><%= __isAr
-            ? ('+' + rest.length + ' خدمة تانية متاحة')
-            : ('+' + rest.length + ' more services available') %></span>
-          <span class="specialty-cta-hint"><%= __isAr
-            ? ('احجز أي مراجعة ' + specDisplayName(specName) + ' — التقرير بيوصل في خلال 48 ساعة')
-            : ('Book any ' + specDisplayName(specName) + ' review — report delivered within 48 hours') %></span>
-        </div>
-        <% var __ctaLabel = __isAr
-             ? ('احجز مراجعة ' + specDisplayName(specName) + ' ←')
-             : ('Get ' + enArticle(specDisplayName(specName)) + ' ' + specDisplayName(specName) + ' review →'); %>
-        <% if (__specIsLive && __ctaOn) { %>
-        <a href="<%= bookHref('specialty=' + encodeURIComponent(specName)) %>" class="specialty-cta-btn" data-funnel="services_card"><%= __ctaLabel %></a>
-        <% } else { %>
-        <span class="specialty-cta-btn is-cta-locked" aria-disabled="true" title="<%= __specIsLive ? __ctaOffLabel : tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %>"><%= __specIsLive ? __ctaLabel : tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %></span>
-        <% } %>
+  <%# ── SPECIALTY TILES ─────────────────────────────────────────────── %>
+  <section class="sv3-sec" aria-labelledby="sv3-specs">
+   <div class="sv3-h2-row">
+    <h2 class="sv3-h2" id="sv3-specs"><%= tt('svc3.specs.title', 'Choose your specialty', 'اختار تخصصك') %></h2>
+    <span class="sv3-meta"><%= __isAr ? (__liveSpecs.length + ' تخصصات · ' + __bookableCount + ' نوع تقرير') : (__liveSpecs.length + ' specialties · ' + __bookableCount + ' report types') %></span>
+   </div>
+   <div class="sv3-specs">
+    <% __liveSpecs.forEach(function (sp) { const k = skin(sp); const n = __listFor(sp).length; %>
+    <a class="sv3-spec" href="#<%= sectionId(sp) %>">
+     <span class="sv3-ic" style="width:42px;height:42px;background:<%= k.t %>"><%- svg(k.i, k.c) %></span>
+     <span class="n"><%= specDisplayName(sp) %></span>
+     <span class="s"><%= typesTxt(n) %><% if (__fromPrice[sp]) { %> · <%= fromTxt(__fromPrice[sp]) %><% } %></span>
+    </a>
+    <% }); %>
+   </div>
+   <div class="sv3-help">
+    <span class="sv3-ic" style="width:40px;height:40px;background:#fff"><%- svg(I.bulb, '#C98A00') %></span>
+    <div>
+     <h3><%= tt('svc3.help.title', 'Not sure which to pick?', 'مش عارف تختار؟') %></h3>
+     <p><%= tt('svc3.help.body', 'Tell us what you have and we will point you to the right specialty and price before you pay.', 'قولنا معاك إيه، وإحنا نحدد التخصص ونأكد معاك السعر قبل الدفع.') %></p>
+     <a href="<%= __lpx %>/help-me-choose" data-funnel="services_help"><%= tt('svc3.help.cta', 'Help me choose →', 'ساعدني أختار ←') %></a>
+    </div>
+   </div>
+  </section>
+
+  <%# ── EVERY LIVE SPECIALTY, EVERY BOOKABLE SERVICE ─────────────────── %>
+  <section class="sv3-sec" aria-labelledby="sv3-prices">
+   <h2 class="sv3-h2" id="sv3-prices"><%= tt('svc3.list.title', 'Every review and its price', 'كل مراجعة وسعرها') %></h2>
+   <div class="sv3-cats">
+   <% __liveSpecs.forEach(function (specName) {
+        const k = skin(specName);
+        const list = __listFor(specName);
+        const head = list.slice(0, 3);
+        const rest = list.slice(3);
+        const __specIsLive = true;
+        function row(service) { %>
+     <% if (isBookable(service) && __ctaOn) { %>
+     <a href="<%= bookHref('service_id=' + encodeURIComponent(service.id)) %>" class="service-card" data-funnel="services_card">
+      <h3><%= svcName(service) %><% const __d = (__isAr && service.description_ar) || (!__isAr && service.description) || ''; if (__d) { %><span class="sla"><%= __d %></span><% } %></h3>
+      <span class="sv3-price"><%= __fmt(service.base_price) %> <small>EGP</small></span>
+     </a>
+     <% } else { %>
+     <%# Bookable but held unlinked by the site-wide gate keeps its price;
+         genuinely unorderable gets the Coming Soon badge. %>
+     <div class="service-card service-card--static"<% if (!isBookable(service)) { %> aria-disabled="true"<% } %>>
+      <h3><%= svcName(service) %><% const __d = (__isAr && service.description_ar) || (!__isAr && service.description) || ''; if (__d) { %><span class="sla"><%= __d %></span><% } %></h3>
+      <% if (!isBookable(service)) { %><span class="service-soon-badge"><%= tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %></span>
+      <% } else { %><span class="sv3-price"><%= __fmt(service.base_price) %> <small>EGP</small></span><% } %>
+     </div>
+     <% } %>
+   <%   } %>
+    <article class="sv3-cat" id="<%= sectionId(specName) %>">
+     <div class="sv3-cat-hd" style="background:<%= k.t %>">
+      <span class="sv3-ic"><%- svg(k.i, k.c, 28) %></span>
+      <div>
+       <h2><%= specDisplayName(specName) %></h2>
+       <% if (metaDesc(specName)) { %><div class="d"><%= metaDesc(specName) %></div><% } %>
+       <div class="m"><%= typesTxt(list.length) %><% if (__fromPrice[specName]) { %> · <%= fromTxt(__fromPrice[specName]) %> <%= egp %><% } %></div>
       </div>
+     </div>
+     <div class="sv3-rows"><% head.forEach(row); %></div>
+     <% if (rest.length) { %>
+     <details class="sv3-more">
+      <summary><%= __isAr ? ('شوف الكل (' + list.length + ') ←') : ('Show all ' + list.length + ' →') %></summary>
+      <div class="sv3-rows"><% rest.forEach(row); %></div>
+     </details>
+     <% } %>
+     <div class="sv3-cat-ft">
+      <% const __ctaLabel = __isAr ? ('احجز مراجعة ' + specDisplayName(specName)) : ('Book ' + enArticle(specDisplayName(specName)) + ' ' + specDisplayName(specName) + ' review'); %>
+      <% if (__specIsLive && __ctaOn) { %>
+      <a href="<%= bookHref('specialty=' + encodeURIComponent(specName)) %>" class="sv3-btn sv3-btn--teal" data-funnel="services_card"><%= __ctaLabel %></a>
+      <% } else { %>
+      <span class="sv3-btn sv3-btn--teal is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= __ctaLabel %></span>
       <% } %>
+     </div>
+    </article>
+   <% }); %>
+   </div>
+   <% if (__soonSpecs.length) { %>
+   <div class="sv3-soon" id="coming-soon-specialties">
+    <h3><%= tt('svc.soon.title', 'More specialties are on the way', 'تخصصات تانية جاية قريب') %></h3>
+    <p><%= __soonSpecs.map(specDisplayName).join(__isAr ? '، ' : ', ') %></p>
+    <p><a href="<%= __lpx %>/wa" rel="nofollow"><%= tt('svc.soon.ask', 'Need one of these? Ask us on WhatsApp', 'محتاج واحد منهم؟ اسألنا على واتساب') %></a></p>
+   </div>
+   <% } %>
+  </section>
+
+  <div class="sv3-two">
+  <%# ── STEPS ───────────────────────────────────────────────────────── %>
+  <section class="sv3-sec" aria-labelledby="sv3-steps">
+   <h2 class="sv3-h2" id="sv3-steps"><%= tt('svc3.steps.title', 'Four steps, all from your phone', 'أربع خطوات، كلها من موبايلك') %></h2>
+   <div class="sv3-steps">
+    <% [
+      ['#0B6B5F', '#E3F3F0', tt('svc3.step1.t', 'Upload your file', 'ارفع ملفك'), tt('svc3.step1.d', 'Scans, lab results, reports. Photos or PDF from your phone.', 'أشعة، تحاليل، تقارير. صور أو PDF من موبايلك.')],
+      ['#3B4BBD', '#EDEFFC', tt('svc3.step2.t', 'We confirm the specialty and price', 'نأكد معاك التخصص والسعر'), tt('svc3.step2.d', 'You see the full price before you pay, by InstaPay or bank transfer.', 'السعر بيظهر كامل قبل ما تدفع، إنستاباي أو تحويل بنكي.')],
+      ['#A84D13', '#FDEFE3', tt('svc3.step3.t', 'A consultant reads and writes', 'استشاري يقرا ويكتب'), tt('svc3.step3.d', 'A consultant in the same specialty from Shifa Hospital Group.', 'استشاري في نفس التخصص من مجموعة مستشفيات شفا.')],
+      ['#8A6200', '#FFF5D9', tt('svc3.step4.t', 'You receive your report', 'تستلم تقريرك'), tt('svc3.step4.d', 'In Arabic and English, with their name and signature. What happens next is your decision, with your doctor.', 'بالعربي والإنجليزي، باسمه وتوقيعه. والقرار بعد كده بتاعك مع دكتورك.')]
+    ].forEach(function (s, i) { %>
+    <div class="sv3-step"><span class="sv3-ic" style="background:<%= s[1] %>;color:<%= s[0] %>"><%= i + 1 %></span><div><h3><%= s[2] %></h3><p><%= s[3] %></p></div></div>
+    <% }); %>
+   </div>
+  </section>
+
+  <%# ── WHAT YOU RECEIVE ────────────────────────────────────────────── %>
+  <section class="sv3-sec" id="sv3-report" aria-labelledby="sv3-report-h">
+   <h2 class="sv3-h2" id="sv3-report-h"><%= tt('svc3.report.title', 'This is what you receive', 'ده اللي هتستلمه') %></h2>
+   <div class="sv3-report">
+    <div class="sv3-paper" aria-hidden="true">
+     <div class="sv3-paper-hd"><div><b><%= tt('svc3.report.paper', 'Second opinion report', 'تقرير رأي طبي ثانٍ') %></b><small>SECOND OPINION REPORT</small></div><span class="sv3-ic" style="width:30px;height:30px;border-radius:9px;background:#0B6B5F"><%- svg(I.check, '#fff', 17, 3) %></span></div>
+     <div class="sv3-paper-sec"><b><%= tt('svc3.report.s1', '1 · Summary of the files you sent', '١ · ملخص الملفات المرسلة') %></b><div class="sv3-bar"></div><div class="sv3-bar" style="width:78%"></div></div>
+     <div class="sv3-paper-sec"><b><%= tt('svc3.report.s2', '2 · The consultant\'s opinion', '٢ · رأي الاستشاري') %></b><div class="sv3-bar"></div><div class="sv3-bar" style="width:86%"></div><div class="sv3-bar" style="width:64%"></div></div>
+     <div class="sv3-paper-sec"><b><%= tt('svc3.report.s3', '3 · Points to discuss with your doctor', '٣ · نقاط تناقشها مع طبيبك') %></b><div class="sv3-bar" style="width:70%"></div></div>
+     <div class="sv3-paper-sign"><span><%= tt('svc3.report.by', 'Consultant · [consultant\'s name]', 'الاستشاري · [اسم الاستشاري]') %></span><svg width="70" height="22" viewBox="0 0 70 22" fill="none" stroke="#0F1E2D" stroke-width="1.6" stroke-linecap="round"><path d="M2 16c6-10 9-12 10-6s3 8 7 0 5-6 8 0 4 4 9-2 7-3 12 0 8 2 20-2"/></svg></div>
+     <span class="sv3-stamp"><%= tt('svc3.report.sample', 'Sample', 'نموذج') %></span>
+    </div>
+    <ul class="sv3-points">
+     <% [
+       tt('svc3.report.p1', 'With the consultant\'s name and signature, not AI', 'باسم الاستشاري وتوقيعه، مش ذكاء اصطناعي'),
+       tt('svc3.report.p2', 'In Arabic and English, as a PDF on your phone', 'بالعربي والإنجليزي، PDF على موبايلك'),
+       tt('svc3.report.p3', 'Within 48, 18 or 4 hours, depending on the speed you choose', 'في خلال 48 أو 18 أو 4 ساعات حسب اختيارك'),
+       tt('svc3.report.p4', 'A written opinion to discuss with your doctor', 'رأي مكتوب للنقاش مع طبيبك')
+     ].forEach(function (p) { %><li><span class="sv3-ic"><%- svg(I.check, '#3B4BBD', 13, 3) %></span><span><%= p %></span></li><% }); %>
+    </ul>
+   </div>
+  </section>
+  </div>
+
+  <%# ── CONSULTANTS ─────────────────────────────────────────────────── %>
+  <section class="sv3-sec" aria-labelledby="sv3-docs">
+   <h2 class="sv3-h2" id="sv3-docs" style="margin-bottom:4px"><%= tt('svc3.docs.title', 'Consultants with a name and a face', 'استشاريين بالاسم والصورة') %></h2>
+   <p class="sv3-note" style="margin:0 4px 12px"><%= tt('svc3.docs.sub', 'From Shifa Hospital Group. Every report carries the name of the consultant who wrote it.', 'من مجموعة مستشفيات شفا. كل تقرير عليه اسم اللي كتبه.') %></p>
+   <div class="sv3-docs">
+    <% DOCS.forEach(function (d) { const k = skin(d.sp); %>
+    <div class="sv3-doc" style="background:<%= k.t %>">
+     <img src="/assets/services/<%= d.img %>.webp" width="240" height="300" loading="lazy" alt="<%= __isAr ? d.ar : d.en %>">
+     <b><%= __isAr ? d.ar : d.en %></b>
+     <span style="color:<%= k.c %>"><%= specDisplayName(d.sp) %></span>
     </div>
     <% }); %>
+   </div>
+  </section>
 
-    <% if (__soonSpecs.length) { %>
-    <div class="specialty-section" id="coming-soon-specialties" style="text-align:center;">
-      <h2 style="font-size:18px;margin:0 0 8px;"><%= tt('svc.soon.title', 'More specialties are on the way', 'تخصصات تانية جاية قريب') %></h2>
-      <p style="margin:0 auto;max-width:720px;font-size:14px;line-height:1.7;color:#475569;"><%= __soonSpecs.map(specDisplayName).join(__isAr ? '، ' : ', ') %></p>
-      <p style="margin:10px 0 0;font-size:14px;"><a href="<%= locals.publicLinkPrefix || '' %>/wa" rel="nofollow" style="color:#0B6B5F;font-weight:600;"><%= tt('svc.soon.ask', 'Need one of these? Ask us on WhatsApp', 'محتاج واحد منهم؟ اسألنا على واتساب') %></a></p>
-    </div>
-    <% } %>
+  <%# ── WHEN PEOPLE USE IT ──────────────────────────────────────────── %>
+  <section class="sv3-sec" aria-labelledby="sv3-when">
+   <h2 class="sv3-h2" id="sv3-when"><%= tt('svc3.when.title', 'When do people ask for one?', 'إمتى الناس بتطلبه؟') %></h2>
+   <div class="sv3-whens">
+    <% [
+      [I.cut,  '#A84D13', '#FDEFE3', tt('svc3.when1', 'Before a big decision, like surgery or a long treatment', 'قبل قرار كبير، زي عملية أو علاج طويل')],
+      [I.doc,  '#3B4BBD', '#EDEFFC', tt('svc3.when2', 'You have a scan report and the words make no sense', 'معاك تقرير أشعة ومش فاهم كلماته')],
+      [I.two,  '#0B6B5F', '#E3F3F0', tt('svc3.when3', 'You heard two different opinions and want to understand', 'سمعت رأيين مختلفين وعايز تفهم')],
+      [I.home, '#8A6200', '#FFF5D9', tt('svc3.when4', 'You are following a family member\'s care from afar', 'بتتابع لحد في العيلة من بعيد')]
+    ].forEach(function (w) { %>
+    <div class="sv3-when" style="background:<%= w[2] %>"><%- svg(w[0], w[1]) %><span><%= w[3] %></span></div>
+    <% }); %>
+   </div>
+  </section>
 
-    <div class="cta-section">
-      <h2><%= tt('svc.cta.title', 'Ready to get started?', 'مستعد تبدأ؟') %></h2>
-      <p><%= tt('svc.cta.body',
-        'Submit your case in minutes. A written specialist review, delivered to your account and on WhatsApp.',
-        'ابعت حالتك في دقايق. مراجعة مكتوبة من دكتور متخصص بتوصلك على حسابك وعلى واتساب.') %></p>
-      <% if (__ctaOn) { %>
-      <a href="<%= bookHref('') %>" class="btn-cta" data-funnel="services_cta"><%= tt('svc.cta.submit',
-        'Submit Your Case Now',
-        'ابعت حالتك دلوقتي') %></a>
-      <% } else { %>
-      <span class="btn-cta is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('svc.cta.submit',
-        'Submit Your Case Now',
-        'ابعت حالتك دلوقتي') %></span>
-      <% } %>
-    </div>
+  <div class="sv3-two">
+  <%# ── PRICE LADDER ────────────────────────────────────────────────── %>
+  <section class="sv3-sec" aria-labelledby="sv3-ladder">
+   <h2 class="sv3-h2" id="sv3-ladder"><%= tt('svc3.ladder.title', 'A clear price before you pay', 'سعر واضح قبل ما تدفع') %></h2>
+   <div class="sv3-ladder">
+    <% __ladder.forEach(function (l) { %>
+    <div class="sv3-rung"><i style="background:<%= l.c %>"></i><span class="t"><%= l.t %></span><span class="p"><%= __fmt(l.p) %> <small>EGP</small></span></div>
+    <% }); %>
+   </div>
+   <div class="sv3-pay"><b><%= tt('svc3.pay.instapay', 'InstaPay', 'إنستاباي') %></b><b><%= tt('svc3.pay.bank', 'Bank transfer', 'تحويل بنكي') %></b><span><%= tt('svc3.pay.note', 'Prices are for Standard speed', 'السعر ده لسرعة Standard') %></span></div>
+   <div class="sv3-priv">
+    <div style="background:#EDEFFC"><%- svg(I.lock, '#3B4BBD') %><h3><%= tt('svc3.priv1.t', 'Your files are private', 'ملفاتك سرية') %></h3><p><%= tt('svc3.priv1.d', 'Seen only by the medical team handling your request.', 'بيشوفها الفريق الطبي المختص بطلبك بس.') %></p></div>
+    <div style="background:#E3F3F0"><%- svg(I.info, '#0B6B5F') %><h3><%= tt('svc3.priv2.t', 'A written opinion', 'رأي مكتوب') %></h3><p><%= tt('svc3.priv2.d', 'Not a substitute for an examination or emergency care.', 'مش بديل عن الكشف ولا عن الطوارئ.') %></p></div>
+   </div>
+  </section>
 
-    <div class="services-note">
-      <strong><%= tt('svc.note.heading', 'Every review includes:', 'كل مراجعة بتشمل:') %></strong>
-      <%= tt('svc.note.body',
-        'Board-certified specialist · Detailed bilingual report (English & Arabic) · Clinical recommendations · Secure file handling · Results in 48 hours standard, 18 hours VIP, or 4 hours Urgent (Urgent runs 7 AM – 7 PM Cairo time)',
-        'دكتور متخصص معتمد · تقرير مفصل بلغتين (عربي وإنجليزي) · توصيات سريرية · تعامل آمن مع الملفات · النتايج في 48 ساعة قياسي، 18 ساعة VIP، أو 4 ساعات للعاجل (العاجل متاح من 7 الصبح لـ 7 بالليل بتوقيت القاهرة)') %>
-    </div>
-
+  <%# ── FAQ ─────────────────────────────────────────────────────────── %>
+  <section class="sv3-sec" aria-labelledby="sv3-faq">
+   <h2 class="sv3-h2" id="sv3-faq"><%= tt('svc3.faq.title', 'What people ask before they start', 'أسئلة الناس قبل ما تبدأ') %></h2>
+   <div class="sv3-faq">
+    <% [
+      [tt('svc3.faq1.q', 'Will my doctor mind if I get a second opinion?', 'دكتوري هيزعل لو أخدت رأي تاني؟'), tt('svc3.faq1.a', 'A second opinion is normal in medicine. The report is yours, and you decide whether to show it to your doctor.', 'الرأي الطبي التاني حاجة عادية في الطب. التقرير بتاعك، وإنت اللي تقرر توريه لدكتورك ولا لأ.')],
+      [tt('svc3.faq2.q', 'Who reads my file?', 'مين اللي هيقرا ملفي؟'), tt('svc3.faq2.a', 'A consultant in the same specialty from Shifa Hospital Group. Their name and signature are on your report.', 'استشاري في نفس التخصص من مجموعة مستشفيات شفا، واسمه وتوقيعه على تقريرك.')],
+      [tt('svc3.faq3.q', 'When does the report arrive?', 'التقرير بيوصل إمتى؟'), tt('svc3.faq3.a', 'Within 48 hours on Standard, 18 hours on VIP or 4 hours on Urgent.', 'في خلال 48 ساعة في Standard، أو 18 ساعة في VIP، أو 4 ساعات في العاجل.')],
+      [tt('svc3.faq4.q', 'Is this a diagnosis?', 'ده تشخيص؟'), tt('svc3.faq4.a', 'No. It is a written second opinion based on the files you send. It does not replace an examination or emergency care.', 'لأ. ده رأي طبي ثانٍ مكتوب بناءً على الملفات اللي بتبعتها، ومش بديل عن الكشف ولا عن الطوارئ.')],
+      [tt('svc3.faq5.q', 'How do I pay?', 'أدفع إزاي؟'), tt('svc3.faq5.a', 'By InstaPay or bank transfer. You see the full price before you pay.', 'إنستاباي أو تحويل بنكي، والسعر بيظهر كامل قبل ما تدفع.')],
+      [tt('svc3.faq6.q', 'What if my specialty is not listed?', 'لو تخصصي مش موجود؟'), tt('svc3.faq6.a', 'Message us on WhatsApp and we will tell you whether a consultant can take your case.', 'كلمنا على واتساب ونقولك لو في استشاري يقدر ياخد حالتك.')]
+    ].forEach(function (f, i) { %>
+    <details<%= i === 0 ? ' open' : '' %>><summary><%= f[0] %></summary><p><%= f[1] %></p></details>
+    <% }); %>
+   </div>
+   <a class="sv3-faq-more" href="<%= __lpx %>/faq"><%= tt('svc3.faq.more', 'All questions →', 'كل الأسئلة ←') %></a>
+  </section>
   </div>
+
+  <%# ── FINAL CTA ───────────────────────────────────────────────────── %>
+  <section class="sv3-sec sv3-final" aria-labelledby="sv3-final">
+   <div>
+    <h2 id="sv3-final"><%= tt('svc3.final.a', 'Your file is on your phone?', 'ملفك على موبايلك؟') %><br><span><%= tt('svc3.final.b', 'Start now.', 'ابدأ دلوقتي.') %></span></h2>
+    <p><%= tt('svc3.final.body', 'Photos or PDF. And if you are not sure which to pick, we will help you choose.', 'صور أو PDF. ولو مش عارف تختار، إحنا نساعدك.') %></p>
+   </div>
+   <div class="sv3-btns">
+    <% if (__ctaOn) { %>
+    <a href="<%= bookHref('') %>" class="sv3-btn sv3-btn--hero" data-funnel="services_cta"><%= tt('svc3.cta.start', 'Start your request', 'ابدأ طلبك') %><% if (__minPrice) { %> <span>· <%= __isAr ? ('من ' + __fmt(__minPrice) + ' جنيه') : ('from EGP ' + __fmt(__minPrice)) %></span><% } %></a>
+    <% } else { %>
+    <span class="sv3-btn sv3-btn--hero is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('svc3.cta.start', 'Start your request', 'ابدأ طلبك') %></span>
+    <% } %>
+    <a href="<%= __lpx %>/wa" rel="nofollow" class="sv3-btn sv3-btn--wa"><%- svg('M21 11.5a8.5 8.5 0 0 1-12.6 7.4L3 21l2.1-5.3A8.5 8.5 0 1 1 21 11.5z', '#1E8E4E') %> <%= tt('svc.hero.whatsapp', 'Ask us on WhatsApp', 'اسألنا على واتساب') %></a>
+   </div>
+  </section>
+  <p class="sv3-disclaimer"><%= tt('svc3.disclaimer', 'Tashkheesa provides a written second medical opinion report based on the files you send. It does not replace a medical examination or emergency care.', 'تشخيصة بتقدّم تقرير رأي طبي ثانٍ مكتوب بناءً على الملفات المرسلة. لا تغني عن الكشف الطبي ولا عن الطوارئ.') %></p>
+
+ </div>
 </main>
 
-<%# FUNNEL BEACON 2026-10-02. The carousel boost lands here, and this page was
-    not counted at all. Same rule as /start: a view counts once the page has
-    been VISIBLE for a second (Meta's in-app browser preloads pages nobody sees). %>
+<%# FUNNEL BEACON 2026-10-02 (unchanged). A view counts once the page has been
+    VISIBLE for a second; taps on tagged elements are counted too. %>
 <script nonce="<%= typeof cspNonce !== 'undefined' ? cspNonce : '' %>">
 (function () {
   var src = (location.search.match(/[?&]utm_source=([^&]+)/) || [])[1] || '';
@@ -823,8 +685,6 @@
   }
   document.addEventListener('visibilitychange', arm);
   arm();
-  // 11 Oct 2026 — count taps as well (unique visitors per day), so the digest
-  // shows what people do on this page and not only that they saw it.
   Array.prototype.forEach.call(document.querySelectorAll('[data-funnel]'), function (a) {
     a.addEventListener('click', function () {
       try { fetch('/f/e?s=' + encodeURIComponent(a.getAttribute('data-funnel')), { keepalive: true, credentials: 'same-origin' }); } catch (e) {}
