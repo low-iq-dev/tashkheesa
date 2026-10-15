@@ -121,16 +121,17 @@ module.exports = (async function run() {
     await check('Arabic /services cards are Arabic; coming-soon specialties are one line, not cards', async () => {
       const ar = bodies['/ar/services'] || '';
       const en = bodies['/services'] || '';
-      assert.ok(ar.includes('استشاري قلب بيراجع الإيكو'), 'Echocardiogram card not in Arabic');
-      assert.ok(ar.includes('استشاري أشعة متخصص بيحلل الرنين'), 'MRI card not in Arabic');
+      assert.ok(ar.includes('استشاري قلب بيراجع تقرير وصور الإيكو'), 'Echocardiogram card not in Arabic');
+      // rad_mri is not a real service id, so it gets the generic Arabic line.
+      assert.ok(ar.includes('استشاري في التخصص بيراجع ملفاتك'), 'MRI card not in Arabic');
       // 6 Oct 2026 — a specialty with no consultant yet is no longer a full
       // section of unbookable cards; it is named once in the coming-soon line.
       // The fixture's unmapped service lives in such a specialty (Dermatology).
       assert.ok(ar.includes('id="coming-soon-specialties"') && ar.includes('الأمراض الجلدية'), 'coming-soon specialty is not named on the Arabic page');
       assert.ok(!ar.includes('Skin Lesion Photo Review'), 'an unbookable card from a coming-soon specialty is still rendered');
       assert.ok(en.includes('id="coming-soon-specialties"') && en.includes('Dermatology'), 'coming-soon specialty is not named on the English page');
-      assert.ok(!ar.includes('A cardiologist reviews your echocardiogram'), 'English card copy on the Arabic page');
-      assert.ok(en.includes('A cardiologist reviews your echocardiogram'), 'English page lost its card copy');
+      assert.ok(!ar.includes('A cardiology consultant reviews your echo'), 'English card copy on the Arabic page');
+      assert.ok(en.includes('A cardiology consultant reviews your echo'), 'English page lost its card copy');
     });
   } finally {
     await app.close();

@@ -53,7 +53,9 @@
             a doubled, half-invisible logo site-wide. .site-footer is
             unconditionally dark (--footer-bg, white text), so there is no
             light-footer case to switch for: render the white mark only. %>
-        <img src="/assets/brand/tashkheesa-logo-white.svg" class="footer-logo" alt="Tashkheesa" style="max-height:36px;width:auto;" />
+        <%# 15 Oct 2026 — one logo per page: the header carries it, so the footer
+            names the brand in text instead of repeating the mark. %>
+        <p class="footer-brand-name" style="margin:0 0 6px;font-size:18px;font-weight:700;color:#fff;"><%= __footerIsAr ? 'تشخيصة' : 'Tashkheesa' %></p>
         <p class="muted"><%= __footerIsAr ? 'آراء طبية ثانية من استشاريين متخصصين، مقدمة بوضوح.' : 'Specialist medical second opinions, delivered clearly.' %></p>
       </div>
       <div class="footer-columns">

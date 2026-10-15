@@ -106,60 +106,20 @@ function setupStaticPages(opts) {
     instagram: 'https://instagram.com/tashkheesa',
   };
 
-  var SERVICE_DESCRIPTIONS = {
-    'X-Ray Review': 'A board-certified radiologist reviews your X-ray images and provides a detailed written report with findings and recommendations.',
-    'MRI Review': 'Expert analysis of your MRI scan by a specialist radiologist, with a comprehensive written report covering all findings.',
-    'CT Scan Review': 'Detailed review of your CT scan images by a specialist, including a written report with diagnosis and recommendations.',
-    'Ultrasound Review': 'Professional review of your ultrasound images by an experienced specialist with a written findings report.',
-    'Brain MRI Review': 'Neuroimaging specialist reviews your brain MRI and provides detailed findings, differential diagnosis, and recommendations.',
-    'Echocardiogram Review': 'A cardiologist reviews your echocardiogram and provides a detailed assessment of cardiac structure and function.',
-    'ECG Review': 'Expert interpretation of your 12-lead ECG by a cardiologist, including rhythm analysis and clinical recommendations.',
-    'Blood Work Review': 'Comprehensive analysis of your blood test results by an internal medicine specialist with clinical interpretation.',
-    'Chest X-Ray Review': 'Specialist radiologist reviews your chest X-ray and provides a written report covering all thoracic findings.',
-    'Mammogram Review': 'Expert breast imaging review by a radiologist, including BI-RADS classification and follow-up recommendations.',
-    'Biopsy / Histopathology Review': 'A pathologist reviews your biopsy slides and provides a detailed histopathological assessment.',
-    'Oncology Case Review': 'Comprehensive cancer case review by an oncologist, including staging assessment and treatment recommendations.',
-    'PET Scan Review': 'Nuclear medicine specialist reviews your PET-CT scan with detailed metabolic activity assessment.',
-    'Cardiac Catheterization Review': 'Interventional cardiologist reviews your catheterization findings and provides treatment recommendations.',
-    'Holter Monitor Review': 'Cardiologist reviews your Holter monitor recording and provides rhythm analysis over the monitoring period.',
-    'General Second Opinion': 'A specialist in the relevant field reviews your medical records and provides an independent second opinion.',
-  };
+  // 15 Oct 2026 — one description per service, keyed by services.id, in
+  // src/services/service_descriptions.js. The old maps here were keyed by names
+  // from an earlier catalogue and matched almost nothing on sale, so nearly
+  // every card printed the same generic line (and some promised "diagnosis").
+  var SERVICE_DESCRIPTIONS = require('../services/service_descriptions');
 
-  function getServiceDescription(name) {
-    if (SERVICE_DESCRIPTIONS[name]) return SERVICE_DESCRIPTIONS[name];
-    return 'Expert specialist review with a detailed written report covering findings and clinical recommendations.';
+  function getServiceDescription(name, id) {
+    var d = SERVICE_DESCRIPTIONS.describe(id);
+    return d ? d[0] : SERVICE_DESCRIPTIONS.GENERIC[0];
   }
 
-  // SEO 2026-09-13 (D) — Arabic /services was half English: every card's text
-  // came from the English map above. Body copy, so Egyptian Arabic like the rest
-  // of the page. A service missing here falls back to its English text, never a
-  // blank card.
-  var SERVICE_DESCRIPTIONS_AR = {
-    'X-Ray Review': 'دكتور أشعة معتمد بيراجع صور الأشعة العادية بتاعتك ويكتبلك تقرير مفصل بالنتائج والتوصيات.',
-    'MRI Review': 'استشاري أشعة متخصص بيحلل الرنين المغناطيسي بتاعك ويكتب تقرير شامل بكل النتائج.',
-    'CT Scan Review': 'مراجعة مفصلة لصور الأشعة المقطعية من دكتور متخصص، مع تقرير مكتوب فيه التشخيص والتوصيات.',
-    'Ultrasound Review': 'دكتور متخصص عنده خبرة بيراجع صور السونار بتاعتك ويكتب تقرير بالنتائج.',
-    'Brain MRI Review': 'متخصص في أشعة المخ والأعصاب بيراجع رنين المخ ويكتب النتائج والتشخيصات المحتملة والتوصيات.',
-    'Echocardiogram Review': 'استشاري قلب بيراجع الإيكو بتاعك ويكتب تقييم مفصل لتركيب القلب ووظيفته.',
-    'ECG Review': 'استشاري قلب بيقرأ رسم القلب بتاعك، ويحلل انتظام النبض ويكتب توصيات.',
-    'Blood Work Review': 'استشاري باطنة بيحلل نتايج تحاليل الدم بتاعتك ويشرحها في ضوء حالتك.',
-    'Chest X-Ray Review': 'دكتور أشعة متخصص بيراجع أشعة الصدر ويكتب تقرير بكل نتائج الصدر.',
-    'Mammogram Review': 'دكتور أشعة متخصص في الثدي بيراجع الماموجرام، مع تصنيف BI-RADS وتوصيات المتابعة.',
-    'Biopsy / Histopathology Review': 'دكتور باثولوجي بيراجع شرايح العينة بتاعتك ويكتب تقييم نسيجي مفصل.',
-    'Oncology Case Review': 'استشاري أورام بيراجع حالتك بالكامل، مع تقييم مرحلة المرض وتوصيات العلاج.',
-    'PET Scan Review': 'متخصص طب نووي بيراجع أشعة PET-CT ويكتب تقييم مفصل للنشاط الأيضي.',
-    'Cardiac Catheterization Review': 'استشاري قسطرة قلب بيراجع نتايج القسطرة بتاعتك ويكتب توصيات العلاج.',
-    'Holter Monitor Review': 'استشاري قلب بيراجع تسجيل الهولتر ويحلل انتظام النبض طول فترة التسجيل.',
-    'General Second Opinion': 'دكتور متخصص في المجال المناسب بيراجع ملفك الطبي ويديك رأي طبي تاني مستقل.'
-  };
-
-  function getServiceDescriptionAr(name) {
-    if (SERVICE_DESCRIPTIONS_AR[name]) return SERVICE_DESCRIPTIONS_AR[name];
-    // A service with a specific English description but no Arabic one shows the
-    // English (better than a vaguer Arabic line). One with neither gets the
-    // Arabic twin of the English generic line, never English on the Arabic page.
-    if (SERVICE_DESCRIPTIONS[name]) return null;
-    return 'مراجعة من دكتور متخصص بتقرير مكتوب مفصل فيه النتائج والتوصيات الطبية.';
+  function getServiceDescriptionAr(name, id) {
+    var d = SERVICE_DESCRIPTIONS.describe(id);
+    return d ? d[1] : SERVICE_DESCRIPTIONS.GENERIC[1];
   }
 
   // In-memory services cache (5-min TTL)
@@ -290,8 +250,8 @@ function setupStaticPages(opts) {
         ' ORDER BY sv.id, sp.name, sv.base_price ASC',
         [], []);
       services.forEach(function(s) {
-        s.description = getServiceDescription(s.name);
-        s.description_ar = getServiceDescriptionAr(s.name);
+        s.description = getServiceDescription(s.name, s.id);
+        s.description_ar = getServiceDescriptionAr(s.name, s.id);
       });
       var specialtyNames = [];
       var specialtyNameArMap = {};

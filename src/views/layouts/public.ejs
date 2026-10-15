@@ -134,6 +134,13 @@
       whether to show the Play badge. Portal/auth layouts never set it. %>
   <% var __appFunnel = (typeof locals !== 'undefined' && locals && locals.appFunnel) ? locals.appFunnel : null; %>
   <% if (__appFunnel) { __appFunnel.marketing = true; %><link rel="stylesheet" href="/css/app-funnel.css" /><% } %>
+<style>
+.site-brand--lockup{display:inline-flex;align-items:center;gap:10px;text-decoration:none}
+.site-brand--lockup .brand-icon-img{width:36px;height:36px;display:block;flex:none}
+.site-brand--lockup .brand-word{font-size:22px;font-weight:700;line-height:1;color:#1e3a8a;letter-spacing:-.01em;white-space:nowrap}
+.site-brand--lockup .brand-word[lang="en"]{letter-spacing:-.02em}
+@media (max-width:768px){.site-brand--lockup .brand-icon-img{width:32px;height:32px}.site-brand--lockup .brand-word{font-size:20px}}
+</style>
 </head>
 <body class="layout layout-public" data-meta-pixel="1">
 <%- include('../partials/app_smart_banner') %>
@@ -142,12 +149,14 @@
 <% if (renderNav) { %>
 <header class="site-header">
   <div class="header-inner">
-    <a href="<%= locals.publicLinkPrefix || '' %>/" class="site-brand">
-      <img
-        src="/assets/brand/tashkheesa-logo-primary.svg"
-        alt="Tashkheesa"
-        class="brand-logo-img"
-      />
+    <%# 15 Oct 2026 — the lockup is the icon plus a real-text wordmark. The old
+        tashkheesa-logo-primary.svg drew "Tashkheesa" with an SVG <text> in
+        Inter, and an SVG loaded through <img> cannot use the page's fonts, so
+        the wordmark fell back to whatever font each phone had. The wordmark is
+        in the page's language and in the site font now. %>
+    <a href="<%= locals.publicLinkPrefix || '' %>/" class="site-brand site-brand--lockup" aria-label="<%= __brand %>">
+      <img src="/assets/brand/tashkheesa-icon.svg" alt="" class="brand-icon-img" width="36" height="36" />
+      <span class="brand-word"<% if (pageLang !== 'ar') { %> lang="en"<% } %>><%= __brand %></span>
     </a>
 
     <button
