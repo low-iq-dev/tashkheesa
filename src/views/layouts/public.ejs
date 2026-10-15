@@ -1,3 +1,4 @@
+<% var __asset = (typeof locals !== 'undefined' && locals && typeof locals.asset === 'function') ? locals.asset : function (u) { return u; }; -%>
 <%
   const pageLang = (typeof lang !== 'undefined' && lang)
     ? lang
@@ -105,10 +106,14 @@
   <meta name="twitter:title" content="<%= pageTitle %>" />
   <meta name="twitter:description" content="<%= pageDesc %>" />
   <meta name="twitter:image" content="<%= ogImage %>" />
-  <link rel="stylesheet" href="/styles.css" />
-  <link rel="stylesheet" href="/css/portal-variables.css" />
-  <link rel="stylesheet" href="/css/portal-components.css" />
-  <link rel="stylesheet" href="/css/portal-global.css" />
+  <%# Perf 2026-10-15 — a page whose LCP is an image passes preloadImage
+      (via its partials/header include) so the fetch starts with the CSS
+      instead of after layout. Same-origin path only. %>
+  <% if (typeof preloadImage === 'string' && /^\/[A-Za-z0-9/_.-]+$/.test(preloadImage)) { %><link rel="preload" as="image" href="<%= preloadImage %>" fetchpriority="high" /><% } %>
+  <link rel="stylesheet" href="<%= __asset('/styles.css') %>" />
+  <link rel="stylesheet" href="<%= __asset('/css/portal-variables.css') %>" />
+  <link rel="stylesheet" href="<%= __asset('/css/portal-components.css') %>" />
+  <link rel="stylesheet" href="<%= __asset('/css/portal-global.css') %>" />
   <%# The Lucide icon font used to be pulled from unpkg here. Our own CSP
       (style-src 'self' 'unsafe-inline' ucarecdn fonts.googleapis) never
       allowed it, so the browser refused the stylesheet on EVERY page load
@@ -133,7 +138,7 @@
       "on a marketing page"; partials/footer.ejs reads that flag to decide
       whether to show the Play badge. Portal/auth layouts never set it. %>
   <% var __appFunnel = (typeof locals !== 'undefined' && locals && locals.appFunnel) ? locals.appFunnel : null; %>
-  <% if (__appFunnel) { __appFunnel.marketing = true; %><link rel="stylesheet" href="/css/app-funnel.css" /><% } %>
+  <% if (__appFunnel) { __appFunnel.marketing = true; %><link rel="stylesheet" href="<%= __asset('/css/app-funnel.css') %>" /><% } %>
 <style>
 .site-brand--lockup{display:inline-flex;align-items:center;gap:10px;text-decoration:none}
 .site-brand--lockup .brand-icon-img{width:36px;height:36px;display:block;flex:none}
@@ -144,7 +149,7 @@
 </head>
 <body class="layout layout-public" data-meta-pixel="1">
 <%- include('../partials/app_smart_banner') %>
-<script src="/js/meta_pixel.js" defer></script>
+<script src="<%= __asset('/js/meta_pixel.js') %>" defer></script>
 
 <% if (renderNav) { %>
 <header class="site-header">

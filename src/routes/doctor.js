@@ -297,7 +297,26 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
   // New cases come from two sources:
   // 1) unassigned pool (doctor_id is NULL) that matches the doctor's specialty
   // 2) already assigned to THIS doctor but not yet accepted (status assigned/accepted, accepted_at is NULL)
-  const assignedPendingCases = await queryAll(
+  // Perf 2026-10-15 — this page used to make ~22 DB round trips one after
+  // another. Every read depends only on doctorId except the pool arm, which
+  // needs the doctor's tiers. The core reads now run as one wave, the pool
+  // arm as a second, and the secondary widgets (streak, month, priority,
+  // activity, perf, SLA banner, first-login, unread, recent earning) are
+  // STARTED together below and awaited exactly where they were awaited
+  // before — inside the same try/catch blocks, so each one still fails
+  // closed to its own empty state. `__quiet` marks a promise as handled so a
+  // rejection that is awaited later can't surface as an unhandled rejection
+  // in the meantime. The pg pool (PG_POOL_MAX) queues anything above its cap.
+  const __quiet = (p) => { p.catch(() => {}); return p; };
+  const [
+    assignedPendingCases,
+    assignedPendingTotal,
+    doctorSlaTiers,
+    reviewCases,
+    inReviewTotal,
+    completedCases,
+    completedTotal
+  ] = await Promise.all([queryAll(
       `SELECT o.*,
               s.name AS specialty_name,
               s.name_ar AS specialty_name_ar,
@@ -311,8 +330,16 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
        ORDER BY COALESCE(o.updated_at, o.created_at)::timestamp DESC
        LIMIT $2`,
     [doctorId, 6]
-  );
-  const assignedPendingTotal = await countAssignedPendingCases(doctorId);
+  ),
+    countAssignedPendingCases(doctorId),
+    // A2-2 (X5): the pool arm filters on the doctor's LIVE tier switches (see
+    // below) — read live, not from the JWT.
+    readDoctorSlaTiersRaw(doctorId),
+    buildPortalCases(doctorId, reviewStatuses, 6, lang),
+    countPortalCasesByStatuses(doctorId, reviewStatuses),
+    buildPortalCases(doctorId, completedStatuses, 6, lang),
+    countPortalCasesByStatuses(doctorId, completedStatuses)
+  ]);
 
   // A4 — assigned to this doctor but NOT yet accepted (accepted_at IS NULL),
   // so these are offers, not cases in hand. Same redaction as the pool rows.
@@ -326,16 +353,13 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
   // dashboard never shows a case the accept gate (Guardrail 3d) and the view
   // rule will refuse. Read live, not from the JWT — same freshness argument as
   // the accept handler's users read.
-  const doctorSlaTiers = await readDoctorSlaTiersRaw(doctorId);
-  const poolNewCases = await buildPortalCasesUnassigned(doctorSpecialtyId, doctorSlaTiers, newStatuses, 6, lang);
-  const poolUnassignedTotal = await countPortalCasesUnassigned(doctorSpecialtyId, doctorSlaTiers, newStatuses);
+  const [poolNewCases, poolUnassignedTotal] = await Promise.all([
+    buildPortalCasesUnassigned(doctorSpecialtyId, doctorSlaTiers, newStatuses, 6, lang),
+    countPortalCasesUnassigned(doctorSpecialtyId, doctorSlaTiers, newStatuses)
+  ]);
   const newCasesTotal = assignedPendingTotal + poolUnassignedTotal;
   const newCases = [...assignedPendingMapped, ...poolNewCases].slice(0, 6);
 
-  const reviewCases = await buildPortalCases(doctorId, reviewStatuses, 6, lang);
-  const inReviewTotal = await countPortalCasesByStatuses(doctorId, reviewStatuses);
-  const completedCases = await buildPortalCases(doctorId, completedStatuses, 6, lang);
-  const completedTotal = await countPortalCasesByStatuses(doctorId, completedStatuses);
   if (process.env.DEBUG_DASHBOARD_SLA === '1') {
     const reviewTotal = inReviewTotal;
     const reviewWithSlaObject = reviewCases.filter((c) => c && c.sla && typeof c.sla === 'object').length;
@@ -355,6 +379,115 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
     // eslint-disable-next-line no-console
     console.log('[doctor.dashboard.sla.sample]', reviewSample);
   }
+  // Secondary widget reads — started together, awaited in place below.
+  const __streakP = __quiet(queryOne(
+    "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND NOT is_practice AND LOWER(COALESCE(status, '')) = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
+    [doctorId]
+  ));
+  const __monthP = __quiet(queryOne(
+    `SELECT COUNT(*) FILTER (WHERE LOWER(COALESCE(status, '')) = 'completed') AS completed_this_month
+     FROM orders_active
+     WHERE doctor_id = $1
+       AND NOT is_practice
+       AND COALESCE(completed_at, updated_at) >= date_trunc('month', NOW())
+       AND COALESCE(completed_at, updated_at) <  date_trunc('month', NOW()) + INTERVAL '1 month'`,
+    [doctorId]
+  ));
+  const __priorityP = __quiet(queryAll(
+    `SELECT o.*,
+            s.name AS specialty_name,
+            s.name_ar AS specialty_name_ar,
+            sv.name AS service_name
+       FROM orders_active o
+       LEFT JOIN specialties s  ON o.specialty_id = s.id
+       LEFT JOIN services   sv ON o.service_id   = sv.id
+      WHERE o.doctor_id = $1
+        AND LOWER(COALESCE(o.status,'')) IN ('accepted','in_review')
+      ORDER BY o.deadline_at ASC NULLS LAST
+      LIMIT 5`,
+    [doctorId]
+  ));
+  const __activityP = __quiet(queryAll(
+    `SELECT oe.id, oe.label, oe.at, o.reference_id, o.id AS order_id, oe.actor_role
+       FROM order_events oe
+       JOIN orders_active o ON o.id = oe.order_id
+      WHERE o.doctor_id = $1
+        AND oe.label NOT LIKE 'SLA breached – no alternate doctor%'
+      ORDER BY oe.at DESC
+      LIMIT 5`,
+    [doctorId]
+  ));
+  const __perfP = __quiet(queryOne(
+    `SELECT
+       COUNT(*) AS completed,
+       COUNT(*) FILTER (WHERE breached_at IS NULL) AS met_sla,
+       AVG(EXTRACT(EPOCH FROM (completed_at - COALESCE(accepted_at, created_at))) / 3600.0) AS avg_turnaround_hours
+     FROM orders_active
+     WHERE doctor_id = $1
+       AND NOT is_practice
+       AND LOWER(COALESCE(status, '')) = 'completed'
+       AND COALESCE(completed_at, updated_at) >= date_trunc('month', NOW())
+       AND COALESCE(completed_at, updated_at) <  date_trunc('month', NOW()) + INTERVAL '1 month'`,
+    [doctorId]
+  ));
+  const __perf30P = __quiet(queryOne(
+    `SELECT
+       COUNT(*) AS completed_count,
+       AVG(EXTRACT(EPOCH FROM (completed_at - accepted_at)) / 3600.0) AS avg_turnaround_hours
+     FROM orders_active
+     WHERE doctor_id = $1
+       AND NOT is_practice
+       AND LOWER(COALESCE(status,'')) = 'completed'
+       AND accepted_at IS NOT NULL
+       AND completed_at IS NOT NULL
+       AND completed_at >= NOW() - INTERVAL '30 days'`,
+    [doctorId]
+  ));
+  const __slaWatchP = __quiet(queryAll(
+    `SELECT o.id,
+            o.reference_id,
+            o.urgency_tier,
+            o.sla_hours,
+            o.deadline_at,
+            CASE
+              WHEN o.deadline_at IS NULL OR o.sla_hours IS NULL OR o.sla_hours <= 0 THEN NULL
+              ELSE (EXTRACT(EPOCH FROM (o.deadline_at - NOW())) / (o.sla_hours * 3600.0))
+            END AS pct_remaining
+       FROM orders_active o
+      WHERE o.doctor_id = $1
+        AND LOWER(COALESCE(o.status,'')) IN ('accepted','in_review')
+        AND o.deadline_at IS NOT NULL
+        AND o.deadline_at > NOW()
+      ORDER BY o.deadline_at ASC`,
+    [doctorId]
+  ));
+  const __firstLoginP = __quiet(queryOne(
+    'SELECT first_login_at FROM users WHERE id = $1',
+    [doctorId]
+  ));
+  const __unreadP = __quiet(queryOne(
+    `SELECT
+       COUNT(*)::int                 AS count,
+       COUNT(DISTINCT c.id)::int     AS conversation_count,
+       (
+         SELECT c2.order_id
+         FROM messages m2
+         JOIN conversations c2 ON m2.conversation_id = c2.id
+         WHERE c2.doctor_id = $1
+           AND m2.sender_role = 'patient'
+           AND m2.is_read = false
+         ORDER BY m2.created_at DESC
+         LIMIT 1
+       ) AS most_recent_order_id
+     FROM messages m
+     JOIN conversations c ON m.conversation_id = c.id
+     WHERE c.doctor_id = $1
+       AND m.sender_role = 'patient'
+       AND m.is_read = false`,
+    [doctorId]
+  ));
+  const __recentEarningP = __quiet(earningsReader.getMostRecentPaidEarning(doctorId));
+
   const alerts = doctorId
     ? buildDashboardAlerts({
         doctorId,
@@ -368,10 +501,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
   // Streak: count completed cases in last 7 days for this doctor
   var streakCount = 0;
   try {
-    var streakRow = await queryOne(
-      "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND NOT is_practice AND LOWER(COALESCE(status, '')) = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
-      [doctorId]
-    );
+    var streakRow = await __streakP;
     streakCount = (streakRow && streakRow.c) || 0;
   } catch (_) { /* column may not exist */ }
 
@@ -381,15 +511,12 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
   // Uses COALESCE(completed_at, updated_at) per data plan Q4.
   var monthMetrics = { completedThisMonth: 0, earningsThisMonth: 0, earningsApproved: 0, earningsNotYetApproved: 0, currency: 'EGP' };
   try {
-    var mRow = await queryOne(
-      `SELECT COUNT(*) FILTER (WHERE LOWER(COALESCE(status, '')) = 'completed') AS completed_this_month
-       FROM orders_active
-       WHERE doctor_id = $1
-         AND NOT is_practice
-         AND COALESCE(completed_at, updated_at) >= date_trunc('month', NOW())
-         AND COALESCE(completed_at, updated_at) <  date_trunc('month', NOW()) + INTERVAL '1 month'`,
-      [doctorId]
-    );
+    // The reader call starts here, alongside the (already running) month
+    // count, so the tile visibly reads through the shared reader (pinned by
+    // tests/core/dashboard-earnings-honest.test.js).
+    var __eSummaryP = earningsReader.getDoctorMonthSummary(doctorId);
+    __quiet(__eSummaryP);
+    var mRow = await __monthP;
     if (mRow) monthMetrics.completedThisMonth = Number(mRow.completed_this_month) || 0;
 
     // A10 (AUDIT 2026-09-09) — HONEST earnings. This tile used to SUM
@@ -404,7 +531,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
     // timezone (the reader buckets Africa/Cairo by completion date), and
     // 'reassigned' rows were summed into "Not yet approved" — showing a doctor
     // money the policy says a reassigned case never earns.
-    var eSummary = await earningsReader.getDoctorMonthSummary(doctorId);
+    var eSummary = await __eSummaryP;
     if (eSummary) {
       monthMetrics.earningsApproved = eSummary.approved;
       monthMetrics.earningsNotYetApproved = eSummary.notYetApproved;
@@ -425,20 +552,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
   // Q3: Priority queue — up to 5 in-review cases ordered by SLA ascending.
   var priorityQueue = [];
   try {
-    var priorityRows = await queryAll(
-      `SELECT o.*,
-              s.name AS specialty_name,
-              s.name_ar AS specialty_name_ar,
-              sv.name AS service_name
-         FROM orders_active o
-         LEFT JOIN specialties s  ON o.specialty_id = s.id
-         LEFT JOIN services   sv ON o.service_id   = sv.id
-        WHERE o.doctor_id = $1
-          AND LOWER(COALESCE(o.status,'')) IN ('accepted','in_review')
-        ORDER BY o.deadline_at ASC NULLS LAST
-        LIMIT 5`,
-      [doctorId]
-    );
+    var priorityRows = await __priorityP;
     // A4 (FIX PLAN 2026-09-15) — this bucket is ('accepted','in_review') and
     // the SELECT is `o.*`, so every row carried the patient's name, question,
     // history and medications into the dashboard payload. 'accepted' is a
@@ -532,16 +646,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
 
   var activityFeed = [];
   try {
-    activityFeed = await queryAll(
-      `SELECT oe.id, oe.label, oe.at, o.reference_id, o.id AS order_id, oe.actor_role
-         FROM order_events oe
-         JOIN orders_active o ON o.id = oe.order_id
-        WHERE o.doctor_id = $1
-          AND oe.label NOT LIKE 'SLA breached – no alternate doctor%'
-        ORDER BY oe.at DESC
-        LIMIT 5`,
-      [doctorId]
-    ) || [];
+    activityFeed = await __activityP || [];
     activityFeed.forEach(function (ev) {
       if (!ev || !ev.label) return;
       if (DASHBOARD_ACTIVITY_LABEL_MAP[ev.label]) return;
@@ -583,19 +688,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
     avgTurnaround30dCount: 0
   };
   try {
-    var pRow = await queryOne(
-      `SELECT
-         COUNT(*) AS completed,
-         COUNT(*) FILTER (WHERE breached_at IS NULL) AS met_sla,
-         AVG(EXTRACT(EPOCH FROM (completed_at - COALESCE(accepted_at, created_at))) / 3600.0) AS avg_turnaround_hours
-       FROM orders_active
-       WHERE doctor_id = $1
-         AND NOT is_practice
-         AND LOWER(COALESCE(status, '')) = 'completed'
-         AND COALESCE(completed_at, updated_at) >= date_trunc('month', NOW())
-         AND COALESCE(completed_at, updated_at) <  date_trunc('month', NOW()) + INTERVAL '1 month'`,
-      [doctorId]
-    );
+    var pRow = await __perfP;
     if (pRow) {
       perfSnapshot.completed = Number(pRow.completed) || 0;
       perfSnapshot.metSla = Number(pRow.met_sla) || 0;
@@ -625,19 +718,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
   // count ≥ 3 — gating done view-side, not query-side, so the count is
   // available for future UX tweaks (e.g. "X cases needed for stat").
   try {
-    var pRow30d = await queryOne(
-      `SELECT
-         COUNT(*) AS completed_count,
-         AVG(EXTRACT(EPOCH FROM (completed_at - accepted_at)) / 3600.0) AS avg_turnaround_hours
-       FROM orders_active
-       WHERE doctor_id = $1
-         AND NOT is_practice
-         AND LOWER(COALESCE(status,'')) = 'completed'
-         AND accepted_at IS NOT NULL
-         AND completed_at IS NOT NULL
-         AND completed_at >= NOW() - INTERVAL '30 days'`,
-      [doctorId]
-    );
+    var pRow30d = await __perf30P;
     if (pRow30d) {
       perfSnapshot.avgTurnaround30dCount = Number(pRow30d.completed_count) || 0;
       perfSnapshot.avgTurnaround30dHours = pRow30d.avg_turnaround_hours != null
@@ -668,24 +749,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
   // tier-implied SLA differs from current policy — e.g. legacy vip=24h rows).
   let slaBanner = { level: null, count: 0, redCount: 0, amberCount: 0, items: [] };
   try {
-    const slaWatchRows = await queryAll(
-      `SELECT o.id,
-              o.reference_id,
-              o.urgency_tier,
-              o.sla_hours,
-              o.deadline_at,
-              CASE
-                WHEN o.deadline_at IS NULL OR o.sla_hours IS NULL OR o.sla_hours <= 0 THEN NULL
-                ELSE (EXTRACT(EPOCH FROM (o.deadline_at - NOW())) / (o.sla_hours * 3600.0))
-              END AS pct_remaining
-         FROM orders_active o
-        WHERE o.doctor_id = $1
-          AND LOWER(COALESCE(o.status,'')) IN ('accepted','in_review')
-          AND o.deadline_at IS NOT NULL
-          AND o.deadline_at > NOW()
-        ORDER BY o.deadline_at ASC`,
-      [doctorId]
-    );
+    const slaWatchRows = await __slaWatchP;
     const watchItems = [];
     let redCount = 0;
     let amberCount = 0;
@@ -735,10 +799,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
   // 039). All other states are derivable from already-loaded payloads.
   let isFirstLogin = false;
   try {
-    const flRow = await queryOne(
-      'SELECT first_login_at FROM users WHERE id = $1',
-      [doctorId]
-    );
+    const flRow = await __firstLoginP;
     isFirstLogin = !!(flRow && flRow.first_login_at == null);
   } catch (e) {
     // Column may be missing on environments where 039 hasn't run yet.
@@ -790,27 +851,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
   // of breaking the dashboard render.
   let unreadMessages = { count: 0, conversationCount: 0, mostRecentOrderId: null };
   try {
-    const um = await queryOne(
-      `SELECT
-         COUNT(*)::int                 AS count,
-         COUNT(DISTINCT c.id)::int     AS conversation_count,
-         (
-           SELECT c2.order_id
-           FROM messages m2
-           JOIN conversations c2 ON m2.conversation_id = c2.id
-           WHERE c2.doctor_id = $1
-             AND m2.sender_role = 'patient'
-             AND m2.is_read = false
-           ORDER BY m2.created_at DESC
-           LIMIT 1
-         ) AS most_recent_order_id
-       FROM messages m
-       JOIN conversations c ON m.conversation_id = c.id
-       WHERE c.doctor_id = $1
-         AND m.sender_role = 'patient'
-         AND m.is_read = false`,
-      [doctorId]
-    );
+    const um = await __unreadP;
     if (um) {
       unreadMessages = {
         count: Number(um.count) || 0,
@@ -835,7 +876,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
   // video rows — is resolved inside getMostRecentPaidEarning.)
   let recentEarning = null;
   try {
-    recentEarning = await earningsReader.getMostRecentPaidEarning(doctorId);
+    recentEarning = await __recentEarningP;
   } catch (e) {
     logErrorToDb(e, {
       context: 'doctor.dashboard_recent_earning',

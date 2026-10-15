@@ -7,6 +7,12 @@
 // would pin stale files across deploys) or its own explicit maxAge (fonts:
 // 1y immutable, icons: 7d).
 //
+// Perf 2026-10-15 — asset URLs CAN now be versioned: templates link through
+// app.locals.asset() (src/utils/asset_version.js), which appends
+// ?v=<content hash>. STATIC_CACHE keeps maxAge 1h for bare URLs and adds a
+// setHeaders hook that serves any ?v= request as 1y immutable. Both halves
+// are pinned below, the second behaviourally.
+//
 // This is a lint on the source because the mounts live in server.js, which
 // cannot boot in the no-DB suite. A behavioural check of the header itself
 // rides in the same file, on a throwaway app using the same options object
@@ -49,17 +55,18 @@ try {
 } catch (e) { t.fail('static mounts carry cache options', e); }
 
 try {
-  if (!/var STATIC_CACHE = \{ maxAge: '1h' \}/.test(serverSrc)) {
-    throw new Error("STATIC_CACHE is not { maxAge: '1h' } — if asset URLs are now content-hashed, raise it AND update this guard");
+  if (!/var STATIC_CACHE = \{ maxAge: '1h', setHeaders: assetVersion\.versionedCacheHeaders \}/.test(serverSrc)) {
+    throw new Error("STATIC_CACHE is not { maxAge: '1h', setHeaders: assetVersion.versionedCacheHeaders } — bare URLs must stay 1h, ?v= URLs get the long cache");
   }
-  t.pass("STATIC_CACHE is 1h (unversioned URLs: no year-long cache without cache-busting)");
+  t.pass("STATIC_CACHE is 1h for bare URLs + the ?v= long-cache hook");
 } catch (e) { t.fail('STATIC_CACHE value', e); }
 
 (async () => {
   // Behavioural proof that express.static + maxAge produces the header the
   // lint above is standing in for.
   const app = express();
-  app.use('/js', express.static(path.join(ROOT, 'public', 'js'), { maxAge: '1h' }));
+  const { versionedCacheHeaders } = require('../../src/utils/asset_version');
+  app.use('/js', express.static(path.join(ROOT, 'public', 'js'), { maxAge: '1h', setHeaders: versionedCacheHeaders }));
   const server = http.createServer(app);
   await new Promise((res) => server.listen(0, '127.0.0.1', res));
   const base = 'http://127.0.0.1:' + server.address().port;
@@ -71,5 +78,12 @@ try {
     if (!r.headers.get('etag')) throw new Error('no ETag — revalidation after the hour would be a full re-download');
     t.pass('a mount with maxAge 1h serves public, max-age=3600 + ETag');
   } catch (e) { t.fail('behavioural cache header', e); }
+  try {
+    const r = await fetch(base + '/js/meta_pixel.js?v=deadbeef');
+    const cc = r.headers.get('cache-control');
+    if (r.status !== 200) throw new Error('/js/meta_pixel.js?v= → ' + r.status);
+    if (cc !== 'public, max-age=31536000, immutable') throw new Error('Cache-Control: ' + cc);
+    t.pass('the same mount serves a ?v= URL as public, max-age=31536000, immutable');
+  } catch (e) { t.fail('behavioural versioned cache header', e); }
   await new Promise((res) => server.close(res));
 })();

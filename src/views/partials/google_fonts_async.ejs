@@ -1,0 +1,11 @@
+<%# Perf 2026-10-15 — Google Fonts without render-blocking.
+    A plain <link rel=stylesheet> to fonts.googleapis.com held first paint
+    ~0.8s on slow 4G (Lighthouse "render-blocking resources"). The fonts are
+    display=swap anyway, so the page paints in the system font and swaps when
+    the face arrives. Injected as media=print (non-blocking) and flipped to
+    all on load — from a nonce'd script, since the CSP has no unsafe-inline
+    and an inline onload= attribute would be refused. <noscript> keeps the
+    no-JS path identical to before.
+    Locals: href (required), nonce (CSP nonce, may be empty). %>
+<script<%- nonce ? (' nonce="' + nonce + '"') : '' %>>(function(){var l=document.createElement('link');l.rel='stylesheet';l.href=<%- JSON.stringify(href) %>;l.media='print';l.onload=function(){l.media='all';};document.head.appendChild(l);})();</script>
+<noscript><link rel="stylesheet" href="<%= href %>" /></noscript>

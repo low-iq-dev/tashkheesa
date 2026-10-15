@@ -372,7 +372,12 @@ var marketingStaticDir = fs.existsSync(marketingSiteDir)
 // sends ETag + Last-Modified, so after the hour a revalidation is a cheap 304.
 // /fonts below keeps 1y+immutable (font files never change in place) and
 // /icons keeps 7d.
-var STATIC_CACHE = { maxAge: '1h' };
+// Perf 2026-10-15 — versioned URLs now exist: templates link assets through
+// app.locals.asset(), which appends ?v=<content hash>. setHeaders upgrades
+// any request carrying ?v= to 1y+immutable; the bare URL keeps the 1h policy.
+var assetVersion = require('./utils/asset_version');
+app.locals.asset = assetVersion.asset;
+var STATIC_CACHE = { maxAge: '1h', setHeaders: assetVersion.versionedCacheHeaders };
 app.use('/site', express.static(marketingStaticDir, STATIC_CACHE));
 app.use('/assets', express.static(path.join(__dirname, '..', 'public', 'assets'), STATIC_CACHE));
 app.use('/js', express.static(path.join(__dirname, '..', 'public', 'js'), STATIC_CACHE));

@@ -1,3 +1,4 @@
+<% var __asset = (typeof locals !== 'undefined' && locals && typeof locals.asset === 'function') ? locals.asset : function (u) { return u; }; -%>
 <%
   const baseTitle = (typeof title !== 'undefined' && title) ? String(title) : 'Tashkheesa';
   const pageTitle = baseTitle.includes('Tashkheesa') ? baseTitle : `${baseTitle} – Tashkheesa`;
@@ -21,13 +22,13 @@
       results, and a crawler spending its budget on /login is budget not spent
       on /ar/services. A view can still override this with a `robots` local. %>
   <meta name="robots" content="<%= (typeof robots !== 'undefined' && robots) ? robots : 'noindex, follow' %>" />
-  <link rel="stylesheet" href="/styles.css" />
-  <link rel="stylesheet" href="/css/portal-variables.css" />
-  <link rel="stylesheet" href="/css/portal-components.css" />
-  <link rel="stylesheet" href="/css/portal-global.css" />
+  <link rel="stylesheet" href="<%= __asset('/styles.css') %>" />
+  <link rel="stylesheet" href="<%= __asset('/css/portal-variables.css') %>" />
+  <link rel="stylesheet" href="<%= __asset('/css/portal-components.css') %>" />
+  <link rel="stylesheet" href="<%= __asset('/css/portal-global.css') %>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet" />
+  <%- include('../partials/google_fonts_async', { href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;600;700&display=swap', nonce: (locals.cspNonce || locals.csp_nonce || locals.nonce || '') }) %>
   <%# The Lucide icon font used to be pulled from unpkg here. Our own CSP
       (style-src 'self' 'unsafe-inline' ucarecdn fonts.googleapis) never
       allowed it, so the browser refused the stylesheet on EVERY page load
@@ -55,7 +56,8 @@
   <div class="header-inner">
     <a href="<%= locals.publicLinkPrefix || '' %>/" class="site-brand">
       <img
-        src="/assets/brand/tashkheesa-logo-white-horizontal.png"
+        src="/assets/brand/tashkheesa-logo-white-horizontal-sm.png"
+        width="198" height="132"
         alt="Tashkheesa"
         class="brand-logo-img"
       />

@@ -356,6 +356,25 @@ module.exports = function (db, helpers) {
     return out;
   }
 
+  // Run fn over items with at most `limit` in flight, results in input order.
+  // The pg pool is small (PG_POOL_MAX, default 8) and shared by every
+  // request, so an unbounded fan-out of 20 fee previews would queue other
+  // users behind this one.
+  const FEE_PREVIEW_CONCURRENCY = 3;
+  async function mapLimit(items, limit, fn) {
+    const out = new Array(items.length);
+    let next = 0;
+    async function worker() {
+      while (next < items.length) {
+        const i = next++;
+        out[i] = await fn(items[i], i);
+      }
+    }
+    const n = Math.max(1, Math.min(limit, items.length));
+    await Promise.all(Array.from({ length: n }, worker));
+    return out;
+  }
+
   // The doctor's fee for one case — the SAME snapshot + calc that writes the
   // ledger row at acceptance. null when it cannot be computed; never a guess.
   async function feePreview(orderId) {
@@ -373,9 +392,19 @@ module.exports = function (db, helpers) {
   // portal dashboard's "New cases": cases assigned to this doctor but not
   // yet accepted, then the open pool for their specialty under their LIVE
   // tier switches.
-  async function buildOfferRows(doctorId, doctorRow, lang, limit) {
+  //
+  // Perf 2026-10-15 — the independent reads run together: the assigned arm
+  // and the pool arm, then meta + accept-by, then the per-offer fee previews
+  // (bounded, see mapLimit). Callers that already read the doctor's tiers
+  // pass them in so they aren't read twice. Output (rows and their order) is
+  // unchanged.
+  async function buildOfferRows(doctorId, doctorRow, lang, limit, tiersIn) {
     const q = queue();
-    const assignedPending = await safeAll(
+    const tiersP = tiersIn !== undefined ? Promise.resolve(tiersIn) : q.readDoctorSlaTiersRaw(doctorId);
+    const poolP = tiersP.then((tiers) => q.buildPortalCasesUnassigned(
+      doctorRow.specialty_id, tiers, q.UNACCEPTED_STATUSES, limit, lang
+    ));
+    const assignedPendingP = safeAll(
       `SELECT o.*, s.name AS specialty_name, s.name_ar AS specialty_name_ar,
               sv.name AS service_name
          FROM orders_active o
@@ -388,11 +417,8 @@ module.exports = function (db, helpers) {
         LIMIT $2`,
       [doctorId, limit], []
     );
+    const [assignedPending, pool] = await Promise.all([assignedPendingP, poolP]);
     const assigned = q.enrichOrders(assignedPending || []).map((o) => redactPreAcceptOrderRow(o));
-    const tiers = await q.readDoctorSlaTiersRaw(doctorId);
-    const pool = await q.buildPortalCasesUnassigned(
-      doctorRow.specialty_id, tiers, q.UNACCEPTED_STATUSES, limit, lang
-    );
 
     const arms = [
       ...assigned.map((o) => ({ order: o, kind: 'assigned' })),
@@ -400,14 +426,20 @@ module.exports = function (db, helpers) {
     ].slice(0, limit);
 
     const ids = arms.map((a) => String(a.order.id));
-    const meta = await caseMetaByOrder(ids);
-    const acceptBy = await assignmentAcceptBy(doctorId, arms.filter((a) => a.kind === 'assigned').map((a) => String(a.order.id)));
+    const [meta, acceptBy, fees] = await Promise.all([
+      caseMetaByOrder(ids),
+      assignmentAcceptBy(doctorId, arms.filter((a) => a.kind === 'assigned').map((a) => String(a.order.id))),
+      // feePreview never throws (null on failure), so one bad case can't
+      // sink the list.
+      mapLimit(ids, FEE_PREVIEW_CONCURRENCY, (id) => feePreview(id)),
+    ]);
 
     const rows = [];
-    for (const { order, kind } of arms) {
+    for (let i = 0; i < arms.length; i++) {
+      const { order, kind } = arms[i];
       const id = String(order.id);
       const m = meta[id] || {};
-      const fee = await feePreview(id);
+      const fee = fees[i];
       rows.push({
         order_id: id,
         reference_id: order.reference_id == null ? null : String(order.reference_id),
@@ -477,21 +509,39 @@ module.exports = function (db, helpers) {
     const row = await liveDoctorRow(doctorId);
     if (!row) return res.fail('Doctor not found', 404, 'NOT_FOUND');
 
-    const tiers = await q.readDoctorSlaTiersRaw(doctorId);
-    const assignedTotal = await q.countAssignedPendingCases(doctorId);
-    const poolTotal = await q.countPortalCasesUnassigned(row.specialty_id, tiers, q.UNACCEPTED_STATUSES);
-    const inProgress = await q.countPortalCasesByStatuses(doctorId, q.ACCEPTED_STATUSES);
+    // Perf 2026-10-15 — this is the doctor app's launch request. Its reads
+    // used to run one after another (~10 round trips plus one per offer).
+    // Everything below depends only on doctorId/row, except the pool count
+    // and the offers, which need the tiers — so two waves. Failure semantics
+    // are unchanged: the reads that used to fail the request still do
+    // (Promise.all), and the two that were already best-effort (month total,
+    // alert count) still fall back to null/0.
+    const monthP = (async () => {
+      try {
+        const summary = await deps.earnings().getDoctorMonthSummary(doctorId);
+        return summary && Number.isFinite(Number(summary.total)) ? Number(summary.total) : null;
+      } catch (_) { return null; }
+    })();
+    const [tiers, assignedTotal, inProgress, monthEgp] = await Promise.all([
+      q.readDoctorSlaTiersRaw(doctorId),
+      q.countAssignedPendingCases(doctorId),
+      q.countPortalCasesByStatuses(doctorId, q.ACCEPTED_STATUSES),
+      monthP,
+    ]);
 
-    let monthEgp = null;
-    try {
-      const summary = await deps.earnings().getDoctorMonthSummary(doctorId);
-      monthEgp = summary && Number.isFinite(Number(summary.total)) ? Number(summary.total) : null;
-    } catch (_) { monthEgp = null; }
-
-    const offers = (await buildOfferRows(doctorId, row, lang, 20)).map(({ _order, ...o }) => o);
-
-    const runningRaw = await q.buildPortalCases(doctorId, q.ACCEPTED_STATUSES, 50, lang);
-    const unread = await unreadByOrder(doctorId, null);
+    const alertsP = (async () => {
+      try {
+        return Number(await deps.alerts().countDoctorUnseenNotifications(doctorId, row.email || '')) || 0;
+      } catch (_) { return 0; }
+    })();
+    const [poolTotal, offerRows, runningRaw, unread, unreadAlerts] = await Promise.all([
+      q.countPortalCasesUnassigned(row.specialty_id, tiers, q.UNACCEPTED_STATUSES),
+      buildOfferRows(doctorId, row, lang, 20, tiers),
+      q.buildPortalCases(doctorId, q.ACCEPTED_STATUSES, 50, lang),
+      unreadByOrder(doctorId, null),
+      alertsP,
+    ]);
+    const offers = offerRows.map(({ _order, ...o }) => o);
     const running = (runningRaw || []).map((o) => ({
       order_id: String(o.id),
       reference_id: o.reference_id == null ? null : String(o.reference_id),
@@ -502,10 +552,6 @@ module.exports = function (db, helpers) {
       unread_messages: unread[String(o.id)] || 0,
     }));
 
-    let unreadAlerts = 0;
-    try {
-      unreadAlerts = Number(await deps.alerts().countDoctorUnseenNotifications(doctorId, row.email || '')) || 0;
-    } catch (_) { unreadAlerts = 0; }
     const unreadMessages = Object.keys(unread).reduce((sum, k) => sum + (unread[k] || 0), 0);
 
     return res.ok({

@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: tt('svc.page_title', 'Services & Pricing', 'الخدمات والأسعار'), layout: "public", showNav: true }) %>
+<%- include('partials/header', { title: tt('svc.page_title', 'Services & Pricing', 'الخدمات والأسعار'), layout: "public", showNav: true, preloadImage: '/assets/services/hero-desk.webp' }) %>
 <%#
   Services page, v3 (14 Oct 2026). The colourful redesign approved on the
   Claude Design canvas ("Services page on iPhone: before, v2 and v3").
@@ -422,7 +422,7 @@
      </div>
     </div>
     <div style="display:grid;gap:12px">
-     <img class="sv3-hero-img" src="/assets/services/hero-desk.webp" width="900" height="558" alt="<%= tt('svc3.hero.img_alt', 'A consultant\'s desk with a printed report and reading glasses', 'مكتب استشاري عليه تقرير مطبوع ونظارة') %>">
+     <img class="sv3-hero-img" src="/assets/services/hero-desk.webp" width="900" height="558" fetchpriority="high" decoding="async" alt="<%= tt('svc3.hero.img_alt', 'A consultant\'s desk with a printed report and reading glasses', 'مكتب استشاري عليه تقرير مطبوع ونظارة') %>">
      <div class="sv3-btns">
       <%# The hero CTA keeps its /start destination while the gate is shut
           (__heroCtaOn above), so it is an anchor in both states. %>

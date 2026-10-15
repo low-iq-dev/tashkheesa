@@ -1,3 +1,4 @@
+<% var __asset = (typeof locals !== 'undefined' && locals && typeof locals.asset === 'function') ? locals.asset : function (u) { return u; }; -%>
 <%
   const usePortalFrame = Boolean(
     (typeof portalFrame !== 'undefined')
@@ -115,7 +116,7 @@
 <% } %>
 
 <% if (usePortalFrame) { %>
-  <script src="/vendor/lucide.min.js" defer></script>
+  <script src="<%= __asset('/vendor/lucide.min.js') %>" defer></script>
   <script<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
     (function () {
       var attempts = 0;

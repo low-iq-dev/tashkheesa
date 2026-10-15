@@ -1,3 +1,4 @@
+<% var __asset = (typeof locals !== 'undefined' && locals && typeof locals.asset === 'function') ? locals.asset : function (u) { return u; }; -%>
 <%
   // CSP nonce for JSON-LD structured data (Theme 2 Sub-issue E item 14).
   // JSON-LD scripts are treated as data by the browser (not executed),
@@ -106,11 +107,11 @@
   <script<%- __nonceAttr %>>document.documentElement.classList.add('js');</script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/site/css/variables.css" />
-  <link rel="stylesheet" href="/site/css/styles.css" />
-  <link rel="stylesheet" href="/site/css/animations.css" />
-  <link rel="stylesheet" href="/site/css/responsive.css" />
+  <%- include('partials/google_fonts_async', { href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;600;700&display=swap', nonce: __nonce }) %>
+  <link rel="stylesheet" href="<%= __asset('/site/css/variables.css') %>" />
+  <link rel="stylesheet" href="<%= __asset('/site/css/styles.css') %>" />
+  <link rel="stylesheet" href="<%= __asset('/site/css/animations.css') %>" />
+  <link rel="stylesheet" href="<%= __asset('/site/css/responsive.css') %>" />
   <link rel="icon" href="/site/assets/favicons/favicon.svg" type="image/svg+xml" />
   <link rel="icon" type="image/png" sizes="32x32" href="/site/assets/favicons/favicon-32x32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/site/assets/favicons/favicon-16x16.png" />
@@ -118,11 +119,11 @@
   <meta name="theme-color" content="#1e3a8a" />
   <%# App funnel 2026-09-23 — Play badge + Android smart banner. Nothing below
       renders unless PLAY_STORE_URL is set (locals.appFunnel is null). %>
-  <% if (locals.appFunnel) { %><link rel="stylesheet" href="/css/app-funnel.css" /><% } %>
+  <% if (locals.appFunnel) { %><link rel="stylesheet" href="<%= __asset('/css/app-funnel.css') %>" /><% } %>
 </head>
 <body data-meta-pixel="1">
 <%- include('partials/app_smart_banner') %>
-<script src="/js/meta_pixel.js" defer></script>
+<script src="<%= __asset('/js/meta_pixel.js') %>" defer></script>
   <!-- Navigation -->
   <nav class="site-nav">
     <div class="nav-inner">
@@ -566,8 +567,8 @@
     </div>
   </footer>
 
-  <script src="/site/js/site-main.js"></script>
-  <script src="/site/js/site-animations.js"></script>
+  <script src="<%= __asset('/site/js/site-main.js') %>"></script>
+  <script src="<%= __asset('/site/js/site-animations.js') %>"></script>
 <%# Soft launch 2026-09-25 — the home page closes its own body and never
     includes partials/footer, so the floating WhatsApp button has to be
     included here explicitly. Same partial as every other public page. %>
