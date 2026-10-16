@@ -1081,6 +1081,13 @@ router.get('/register', (req, res) => {
   res.locals.regNext = safeNextPath(req.query && req.query.next);
   const c = authCopy(req);
   var detectedCountry = res.locals.detectedCountry || 'EG';
+  // 16 Oct 2026 — a visitor who came through /uk (or an ad with ?market=GB)
+  // carries the `mkt` cookie; pre-select that country so the account is
+  // priced from the list the landing page quoted. Launch markets only.
+  try {
+    var _mkt = String((req.cookies && req.cookies.mkt) || '').toUpperCase();
+    if (_mkt && require('../launch-market').isLaunchMarket(_mkt)) detectedCountry = _mkt;
+  } catch (_) { /* keep the geo guess */ }
   // SHORT-SIGNUP 2026-09-27 — on Arabic pages, a non-Arab geo guess (VPNs,
   // Meta's in-app browser egress) pre-selected e.g. "United States" for an
   // Egyptian visitor from an Arabic ad. Arabic → default Egypt unless the

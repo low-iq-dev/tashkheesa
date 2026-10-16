@@ -73,6 +73,24 @@ function setupStaticPages(opts) {
   // database; server.js passes nothing and gets the real module.
   var siteStats = opts.siteStats || require('../services/site_stats');
 
+  // 16 Oct 2026 — the visitor's price list (GBP for the UK, etc.), so the
+  // public pages quote what the checkout will. Cached per market for 10
+  // minutes; EG never queries. See services/public_market.js.
+  var publicMarket = require('../services/public_market');
+  var _priceListCache = {};
+  async function loadPriceBook(res, services) {
+    var code = (res.locals && res.locals.publicMarket && res.locals.publicMarket.code) || 'EG';
+    if (code === 'EG') return publicMarket.priceBook('EG', [], services);
+    var hit = _priceListCache[code];
+    if (!hit || (Date.now() - hit.ts) > 10 * 60 * 1000) {
+      var rows = [];
+      try { rows = await safeAll(publicMarket.PRICE_LIST_SQL, [code], []); } catch (_) { rows = []; }
+      hit = { rows: rows || [], ts: Date.now() };
+      if (hit.rows.length) _priceListCache[code] = hit;
+    }
+    return publicMarket.priceBook(code, hit.rows, services);
+  }
+
   // EN strings are the canonical fields. *_ar fields are the Egyptian-Arabic
   // counterparts consumed by about.ejs / contact.ejs via canonical tt() with
   // biz.<field>_ar as the AR fallback. See Theme 10 Phase 2C / OQ-1 follow-up.
@@ -222,7 +240,8 @@ function setupStaticPages(opts) {
     res.type('application/xml').send(_sitemapCache.xml);
   });
 
-  router.get('/services', async function(req, res) {
+  // Shared by /services and /uk (16 Oct 2026).
+  async function ensureServicesCache() {
     var now = Date.now();
     if (!_servicesCache.services || (now - _servicesCache.ts) >= SERVICES_CACHE_TTL_MS) {
       // The page now lists the WHOLE catalogue, not just what is orderable.
@@ -273,6 +292,10 @@ function setupStaticPages(opts) {
       _servicesCache = { services: services, specialtyNames: specialtyNames,
         specialtyNameArMap: specialtyNameArMap, specialtyLiveMap: specialtyLiveMap, ts: now };
     }
+  }
+
+  router.get('/services', async function(req, res) {
+    await ensureServicesCache();
     var cat = await siteStats.getCatalogueStats();
 
     // The Google snippet.
@@ -330,8 +353,11 @@ function setupStaticPages(opts) {
       while (_desc.length > 158 && _namedAr.length > 1) { _namedAr.pop(); _desc = _descAr(); }
     }
 
+    var prices = await loadPriceBook(res, _servicesCache.services);
+
     res.render('services', {
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+      prices: prices,
       services: _servicesCache.services,
       specialtyNames: _servicesCache.specialtyNames,
       specialtyNameArMap: _servicesCache.specialtyNameArMap,
@@ -549,11 +575,11 @@ function setupStaticPages(opts) {
     try {
       var fd = require('../services/funnel_digest');
       var step = String((req.query && req.query.s) || '');
-      if (step === 'start_view' || step === 'services_view') {
-        fd.bumpLandingView(step === 'start_view' ? 'start' : 'services', Object.assign(Object.create(req), {
+      if (step === 'start_view' || step === 'services_view' || step === 'uk_view') {
+        fd.bumpLandingView(step.replace(/_view$/, ''), Object.assign(Object.create(req), {
           query: { utm_source: (req.query && req.query.src) || '', utm_campaign: (req.query && req.query.c) || '' }
         }));
-      } else if (step === 'start_cta' || step === 'start_wa' || step === 'services_cta' || step === 'services_card' || step === 'services_help') {
+      } else if (step === 'start_cta' || step === 'start_wa' || step === 'services_cta' || step === 'services_card' || step === 'services_help' || step === 'uk_cta' || step === 'uk_wa') {
         fd.bumpFunnelCount(step, req);
       }
     } catch (_) {}
@@ -571,6 +597,40 @@ function setupStaticPages(opts) {
     return res.redirect(302, 'https://wa.me/201102009886?text=' + encodeURIComponent(text));
   });
 
+  // /uk — the landing page for UK visitors and UK ads (16 Oct 2026). English
+  // only (no /ar twin: it is not in public_lang_url's PUBLIC_EXACT), always
+  // the GB price list whatever the IP says, and it remembers the choice so
+  // /services quotes the same pounds afterwards. See views/uk.ejs.
+  router.get('/uk', async function(req, res) {
+    res.locals.publicMarket = { code: 'GB', country: 'GB', emergency: '999' };
+    // English whatever an earlier lang cookie says: the page has one language.
+    var _tr = require('../i18n').t;
+    res.locals.lang = 'en'; res.locals.isAr = false; res.locals.dir = 'ltr';
+    res.locals.publicLinkPrefix = '';
+    res.locals.t = function (key) { return _tr(key, 'en'); };
+    res.locals.tt = function (key, en) {
+      var k = typeof key === 'string' ? key.trim() : '';
+      var c = k ? _tr(k, 'en') : '';
+      return (c && c !== k) ? c : (en || k || '');
+    };
+    var ua = String((req.get && req.get('user-agent')) || '');
+    if (!/bot|crawl|spider|slurp|preview|headless/i.test(ua)) {
+      res.cookie(publicMarket.COOKIE, 'GB', { maxAge: 30 * 24 * 3600 * 1000, httpOnly: true, sameSite: 'lax' });
+    }
+    try { await ensureServicesCache(); } catch (_) { /* page still renders */ }
+    var services = (_servicesCache.services || []).filter(function (s) { return s && s.is_bookable; });
+    var prices = await loadPriceBook(res, services);
+    res.render('uk', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+      title: 'Medical second opinion from a named hospital consultant, in 48 hours | Tashkheesa',
+      description: 'Upload your scan, report or test results. A named consultant at Shifa Hospital Group writes you a second-opinion report in English within 48 hours. Prices in pounds.',
+      canonical: '/uk',
+      BUSINESS_INFO: BUSINESS_INFO,
+      prices: prices,
+      bookableServices: services
+    });
+  });
+
   router.get('/start', async function(req, res) {
     var isAr = !!(res.locals && res.locals.isAr);
     // FUNNEL — the view is now counted by a client beacon once the page is
@@ -578,7 +638,9 @@ function setupStaticPages(opts) {
     // by Meta's in-app browser preloading the page (1 Oct 2026).
     var cat = null;
     try { cat = await siteStats.getCatalogueStats(); } catch (_) { cat = null; }
+    var startPrices = await loadPriceBook(res, []);
     res.render('start', {
+      minLocal: startPrices.minFormatted,
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       title: isAr ? 'رأي طبي تاني مكتوب في 48 ساعة | تشخيصة' : 'A written second opinion in 48 hours | Tashkheesa',
       description: isAr

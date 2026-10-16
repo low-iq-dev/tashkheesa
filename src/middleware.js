@@ -403,6 +403,10 @@ function baseMiddlewares(app) {
 
     next();
   });
+
+  // 16 Oct 2026 — which price list the public pages quote this visitor
+  // (res.locals.publicMarket). Display only; see services/public_market.js.
+  app.use(require('./services/public_market').middleware);
 }
 
 function requireAuth() {

@@ -51,7 +51,12 @@ test('no NEW code path prices the home market from service_regional_prices', () 
                                         // the country from the AUTHENTICATED user
                                         // rather than ?country=, so a client can
                                         // no longer choose its own price band
-    'src/db.js'                         // seed
+    'src/db.js',                        // seed
+    'src/services/public_market.js'     // 16 Oct 2026: public-page DISPLAY for
+                                        // visitors outside Egypt. The EG market
+                                        // never queries (static-pages.js
+                                        // loadPriceBook returns early), so the
+                                        // home market still shows base_price.
   ];
   const found = [];
   const walk = (dir) => {

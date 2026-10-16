@@ -24,10 +24,12 @@ const { queryAll, queryOne, execute } = require('../pg');
 
 const STEPS = new Set(['start_view', 'start_view_meta', 'services_view', 'services_view_meta', 'register_view', 'start_cta', 'start_wa', 'wa_redirect',
   // 11 Oct 2026 — taps on the services page (hero Start / bottom CTA, a service or specialty card, the help link)
-  'services_cta', 'services_card', 'services_help']);
+  'services_cta', 'services_card', 'services_help',
+  // 16 Oct 2026 — the /uk landing page (view, Start tap, WhatsApp tap)
+  'uk_view', 'uk_view_meta', 'uk_cta', 'uk_wa']);
 // Per-campaign split (2 Oct 2026): '<page>_view@<utm_campaign>' so each ad's landing
 // views can be told apart. Slug is sanitised and capped; anything else is rejected.
-const CAMPAIGN_STEP = /^(start|services)_view@[a-z0-9][a-z0-9_-]{0,39}$/;
+const CAMPAIGN_STEP = /^(start|services|uk)_view@[a-z0-9][a-z0-9_-]{0,39}$/;
 const META_SRC = new Set(['meta', 'facebook', 'instagram', 'fb', 'ig']);
 function campaignSlug(v) { return String(v || '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40); }
 const BOT_UA = /bot|crawl|spider|slurp|facebookexternalhit|facebookcatalog|meta-externalagent|preview|headless|lighthouse|pingdom|uptime|curl|wget|python-requests|node-fetch|axios/i;
@@ -83,7 +85,7 @@ function bumpFunnelCount(step, req) {
  * when utm_campaign is present.
  */
 function bumpLandingView(page, req) {
-  if (page !== 'start' && page !== 'services') return;
+  if (page !== 'start' && page !== 'services' && page !== 'uk') return;
   bumpFunnelCount(page + '_view', req);
   const q = (req && req.query) || {};
   if (META_SRC.has(String(q.utm_source || '').toLowerCase())) bumpFunnelCount(page + '_view_meta', req);
@@ -189,6 +191,9 @@ function formatDigest(f, since) {
     'Services page views: ' + fmt(f.services_view || 0) + (f.services_view_meta ? ' (Meta ' + f.services_view_meta + ')' : ''),
     'Services page taps: Start ' + fmt(f.services_cta || 0) + ' · service cards ' + fmt(f.services_card || 0) + ' · help ' + fmt(f.services_help || 0),
     'Taps on Start: ' + fmt(f.start_cta || 0) + pct(f.start_cta || 0, views) + ' · WhatsApp taps: ' + fmt(f.start_wa || 0),
+    // 16 Oct 2026 — the /uk landing page, shown only once it has traffic.
+    ...((f.uk_view || f.uk_cta || f.uk_wa) ? ['UK page /uk: views ' + fmt(f.uk_view || 0) + (f.uk_view_meta ? ' (Meta ' + f.uk_view_meta + ')' : '') +
+      ' · Start ' + fmt(f.uk_cta || 0) + pct(f.uk_cta || 0, f.uk_view || 0) + ' · WhatsApp ' + fmt(f.uk_wa || 0)] : []),
     'WhatsApp ad clicks: ' + fmt(f.wa_redirect || 0),
     'Register page views: ' + fmt(f.register_view || 0),
     'Signups: ' + fmt(f.signups) + pct(f.signups, f.register_view),

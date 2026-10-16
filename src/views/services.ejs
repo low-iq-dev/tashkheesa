@@ -285,6 +285,17 @@
   });
   const __minPrice = Object.values(__fromPrice).reduce((m, v) => (m == null || v < m ? v : m), null);
   const __fmt = v => Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+  // 16 Oct 2026 — a visitor outside Egypt sees their own price list (£ for the
+  // UK), the same numbers the checkout charges from. `prices` is a
+  // public_market.priceBook; for Egypt it is not local and nothing changes.
+  const __pb = (typeof prices !== 'undefined' && prices) ? prices : null;
+  const __pbLocal = !!(__pb && __pb.isLocal);
+  const __loc = (egp, sid) => (__pbLocal ? __pb.format(egp, sid) : null);
+  const __fromChip = (egp, cap) => {
+    const l = __loc(egp);
+    if (l) return (__heroAr ? 'من ' : (cap ? 'From ' : 'from ')) + l;
+    return __heroAr ? ('من ' + __fmt(egp) + ' جنيه') : ((cap ? 'From' : 'from') + ' EGP ' + __fmt(egp));
+  };
 
   // Descriptions (unchanged copy) + the v3 colour, tint and icon per specialty.
   const specialtyMeta = {
@@ -367,8 +378,9 @@
   };
   const __bookableCount = uniqueServices.filter(isBookable).length;
   const sectionId = sp => sp.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-  const egp = __isAr ? 'جنيه' : 'EGP';
-  const fromTxt = v => __isAr ? ('من ' + __fmt(v)) : ('from ' + __fmt(v));
+  // A local price carries its own symbol (£150), so the EGP word is dropped.
+  const egp = __pbLocal ? '' : (__isAr ? 'جنيه' : 'EGP');
+  const fromTxt = v => { const l = __loc(v); return __isAr ? ('من ' + (l || __fmt(v))) : ('from ' + (l || __fmt(v))); };
   function typesTxt(n) {
     // "N من الأنواع" style avoided: a plain "N types" reads right in both.
     return __isAr ? (n + ' ' + (n >= 3 && n <= 10 ? 'أنواع' : 'نوع')) : (n + (n === 1 ? ' report type' : ' report types'));
@@ -416,7 +428,7 @@
        'Upload your scans or lab results from your phone and receive a report in Arabic and English, with the consultant\'s name and signature.',
        'ارفع أشعتك أو تحاليلك من موبايلك، واستلم تقرير بالعربي والإنجليزي، باسم الاستشاري وتوقيعه.') %></p>
      <div class="sv3-chips">
-      <% if (__heroMin) { %><span class="sv3-chip sv3-chip--solid"><%= __heroAr ? ('من ' + __fmt(__heroMin) + ' جنيه') : ('From EGP ' + __fmt(__heroMin)) %></span><% } %>
+      <% if (__heroMin) { %><span class="sv3-chip sv3-chip--solid"><%= __fromChip(__heroMin, true) %></span><% } %>
       <span class="sv3-chip"><%= tt('svc3.hero.chip_time', 'In 48 hours or less', 'في 48 ساعة أو أقل') %></span>
       <span class="sv3-chip"><%= tt('svc3.hero.chip_ai', 'Not AI', 'مش ذكاء اصطناعي') %></span>
      </div>
@@ -426,7 +438,7 @@
      <div class="sv3-btns">
       <%# The hero CTA keeps its /start destination while the gate is shut
           (__heroCtaOn above), so it is an anchor in both states. %>
-      <a href="<%= __heroStartHref %>" data-funnel="services_cta" class="sv3-btn sv3-btn--hero"><%= tt('svc3.cta.start', 'Start your request', 'ابدأ طلبك') %><% if (__heroMin) { %> <span>· <%= __heroAr ? ('من ' + __fmt(__heroMin) + ' جنيه') : ('from EGP ' + __fmt(__heroMin)) %></span><% } %></a>
+      <a href="<%= __heroStartHref %>" data-funnel="services_cta" class="sv3-btn sv3-btn--hero"><%= tt('svc3.cta.start', 'Start your request', 'ابدأ طلبك') %><% if (__heroMin) { %> <span>· <%= __fromChip(__heroMin, false) %></span><% } %></a>
       <a href="#sv3-report" class="sv3-btn sv3-btn--ghost"><%= tt('svc3.hero.see_report', 'See what the report looks like', 'شوف شكل التقرير') %></a>
      </div>
      <%- include('partials/urgent-window-note', {}) %>
@@ -494,7 +506,7 @@
      <% if (isBookable(service) && __ctaOn) { %>
      <a href="<%= bookHref('service_id=' + encodeURIComponent(service.id)) %>" class="service-card" data-funnel="services_card">
       <h3><%= svcName(service) %><% const __d = (__isAr && service.description_ar) || (!__isAr && service.description) || ''; if (__d) { %><span class="sla"><%= __d %></span><% } %></h3>
-      <span class="sv3-price"><%= __fmt(service.base_price) %> <small>EGP</small></span>
+      <span class="sv3-price"><% if (__loc(service.base_price, service.id)) { %><%= __loc(service.base_price, service.id) %><% } else { %><%= __fmt(service.base_price) %> <small>EGP</small><% } %></span>
      </a>
      <% } else { %>
      <%# Bookable but held unlinked by the site-wide gate keeps its price;
@@ -502,7 +514,7 @@
      <div class="service-card service-card--static"<% if (!isBookable(service)) { %> aria-disabled="true"<% } %>>
       <h3><%= svcName(service) %><% const __d = (__isAr && service.description_ar) || (!__isAr && service.description) || ''; if (__d) { %><span class="sla"><%= __d %></span><% } %></h3>
       <% if (!isBookable(service)) { %><span class="service-soon-badge"><%= tt('svc.coming_soon', 'Coming Soon', 'قريبًا') %></span>
-      <% } else { %><span class="sv3-price"><%= __fmt(service.base_price) %> <small>EGP</small></span><% } %>
+      <% } else { %><span class="sv3-price"><% if (__loc(service.base_price, service.id)) { %><%= __loc(service.base_price, service.id) %><% } else { %><%= __fmt(service.base_price) %> <small>EGP</small><% } %></span><% } %>
      </div>
      <% } %>
    <%   } %>
@@ -549,7 +561,7 @@
    <div class="sv3-steps">
     <% [
       ['#0B6B5F', '#E3F3F0', tt('svc3.step1.t', 'Upload your file', 'ارفع ملفك'), tt('svc3.step1.d', 'Scans, lab results, reports. Photos or PDF from your phone.', 'أشعة، تحاليل، تقارير. صور أو PDF من موبايلك.')],
-      ['#3B4BBD', '#EDEFFC', tt('svc3.step2.t', 'We confirm the specialty and price', 'نأكد معاك التخصص والسعر'), tt('svc3.step2.d', 'You see the full price before you pay, by InstaPay or bank transfer.', 'السعر بيظهر كامل قبل ما تدفع، إنستاباي أو تحويل بنكي.')],
+      ['#3B4BBD', '#EDEFFC', tt('svc3.step2.t', 'We confirm the specialty and price', 'نأكد معاك التخصص والسعر'), (__pbLocal ? tt('svc3.step2.d_intl', 'You see the full price before you pay, by card.', 'السعر بيظهر كامل قبل ما تدفع، بالبطاقة.') : tt('svc3.step2.d', 'You see the full price before you pay, by InstaPay or bank transfer.', 'السعر بيظهر كامل قبل ما تدفع، إنستاباي أو تحويل بنكي.'))],
       ['#A84D13', '#FDEFE3', tt('svc3.step3.t', 'A consultant reads and writes', 'استشاري يقرا ويكتب'), tt('svc3.step3.d', 'A consultant in the same specialty from Shifa Hospital Group.', 'استشاري في نفس التخصص من مجموعة مستشفيات شفا.')],
       ['#8A6200', '#FFF5D9', tt('svc3.step4.t', 'You receive your report', 'تستلم تقريرك'), tt('svc3.step4.d', 'In Arabic and English, with their name and signature. What happens next is your decision, with your doctor.', 'بالعربي والإنجليزي، باسمه وتوقيعه. والقرار بعد كده بتاعك مع دكتورك.')]
     ].forEach(function (s, i) { %>
@@ -618,10 +630,17 @@
    <h2 class="sv3-h2" id="sv3-ladder"><%= tt('svc3.ladder.title', 'A clear price before you pay', 'سعر واضح قبل ما تدفع') %></h2>
    <div class="sv3-ladder">
     <% __ladder.forEach(function (l) { %>
-    <div class="sv3-rung"><i style="background:<%= l.c %>"></i><span class="t"><%= l.t %></span><span class="p"><%= __fmt(l.p) %> <small>EGP</small></span></div>
+    <div class="sv3-rung"><i style="background:<%= l.c %>"></i><span class="t"><%= l.t %></span><span class="p"><% if (__loc(l.p)) { %><%= __loc(l.p) %><% } else { %><%= __fmt(l.p) %> <small>EGP</small><% } %></span></div>
     <% }); %>
    </div>
+   <% if (__pbLocal) { %>
+   <%# Outside Egypt InstaPay and an Egyptian bank transfer mean nothing; the
+       card is the way to pay, and it is charged in EGP (src/fx.js), which a
+       foreign bank shows as a foreign-currency payment. Say so up front. %>
+   <div class="sv3-pay"><b><%= tt('svc3.pay.card', 'Visa / Mastercard', 'فيزا / ماستركارد') %></b><span><%= tt('svc3.pay.note_intl', 'Prices are for Standard speed. Your card is charged the equivalent in Egyptian pounds, so your bank may add a foreign-transaction fee.', 'السعر لسرعة Standard. البطاقة بتتخصم بما يعادلها بالجنيه المصري، فممكن البنك يضيف رسوم معاملة أجنبية.') %></span></div>
+   <% } else { %>
    <div class="sv3-pay"><b><%= tt('svc3.pay.instapay', 'InstaPay', 'إنستاباي') %></b><b><%= tt('svc3.pay.bank', 'Bank transfer', 'تحويل بنكي') %></b><span><%= tt('svc3.pay.note', 'Prices are for Standard speed', 'السعر ده لسرعة Standard') %></span></div>
+   <% } %>
    <div class="sv3-priv">
     <div style="background:#EDEFFC"><%- svg(I.lock, '#3B4BBD') %><h3><%= tt('svc3.priv1.t', 'Your files are private', 'ملفاتك سرية') %></h3><p><%= tt('svc3.priv1.d', 'Seen only by the medical team handling your request.', 'بيشوفها الفريق الطبي المختص بطلبك بس.') %></p></div>
     <div style="background:#E3F3F0"><%- svg(I.info, '#0B6B5F') %><h3><%= tt('svc3.priv2.t', 'A written opinion', 'رأي مكتوب') %></h3><p><%= tt('svc3.priv2.d', 'Not a substitute for an examination or emergency care.', 'مش بديل عن الكشف ولا عن الطوارئ.') %></p></div>
@@ -637,7 +656,7 @@
       [tt('svc3.faq2.q', 'Who reads my file?', 'مين اللي هيقرا ملفي؟'), tt('svc3.faq2.a', 'A consultant in the same specialty from Shifa Hospital Group. Their name and signature are on your report.', 'استشاري في نفس التخصص من مجموعة مستشفيات شفا، واسمه وتوقيعه على تقريرك.')],
       [tt('svc3.faq3.q', 'When does the report arrive?', 'التقرير بيوصل إمتى؟'), tt('svc3.faq3.a', 'Within 48 hours on Standard, 18 hours on VIP or 4 hours on Urgent.', 'في خلال 48 ساعة في Standard، أو 18 ساعة في VIP، أو 4 ساعات في العاجل.')],
       [tt('svc3.faq4.q', 'Is this a diagnosis?', 'ده تشخيص؟'), tt('svc3.faq4.a', 'No. It is a written second opinion based on the files you send. It does not replace an examination or emergency care.', 'لأ. ده رأي طبي ثانٍ مكتوب بناءً على الملفات اللي بتبعتها، ومش بديل عن الكشف ولا عن الطوارئ.')],
-      [tt('svc3.faq5.q', 'How do I pay?', 'أدفع إزاي؟'), tt('svc3.faq5.a', 'By InstaPay or bank transfer. You see the full price before you pay.', 'إنستاباي أو تحويل بنكي، والسعر بيظهر كامل قبل ما تدفع.')],
+      [tt('svc3.faq5.q', 'How do I pay?', 'أدفع إزاي؟'), (__pbLocal ? tt('svc3.faq5.a_intl', 'By Visa or Mastercard. You see the full price before you pay; your card is charged the equivalent in Egyptian pounds.', 'بفيزا أو ماستركارد. السعر بيظهر كامل قبل ما تدفع، والبطاقة بتتخصم بما يعادله بالجنيه المصري.') : tt('svc3.faq5.a', 'By InstaPay or bank transfer. You see the full price before you pay.', 'إنستاباي أو تحويل بنكي، والسعر بيظهر كامل قبل ما تدفع.'))],
       [tt('svc3.faq6.q', 'What if my specialty is not listed?', 'لو تخصصي مش موجود؟'), tt('svc3.faq6.a', 'Message us on WhatsApp and we will tell you whether a consultant can take your case.', 'كلمنا على واتساب ونقولك لو في استشاري يقدر ياخد حالتك.')]
     ].forEach(function (f, i) { %>
     <details<%= i === 0 ? ' open' : '' %>><summary><%= f[0] %></summary><p><%= f[1] %></p></details>
@@ -655,7 +674,7 @@
    </div>
    <div class="sv3-btns">
     <% if (__ctaOn) { %>
-    <a href="<%= bookHref('') %>" class="sv3-btn sv3-btn--hero" data-funnel="services_cta"><%= tt('svc3.cta.start', 'Start your request', 'ابدأ طلبك') %><% if (__minPrice) { %> <span>· <%= __isAr ? ('من ' + __fmt(__minPrice) + ' جنيه') : ('from EGP ' + __fmt(__minPrice)) %></span><% } %></a>
+    <a href="<%= bookHref('') %>" class="sv3-btn sv3-btn--hero" data-funnel="services_cta"><%= tt('svc3.cta.start', 'Start your request', 'ابدأ طلبك') %><% if (__minPrice) { %> <span>· <%= __fromChip(__minPrice, false) %></span><% } %></a>
     <% } else { %>
     <span class="sv3-btn sv3-btn--hero is-cta-locked" aria-disabled="true" title="<%= __ctaOffLabel %>"><%= tt('svc3.cta.start', 'Start your request', 'ابدأ طلبك') %></span>
     <% } %>

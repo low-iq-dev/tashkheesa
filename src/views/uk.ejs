@@ -1,0 +1,275 @@
+<%- include('partials/header', { title: 'A second opinion from a named consultant, in 48 hours', layout: 'public', showNav: true }) %>
+<%
+  // /uk — the landing page for UK visitors and UK ads (16 Oct 2026).
+  // English only, prices from the GB list (the same list the checkout charges
+  // a UK account from). Honest about what the service is: Egyptian-licensed
+  // consultants at Shifa Hospital Group, not GMC-registered doctors, and a
+  // written opinion for the patient and their own doctor — never a substitute
+  // for their GP or for emergency care.
+  const __ctaOn = (typeof bookingCtaEnabled !== 'undefined') ? !!bookingCtaEnabled : false;
+  const __loggedIn = !!(typeof user !== 'undefined' && user && user.id);
+  const __target = '/patient/new-case';
+  let __startHref = __loggedIn ? __target : '/register?next=' + encodeURIComponent(__target);
+  __startHref += (__startHref.indexOf('?') === -1 ? '?' : '&') + 'lang=en';
+  const __pb = (typeof prices !== 'undefined' && prices) ? prices : null;
+  const __svcs = (typeof bookableServices !== 'undefined' && bookableServices) ? bookableServices : [];
+  const __gbp = (egp) => (__pb && __pb.isLocal) ? __pb.format(egp) : null;
+  const __min = (__pb && __pb.minFormatted) ? __pb.minFormatted : null;
+  const __wa = 'https://wa.me/201102009886?text=' + encodeURIComponent('Hi Tashkheesa, I am in the UK and I have a report/scan I would like a second opinion on');
+  const LADDER = [
+    [750,  'Report read: one question about one report'],
+    [1200, 'ECG, plain X-ray, ultrasound, blood count'],
+    [1600, 'Echo, MRI, CT, Holter'],
+    [2400, 'Coronary CT, endoscopy, full case review'],
+    [3500, 'Pre-surgery opinion, chronic kidney follow-up']
+  ];
+  const __bands = new Set(__svcs.map(s => Number(s.base_price)));
+  const __ladder = LADDER.filter(l => __bands.has(l[0]) && __gbp(l[0]));
+  const DOCS = [
+    { img: 'dr-nancy',  n: 'Dr Nancy Ghoneim',       s: 'Internal Medicine' },
+    { img: 'dr-jamal',  n: 'Dr Mohammed Jamaleddin', s: 'Orthopaedics' },
+    { img: 'dr-sultan', n: 'Dr Khaled Sultan',       s: 'Obstetrics & Gynaecology' },
+    { img: 'dr-zaky',   n: 'Dr Ibrahim Zaky',        s: 'Urology' },
+    { img: 'dr-hassan', n: 'Dr Hassan Khaled',       s: 'Obstetrics & Gynaecology' }
+  ];
+%>
+<style>
+.uk{ --ink:#0F1E2D; --teal:#0B6B5F; --teal-2:#0d7f71; --brass:#D3AC64; --paper:#F7F8F8; --muted:#55636b; --line:#e3e7e8;
+  color:var(--ink); background:var(--paper); }
+.uk *{ box-sizing:border-box; }
+.uk-wrap{ max-width:1080px; margin:0 auto; padding:0 20px; }
+.uk-hero{ background:var(--ink); color:#fff; padding:56px 0 64px; }
+.uk-hero__grid{ display:grid; grid-template-columns:1.1fr .9fr; gap:40px; align-items:center; }
+.uk-kicker{ display:inline-block; font-size:13px; font-weight:700; color:var(--brass); border:1px solid rgba(211,172,100,.45);
+  padding:6px 12px; border-radius:999px; margin-bottom:18px; }
+.uk h1{ font-size:clamp(30px,4.4vw,44px); line-height:1.18; margin:0 0 16px; font-weight:800; color:#fff; }
+.uk-sub{ font-size:18px; line-height:1.65; color:#cfd9de; margin:0 0 22px; max-width:560px; }
+.uk-price{ display:flex; gap:18px; flex-wrap:wrap; margin:0 0 26px; font-size:15px; color:#e4ebee; }
+.uk-price b{ color:#fff; font-size:22px; }
+.uk-ctas{ display:flex; gap:12px; flex-wrap:wrap; }
+.uk-btn{ display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:52px; padding:0 26px; border-radius:12px;
+  font-weight:700; font-size:17px; text-decoration:none; }
+.uk-btn--primary{ background:var(--brass); color:var(--ink); }
+.uk-btn--wa{ background:#fff; color:#128C7E; }
+.uk-btn--locked{ background:#cfd8da; color:#5d6b6f; cursor:not-allowed; }
+.uk-note{ margin:12px 0 0; font-size:14px; color:#aab8bf; }
+.uk-report{ background:#fff; color:var(--ink); border-radius:18px; padding:22px 22px 18px; box-shadow:0 24px 60px rgba(0,0,0,.35); }
+.uk-report__h{ display:flex; justify-content:space-between; align-items:center; gap:10px; font-weight:800; font-size:17px; color:var(--teal); }
+.uk-report__tag{ font-size:11px; font-weight:700; color:#9a7a3c; border:1px solid var(--brass); border-radius:999px; padding:2px 10px; }
+.uk-report__meta{ color:var(--muted); font-size:13px; margin:4px 0 14px; }
+.uk-report__q{ background:#f2f5f5; border-radius:10px; padding:10px 12px; font-size:14px; line-height:1.55; margin-bottom:12px; }
+.uk-report__f{ margin:0 0 12px; padding-inline-start:20px; font-size:14px; line-height:1.8; }
+.uk-report__rec{ border-inline-start:3px solid var(--brass); padding:4px 12px; font-size:14px; line-height:1.6; margin-bottom:12px; }
+.uk-report__sig{ font-size:12.5px; color:var(--teal); font-weight:700; border-top:1px dashed var(--line); padding-top:10px; }
+.uk-sec{ padding:56px 0; }
+.uk-sec h2{ font-size:clamp(24px,3vw,32px); margin:0 0 10px; text-align:center; color:var(--ink); }
+.uk-sec__sub{ text-align:center; color:var(--muted); margin:0 auto 34px; max-width:640px; line-height:1.6; }
+.uk-grid4{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
+.uk-grid3{ display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+.uk-card{ background:#fff; border-radius:16px; padding:22px; border:1px solid var(--line); line-height:1.6; font-size:15px; }
+.uk-card b{ display:block; color:var(--teal); margin-bottom:4px; font-size:16px; }
+.uk-step__n{ width:36px; height:36px; border-radius:50%; background:var(--teal); color:#fff; font-weight:800;
+  display:flex; align-items:center; justify-content:center; margin-bottom:12px; }
+.uk-ladder{ max-width:760px; margin:0 auto; background:#fff; border:1px solid var(--line); border-radius:16px; overflow:hidden; }
+.uk-rung{ display:flex; justify-content:space-between; gap:16px; padding:16px 20px; border-top:1px solid var(--line); font-size:15.5px; }
+.uk-rung:first-child{ border-top:0; }
+.uk-rung span:last-child{ font-weight:800; color:var(--teal); white-space:nowrap; font-size:18px; }
+.uk-speeds{ max-width:760px; margin:16px auto 0; display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.uk-speed{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 14px; text-align:center; font-size:14px; color:var(--muted); }
+.uk-speed b{ display:block; color:var(--ink); font-size:16px; }
+.uk-small{ max-width:760px; margin:14px auto 0; text-align:center; font-size:14px; color:var(--muted); line-height:1.6; }
+.uk-docs{ display:grid; grid-template-columns:repeat(5,1fr); gap:14px; }
+.uk-doc{ background:#fff; border-radius:16px; overflow:hidden; border:1px solid var(--line); text-align:center; }
+.uk-doc img{ display:block; width:100%; aspect-ratio:4/5; object-fit:cover; background:#e9eeee; }
+.uk-doc p{ margin:0; padding:0 8px; }
+.uk-doc .n{ font-weight:800; font-size:15px; padding-top:12px; color:var(--ink); }
+.uk-doc .s{ color:var(--teal); font-weight:700; font-size:13px; padding-bottom:14px; }
+.uk-honest{ max-width:860px; margin:0 auto; background:#fff; border:2px solid var(--brass); border-radius:18px; padding:26px 28px; }
+.uk-honest h2{ text-align:start; margin-bottom:12px; }
+.uk-honest ul{ margin:0; padding-inline-start:20px; line-height:1.75; font-size:15.5px; }
+.uk-faq{ max-width:760px; margin:0 auto; }
+.uk-faq details{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 18px; margin-bottom:10px; }
+.uk-faq summary{ cursor:pointer; font-weight:700; font-size:16px; }
+.uk-faq p{ margin:10px 0 0; line-height:1.65; color:#33424a; }
+.uk-final{ background:var(--teal); color:#fff; text-align:center; padding:48px 0 56px; }
+.uk-final h2{ color:#fff; margin:0 0 10px; font-size:clamp(24px,3vw,32px); }
+.uk-final p{ color:#d6ece8; margin:0 0 22px; }
+.uk-final .uk-ctas{ justify-content:center; }
+@media (max-width:860px){
+  .uk-hero{ padding:36px 0 44px; }
+  .uk-hero__grid{ grid-template-columns:1fr; gap:28px; }
+  .uk-grid4{ grid-template-columns:1fr 1fr; }
+  .uk-grid3{ grid-template-columns:1fr; }
+  .uk-docs{ grid-template-columns:repeat(3,1fr); gap:10px; }
+  .uk-btn{ width:100%; }
+}
+@media (max-width:480px){
+  .uk-grid4{ grid-template-columns:1fr; }
+  .uk-docs{ grid-template-columns:repeat(2,1fr); }
+  .uk-speeds{ grid-template-columns:1fr; }
+}
+</style>
+
+<main class="uk" dir="ltr" lang="en-GB">
+  <section class="uk-hero">
+    <div class="uk-wrap uk-hero__grid">
+      <div>
+        <span class="uk-kicker">Shifa Hospital Group consultants · Cairo</span>
+        <h1>A second opinion on your scan or report, written by a named consultant</h1>
+        <p class="uk-sub">Upload your scan, report or test results. A consultant at Shifa Hospital Group reads them and writes you a structured report in English, signed with their name, within 48 hours.</p>
+        <div class="uk-price">
+          <% if (__min) { %><span>From <b><%= __min %></b></span><% } %>
+          <span><b>48</b> hours to your report</span>
+          <span><b>No</b> appointment needed</span>
+        </div>
+        <div class="uk-ctas">
+          <% if (__ctaOn) { %>
+          <a class="uk-btn uk-btn--primary" href="<%= __startHref %>" data-funnel="uk_cta">Start my case</a>
+          <% } else { %>
+          <span class="uk-btn uk-btn--locked is-cta-locked" aria-disabled="true">Booking opens soon</span>
+          <% } %>
+          <a class="uk-btn uk-btn--wa" href="<%= __wa %>" target="_blank" rel="noopener" data-funnel="uk_wa">Ask us on WhatsApp</a>
+        </div>
+        <p class="uk-note">One step to start: your name and mobile number. Then upload your files.</p>
+      </div>
+      <div>
+        <div class="uk-report" aria-label="Example report">
+          <div class="uk-report__h"><span>Second-opinion report</span><span class="uk-report__tag">Example</span></div>
+          <div class="uk-report__meta">Knee MRI · Right knee · 3 findings</div>
+          <div class="uk-report__q"><b>Your question:</b> My doctor says I need arthroscopy. Is it necessary now?</div>
+          <ol class="uk-report__f">
+            <li>Small joint effusion</li>
+            <li>Small medial meniscus tear, posterior horn</li>
+            <li>ACL and PCL intact</li>
+          </ol>
+          <div class="uk-report__rec"><b>Consultant’s opinion:</b> The tear is small and stable. Start 6 weeks of physiotherapy; arthroscopy only if the knee locks or pain persists.</div>
+          <div class="uk-report__sig">✓ Signed by the orthopaedic consultant · Shifa Hospital Group</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="uk-sec">
+    <div class="uk-wrap">
+      <h2>When people use it</h2>
+      <p class="uk-sec__sub">A second pair of expert eyes, in writing, to take back to your own doctor.</p>
+      <div class="uk-grid4">
+        <div class="uk-card"><b>A result you want read again</b>You have a scan, report or test result and want another specialist to look at it.</div>
+        <div class="uk-card"><b>Before a big decision</b>You are weighing up an operation or a major treatment and want a second view first.</div>
+        <div class="uk-card"><b>Family abroad</b>You are helping a parent or relative overseas and want their reports read and explained in English.</div>
+        <div class="uk-card"><b>You want it in writing</b>A signed report you can keep, re-read and share with your GP or specialist.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="uk-sec" style="padding-top:0;">
+    <div class="uk-wrap">
+      <h2>How it works</h2>
+      <p class="uk-sec__sub">Everything happens online. No appointments, no travel.</p>
+      <div class="uk-grid3">
+        <div class="uk-card"><div class="uk-step__n">1</div><b>Upload your files</b>PDFs or photos of your reports, scan images or test results, and your question for the consultant.</div>
+        <div class="uk-card"><div class="uk-step__n">2</div><b>A consultant reviews them</b>A Shifa Hospital Group consultant in the right specialty reads your whole case.</div>
+        <div class="uk-card"><div class="uk-step__n">3</div><b>Your written report</b>A structured report in English and Arabic that answers your question, with the consultant’s name and signature.</div>
+      </div>
+    </div>
+  </section>
+
+  <% if (__ladder.length) { %>
+  <section class="uk-sec" style="padding-top:0;" id="prices">
+    <div class="uk-wrap">
+      <h2>Prices in pounds</h2>
+      <p class="uk-sec__sub">One price for the review you choose. You see the exact price before you pay.</p>
+      <div class="uk-ladder">
+        <% __ladder.forEach(function (l) { %>
+        <div class="uk-rung"><span><%= l[1] %></span><span><%= __gbp(l[0]) %></span></div>
+        <% }); %>
+      </div>
+      <div class="uk-speeds">
+        <div class="uk-speed"><b>Standard</b>48 hours · the price above</div>
+        <div class="uk-speed"><b>VIP</b>18 hours · costs more</div>
+        <div class="uk-speed"><b>Urgent</b>4 hours · costs more</div>
+      </div>
+      <p class="uk-small">Pay by Visa or Mastercard. Prices are shown in pounds; your card is charged the equivalent in Egyptian pounds, so your bank may add a foreign-transaction fee. If no consultant has accepted your case yet, you get a full refund. Urgent is not available for radiology reviews.</p>
+    </div>
+  </section>
+  <% } %>
+
+  <section class="uk-sec" style="padding-top:0;">
+    <div class="uk-wrap">
+      <h2>Real consultants, by name</h2>
+      <p class="uk-sec__sub">No anonymous reviewers. The consultant who reads your case puts their name on your report.</p>
+      <div class="uk-docs">
+        <% DOCS.forEach(function (d) { %>
+        <div class="uk-doc">
+          <img src="/assets/services/<%= d.img %>.webp" width="480" height="600" loading="lazy" alt="<%= d.n %>">
+          <p class="n"><%= d.n %></p><p class="s"><%= d.s %></p>
+        </div>
+        <% }); %>
+      </div>
+    </div>
+  </section>
+
+  <section class="uk-sec" style="padding-top:0;">
+    <div class="uk-wrap">
+      <div class="uk-honest">
+        <h2>What this is, and what it isn’t</h2>
+        <ul>
+          <li>Our consultants are licensed in Egypt and practise at Shifa Hospital Group, an accredited hospital group in New Cairo. They are not registered with the UK General Medical Council.</li>
+          <li>A second opinion is a written report for you and your own doctor to discuss. It does not replace your GP, your NHS or private specialist, or a prescription.</li>
+          <li>It is not for emergencies. In an emergency, call 999 or go to A&amp;E.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="uk-sec" style="padding-top:0;">
+    <div class="uk-wrap">
+      <h2>Questions</h2>
+      <div class="uk-faq">
+        <details><summary>What can I send?</summary><p>PDFs or clear photos of your reports, your scan images and your test results. If you are not sure what to send, ask us on WhatsApp first.</p></details>
+        <details><summary>Can my GP use the report?</summary><p>Your report is in English and signed by the consultant, so your GP or specialist can read it. What to do next is a decision for you and your own doctor.</p></details>
+        <details><summary>How quickly will I get it?</summary><p>Within 48 hours on Standard, 18 hours on VIP, or 4 hours on Urgent. You choose the speed when you start your case.</p></details>
+        <details><summary>Is my information private?</summary><p>Your files are encrypted in transit and at rest, and only the consultant reviewing your case sees them.</p></details>
+        <details><summary>How do I pay?</summary><p>By Visa or Mastercard, once your case is ready. Prices are shown in pounds and your card is charged the equivalent in Egyptian pounds.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="uk-final">
+    <div class="uk-wrap">
+      <h2>Get a second opinion before you decide</h2>
+      <p><%= __min ? ('From ' + __min + ' · your report within 48 hours') : 'Your report within 48 hours' %></p>
+      <div class="uk-ctas">
+        <% if (__ctaOn) { %>
+        <a class="uk-btn uk-btn--primary" href="<%= __startHref %>" data-funnel="uk_cta">Start my case</a>
+        <% } else { %>
+        <span class="uk-btn uk-btn--locked is-cta-locked" aria-disabled="true">Booking opens soon</span>
+        <% } %>
+        <a class="uk-btn uk-btn--wa" href="<%= __wa %>" target="_blank" rel="noopener" data-funnel="uk_wa">Ask us on WhatsApp</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script nonce="<%= (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '' %>">
+(function () {
+  var src = (location.search.match(/[?&]utm_source=([^&]+)/) || [])[1] || '';
+  var camp = (location.search.match(/[?&]utm_campaign=([^&]+)/) || [])[1] || '';
+  function hit(step) {
+    try { fetch('/f/e?s=' + encodeURIComponent(step) + (src ? '&src=' + encodeURIComponent(src) : '') + (camp ? '&c=' + encodeURIComponent(camp) : ''), { keepalive: true, credentials: 'same-origin' }); } catch (e) {}
+  }
+  var sent = false, t = null;
+  function arm() {
+    if (sent || document.visibilityState !== 'visible') return;
+    clearTimeout(t);
+    t = setTimeout(function () { if (!sent && document.visibilityState === 'visible') { sent = true; hit('uk_view'); } }, 1000);
+  }
+  document.addEventListener('visibilitychange', arm);
+  arm();
+  Array.prototype.forEach.call(document.querySelectorAll('[data-funnel]'), function (a) {
+    a.addEventListener('click', function () { hit(a.getAttribute('data-funnel')); });
+  });
+})();
+</script>
+
+<%- include('partials/footer') %>

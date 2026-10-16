@@ -176,9 +176,11 @@
               'View Services & Pricing',
               'شوف الخدمات والأسعار') %></a>
           </div>
-          <p class="hero-fade-in" style="margin-top:14px;font-size:13px;opacity:.8;"><%= tt('home.hero.not_emergency',
+          <p class="hero-fade-in" style="margin-top:14px;font-size:13px;opacity:.8;"><% const __pm = locals.publicMarket || {}; if (!__pm.country || __pm.country === 'EG') { %><%= tt('home.hero.not_emergency',
             'Not for emergencies. In an emergency, go to the nearest hospital or call 123.',
-            'الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بـ 123.') %></p>
+            'الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بـ 123.') %><% } else { %><%= __pm.emergency
+            ? tt('', 'Not for emergencies. In an emergency, go to the nearest hospital or call ' + __pm.emergency + '.', 'الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بـ ' + __pm.emergency + '.')
+            : tt('', 'Not for emergencies. In an emergency, go to the nearest hospital or call your local emergency number.', 'الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بالطوارئ في بلدك.') %><% } %></p>
         </div>
         <div class="hero-visual" aria-hidden="true">
           <article class="hero-device-shell hero-fade-in">

@@ -12,6 +12,10 @@
   let __startHref = __loggedIn ? __target : '/register?next=' + encodeURIComponent(__target);
   if (__lp) __startHref += (__startHref.indexOf('?') === -1 ? '?' : '&') + __lp;
   const __min = (typeof minPrice !== 'undefined' && minPrice) ? Number(minPrice).toLocaleString('en-GB') : '1,600';
+  // 16 Oct 2026 — a visitor outside Egypt sees their own list ("From £95").
+  const __minLocal = (typeof minLocal !== 'undefined' && minLocal) ? minLocal : null;
+  const __pm = (typeof publicMarket !== 'undefined' && publicMarket) ? publicMarket : {};
+  const __emNum = (!__pm.country || __pm.country === 'EG') ? '123' : (__pm.emergency || null);
   const __wa = 'https://wa.me/201102009886?text=' + encodeURIComponent(__isAr
     ? 'مرحباً تشخيصة 👋 عندي تقرير/أشعة ومحتاج رأي تاني'
     : 'Hi Tashkheesa 👋 I have a report/scan and would like a second opinion');
@@ -97,7 +101,7 @@
           ? 'ارفع تقريرك أو أشعتك، واستشاري من مجموعة مستشفيات شفا يبعتلك رأيه مكتوب.'
           : 'Upload your report or scan; a Shifa Hospital Group consultant sends you a written opinion.' %></p>
         <div class="lp-price">
-          <span><%= __isAr ? 'تبدأ من' : 'From' %> <b><%= __min %> <%= __isAr ? 'ج.م' : 'EGP' %></b></span>
+          <span><%= __isAr ? 'تبدأ من' : 'From' %> <b><% if (__minLocal) { %><%= __minLocal %><% } else { %><%= __min %> <%= __isAr ? 'ج.م' : 'EGP' %><% } %></b></span>
           <span><b>48</b> <%= __isAr ? 'ساعة للرد' : 'hours to your report' %></span>
         </div>
         <div class="lp-ctas">
@@ -168,16 +172,16 @@
         <div><b><%= __isAr ? 'مجموعة مستشفيات شفا' : 'Shifa Hospital Group' %></b><%= __isAr ? 'مجموعة مستشفيات معتمدة من GAHAR في القاهرة الجديدة.' : 'A GAHAR-accredited hospital group in New Cairo.' %></div>
         <div><b><%= __isAr ? 'فلوسك مضمونة' : 'Your money is safe' %></b><%= __isAr ? 'لو مفيش استشاري قبل حالتك، بترجعلك فلوسك كاملة.' : 'If no consultant has accepted your case, you get a full refund.' %></div>
         <div><b><%= __isAr ? 'خصوصية تامة' : 'Private' %></b><%= __isAr ? 'ملفاتك مشفّرة ومحدش بيشوفها غير الاستشاري بتاعك.' : 'Your files are encrypted and seen only by your consultant.' %></div>
-        <div><b><%= __isAr ? 'الدفع سهل' : 'Easy payment' %></b><%= __isAr ? 'تدفع بالبطاقة أو إنستاباي أو تحويل بنكي بعد ما تجهز حالتك.' : 'Pay by card, InstaPay or bank transfer once your case is ready.' %></div>
+        <div><b><%= __isAr ? 'الدفع سهل' : 'Easy payment' %></b><% if (__minLocal) { %><%= __isAr ? 'تدفع بالبطاقة بعد ما تجهز حالتك.' : 'Pay by card once your case is ready.' %><% } else { %><%= __isAr ? 'تدفع بالبطاقة أو إنستاباي أو تحويل بنكي بعد ما تجهز حالتك.' : 'Pay by card, InstaPay or bank transfer once your case is ready.' %><% } %></div>
       </div>
-      <p style="margin:14px 0 0;font-size:13px;opacity:.75;text-align:center;"><%= __isAr ? 'الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بـ 123.' : 'Not for emergencies. In an emergency, go to the nearest hospital or call 123.' %></p>
+      <p style="margin:14px 0 0;font-size:13px;opacity:.75;text-align:center;"><% if (__emNum) { %><%= __isAr ? ('الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بـ ' + __emNum + '.') : ('Not for emergencies. In an emergency, go to the nearest hospital or call ' + __emNum + '.') %><% } else { %><%= __isAr ? 'الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بالطوارئ في بلدك.' : 'Not for emergencies. In an emergency, go to the nearest hospital or call your local emergency number.' %><% } %></p>
     </div>
   </section>
 
   <section class="lp-final">
     <div class="lp-wrap">
       <h2><%= __isAr ? 'خد رأي تاني قبل ما تقرر' : 'Get a second opinion before you decide' %></h2>
-      <p><%= __isAr ? ('تبدأ من ' + __min + ' ج.م · رد خلال 48 ساعة') : ('From EGP ' + __min + ' · reply within 48 hours') %></p>
+      <p><%= __isAr ? ('تبدأ من ' + (__minLocal || (__min + ' ج.م')) + ' · رد خلال 48 ساعة') : ('From ' + (__minLocal || ('EGP ' + __min)) + ' · reply within 48 hours') %></p>
       <div class="lp-ctas">
         <% if (__ctaOn) { %>
         <a class="lp-btn lp-btn--primary" href="<%= __startHref %>" data-track="lp_start_bottom" data-funnel="start_cta"><%= __isAr ? 'ابدأ حالتك' : 'Start my case' %></a>
