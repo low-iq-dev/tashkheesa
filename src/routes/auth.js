@@ -1086,7 +1086,11 @@ router.get('/register', (req, res) => {
   // on 1 Oct, because a GET also counts link prefetch and Meta's in-app
   // browser preloads (180 "views" in 14 days for 3 accounts). Comparing the
   // two counts in the digest shows how much of the old number was real.
-  try { require('../services/funnel_digest').bumpFunnelCount('register_get', req); } catch (_) {}
+  // REGISTER-PROVENANCE 2026-10-25 — bumpRegisterView bumps register_get and
+  // also records WHERE the visit came from (own-site referer / none / utm), so
+  // a repeat of the 21 Oct spike can be told apart from real traffic. Still
+  // aggregate counters only.
+  try { require('../services/funnel_digest').bumpRegisterView(req); } catch (_) {}
   setLangCookie(res, getReqLang(req));
   // A patient who clicked a service card lands on /login?next=/patient/new-case?...
   // and then taps "Create account". Carry that next through registration so the
