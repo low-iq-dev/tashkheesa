@@ -151,7 +151,13 @@ try {
   });
   expect(/ORDER BY \$\{SUBMITTED_AT_SQL\} DESC/.test(list),
     'the list must be ordered by submission time, newest first');
-  expect(/PAYMENT_STATUS_SQL = `LOWER\(/.test(CASES), 'paymentStatus must be lower-cased');
+  // 2026-10-11 — the lower-casing (and the NULL default) moved out of the
+  // list's SQL and the detail's inline expression into ONE helper both call,
+  // so the two can no longer answer differently for the same row. Behaviour
+  // is driven in tests/core/api-cases-payment-status.
+  expect(/function apiPaymentStatus\(stored\) \{\s*return String\([^;]+\)\.toLowerCase\(\)/.test(CASES),
+    'paymentStatus must be lower-cased');
+  expect(/\.paymentStatus = apiPaymentStatus\(/.test(list), 'list paymentStatus must go through apiPaymentStatus');
   expect(/FROM payment_claims pc\s+WHERE pc\.order_id = o\.id AND pc\.status = 'pending'/.test(CASES),
     'paymentClaimPending = a pending payment_claims row exists for the order');
 
@@ -159,8 +165,8 @@ try {
   expect(/\$\{SUBMITTED_AT_SQL\} as "submittedAt"/.test(detail), 'detail must return submittedAt');
   expect(/\$\{PAYMENT_CLAIM_PENDING_SQL\} as "paymentClaimPending"/.test(detail),
     'detail must return paymentClaimPending');
-  expect(/caseData\.paymentStatus = String\([^;]+\)\.toLowerCase\(\)/.test(detail),
-    'detail paymentStatus must be lower-cased');
+  expect(/caseData\.paymentStatus = apiPaymentStatus\(/.test(detail),
+    'detail paymentStatus must go through apiPaymentStatus (lower-cased there)');
 
   const cancel = between(CASES, "router.post('/:id/cancel'", "router.get('/:id/payment'");
   expect(/resolveSubmittedAtSql\(\)/.test(cancel) && /submitted_at_resolved/.test(cancel),

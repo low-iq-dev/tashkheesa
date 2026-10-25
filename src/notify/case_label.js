@@ -146,7 +146,10 @@ function isStaffFacingTemplate(template, payload) {
   if (role === 'doctor' || role === 'admin' || role === 'superadmin') return true;
   if (role === 'patient') return false;
   const t = String(template || '');
-  return /(?:_doctor$|^doctor_|^admin_|_superadmin$|_admin$|^sla_breach|^new_case_available$|^tashkheesa_new_case_|^tashkheesa_case_auto_assigned$|^video_slot_review_requested$|^order_reassigned_(?:to|from)_doctor$|^patient_reply_info$|^prescription_unlocked_doctor$)/.test(t);
+  // 2026-10-25 — `sla_warning_75` / `sla_warning_urgent` added: notify.js
+  // sendSlaReminder queues them to order.doctor_id only ("complete your
+  // review"), so a doctor was being addressed as the patient ("your case").
+  return /(?:_doctor$|^doctor_|^admin_|_superadmin$|_admin$|^sla_breach|^sla_warning_|^new_case_available$|^tashkheesa_new_case_|^tashkheesa_case_auto_assigned$|^video_slot_review_requested$|^order_reassigned_(?:to|from)_doctor$|^patient_reply_info$|^prescription_unlocked_doctor$)/.test(t);
 }
 
 /**

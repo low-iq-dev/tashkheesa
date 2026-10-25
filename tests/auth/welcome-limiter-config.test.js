@@ -72,7 +72,13 @@ try {
 // surface was the WEB POST /forgot-password (a portal route, not under /api/v1).
 try {
   const apiv1 = read('routes', 'api_v1.js');
-  assert.ok(/const\s+authLimiter\s*=\s*rateLimit\(/.test(apiv1), 'api_v1.js defines authLimiter');
+  // 2026-10-11 — the limiter DEFINITIONS moved to middleware/api_rate_limits.js
+  // (keyed on the caller, refresh split out); api_v1.js still mounts authLimiter.
+  const limits = read('middleware', 'api_rate_limits.js');
+  assert.ok(/const\s+authLimiter\s*=\s*rateLimit\(/.test(limits), 'api_rate_limits.js defines authLimiter');
+  const authBlock = (limits.match(/const\s+authLimiter\s*=\s*rateLimit\(\{[\s\S]*?\}\);/) || [''])[0];
+  assert.ok(/max:\s*20\b/.test(authBlock), 'authLimiter cap must stay max: 20');
+  assert.ok(/authLimiter[^;]*=\s*buildApiLimiters\(\)/.test(apiv1), 'api_v1.js takes authLimiter from buildApiLimiters()');
   assert.ok(/router\.use\(\s*['"]\/auth['"]\s*,\s*authLimiter/.test(apiv1),
     'api_v1.js gates the mobile /auth/* router (forgot-password + reset-password) with authLimiter at the mount');
   t.pass('mobile /api/v1/auth token routes already throttled via authLimiter at the mount (no dup added)');

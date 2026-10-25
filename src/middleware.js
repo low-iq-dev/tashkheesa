@@ -2,6 +2,9 @@ const { addNonceMiddleware } = require('./middleware-nonce-fix');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const { rateLimit } = require('express-rate-limit');
+// Every per-address limiter below keys on the caller, not req.ip — on this
+// service req.ip is an edge hop that changes per request (./middleware/client_ip.js).
+const { clientIpKey } = require('./middleware/client_ip');
 const { verify, getTokenFromRequest } = require('./auth');
 const { t: translate } = require('./i18n');
 const { normalizeLang, getDir } = require('./utils/lang');
@@ -118,13 +121,29 @@ function baseMiddlewares(app) {
     }
   }));
 
-  // Rate limiter
+  // Rate limiter (website and web portal).
+  //
+  // 2026-10-11 — two corrections, same numbers.
+  //   * It skips /api/v1. This limiter is mounted app-wide, so it also ran in
+  //     front of the mobile API, which has its own budget (per signed-in token,
+  //     see src/middleware/api_rate_limits.js). Its 429 is plain text, and the
+  //     patient app printed exactly that on 7 Oct: "Request failed (status
+  //     429)" on Home and Messages, and a "No internet connection" pill,
+  //     because the app's /api/v1/health probe was refused here too.
+  //   * It is keyed on the visitor, not req.ip. req.ip is an edge address on
+  //     this service (src/middleware/client_ip.js), so the bucket was shared
+  //     with strangers and useless against one abuser.
   const limiter = rateLimit({
     windowMs: 1 * 60 * 1000,
     max: 100,
     validate: false,
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: (req) => clientIpKey(req),
+    skip: (req) => {
+      const p = req.path || '';
+      return p === '/api/v1' || p.startsWith('/api/v1/');
+    },
   });
   app.use(limiter);
 
@@ -134,6 +153,7 @@ function baseMiddlewares(app) {
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 30, // per IP per window
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many attempts. Please wait 15 minutes and try again.'
@@ -148,6 +168,7 @@ function baseMiddlewares(app) {
     windowMs: 1 * 60 * 1000, // 1 minute
     max: 50, // 50 downloads per minute per IP
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many download requests. Please wait a moment and try again.',
@@ -167,6 +188,7 @@ function baseMiddlewares(app) {
     windowMs: 1 * 60 * 1000, // 1 minute
     max: 10, // 10 requests per minute per IP
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many requests to internal endpoints. Please try again later.'
@@ -185,6 +207,7 @@ function baseMiddlewares(app) {
     windowMs: 60 * 1000,
     max: 20,
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many payment callback requests.'
@@ -197,6 +220,7 @@ function baseMiddlewares(app) {
     windowMs: 60 * 1000,
     max: 10,
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many referral requests. Please wait a moment and try again.'
@@ -226,6 +250,7 @@ function baseMiddlewares(app) {
     windowMs: 15 * 60 * 1000,
     max: 10,
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many submissions. Please wait 15 minutes and try again.'
@@ -240,6 +265,7 @@ function baseMiddlewares(app) {
     windowMs: 15 * 60 * 1000,
     max: 10,
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many case submissions. Please wait 15 minutes and try again.'
@@ -250,6 +276,7 @@ function baseMiddlewares(app) {
     windowMs: 60 * 60 * 1000,
     max: 10,
     validate: false,
+    keyGenerator: clientIpKey,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many waitlist submissions. Please try again later.'

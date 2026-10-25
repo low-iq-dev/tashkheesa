@@ -8,67 +8,101 @@ under WhatsApp > Message Templates.
 
 ## Patient Templates
 
+**`{{case_ref}}` in patient templates is a complete noun phrase** (2026-10-25),
+filled in by `src/notify/whatsappTemplateMap.js`:
+
+| | English template | Arabic template |
+|---|---|---|
+| The case has a reference | `your case TSH-2026-000017` | `حالتك رقم TSH-2026-000017` |
+| It has none yet | `your Tashkheesa case` | `حالتك على تشخيصة` |
+
+So a patient body must never put "case" / "your case" / "حالتك" / "الحالة"
+in front of it ("Your case {{1}}…" would read "Your case your case…"). Write it
+the way the bodies below do: "We have received {{1}}." / "استلمنا {{1}}."
+`tests/core/case-label.test.js` renders every body below with both forms.
+
+Doctor and ops templates are different: their `{{case_ref}}` is the bare
+reference (or the short id handle), and their bodies say "Case {{1}}".
+
 ### 1. case_submitted_en
 - **Category:** UTILITY
 - **Language:** en
-- **Body:** Your case {{1}} has been submitted to Tashkheesa. A specialist in {{2}} will be assigned shortly. Track your case at tashkheesa.com
-- **Sample values:** `{{1}}` = ABC123, `{{2}}` = Radiology
+- **Body:** We have received {{1}}. A specialist in {{2}} will be assigned shortly. Track it at tashkheesa.com
+- **Sample values:** `{{1}}` = your case TSH-2026-000017, `{{2}}` = Radiology
 
 ### 2. case_submitted_ar
 - **Category:** UTILITY
 - **Language:** ar
-- **Body:** تم تقديم حالتك {{1}} في تشخيصة. سيتم تعيين أخصائي {{2}} قريباً. تابع حالتك على tashkheesa.com
-- **Sample values:** `{{1}}` = ABC123, `{{2}}` = الأشعة
+- **Body:** استلمنا {{1}}. سيتم تعيين أخصائي {{2}} قريباً. تابعها على tashkheesa.com
+- **Sample values:** `{{1}}` = حالتك رقم TSH-2026-000017, `{{2}}` = الأشعة
 
 ### 3. report_ready_en
 - **Category:** UTILITY
 - **Language:** en
-- **Body:** Your medical report for case {{1}} is ready! Reviewed by Dr. {{2}}. View your report at tashkheesa.com
-- **Sample values:** `{{1}}` = ABC123, `{{2}}` = Ahmed Hassan
+- **Body:** The medical report for {{1}} is ready! Reviewed by Dr. {{2}}. View your report at tashkheesa.com
+- **Sample values:** `{{1}}` = your case TSH-2026-000017, `{{2}}` = Ahmed Hassan
 
 ### 4. report_ready_ar
 - **Category:** UTILITY
 - **Language:** ar
-- **Body:** تقريرك الطبي للحالة {{1}} جاهز! مراجعة د. {{2}}. عرض التقرير على tashkheesa.com
-- **Sample values:** `{{1}}` = ABC123, `{{2}}` = أحمد حسن
+- **Body:** التقرير الطبي عن {{1}} جاهز! مراجعة د. {{2}}. عرض التقرير على tashkheesa.com
+- **Sample values:** `{{1}}` = حالتك رقم TSH-2026-000017, `{{2}}` = أحمد حسن
 
 ### 5. payment_confirmed_en
 - **Category:** UTILITY
 - **Language:** en
-- **Body:** Payment confirmed for case {{1}}. Amount: {{2}}. Your case is now active. Visit tashkheesa.com for details.
-- **Sample values:** `{{1}}` = ABC123, `{{2}}` = 500 EGP
+- **Body:** Payment confirmed for {{1}}. Amount: {{2}}. It is now active. Visit tashkheesa.com for details.
+- **Sample values:** `{{1}}` = your case TSH-2026-000017, `{{2}}` = 500 EGP
 
 ### 6. payment_confirmed_ar
 - **Category:** UTILITY
 - **Language:** ar
-- **Body:** تم تأكيد الدفع للحالة {{1}}. المبلغ: {{2}}. حالتك الآن نشطة. زر tashkheesa.com للتفاصيل.
-- **Sample values:** `{{1}}` = ABC123, `{{2}}` = 500 جنيه
+- **Body:** تم تأكيد الدفع عن {{1}}. المبلغ: {{2}}. أصبحت نشطة الآن. زر tashkheesa.com للتفاصيل.
+- **Sample values:** `{{1}}` = حالتك رقم TSH-2026-000017, `{{2}}` = 500 جنيه
 
 ### 7. payment_failed_en
 - **Category:** UTILITY
 - **Language:** en
-- **Body:** Payment could not be processed for case {{1}}. Please try again at tashkheesa.com
-- **Sample values:** `{{1}}` = ABC123
+- **Body:** Payment could not be processed for {{1}}. Please try again at tashkheesa.com
+- **Sample values:** `{{1}}` = your case TSH-2026-000017
 
-### 8. case_accepted_en
+### 8. payment_failed_ar
+- **Category:** UTILITY
+- **Language:** ar
+- **Body:** تعذّر إتمام الدفع عن {{1}}. يرجى المحاولة مرة أخرى على tashkheesa.com
+- **Sample values:** `{{1}}` = حالتك رقم TSH-2026-000017
+
+### 9. case_accepted_en
 - **Category:** UTILITY
 - **Language:** en
-- **Body:** A specialist has accepted your case {{1}}. Dr. {{2}} is now reviewing your files. You'll be notified when the report is ready.
-- **Sample values:** `{{1}}` = ABC123, `{{2}}` = Ahmed Hassan
+- **Body:** A specialist has accepted {{1}}. Dr. {{2}} is now reviewing your files. You'll be notified when the report is ready.
+- **Sample values:** `{{1}}` = your case TSH-2026-000017, `{{2}}` = Ahmed Hassan
 
-### 9. case_reassigned_patient_en
+### 10. case_accepted_ar
+- **Category:** UTILITY
+- **Language:** ar
+- **Body:** وافق أخصائي على {{1}}. د. {{2}} يراجع ملفاتك الآن، وسنبلغك فور جاهزية التقرير.
+- **Sample values:** `{{1}}` = حالتك رقم TSH-2026-000017, `{{2}}` = أحمد حسن
+
+### 11. case_reassigned_patient_en
 - **Category:** UTILITY
 - **Language:** en
-- **Body:** Your case {{1}} has been reassigned to a new specialist. You will be notified when the review is complete.
-- **Sample values:** `{{1}}` = ABC123
+- **Body:** We have moved {{1}} to a new specialist. You will be notified when the review is complete.
+- **Sample values:** `{{1}}` = your case TSH-2026-000017
 
-### 10. welcome_patient_en
+### 12. case_reassigned_patient_ar
+- **Category:** UTILITY
+- **Language:** ar
+- **Body:** نقلنا {{1}} إلى أخصائي آخر. سنبلغك عند اكتمال المراجعة.
+- **Sample values:** `{{1}}` = حالتك رقم TSH-2026-000017
+
+### 13. welcome_patient_en
 - **Category:** MARKETING
 - **Language:** en
 - **Body:** Welcome to Tashkheesa, {{1}}! Get expert medical second opinions from verified specialists. Start your first case at tashkheesa.com
 - **Sample values:** `{{1}}` = John
 
-### 11. welcome_patient_ar
+### 14. welcome_patient_ar
 - **Category:** MARKETING
 - **Language:** ar
 - **Body:** مرحباً بك في تشخيصة، {{1}}! احصل على آراء طبية متخصصة من أخصائيين معتمدين. ابدأ حالتك الأولى على tashkheesa.com
@@ -78,49 +112,49 @@ under WhatsApp > Message Templates.
 
 ## Doctor Templates
 
-### 12. case_assigned_doctor_en
+### 15. case_assigned_doctor_en
 - **Category:** UTILITY
 - **Language:** en
 - **Body:** New case {{1}} assigned to you ({{2}}). SLA: {{3}} hours. Review now at tashkheesa.com/portal/doctor
 - **Sample values:** `{{1}}` = ABC123, `{{2}}` = Radiology, `{{3}}` = 72
 
-### 13. case_assigned_doctor_ar
+### 16. case_assigned_doctor_ar
 - **Category:** UTILITY
 - **Language:** ar
 - **Body:** حالة جديدة {{1}} معيّنة لك ({{2}}). المهلة: {{3}} ساعة. راجع الآن على tashkheesa.com/portal/doctor
 - **Sample values:** `{{1}}` = ABC123, `{{2}}` = الأشعة, `{{3}}` = 72
 
-### 14. case_reassigned_doctor_en
+### 17. case_reassigned_doctor_en
 - **Category:** UTILITY
 - **Language:** en
 - **Body:** Case {{1}} has been reassigned to you. SLA: {{2}} hours. Please review at tashkheesa.com/portal/doctor
 - **Sample values:** `{{1}}` = ABC123, `{{2}}` = 72
 
-### 15. sla_warning_en
+### 18. sla_warning_en
 - **Category:** UTILITY
 - **Language:** en
 - **Body:** SLA warning for case {{1}}: {{2}} hours remaining. Please complete your review. tashkheesa.com/portal/doctor
 - **Sample values:** `{{1}}` = ABC123, `{{2}}` = 6
 
-### 16. sla_warning_urgent_en
+### 19. sla_warning_urgent_en
 - **Category:** UTILITY
 - **Language:** en
 - **Body:** URGENT: Case {{1}} SLA deadline approaching! Only {{2}} hours left. Complete review immediately. tashkheesa.com/portal/doctor
 - **Sample values:** `{{1}}` = ABC123, `{{2}}` = 2
 
-### 17. sla_breached_en
+### 20. sla_breached_en
 - **Category:** UTILITY
 - **Language:** en
 - **Body:** SLA breached for case {{1}}. The deadline has been missed. Please contact admin. tashkheesa.com
 - **Sample values:** `{{1}}` = ABC123
 
-### 18. doctor_welcome_en
+### 21. doctor_welcome_en
 - **Category:** MARKETING
 - **Language:** en
 - **Body:** Welcome to Tashkheesa, Dr. {{1}}! Your account has been approved. Access your portal at tashkheesa.com/portal/doctor
 - **Sample values:** `{{1}}` = Ahmed Hassan
 
-### 19. doctor_welcome_ar
+### 22. doctor_welcome_ar
 - **Category:** MARKETING
 - **Language:** ar
 - **Body:** مرحباً بك في تشخيصة، د. {{1}}! تمت الموافقة على حسابك. ادخل بوابتك على tashkheesa.com/portal/doctor
@@ -130,25 +164,25 @@ under WhatsApp > Message Templates.
 
 ## Appointment Templates
 
-### 20. appointment_confirmed_en
+### 23. appointment_confirmed_en
 - **Category:** UTILITY
 - **Language:** en
 - **Body:** Appointment confirmed for {{1}} with Dr. {{2}}. See details at tashkheesa.com
 - **Sample values:** `{{1}}` = Feb 15, 2026 at 3:00 PM, `{{2}}` = Ahmed Hassan
 
-### 21. appointment_confirmed_ar
+### 24. appointment_confirmed_ar
 - **Category:** UTILITY
 - **Language:** ar
 - **Body:** تم تأكيد موعدك في {{1}} مع د. {{2}}. التفاصيل على tashkheesa.com
 - **Sample values:** `{{1}}` = 15 فبراير 2026 الساعة 3:00 م, `{{2}}` = أحمد حسن
 
-### 22. appointment_reminder_en
+### 25. appointment_reminder_en
 - **Category:** UTILITY
 - **Language:** en
 - **Body:** Reminder: Your appointment is scheduled for {{1}} with Dr. {{2}}. Be ready! tashkheesa.com
 - **Sample values:** `{{1}}` = Feb 15, 2026 at 3:00 PM, `{{2}}` = Ahmed Hassan
 
-### 23. appointment_rescheduled_en
+### 26. appointment_rescheduled_en
 - **Category:** UTILITY
 - **Language:** en
 - **Body:** Your appointment has been rescheduled from {{1}} to {{2}}. See tashkheesa.com for details.

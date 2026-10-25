@@ -33,6 +33,7 @@ const { logErrorToDb } = require('../../logger');
 // Manual payment path (InstaPay / bank transfer) — MANUAL_PAY_CONTRACT.md.
 const manualPayment = require('../../services/manual_payment');
 const rateLimit = require('express-rate-limit');
+const { clientIpKey } = require('../../middleware/client_ip');
 
 // Per-patient limit on transfer claims, on top of the router-wide apiLimiter
 // (which is per IP and would let one CGNAT neighbour starve another).
@@ -42,7 +43,9 @@ const paymentClaimLimiter = rateLimit({
   validate: false,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => (req.user && req.user.id) ? 'user:' + String(req.user.id) : 'ip:' + req.ip,
+  // The no-user fallback keys on the caller, not req.ip (an edge hop here —
+  // see middleware/client_ip.js). Unreachable in practice: the route is JWT-gated.
+  keyGenerator: (req) => (req.user && req.user.id) ? 'user:' + String(req.user.id) : 'ip:' + clientIpKey(req),
   message: { success: false, error: 'Too many attempts. Try again in 15 minutes.', code: 'RATE_LIMITED' },
 });
 
@@ -85,10 +88,27 @@ async function resolveSubmittedAtSql() {
 // from one waiting on US (transfer claim under review), and badged both
 // "Submitted". payment_claims exists since migration 117; one pending row per
 // order is enforced by its partial unique index, so EXISTS is an index probe.
-const PAYMENT_STATUS_SQL = `LOWER(COALESCE(o.payment_status, 'unpaid'))`;
 const PAYMENT_CLAIM_PENDING_SQL = `EXISTS (
           SELECT 1 FROM payment_claims pc
            WHERE pc.order_id = o.id AND pc.status = 'pending')`;
+
+// 2026-10-11 — what `paymentStatus` says, for the list AND the detail.
+//
+// The list mapped a NULL payment_status to 'unpaid' in SQL and the detail
+// mapped it to 'pending' in JS, so one unpaid case had two names (and a blank
+// one a third: '' from the list). Both now hand the stored value to this one
+// function: lower-cased, and 'unpaid' when nothing is stored — the column's
+// own default (migration 002), the value E2E_CONTRACT §2 names, and what the
+// staff endpoints already answer. A stored value is passed on, never renamed.
+//
+// It must never return '' / null / undefined: installed app builds read those
+// as "the server did not say" and badge the case as if it might be paid.
+// 'pending' against 'unpaid' is invisible to them — no build has ever compared
+// the field with anything but 'paid' (tests/core/api-cases-payment-status).
+function apiPaymentStatus(stored) {
+  return String(stored == null ? '' : stored).toLowerCase() || 'unpaid';
+}
+
 const CANCEL_WINDOW_MINUTES = 10;
 const CANCELLABLE_STATUSES = ['submitted', 'new'];
 
@@ -167,7 +187,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         -- E2E 2026-10-06 (contract §2): what the list needs to badge a case
         -- honestly without a detail round-trip per row.
         ${SUBMITTED_AT_SQL} as "submittedAt",
-        ${PAYMENT_STATUS_SQL} as "paymentStatus",
+        o.payment_status as "paymentStatus",
         ${PAYMENT_CLAIM_PENDING_SQL} as "paymentClaimPending",
         o.completed_at as "completedAt",
         s.name as "serviceName", s.name_ar as "serviceNameAr", sp.name as "specialtyName",
@@ -188,6 +208,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       ORDER BY ${SUBMITTED_AT_SQL} DESC, o.created_at DESC, o.id DESC
       LIMIT $${paramIndex++} OFFSET $${paramIndex++}
     `, [...params, perPage, offset]);
+
+    // The stored payment_status, mapped by the same function the detail uses.
+    (cases || []).forEach((c) => { c.paymentStatus = apiPaymentStatus(c.paymentStatus); });
 
     const countRow = await safeGet(
       `SELECT COUNT(*)::int as total FROM orders_active o ${whereClause}`,
@@ -372,9 +395,10 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     caseData.hasReview = !!review;
     caseData.reviewRating = review ? review.rating : null;
 
-    // Lower-cased (contract §2) so the list and the detail agree on the
-    // spelling. 'pending' stays the answer for a NULL, as it always was here.
-    caseData.paymentStatus = String(payment?.status || 'pending').toLowerCase();
+    // Same function as the list (contract §2), so the two agree on the value
+    // as well as the spelling. A NULL used to read 'pending' here and 'unpaid'
+    // there; it is 'unpaid' in both — see apiPaymentStatus.
+    caseData.paymentStatus = apiPaymentStatus(payment?.status);
     caseData.paymentClaimPending = caseData.paymentClaimPending === true;
 
     // NEW-CASE-6 — the server says until when Cancel is offered, counted from
@@ -749,10 +773,15 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
           : (req.headers['x-forwarded-proto'] || req.protocol || 'https');
         const host = req.headers['x-forwarded-host'] || req.get('host');
         const redirectionUrl = proto + '://' + host + '/portal/patient/payment-return';
+        // 2026-10-11 — `?return=app`: the app's browser sheet asks for a card
+        // session that returns to the app hand-back page (Kashier only; see
+        // services/kashier_checkout.js RETURN TARGET). Optional and additive:
+        // without it — every already-installed build — nothing changes.
         const minted = await ensurePaymentLinkForOrder({
           orderId: caseData.id,
           patientId: req.user.id,
-          redirectionUrl: redirectionUrl
+          redirectionUrl: redirectionUrl,
+          returnTo: String((req.query && req.query.return) || '').toLowerCase() === 'app' ? 'app' : 'web'
         });
         if (minted && minted.checkoutUrl) {
           payment.paymentLink = minted.checkoutUrl;

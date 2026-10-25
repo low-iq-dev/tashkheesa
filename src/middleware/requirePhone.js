@@ -33,11 +33,18 @@ var EXEMPT_PREFIXES = [
   '/logout'
 ];
 
+// 2026-10-11 — the mobile app's card-return hand-back page. It needs no
+// session and shows nothing about the account; its whole job is to close the
+// app's browser sheet. On Android that sheet shares Chrome's cookies, so a
+// patient with an old web session and no phone on file would be redirected to
+// onboarding here instead, and the app would be left waiting.
+var APP_PAYMENT_RETURN_PATH = /^\/portal\/patient\/payment-return\/k\/[^/]+\/app\/?$/;
+
 function _isExempt(path) {
   for (var i = 0; i < EXEMPT_PREFIXES.length; i++) {
     if (path.indexOf(EXEMPT_PREFIXES[i]) === 0) return true;
   }
-  return false;
+  return APP_PAYMENT_RETURN_PATH.test(path);
 }
 
 function requirePhone() {

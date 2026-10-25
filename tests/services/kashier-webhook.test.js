@@ -568,6 +568,198 @@ check('checkout: a fresh session for the same amount is reused; a different amou
   }
 });
 
+// 2026-10-11 — the hosted checkout showed "Tashkheesa 3F1C2B4A-111": a slice of
+// orders.id, which appears nowhere in the patient's account and which support
+// cannot look up. It now carries orders.reference_id. Neither caller's SELECT
+// loads that column, so the service reads it itself — and it is the ONLY field
+// of the session request that may differ.
+check('checkout: the description carries the case reference, and nothing else in the session request changes', async function () {
+  const checkout = require('../../src/services/kashier_checkout.js');
+  const REF = 'TSH-2026-000017';
+  const SLICE_DESCRIPTION = 'Tashkheesa ' + ORDER_ID.slice(0, 12).toUpperCase();
+  const sent = [];
+  const logged = [];
+  let stored = { reference_id: REF };
+  let lookups = 0;
+  let lookupThrows = false;
+  checkout.__setTestDeps({
+    pg: function () {
+      return {
+        queryOne: async function (sql) {
+          if (/SELECT reference_id FROM orders/i.test(sql)) {
+            lookups++;
+            if (lookupThrows) throw new Error('db down');
+            return stored;
+          }
+          return null;
+        },
+        execute: async function () { return { rowCount: 1 }; }
+      };
+    },
+    logErrorToDb: function (e, ctx) { logged.push(ctx && ctx.context); },
+    buildSpecialReference: function (id) { return id + '--t1'; }
+  });
+  kashier.__setFetch(async function (url, opts) {
+    sent.push(JSON.parse(opts.body));
+    return { ok: true, status: 200, text: async function () {
+      return JSON.stringify({ _id: 's' + sent.length, sessionUrl: 'https://payments.kashier.io/session/s' + sent.length });
+    } };
+  });
+  const mint = async function (order) {
+    const out = await checkout.ensureKashierCheckout({
+      order: order, amountCents: 75000, currency: 'EGP', lang: 'ar', customer: { reference: PATIENT_ID }
+    });
+    assert(out.reused === false && /^https:\/\/payments\.kashier\.io\//.test(out.checkoutUrl), 'mint must succeed');
+    return sent[sent.length - 1];
+  };
+  try {
+    await withEnv(Object.assign({ CARD_PROVIDER: 'kashier', BASE_URL: 'https://tashkheesa.com' }, KEYS), async function () {
+      // The callers' rows (routes/payments.js, services/paymob_intention.js) do
+      // not carry reference_id: it is looked up.
+      const looked = await mint({ id: ORDER_ID, paymob_intention_id: null });
+      assert(looked.description === 'Tashkheesa ' + REF, 'description must name the reference; got ' + looked.description);
+      assert(lookups === 1, 'one primary-key read for the reference; got ' + lookups);
+
+      // A row that already has it costs no lookup.
+      const carried = await mint({ id: ORDER_ID, paymob_intention_id: null, reference_id: 'TSH-2026-000099' });
+      assert(carried.description === 'Tashkheesa TSH-2026-000099' && lookups === 1, 'a reference on the row is used as is');
+
+      // No reference at all: the existing fallback, unchanged.
+      stored = { reference_id: null };
+      const none = await mint({ id: ORDER_ID, paymob_intention_id: null });
+      assert(none.description === SLICE_DESCRIPTION, 'no reference → the existing description; got ' + none.description);
+
+      // An id-shaped value is not a reference (notify/case_label).
+      stored = { reference_id: ORDER_ID.slice(0, 12).toUpperCase() };
+      const fake = await mint({ id: ORDER_ID, paymob_intention_id: null });
+      assert(fake.description === SLICE_DESCRIPTION, 'an id slice stored as a reference is not shown as one');
+
+      // The lookup failing must never block a payment.
+      lookupThrows = true;
+      const down = await mint({ id: ORDER_ID, paymob_intention_id: null });
+      assert(down.description === SLICE_DESCRIPTION, 'lookup down → the existing description');
+      assert(logged.indexOf('kashier_checkout_reference_lookup') !== -1, 'a failed lookup is logged, not swallowed silently');
+
+      // Everything except the description is byte-identical across all five.
+      const rest = function (b) {
+        const c = Object.assign({}, b);
+        delete c.description;
+        delete c.expireAt;     // wall-clock
+        return JSON.stringify(c);
+      };
+      [carried, none, fake, down].forEach(function (b) {
+        assert(rest(b) === rest(looked), 'only the description may differ between session requests');
+      });
+      assert(looked.amount === '750.00' && looked.currency === 'EGP', 'amount / currency untouched');
+      assert(looked.order === ORDER_ID + '--t1', 'merchant order reference untouched');
+      assert(looked.merchantRedirect === 'https://tashkheesa.com/portal/patient/payment-return/k/' + ORDER_ID, 'return URL untouched');
+      assert(looked.serverWebhook === 'https://tashkheesa.com/payments/kashier/webhook', 'webhook URL untouched');
+      assert(JSON.stringify(looked.customer) === JSON.stringify({ reference: PATIENT_ID }), 'customer untouched');
+      assert(sigLib.REQUIRED_SIGNED_FIELDS.indexOf('description') === -1,
+        'the description is not one of the fields the webhook signature must cover');
+    });
+  } finally {
+    kashier.__setFetch(null);
+    checkout.__setTestDeps({
+      pg: function () { return require('../../src/pg'); },
+      logErrorToDb: function () { return require('../../src/logger').logErrorToDb.apply(null, arguments); },
+      buildSpecialReference: function (id) { return require('../../src/routes/payments').buildSpecialReference(id); }
+    });
+  }
+});
+
+// ── return target (2026-10-11): the app's browser sheet ────────────────────
+check('checkout: return=app sessions redirect to the app hand-back; web sessions are unchanged; neither reuses the other', async function () {
+  const checkout = require('../../src/services/kashier_checkout.js');
+  const events = [];
+  const order = { id: ORDER_ID, paymob_intention_id: null };
+  const sent = [];
+  let minted = 0;
+  checkout.__setTestDeps({
+    pg: function () {
+      return {
+        queryOne: async function (sql, params) {
+          if (/reference_id/.test(sql)) return { reference_id: null };
+          const hit = events.filter(function (e) { return e.intention === params[1]; }).pop();
+          return hit ? { payload_json: hit.payload } : null;
+        },
+        execute: async function (sql, params) {
+          if (/UPDATE orders SET paymob_intention_id/.test(sql)) { order.paymob_intention_id = params[0]; return { rowCount: 1 }; }
+          if (/'intention_created'/.test(sql)) { events.push({ intention: params[2], payload: JSON.parse(params[3]) }); return { rowCount: 1 }; }
+          return { rowCount: 1 };
+        }
+      };
+    },
+    logErrorToDb: function () {},
+    buildSpecialReference: function (id) { return id + '--t1'; }
+  });
+  kashier.__setFetch(async function (url, init) {
+    minted++;
+    sent.push(JSON.parse(init.body));
+    return { ok: true, status: 200, text: async function () {
+      return JSON.stringify({ _id: 'r' + minted, sessionUrl: 'https://payments.kashier.io/session/r' + minted });
+    } };
+  });
+  const WEB = 'https://tashkheesa.com/portal/patient/payment-return/k/' + ORDER_ID;
+  const call = function (returnTo) {
+    const a = { order: order, amountCents: 75000, currency: 'EGP' };
+    if (returnTo !== undefined) a.returnTo = returnTo;
+    return checkout.ensureKashierCheckout(a);
+  };
+  try {
+    await withEnv(Object.assign({ CARD_PROVIDER: 'kashier', BASE_URL: 'https://tashkheesa.com' }, KEYS), async function () {
+      // 1. No returnTo — the website and every installed app build.
+      const web1 = await call();
+      assert(web1.reused === false && minted === 1, 'first call must mint');
+      assert(sent[0].merchantRedirect === WEB, 'default return URL must be the web landing, got ' + sent[0].merchantRedirect);
+      assert(events[0].payload.returnTo === 'web', 'audit row must record the return target');
+      const web2 = await call();
+      assert(web2.reused === true && minted === 1, 'a second web request reuses the web session');
+      const web3 = await call('nonsense');
+      assert(web3.reused === true && minted === 1, 'an unknown returnTo is the web target');
+
+      // 2. The app asks: a web session is NOT handed to it.
+      const app1 = await call('app');
+      assert(app1.reused === false && minted === 2, 'an app request must not reuse a web-return session');
+      assert(sent[1].merchantRedirect === WEB + '/app', 'app return URL must be the hand-back path, got ' + sent[1].merchantRedirect);
+      assert(sent[1].redirectMethod === sent[0].redirectMethod, 'redirect method unchanged');
+      assert(events[1].payload.returnTo === 'app', 'audit row must record returnTo=app');
+      const app2 = await call('app');
+      assert(app2.reused === true && app2.checkoutUrl === app1.checkoutUrl && minted === 2, 'a second app request reuses the app session');
+
+      // 3. …and the website is never handed an app-return session.
+      const web4 = await call();
+      assert(web4.reused === false && minted === 3, 'a web request must not reuse an app-return session');
+      assert(sent[2].merchantRedirect === WEB, 'web return URL again');
+
+      // 4. Everything about the MONEY is identical whichever way it returns.
+      const money = function (b) { return JSON.stringify([b.amount, b.currency, b.order, b.serverWebhook, b.customer, b.allowedMethods, b.paymentType]); };
+      assert(money(sent[0]) === money(sent[1]) && money(sent[1]) === money(sent[2]), 'only the redirect may differ between targets');
+      assert(sent[1].amount === '750.00' && sent[1].currency === 'EGP', 'amount / currency untouched');
+      assert(sent[1].serverWebhook === 'https://tashkheesa.com/payments/kashier/webhook', 'webhook URL untouched');
+
+      // 5. A session minted BEFORE this change has no returnTo in its audit row: it is a web session.
+      order.paymob_intention_id = 'kashier:legacy';
+      events.push({ intention: 'kashier:legacy', payload: {
+        provider: 'kashier', mode: kashier.readConfig().mode,
+        checkoutUrl: 'https://payments.kashier.io/session/legacy', amountCents: 75000, currency: 'EGP'
+      } });
+      const legacyWeb = await call();
+      assert(legacyWeb.reused === true && legacyWeb.checkoutUrl === 'https://payments.kashier.io/session/legacy' && minted === 3,
+        'a pre-change session is still reused for a web request');
+      const legacyApp = await call('app');
+      assert(legacyApp.reused === false && minted === 4, 'a pre-change session is not reused for an app request');
+    });
+  } finally {
+    kashier.__setFetch(null);
+    checkout.__setTestDeps({
+      pg: function () { return require('../../src/pg'); },
+      logErrorToDb: function () { return require('../../src/logger').logErrorToDb.apply(null, arguments); },
+      buildSpecialReference: function (id) { return require('../../src/routes/payments').buildSpecialReference(id); }
+    });
+  }
+});
+
 // ── wiring that must not silently disappear ────────────────────────────────
 check('wiring: webhook is mounted, CSRF-exempt by exact path, and the button endpoint branches to Kashier', function () {
   const fs = require('fs');

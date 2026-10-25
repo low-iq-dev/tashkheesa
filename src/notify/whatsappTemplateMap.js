@@ -43,16 +43,61 @@
 // E2E 2026-10-06 — every paramBuilder used `data.caseReference || data.case_id`
 // (or order_id), i.e. the raw internal UUID as the {{case_ref}} parameter
 // whenever the caller had not supplied a reference, and an id slice when it
-// had supplied the usual one. The parameter is now the case's real reference
-// or empty. Empty is deliberate: an HSM body is fixed text approved by Meta, so
-// there is no "your case" to substitute here, and a send Meta rejects for an
-// empty parameter is better than a patient being sent an internal id.
+// had supplied the usual one. The parameter is now the case's real reference;
 // queueNotification resolves orders.reference_id into the payload, so in
-// practice this is only empty for a case that has no reference at all.
-const { resolveCaseReference } = require('./case_label');
+// practice there is none only for a case that has no reference at all.
+//
+// 2026-10-11 — for that case the parameter was sent EMPTY, on the reasoning
+// that a send Meta rejects is better than a patient being sent an internal id.
+// It is not a choice between those two: a text parameter may not be empty, so
+// Meta refuses the whole message and the patient hears nothing on this channel.
+// metaCaseRef still returns the reference or '', and every builder's result
+// then passes through the fill-in below the map, which gives an empty case_ref
+// the fallback every other channel uses (metaCaseRefFallback).
+const { resolveCaseReference, caseLabel, isStaffFacingTemplate } = require('./case_label');
 
 function metaCaseRef(data) {
   return resolveCaseReference(data) || '';
+}
+
+// What {{case_ref}} says.
+//
+// PATIENT copy (2026-10-25, owner's wording): a complete noun phrase, so the
+// registered body never puts "case" in front of it —
+//   with a reference     "your case TSH-2026-000017" / "حالتك رقم TSH-2026-000017"
+//   without a reference  "your Tashkheesa case"      / "حالتك على تشخيصة"
+// The bodies in docs/whatsapp-templates-to-register.md are written for this:
+// "We have received {{1}}." reads right either way, where "Your case {{1}}…"
+// came out as "Your case your case…" for a case with no reference. Never an id.
+//
+// DOCTOR / OPS copy is unchanged: the bare reference, else the handle they get
+// elsewhere — whatever the caller queued as the reference, else the first 12
+// characters of the id (notification_worker.caseReferenceForRecipient,
+// openclawTemplates). With neither, the neutral label; English has none in
+// case_label, so "a case", as the staff sentences in notify.js say it. Their
+// bodies say "New case {{1}} assigned to you".
+//
+// `lang` is the language of the HSM actually submitted (getWhatsAppTemplate),
+// not the recipient's: an English template takes an English phrase.
+const PATIENT_CASE_PHRASE = Object.freeze({
+  en: Object.freeze({ withRef: (ref) => 'your case ' + ref, noRef: 'your Tashkheesa case' }),
+  ar: Object.freeze({ withRef: (ref) => 'حالتك رقم ' + ref, noRef: 'حالتك على تشخيصة' })
+});
+
+function patientCaseRefPhrase(ref, lang) {
+  const p = String(lang || 'en').toLowerCase() === 'ar' ? PATIENT_CASE_PHRASE.ar : PATIENT_CASE_PHRASE.en;
+  const r = String(ref || '').trim();
+  return r ? p.withRef(r) : p.noRef;
+}
+
+function metaCaseRefFor(eventName, data, lang, ref) {
+  const d = (data && typeof data === 'object') ? data : {};
+  if (!isStaffFacingTemplate(eventName, d)) return patientCaseRefPhrase(ref, lang);
+  if (ref) return ref;
+  const id = d.caseId || d.case_id || d.orderId || d.order_id || '';
+  const handle = String(d.caseReference || d.case_ref || d.caseRef || '').trim()
+    || (id ? String(id).slice(0, 12).toUpperCase() : '');
+  return handle || caseLabel({ lang, voice: 'neutral' }) || 'a case';
 }
 
 /** @type {Object.<string, WhatsAppTemplateEntry>} */
@@ -423,6 +468,25 @@ const whatsappTemplateMap = {
   },
 };
 
+// {{case_ref}} is shaped here, once, for every entry (metaCaseRefFor): never
+// empty (Meta refuses a template with an empty text parameter), a full phrase
+// for a patient, the bare handle for staff. Applied here rather than typed into
+// each builder, so an entry added tomorrow that sends case_ref is covered
+// without anyone having to remember; tests/core/case-label asserts it across
+// the whole map. The key is assigned in place, so the parameter keeps its
+// position — the worker sends Object.values() as Meta's ordered {{1}}, {{2}}.
+Object.keys(whatsappTemplateMap).forEach((eventName) => {
+  const entry = whatsappTemplateMap[eventName];
+  const build = entry.paramBuilder;
+  entry.paramBuilder = (data, lang) => {
+    const params = build(data);
+    if (params && 'case_ref' in params) {
+      params.case_ref = metaCaseRefFor(eventName, data, lang, params.case_ref);
+    }
+    return params;
+  };
+});
+
 /**
  * Get the WhatsApp HSM template config for a notification event, resolved
  * against the recipient's language.
@@ -459,9 +523,11 @@ function getWhatsAppTemplate(eventName, lang) {
   return {
     templateName: resolvedName,
     lang: resolvedLang,
-    paramBuilder: entry.paramBuilder,
+    // Bound to the language of the template actually resolved, so a case_ref
+    // fallback label is written in the language of the body it lands in.
+    paramBuilder: (data) => entry.paramBuilder(data, resolvedLang),
     langFellBack: want === 'ar' && resolvedLang === 'en',
   };
 }
 
-module.exports = { whatsappTemplateMap, getWhatsAppTemplate };
+module.exports = { whatsappTemplateMap, getWhatsAppTemplate, patientCaseRefPhrase, PATIENT_CASE_PHRASE };
