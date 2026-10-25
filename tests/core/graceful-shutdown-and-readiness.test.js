@@ -147,7 +147,10 @@ function saturatedPool() {
     try {
       const r = await get(server.address().port, '/healthz');
       assert.strictEqual(r.status, 200, 'the web process is alive: the plain health check must pass');
-      assert.ok(r.ms < 2000, 'answered in ' + r.ms + 'ms');
+      // The bar is Render's own: a health check unanswered for 5s fails. (The
+      // stub pool above never answers, so without the bounded read this would
+      // hang for good; 2s was too tight when the whole suite runs at once.)
+      assert.ok(r.ms < 4500, 'answered in ' + r.ms + 'ms');
       assert.strictEqual(r.json.ok, true);
       assert.strictEqual(r.json.dbTimedOut, true);
       assert.strictEqual(r.json.clockOk, false, 'an unread clock is reported unknown, never ok');

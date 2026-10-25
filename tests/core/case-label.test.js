@@ -360,6 +360,20 @@ try {
   eq(sample && sample.text.split('.')[0], 'We have received your Tashkheesa case', 'case_submitted_en, no reference');
   const sampleAr = rendered.filter(function (r) { return r.name === 'case_submitted_ar' && r.text.indexOf(REF) !== -1; })[0];
   eq(sampleAr && sampleAr.text.split('.')[0], 'استلمنا حالتك رقم ' + REF, 'case_submitted_ar, with reference');
+  // 2026-10-25 — the owner's Arabic bodies, word for word, and how they read.
+  const OWNER_AR = {
+    payment_failed_ar: 'تعذّر إتمام الدفع عن {{1}}. يرجى المحاولة مرة أخرى على tashkheesa.com',
+    case_accepted_ar: 'وافق أخصائي على {{1}}. د. {{2}} يراجع ملفاتك الآن، وسنبلغك فور جاهزية التقرير.',
+    case_reassigned_patient_ar: 'نقلنا {{1}} إلى أخصائي آخر. سنبلغك عند اكتمال المراجعة.'
+  };
+  Object.keys(OWNER_AR).forEach(function (name) {
+    eq(bodies[name], OWNER_AR[name], name + ' must be exactly the owner\'s text');
+    expect(rendered.some(function (r) { return r.name === name; }), name + ' must be rendered by the sweep above');
+  });
+  const failedAr = rendered.filter(function (r) { return r.name === 'payment_failed_ar' && r.text.indexOf(REF) === -1; })[0];
+  eq(failedAr && failedAr.text.split('.')[0], 'تعذّر إتمام الدفع عن حالتك على تشخيصة', 'payment_failed_ar, no reference');
+  const acceptedAr = rendered.filter(function (r) { return r.name === 'case_accepted_ar' && r.text.indexOf(REF) !== -1; })[0];
+  eq(acceptedAr && acceptedAr.text.split('.')[0], 'وافق أخصائي على حالتك رقم ' + REF, 'case_accepted_ar, with reference');
   t.pass('documented WhatsApp bodies (' + rendered.length + ' renders) never read "your case your case", in either language');
 } catch (e) { t.fail('documented WhatsApp bodies', e); }
 
