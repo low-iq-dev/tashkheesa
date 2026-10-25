@@ -16,12 +16,14 @@
 //      resolved_at — in the row decision, the SELECT pre-filter and the
 //      expiry UPDATE alike.
 //
-//   2. The ladder sent only the HIGHEST due reminder level per tick. The
-//      dedupe key (notifications.dedupe_key =
-//      payment_reminder:<level>:<channel>:<case>:<user>) has no time in it and
-//      a lower level is never revisited, so a case the sweep first saw after
-//      the 6h mark never got its 30m reminder at all. Each due level goes out
-//      once again; dedupe is what stops a repeat.
+//   2. The reminder ladder (owner's decisions, 25 Oct 2026):
+//      * one reminder per run — the HIGHEST due level — and every level below
+//        it is recorded as passed over (a 'skipped' marker row), so it can
+//        never go out later. No burst of 30m + 6h + 24h after a late first
+//        look, and no lower level surfacing afterwards;
+//      * a rejected transfer claim RESTARTS the ordinary 30m / 6h / 24h
+//        sequence, anchored on the rejection, with its own dedupe keys. The
+//        submission sequence keeps the keys it always had.
 //
 // No database. The sweep is driven in a subprocess with src/pg stubbed before
 // case_lifecycle is loaded (the module destructures its query helpers at
@@ -115,7 +117,11 @@ try {
     'the DRAFT expiry arm must exclude a case whose claim was rejected inside its 720h window. Got: ' + arms[1]);
   expect(/'SUBMITTED'/.test(arms[2]) && guard(168).test(arms[2]),
     'the SUBMITTED expiry arm must exclude a case whose claim was rejected inside its 168h window. Got: ' + arms[2]);
-  expect(!/payment_claims/.test(arms[0]), 'the reminder-ladder arm is not about expiry and must not carry the guard');
+  // The ladder arm is not about expiry: no NOT-EXISTS guard. It admits a case
+  // whose transfer claim was rejected within the ladder window (the restart).
+  expect(!/NOT EXISTS/.test(arms[0]), 'the reminder-ladder arm must not carry the expiry guard');
+  expect(/OR EXISTS \(SELECT 1 FROM payment_claims pc WHERE pc\.order_id::text = orders\.id::text AND pc\.status = 'rejected' AND COALESCE\(pc\.resolved_at, pc\.updated_at\) > NOW\(\) - INTERVAL '25 hours'\)/.test(arms[0]),
+    'the ladder arm must admit a case whose claim was rejected inside the 25h ladder window. Got: ' + arms[0]);
   // A database without migration 117 must still get SQL that names no claims table.
   const noClaims = cl.buildUnpaidSweepWorkPredicateSql({ hasPaymentClaims: false });
   expect(!/payment_claims/.test(noClaims) && /INTERVAL '168 hours'/.test(noClaims),
@@ -165,7 +171,7 @@ try {
     pg.execute = async function (sql, params) {
       if (/SET status = 'expired_unpaid'/.test(sql)) { st.updates.push(sql); return { rowCount: 1 }; }
       if (/INSERT INTO notifications/i.test(sql)) {
-        st.inserts.push({ channel: params[3], template: params[4], key: params[7], response: params[6] });
+        st.inserts.push({ channel: params[3], template: params[4], status: params[5], key: params[7], response: params[6] });
         if (params[7]) st.keys.add(params[7]);
       }
       return { rowCount: 1 };
@@ -180,9 +186,19 @@ try {
         payment_claim_pending: false, payment_claim_rejected_at: null
       }, over || {});
     };
+    // Reminders actually queued for delivery (markers are status 'skipped').
     const reminders = function (from) {
-      return st.inserts.slice(from).filter(function (i) { return /^payment_reminder_/.test(i.template); })
+      return st.inserts.slice(from).filter(function (i) { return /^payment_reminder_/.test(i.template) && i.status !== 'skipped'; })
         .map(function (i) { return i.template.replace('payment_reminder_', '') + ':' + i.channel; }).sort();
+    };
+    // "Passed over" markers written in a run.
+    const markers = function (from) {
+      return st.inserts.slice(from).filter(function (i) { return i.status === 'skipped'; })
+        .map(function (i) { return { level: i.template.replace('payment_reminder_', ''), channel: i.channel, key: i.key }; });
+    };
+    const keys = function (from) {
+      return st.inserts.slice(from).filter(function (i) { return /^payment_reminder_/.test(i.template) && i.status !== 'skipped'; })
+        .map(function (i) { return i.key; }).sort();
     };
     (async function () {
       const out = {};
@@ -216,41 +232,65 @@ try {
       // E: the no-argument sweep — what SQL does it send?
       await cl.dispatchUnpaidCaseReminders();
       out.E = { sql: st.sweepSql[st.sweepSql.length - 1] || '' };
-      // F: rejected inside the ladder window — the 24h reminder states the NEW hold.
+      // F: submitted 3 days ago, claim rejected 24h10m ago — the restarted
+      // sequence's 24h reminder states the hold from the rejection.
       ins = st.inserts.length;
-      await cl.dispatchUnpaidCaseReminders(mk('F', 24 * HOUR + 20 * 60 * 1000, { payment_claim_rejected_at: ago(10 * 60 * 1000) }));
-      const f24 = st.inserts.slice(ins).filter(function (i) { return i.template === 'payment_reminder_24h' && i.channel === 'internal'; })[0];
+      await cl.dispatchUnpaidCaseReminders(mk('F', 3 * DAY, { payment_claim_rejected_at: ago(24 * HOUR + 10 * 60 * 1000) }));
+      const f24 = st.inserts.slice(ins).filter(function (i) { return i.template === 'payment_reminder_24h' && i.channel === 'internal' && i.status !== 'skipped'; })[0];
       out.F = { hours: f24 ? JSON.parse(f24.response).hours_remaining : null };
 
       // -- ladder ----------------------------------------------------------
       // G: first seen 7h after submission, nothing sent before.
       ins = st.inserts.length;
       r = await cl.dispatchUnpaidCaseReminders(mk('G', 7 * HOUR));
-      out.G = { sent: reminders(ins), sentCount: r.sentCount };
-      // H: the next tick, same case — dedupe, nothing new.
+      out.G = { sent: reminders(ins), sentCount: r.sentCount, markers: markers(ins), keys: keys(ins) };
+      // H: the next tick, same case — nothing new, no new marker.
       ins = st.inserts.length;
       await cl.dispatchUnpaidCaseReminders(mk('G', 7 * HOUR + 15 * 60 * 1000));
-      out.H = { sent: reminders(ins) };
-      // I: a case that walks the ladder tick by tick gets each level once.
+      out.H = { sent: reminders(ins), markers: markers(ins) };
+      // G2: the passed-over 30m can never fire later — not even if a run
+      // reads the case as 40 minutes old (a backfilled anchor, a clock step).
+      ins = st.inserts.length;
+      await cl.dispatchUnpaidCaseReminders(mk('G', 40 * 60 * 1000));
+      out.G2 = { sent: reminders(ins) };
+      // G3: the 24h mark still arrives, alone.
+      ins = st.inserts.length;
+      await cl.dispatchUnpaidCaseReminders(mk('G', 24 * HOUR + 5 * 60 * 1000));
+      out.G3 = { sent: reminders(ins), markers: markers(ins) };
+      // I: a case that walks the ladder tick by tick gets each level once,
+      // and nothing is recorded as passed over.
       ins = st.inserts.length;
       await cl.dispatchUnpaidCaseReminders(mk('I', 10 * 60 * 1000));
       out.I0 = { sent: reminders(ins) }; ins = st.inserts.length;
       await cl.dispatchUnpaidCaseReminders(mk('I', 31 * 60 * 1000));
       out.I1 = { sent: reminders(ins) }; ins = st.inserts.length;
       await cl.dispatchUnpaidCaseReminders(mk('I', 6 * HOUR + 60 * 1000));
-      out.I2 = { sent: reminders(ins) }; ins = st.inserts.length;
+      out.I2 = { sent: reminders(ins), markers: markers(ins) }; ins = st.inserts.length;
       await cl.dispatchUnpaidCaseReminders(mk('I', 24 * HOUR + 60 * 1000));
-      out.I3 = { sent: reminders(ins) };
-      // J: first seen after the 24h mark — every level at once (the burst).
+      out.I3 = { sent: reminders(ins), markers: markers(ins) };
+      // J: first seen after the 24h mark — ONE level, the 24h one; 30m and 6h
+      // are recorded as passed over. No burst.
       ins = st.inserts.length;
-      await cl.dispatchUnpaidCaseReminders(mk('J', 24 * HOUR + 30 * 60 * 1000));
-      out.J = { sent: reminders(ins) };
-      // K: claim pending across the 30m and 6h marks, then rejected.
+      r = await cl.dispatchUnpaidCaseReminders(mk('J', 24 * HOUR + 30 * 60 * 1000));
+      out.J = { sent: reminders(ins), sentCount: r.sentCount, markers: markers(ins) };
+      // K: claim pending across the 30m and 6h marks, then rejected a minute ago.
       ins = st.inserts.length;
       r = await cl.dispatchUnpaidCaseReminders(mk('K', 7 * HOUR, { payment_claim_pending: true }));
       out.K0 = { sent: reminders(ins), skipped: r.skipped }; ins = st.inserts.length;
-      await cl.dispatchUnpaidCaseReminders(mk('K', 7 * HOUR, { payment_claim_rejected_at: ago(60 * 1000) }));
-      out.K1 = { sent: reminders(ins) };
+      const kRejected = ago(60 * 1000);
+      await cl.dispatchUnpaidCaseReminders(mk('K', 7 * HOUR, { payment_claim_rejected_at: kRejected }));
+      out.K1 = { sent: reminders(ins), markers: markers(ins) }; ins = st.inserts.length;
+      // …the sequence restarts from the rejection: 30m after it, the 30m reminder.
+      const kLater = new Date(Date.parse(kRejected) - 31 * 60 * 1000).toISOString();
+      await cl.dispatchUnpaidCaseReminders(mk('K', 7 * HOUR + 31 * 60 * 1000, { payment_claim_rejected_at: kLater }));
+      out.K2 = { sent: reminders(ins), keys: keys(ins), rejectedSec: Math.floor(Date.parse(kLater) / 1000) };
+      // M: the late rejection the owner asked about — submitted 3 days ago,
+      // rejected 7 hours ago. The restarted sequence sends its 6h reminder
+      // (the 30m one of THAT sequence is passed over), with fresh keys.
+      ins = st.inserts.length;
+      const mRejected = ago(7 * HOUR);
+      await cl.dispatchUnpaidCaseReminders(mk('M', 3 * DAY, { payment_claim_rejected_at: mRejected }));
+      out.M = { sent: reminders(ins), markers: markers(ins), keys: keys(ins), rejectedSec: Math.floor(Date.parse(mRejected) / 1000) };
       // L: a draft is still never chased, at any age.
       ins = st.inserts.length;
       await cl.dispatchUnpaidCaseReminders(mk('L', 7 * HOUR, { status: 'DRAFT', submitted_at: null }));
@@ -295,16 +335,18 @@ try {
   expect(/AS payment_claim_rejected_at/.test(res.E.sql), 'E: the sweep SELECT must project the latest rejection');
   expect(/MAX\(COALESCE\(pc\.resolved_at, pc\.updated_at\)\)/.test(res.E.sql) && /pc\.status = 'rejected'/.test(res.E.sql),
     'E: read from the claim row\'s own resolved time');
-  expect((res.E.sql.match(/AND COALESCE\(pc\.resolved_at, pc\.updated_at\) > NOW\(\) - INTERVAL/g) || []).length === 2,
+  expect((res.E.sql.match(/NOT EXISTS \(SELECT 1 FROM payment_claims pc WHERE [^)]*'rejected' AND COALESCE\(pc\.resolved_at, pc\.updated_at\) > NOW\(\) - INTERVAL/g) || []).length === 2,
     'E: both expiry arms of the pre-filter carry the window guard');
+  expect(/OR EXISTS \(SELECT 1 FROM payment_claims pc WHERE [\s\S]*?INTERVAL '25 hours'\)/.test(res.E.sql),
+    'E: and the ladder arm admits a recent rejection (the restarted sequence)');
 
-  expect(res.F.hours >= 167 && res.F.hours <= 168,
-    'F: a reminder sent after a rejection must state the hold from the rejection (about 168h), not from the ' +
-    'claim\'s filing; got ' + res.F.hours);
+  expect(res.F.hours >= 143 && res.F.hours <= 144,
+    'F: a reminder sent after a rejection must state the hold from the rejection (168h less the 24h10m since it), ' +
+    'not from the claim\'s filing; got ' + res.F.hours);
   t.pass('sweep: late rejection does not expire; window runs 7 days from the rejection; lookup failure stands down');
 } catch (e) { t.fail('late rejection does not expire the case (sweep)', e); }
 
-// ── 4. The ladder: every due level once, never twice ───────────────────────
+// ── 4. The ladder: one level per run, passed-over levels never later ───────
 try {
   expect(res, 'no subprocess result');
   const all = function (levels) {
@@ -312,27 +354,65 @@ try {
     levels.forEach(function (l) { ['email', 'internal', 'whatsapp'].forEach(function (c) { o.push(l + ':' + c); }); });
     return o.sort().join(',');
   };
-  eq(res.G.sent.join(','), all(['30m', '6h']),
-    'a case first seen 7h after submission must get BOTH due levels — the 30m reminder is otherwise lost for good');
-  eq(res.G.sentCount, 6, 'two levels on three channels');
-  eq(res.H.sent.length, 0, 'the next tick must send nothing: each (level, channel) is deduped');
+  // G — first seen at 7h: the 6h reminder only, and the 30m one is on record.
+  eq(res.G.sent.join(','), all(['6h']), 'a case first seen at 7h gets ONE level: the highest due (6h)');
+  eq(res.G.sentCount, 3, 'one level on three channels');
+  eq(res.G.markers.length, 1, 'the passed-over 30m level is recorded once');
+  eq(res.G.markers[0].level, '30m', 'marker level');
+  eq(res.G.markers[0].channel, 'email', 'markers are never written on the in-app channel (the patient would see them)');
+  eq(res.G.markers[0].key, 'payment_reminder_superseded:30m:sub:G:pat-1', 'marker key');
+  eq(res.G.keys.join(','), [
+    'payment_reminder:6h:email:G:pat-1', 'payment_reminder:6h:internal:G:pat-1', 'payment_reminder:6h:whatsapp:G:pat-1'
+  ].join(','), 'the submission sequence keeps its original dedupe keys (nothing already sent is sent again)');
+  eq(res.H.sent.length, 0, 'the next tick sends nothing');
+  eq(res.H.markers.length, 0, 'and writes no second marker');
+  eq(res.G2.sent.length, 0, 'a passed-over level NEVER fires later, even if a run reads the case as 40 minutes old');
+  eq(res.G3.sent.join(','), all(['24h']), 'the 24h mark still arrives, alone');
+  eq(res.G3.markers.length, 0, '6h was delivered, so it is not "passed over"');
 
+  // I — tick by tick: each level once, no markers.
   eq(res.I0.sent.length, 0, 'nothing before 30 minutes');
   eq(res.I1.sent.join(','), all(['30m']), 'tick by tick: 30m');
-  eq(res.I2.sent.join(','), all(['6h']), 'tick by tick: 6h only — 30m is already sent');
+  eq(res.I2.sent.join(','), all(['6h']), 'tick by tick: 6h only');
+  eq(res.I2.markers.length, 0, 'a level already delivered is not recorded as passed over');
   eq(res.I3.sent.join(','), all(['24h']), 'tick by tick: 24h only');
+  eq(res.I3.markers.length, 0, 'no markers for a case that walked the ladder');
 
-  // Stated, not hidden: this is the cost of not losing a level.
-  eq(res.J.sent.join(','), all(['24h', '30m', '6h']),
-    'a case first seen after 24h gets all three levels in one tick (9 rows)');
+  // J — first seen after 24h: no burst.
+  eq(res.J.sent.join(','), all(['24h']), 'a case first seen after 24h gets ONE reminder, not three');
+  eq(res.J.sentCount, 3, 'three rows (one level, three channels) instead of nine');
+  eq(res.J.markers.map(function (m) { return m.level; }).sort().join(','), '30m,6h', '30m and 6h recorded as passed over');
 
+  // K — pending, then rejected: the sequence restarts from the rejection.
   eq(res.K0.sent.length, 0, 'no reminder while a claim is pending');
   eq(res.K0.skipped, 'payment_claim_pending', 'and the sweep says so');
-  eq(res.K1.sent.join(','), all(['30m', '6h']), 'after the rejection every level that fell due while paused goes out');
+  eq(res.K1.sent.length, 0, 'a minute after the rejection nothing is due yet — the ladder restarted');
+  eq(res.K1.markers.length, 0, 'and nothing is passed over');
+  eq(res.K2.sent.join(','), all(['30m']), '30 minutes after the rejection: the 30m reminder, existing copy');
+  eq(res.K2.keys.join(','), [
+    'payment_reminder:30m:r' + res.K2.rejectedSec + ':email:K:pat-1',
+    'payment_reminder:30m:r' + res.K2.rejectedSec + ':internal:K:pat-1',
+    'payment_reminder:30m:r' + res.K2.rejectedSec + ':whatsapp:K:pat-1'
+  ].join(','), 'the restarted sequence has its own keys');
+
+  // M — the late rejection: reminders again, from the rejection.
+  eq(res.M.sent.join(','), all(['6h']), 'rejected 7h ago (3 days after submission): the restarted 6h reminder');
+  eq(res.M.markers.length, 1, 'that sequence\'s 30m is recorded as passed over');
+  eq(res.M.markers[0].key, 'payment_reminder_superseded:30m:r' + res.M.rejectedSec + ':M:pat-1', 'marker key carries the sequence');
+  expect(res.M.keys.every(function (k) { return k.indexOf(':r' + res.M.rejectedSec + ':') !== -1; }), 'M keys carry the sequence');
+
   eq(res.L.sent.length, 0, 'a DRAFT is never chased');
 
-  const CODE = stripComments(fs.readFileSync(path.join(ROOT, 'src', 'case_lifecycle.js'), 'utf8'));
-  expect(/`payment_reminder:\$\{level\}:\$\{channel\}:\$\{caseId\}:\$\{userId\}`/.test(CODE),
-    'the dedupe key must stay payment_reminder:<level>:<channel>:<case>:<user> — it is what makes "once" true');
-  t.pass('ladder: each due level once per channel; repeat ticks send nothing; pause then rejection catches up');
-} catch (e) { t.fail('reminder ladder sends each due level once', e); }
+  // Pure helpers.
+  eq(cl.pickUnpaidReminderLevel(10 * 60), null, 'pick: nothing before 30m');
+  eq(cl.pickUnpaidReminderLevel(7 * 3600), '6h', 'pick: highest due');
+  eq(cl.pickUnpaidReminderLevel(30 * 3600), '24h', 'pick: 24h');
+  eq(cl.paymentReminderDedupeKey('6h', 'email', 'c', 'u', ''), 'payment_reminder:6h:email:c:u', 'submission key unchanged');
+  eq(cl.paymentReminderDedupeKey('6h', 'email', 'c', 'u', 'r123'), 'payment_reminder:6h:r123:email:c:u', 'sequence key');
+  const lad = cl.unpaidReminderLadder({ submitted_at: ago(3 * DAY), payment_claim_rejected_at: ago(2 * HOUR) }, NOW);
+  eq(lad.elapsedSeconds, 2 * 3600, 'ladder runs from the rejection when it is later');
+  expect(/^r\d+$/.test(lad.sequence), 'and names the sequence by the rejection');
+  const plain = cl.unpaidReminderLadder({ submitted_at: ago(2 * HOUR), payment_claim_rejected_at: null }, NOW);
+  eq(plain.sequence, '', 'no rejection: the submission sequence');
+  t.pass('ladder: one level per run; passed-over levels recorded and never sent later; a rejection restarts the sequence');
+} catch (e) { t.fail('reminder ladder: highest level per run, restart after rejection', e); }

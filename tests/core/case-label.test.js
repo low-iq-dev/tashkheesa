@@ -208,18 +208,24 @@ try {
   t.pass('OpenClaw bodies (' + checked + ' renders): no id, no placeholder, no empty "()", no dangling "case"');
 } catch (e) { t.fail('OpenClaw bodies', e); }
 
-// ── 6. Meta HSM {{case_ref}}: the real reference, else the label — never empty
+// ── 6. Meta HSM {{case_ref}}: a phrase for patients, the handle for staff ───
 //
-// 2026-10-11 — this section used to assert `case_ref === ''` for a case with
-// no reference (6 Oct: "a send Meta rejects is better than a patient being sent
-// an internal id"). Both halves of that were right and the conclusion was not:
-// an HSM text parameter may not be empty, so Meta refuses the WHOLE message and
-// the patient hears nothing on that channel. The parameter now falls back the
-// way every other channel does — the case label for a patient ("your case"),
-// the id handle for staff — and is asserted non-empty for every template in the
-// map that sends one, for every recipient role, with the worst payloads.
+// 2026-10-11 — {{case_ref}} used to be sent EMPTY for a case with no reference;
+// Meta refuses a template with an empty text parameter, so the patient heard
+// nothing on that channel. It is never empty now.
+//
+// 2026-10-25 (owner's wording) — for a PATIENT it is a complete noun phrase:
+//   with a reference "your case TSH-…" / "حالتك رقم TSH-…"
+//   without one      "your Tashkheesa case" / "حالتك على تشخيصة"
+// and the registered bodies (docs/whatsapp-templates-to-register.md) are
+// written around it, so nothing can read "Your case your case". Staff keep the
+// bare reference / id handle. Swept over every template in the map that sends
+// case_ref, every recipient role and the worst payloads; then every documented
+// body is rendered both ways.
 try {
-  const { getWhatsAppTemplate } = require(path.join(ROOT, 'src', 'notify', 'whatsappTemplateMap.js'));
+  const { getWhatsAppTemplate, patientCaseRefPhrase } = require(path.join(ROOT, 'src', 'notify', 'whatsappTemplateMap.js'));
+  const NO_REF_EN = 'your Tashkheesa case';
+  const NO_REF_AR = 'حالتك على تشخيصة';
   const WITH_CASE_REF = Object.keys(whatsappTemplateMap).filter(function (tpl) {
     return 'case_ref' in whatsappTemplateMap[tpl].paramBuilder({ caseReference: REF });
   });
@@ -243,12 +249,12 @@ try {
         expect(typeof params.case_ref === 'string' && params.case_ref.trim() !== '',
           'case_ref must never be empty — Meta rejects the whole template: ' + where);
         // Positional: {{1}}, {{2}} are Object.values() in this order.
-        eq(Object.keys(params).join(','), order, 'the fallback must not reorder the HSM parameters: ' + where);
+        eq(Object.keys(params).join(','), order, 'the phrase must not reorder the HSM parameters: ' + where);
         Object.keys(params).forEach(function (k) {
-          if (k !== 'case_ref') expect(params[k] !== 'your case', 'the fallback must only fill case_ref: ' + where);
+          if (k !== 'case_ref') expect(params[k] !== NO_REF_EN, 'only case_ref is shaped: ' + where);
         });
         if (!cl.isStaffFacingTemplate(tpl, data)) {
-          eq(params.case_ref, 'your case', 'a patient with no reference is told about "your case": ' + where);
+          eq(params.case_ref, NO_REF_EN, 'a patient with no reference reads "your Tashkheesa case": ' + where);
           expect(!ID_FRAGMENT.test(params.case_ref) && params.case_ref.indexOf(ORDER_ID) === -1,
             'a patient is never sent an internal id: ' + where);
         } else if (payload.case_id || payload.caseId) {
@@ -256,37 +262,106 @@ try {
         }
       });
     });
-    // A real reference always wins, for everyone.
-    eq(whatsappTemplateMap[tpl].paramBuilder({ case_id: ORDER_ID, caseReference: REF }).case_ref, REF, tpl + ' case_ref with a real reference');
+    // A real reference: the phrase for a patient, the bare reference for staff.
+    const withRef = { case_id: ORDER_ID, caseReference: REF };
+    const patientSide = !cl.isStaffFacingTemplate(tpl, withRef);
+    eq(whatsappTemplateMap[tpl].paramBuilder(withRef).case_ref, patientSide ? 'your case ' + REF : REF,
+      tpl + ' case_ref with a real reference');
     eq(whatsappTemplateMap[tpl].paramBuilder({ case_id: ORDER_ID, reference_id: REF, caseReference: SLICE, recipientRole: 'doctor' }).case_ref, REF,
-      tpl + ' case_ref with a real reference beside a slice');
+      tpl + ' doctor side: the bare reference beside a slice');
   });
   expect(checked >= 30 * 16, 'sweep covered too few (template, role, payload) combinations: ' + checked);
 
-  // Through the resolver the worker uses. The label is in the language of the
-  // HSM that is actually submitted — English for everyone today, because no
-  // Arabic template is approved — not in the recipient's language.
+  // The owner's exact wording, both languages.
+  eq(patientCaseRefPhrase('', 'en'), NO_REF_EN, 'English, no reference');
+  eq(patientCaseRefPhrase(null, 'ar'), NO_REF_AR, 'Arabic, no reference');
+  eq(patientCaseRefPhrase(REF, 'en'), 'your case ' + REF, 'English, with reference');
+  eq(patientCaseRefPhrase(REF, 'ar'), 'حالتك رقم ' + REF, 'Arabic, with reference');
+  expect(NO_REF_AR.indexOf('تشخيصة') !== -1 && NO_REF_AR.indexOf('تشخيصه') === -1, 'brand spelling: تشخيصة');
+
+  // Through the resolver the worker uses: the phrase is in the language of the
+  // HSM actually submitted — English for everyone today (no Arabic HSM is
+  // approved yet), not the recipient's language.
   const viaAr = getWhatsAppTemplate('payment_success_patient', 'ar');
   eq(viaAr.lang, 'en', 'no approved Arabic HSM → the English template is sent');
-  eq(viaAr.paramBuilder({ caseId: ORDER_ID, recipientRole: 'patient', amount: '500 EGP' }).case_ref, 'your case',
-    'an English template gets the English label, even for an Arabic-speaking patient');
+  eq(viaAr.paramBuilder({ caseId: ORDER_ID, recipientRole: 'patient', amount: '500 EGP' }).case_ref, NO_REF_EN,
+    'an English template gets the English phrase, even for an Arabic-speaking patient');
   eq(viaAr.paramBuilder({ caseId: ORDER_ID, recipientRole: 'patient', amount: '500 EGP' }).amount, '500 EGP',
     'the other parameters are untouched');
-  eq(getWhatsAppTemplate('payment_success_patient', 'en').paramBuilder({ caseId: ORDER_ID, caseReference: REF }).case_ref, REF,
-    'the resolver passes a real reference straight through');
-  // The day an Arabic HSM clears approval the label follows it.
-  eq(whatsappTemplateMap.payment_success_patient.paramBuilder({ caseId: ORDER_ID, recipientRole: 'patient' }, 'ar').case_ref, 'حالتك',
-    'an Arabic template gets the Arabic patient label');
+  eq(getWhatsAppTemplate('payment_success_patient', 'en').paramBuilder({ caseId: ORDER_ID, caseReference: REF }).case_ref, 'your case ' + REF,
+    'a real reference goes into the phrase');
+  // The day an Arabic HSM clears approval the phrase follows it.
+  eq(whatsappTemplateMap.payment_success_patient.paramBuilder({ caseId: ORDER_ID, recipientRole: 'patient' }, 'ar').case_ref, NO_REF_AR,
+    'an Arabic template gets the Arabic phrase');
   // Dual-role templates split on the recipient, exactly as OpenClaw does.
   eq(whatsappTemplateMap.sla_reminder_6h.paramBuilder({ caseId: ORDER_ID, recipientRole: 'doctor' }).case_ref, SLICE, 'SLA reminder, doctor side');
-  eq(whatsappTemplateMap.sla_reminder_6h.paramBuilder({ caseId: ORDER_ID, recipientRole: 'patient' }).case_ref, 'your case', 'SLA reminder, patient side');
-  // Staff copy with neither a reference nor an id (not reachable from the
-  // worker, which always has the order id) still sends something.
+  eq(whatsappTemplateMap.sla_reminder_6h.paramBuilder({ caseId: ORDER_ID, recipientRole: 'patient' }).case_ref, NO_REF_EN, 'SLA reminder, patient side');
+  // Staff copy with neither a reference nor an id still sends something.
   eq(whatsappTemplateMap.order_assigned_doctor.paramBuilder({}).case_ref, 'a case', 'staff, nothing known, English');
   eq(whatsappTemplateMap.order_assigned_doctor.paramBuilder({}, 'ar').case_ref, 'الحالة', 'staff, nothing known, Arabic');
   t.pass('Meta param builders (' + checked + ' builds over ' + WITH_CASE_REF.length +
-    ' templates): case_ref is the real reference, else "your case" (patient) / the handle (staff) — never empty');
+    ' templates): patient case_ref is a phrase, staff the handle — never empty');
 } catch (e) { t.fail('Meta param builders', e); }
+
+// ── 6b. The registered bodies read right with BOTH forms of the phrase ─────
+//
+// Renders every documented template that the map sends with case_ref, the way
+// Meta would, for a case with a reference and one without, and rejects the
+// doubled wording the owner saw ("Your case your case…").
+try {
+  const DOC = require('fs').readFileSync(path.join(ROOT, 'docs', 'whatsapp-templates-to-register.md'), 'utf8');
+  const bodies = {};
+  DOC.split(/^### /m).slice(1).forEach(function (sec) {
+    const name = (/^\d+\.\s+(\S+)/.exec(sec) || [])[1];
+    const body = (/\*\*Body:\*\*\s*(.+)/.exec(sec) || [])[1];
+    if (name && body) bodies[name] = body.trim();
+  });
+  // Which documented template each map entry sends, and whether it carries case_ref first.
+  const rendered = [];
+  Object.keys(whatsappTemplateMap).forEach(function (event) {
+    const entry = whatsappTemplateMap[event];
+    ['en', 'ar'].forEach(function (lang) {
+      // The Arabic twin of a documented English template is checked too.
+      const name = entry.templateNames.en ? entry.templateNames.en.replace(/_en$/, '_' + lang) : null;
+      if (!name || !bodies[name]) return;
+      const keys = Object.keys(entry.paramBuilder({ caseReference: REF }));
+      if (keys[0] !== 'case_ref') return;
+      // Each template is rendered for the audience it is sent to: a doctor
+      // template to a doctor, a patient template to a patient, a dual-role one
+      // (the SLA reminders) to both.
+      const byName = cl.isStaffFacingTemplate(event, {});
+      const roles = byName ? ['doctor'] : (/^sla_reminder_/.test(event) ? ['patient', 'doctor'] : ['patient']);
+      [{ caseReference: REF }, { caseId: ORDER_ID }].forEach(function (data) {
+        roles.forEach(function (role) {
+          const d = Object.assign({ recipientRole: role }, data);
+          const params = entry.paramBuilder(d, lang);
+          const vals = Object.keys(params).map(function (k) { return params[k] || 'X'; });
+          const text = bodies[name].replace(/\{\{(\d+)\}\}/g, function (_, n) { return vals[Number(n) - 1] || 'X'; });
+          rendered.push({ event: event, name: name, role: role, text: text, raw: bodies[name] });
+        });
+      });
+    });
+  });
+  expect(rendered.length >= 12, 'too few documented bodies rendered: ' + rendered.length);
+  const DOUBLED = [
+    /your case your/i, /\bcase\s+your\b/i, /\bcase\s+case\b/i, /your\s+your/i,
+    /حالتك\s+حالتك/, /الحالة\s+حالتك/, /للحالة\s+حالتك/, /حالة\s+حالتك/, /حالتك\s+رقم\s+حالتك/
+  ];
+  rendered.forEach(function (r) {
+    DOUBLED.forEach(function (re) {
+      expect(!re.test(r.text), r.name + ' (' + r.role + ') reads badly: "' + r.text + '"');
+    });
+    if (r.role === 'patient') {
+      expect(!/(?:case|حالتك|الحالة|للحالة|حالة)\s*\{\{1\}\}/i.test(r.raw),
+        r.name + ': a patient body must not put "case" in front of {{1}} — it is already a phrase');
+    }
+  });
+  const sample = rendered.filter(function (r) { return r.name === 'case_submitted_en' && r.text.indexOf(REF) === -1; })[0];
+  eq(sample && sample.text.split('.')[0], 'We have received your Tashkheesa case', 'case_submitted_en, no reference');
+  const sampleAr = rendered.filter(function (r) { return r.name === 'case_submitted_ar' && r.text.indexOf(REF) !== -1; })[0];
+  eq(sampleAr && sampleAr.text.split('.')[0], 'استلمنا حالتك رقم ' + REF, 'case_submitted_ar, with reference');
+  t.pass('documented WhatsApp bodies (' + rendered.length + ' renders) never read "your case your case", in either language');
+} catch (e) { t.fail('documented WhatsApp bodies', e); }
 
 // ── 7. queueNotification resolves the reference before rendering/storing ───
 // Subprocess with src/pg stubbed: orders lookup returns a reference, and the

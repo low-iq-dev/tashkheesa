@@ -312,19 +312,22 @@ try {
   const start = CODE.indexOf('async function dispatchUnpaidCaseReminders');
   const sweep = CODE.slice(start, CODE.indexOf('const CASE_STATUS = Object.freeze', start));
   expect(/secondsSinceSubmitted\s*\(\s*orderRow\s*\)/.test(sweep) && !/secondsSinceCreated/.test(CODE),
-    'the sweep must age the ladder with secondsSinceSubmitted');
-  // 2026-10-11 — this used to pin `t.level === dueLevel` (highest due level
-  // only, 6 Oct). That silently dropped every lower level a case had not been
-  // seen for — the dedupe key below has no time in it and nothing goes back —
-  // so every due level is queued again and dedupe makes each a once-only. The
-  // behaviour, burst included, is driven in unpaid-sweep-rejection-and-ladder.
-  expect(/if \(force \|\| elapsedSeconds >= t\.seconds\)/.test(sweep) && !/dueLevel/.test(sweep),
-    'every due level must be queued (each deduped) — a highest-level-only pick loses the lower ' +
-    'reminders of a case first seen late');
-  // Dedupe key has no time component, so a backfilled submitted_at cannot re-send.
+    'the sweep must age the case with secondsSinceSubmitted');
+  // 2026-10-25 — the ladder runs from the SEQUENCE anchor: submission, or a
+  // later rejected transfer claim (unpaidReminderLadder). One level per run —
+  // the highest due — and the lower ones are recorded as passed over so they
+  // never fire later. Driven end to end in unpaid-sweep-rejection-and-ladder.
+  expect(/const ladder = unpaidReminderLadder\(orderRow\)/.test(sweep), 'the ladder must use unpaidReminderLadder');
+  expect(/pickUnpaidReminderLevel\(ladder\.elapsedSeconds/.test(sweep), 'one level per run: the highest due');
+  expect(/markPaymentReminderSuperseded\(/.test(sweep), 'lower due levels must be recorded as passed over');
+  const lad = cl.unpaidReminderLadder(lateSubmit, NOW);
+  expect(lad.elapsedSeconds === 600 && lad.sequence === '', 'no rejection: the ladder is the submission one');
+  // The submission sequence keeps the key shape every reminder sent so far
+  // carries, so a deploy re-sends nothing; a backfilled submitted_at cannot
+  // re-send either (no time in the key).
   expect(/`payment_reminder:\$\{level\}:\$\{channel\}:\$\{caseId\}:\$\{userId\}`/.test(CODE),
-    'the reminder dedupe key must stay payment_reminder:<level>:<channel>:<case>:<user>');
-  t.pass('ladder anchored on submitted_at; every due level once; dedupe key shape unchanged');
+    'the submission-sequence dedupe key must stay payment_reminder:<level>:<channel>:<case>:<user>');
+  t.pass('ladder anchored on submitted_at (or a later rejection); one level per run; dedupe key shape unchanged');
 } catch (e) { t.fail('ladder anchored on submission', e); }
 
 // ── 12. A pending transfer claim pauses reminders AND expiry ───────────────
