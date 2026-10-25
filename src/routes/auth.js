@@ -1073,7 +1073,10 @@ const ARAB_COUNTRIES = ['EG', 'SA', 'AE', 'KW', 'QA', 'BH', 'OM', 'JO', 'LB', 'I
 router.get('/register', (req, res) => {
   if (req.user) return res.redirect('/');
   // FUNNEL 2026-09-27 — register-page views for the daily founder digest.
-  try { require('../services/funnel_digest').bumpFunnelCount('register_view', req); } catch (_) {}
+  // REGISTER-PROVENANCE 2026-10-25 — bumpRegisterView also records WHERE the
+  // visit came from (own-site referer / none / utm), so a repeat of the 21 Oct
+  // spike can be told apart from real traffic. Still aggregate counters only.
+  try { require('../services/funnel_digest').bumpRegisterView(req); } catch (_) {}
   setLangCookie(res, getReqLang(req));
   // A patient who clicked a service card lands on /login?next=/patient/new-case?...
   // and then taps "Create account". Carry that next through registration so the

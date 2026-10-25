@@ -22,7 +22,18 @@
 const crypto = require('crypto');
 const { queryAll, queryOne, execute } = require('../pg');
 
-const STEPS = new Set(['start_view', 'start_view_meta', 'services_view', 'services_view_meta', 'register_view', 'start_cta', 'start_wa', 'wa_redirect']);
+// REGISTER-PROVENANCE 2026-10-25 — on 21 and 24 Oct /register took 69 and 41
+// views on days with ZERO services_view and no ads running, and converted at
+// 0% against a steady ~1-in-8 on real traffic. Almost certainly a scraper, but
+// funnel_daily_counts keeps aggregates only, so it could not be proven. These
+// three sub-counters split register_view by where the visit came from without
+// storing anything personal (migration 122's design choice stands: no IP, no
+// user agent, no user id — just counters):
+//   register_view_ref    Referer header pointing at our own site — the real funnel path
+//   register_view_noref  no Referer at all — direct hit, the scraper signature
+//   register_view_utm    carried a utm_source — came from a campaign link
+// A repeat of the 21 Oct spike is then one query, not an afternoon.
+const STEPS = new Set(['start_view', 'start_view_meta', 'services_view', 'services_view_meta', 'register_view', 'register_view_ref', 'register_view_noref', 'register_view_utm', 'start_cta', 'start_wa', 'wa_redirect']);
 // Per-campaign split (2 Oct 2026): '<page>_view@<utm_campaign>' so each ad's landing
 // views can be told apart. Slug is sanitised and capped; anything else is rejected.
 const CAMPAIGN_STEP = /^(start|services)_view@[a-z0-9][a-z0-9_-]{0,39}$/;
@@ -91,6 +102,31 @@ function bumpLandingView(page, req) {
 
 /** Kept for callers that predate bumpLandingView. */
 function bumpStartView(req) { bumpLandingView('start', req); }
+
+/**
+ * REGISTER-PROVENANCE 2026-10-25 — bump register_view plus one provenance
+ * counter saying where the visit came from. See the STEPS comment for why.
+ *
+ * The classification is deliberately coarse and derived only from headers we
+ * already see on the request; nothing is stored beyond the three counters.
+ * A visit counts as `_ref` only when the Referer is our OWN host — an inbound
+ * link from elsewhere is not the funnel path and must not read as one.
+ */
+function bumpRegisterView(req) {
+  bumpFunnelCount('register_view', req);
+  try {
+    const q = (req && req.query) || {};
+    if (String(q.utm_source || '').trim()) bumpFunnelCount('register_view_utm', req);
+    const ref = (req && req.get) ? String(req.get('referer') || req.get('referrer') || '') : '';
+    if (!ref.trim()) { bumpFunnelCount('register_view_noref', req); return; }
+    // Own-host check. URL parsing throws on junk Referer values — a malformed
+    // header is not evidence of a funnel path, so it falls through to neither
+    // counter rather than being credited as internal.
+    let host = '';
+    try { host = new URL(ref).hostname.toLowerCase(); } catch (_) { return; }
+    if (host === 'tashkheesa.com' || host.endsWith('.tashkheesa.com')) bumpFunnelCount('register_view_ref', req);
+  } catch (_) { /* analytics never blocks a page */ }
+}
 
 /**
  * Counts for one Cairo day (YYYY-MM-DD). Each query is independent so one
@@ -317,7 +353,7 @@ async function runFunnelDigest(opts) {
 }
 
 module.exports = {
-  bumpFunnelCount, bumpStartView, bumpLandingView, computeFunnel, formatDigest, runFunnelDigest,
+  bumpFunnelCount, bumpStartView, bumpLandingView, bumpRegisterView, computeFunnel, formatDigest, runFunnelDigest,
   formatOpsDigest, pushOpsDigest,
   previousCairoDay, cairoDay, isBot,
 };
