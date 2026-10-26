@@ -31,11 +31,11 @@ test('pricingMarketFor: the nine priced markets map to themselves', () => {
   for (const cc of PRICED_MARKETS) assert.equal(pricingMarketFor(cc), cc, cc);
 });
 
-test('pricingMarketFor: Europe → GB, non-Gulf Arab → EG, everything else → US', () => {
+test('pricingMarketFor: Europe → GB, everything else (incl. non-Gulf Arab) → US', () => {
   for (const cc of ['DE', 'FR', 'PL', 'IT', 'IE', 'UA', 'RS', 'CH']) assert.equal(pricingMarketFor(cc), 'GB', cc);
   for (const cc of EUROPE_TO_GB) assert.equal(pricingMarketFor(cc), 'GB', cc);
-  for (const cc of ['JO', 'LB', 'IQ', 'LY', 'SD', 'YE', 'SY', 'PS', 'MA', 'TN', 'DZ', 'MR']) assert.equal(pricingMarketFor(cc), 'EG', cc);
-  assert.deepEqual([...ARAB_TO_EG].sort(), ['DZ', 'IQ', 'JO', 'LB', 'LY', 'MA', 'MR', 'PS', 'SD', 'SY', 'TN', 'YE']);
+  for (const cc of ['JO', 'LB', 'IQ', 'LY', 'SD', 'YE', 'SY', 'PS', 'MA', 'TN', 'DZ', 'MR']) assert.equal(pricingMarketFor(cc), 'US', cc);
+  assert.deepEqual([...ARAB_TO_EG], [], 'only Egypt pays the Egyptian price');
   for (const cc of ['JP', 'NG', 'BR', 'IN', 'AU', 'CA', 'TR', 'RU', 'ZA', 'CN']) assert.equal(pricingMarketFor(cc), 'US', cc);
 });
 
@@ -43,7 +43,7 @@ test('pricingMarketFor: dirty input — names, casing, junk', () => {
   assert.equal(pricingMarketFor('Egypt'), 'EG');
   assert.equal(pricingMarketFor(' eg '), 'EG');
   assert.equal(pricingMarketFor('de'), 'GB');
-  assert.equal(pricingMarketFor('Libya'), 'EG');
+  assert.equal(pricingMarketFor('Libya'), 'US');
   assert.equal(pricingMarketFor('UK'), 'GB');
   for (const v of [null, undefined, '', 'Wakanda']) assert.equal(pricingMarketFor(v), 'US', String(v));
 });
@@ -53,10 +53,10 @@ test('pricingMarketFor: every signup country resolves to a list that exists', ()
   for (const c of COUNTRIES) assert.ok(lists.has(pricingMarketFor(c.iso)), c.iso + ' → ' + pricingMarketFor(c.iso));
 });
 
-test('pricingProxyFor: null when the country prices itself, EG for the Arab proxy', () => {
+test('pricingProxyFor: null when the country prices itself, else its proxy list', () => {
   assert.equal(pricingProxyFor('EG'), null);
   assert.equal(pricingProxyFor('GB'), null);
-  assert.equal(pricingProxyFor('LY'), 'EG');
+  assert.equal(pricingProxyFor('LY'), 'US');
   assert.equal(pricingProxyFor('DE'), 'GB');
   assert.equal(pricingProxyFor('JP'), 'US');
 });
@@ -82,12 +82,13 @@ function withFakePg(fake, mods, fn) {
 }
 
 // ── 3. the intake pricer ────────────────────────────────────────────────────
-test('intake pricer: a Libyan pays the Egyptian base price, a German the GB list — both charged in EGP', async () => {
+test('intake pricer: a Libyan pays the US list, a German the GB list — both charged in EGP, above the Egyptian price', async () => {
   const seen = [];
   const fake = {
     queryOne: async (sql, params) => {
       seen.push(params);
       if (/service_regional_prices/.test(sql) && params[1] === 'GB') return { tashkheesa_price: 250, currency: 'GBP' };
+      if (/service_regional_prices/.test(sql) && params[1] === 'US') return { tashkheesa_price: 200, currency: 'USD' };
       return null;
     }
   };
@@ -97,8 +98,9 @@ test('intake pricer: a Libyan pays the Egyptian base price, a German the GB list
 
     seen.length = 0;
     const ly = await cip.priceCaseForMarket({ service, country: 'LY', urgencyTier: 'standard' });
-    assert.equal(ly.pricingMarket, 'EG');
-    assert.equal(ly.charge.egpBase, 2400, 'Libya is charged the Egyptian price');
+    assert.equal(ly.pricingMarket, 'US');
+    assert.equal(ly.charge.displayCurrency, 'USD');
+    assert.ok(ly.charge.egpBase > 2400, 'Libya pays the international fee, not the Egyptian price');
     assert.ok(!seen.some((p) => p && p[1] === 'EG'), 'never reads an EG row from service_regional_prices');
 
     seen.length = 0;

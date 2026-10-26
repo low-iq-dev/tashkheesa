@@ -77,14 +77,13 @@ const EUROPE_TO_GB = Object.freeze([
   'AD', 'MC', 'SM', 'LI', 'VA', 'RS', 'BA', 'ME', 'MK', 'AL', 'MD', 'UA', 'BY'
 ]);
 
-// 26 Oct 2026 — non-Gulf Arab countries pay the EGYPTIAN price (services.base_price,
-// in EGP). They are Egypt's medical-travel market: a Libyan or Sudanese
-// patient compares us with flying to Cairo, not with a London clinic, and the
-// US list (the old default for them) priced them out at roughly four times the
-// domestic fee. The Gulf (SA AE KW QA BH OM) keeps its own lists.
-const ARAB_TO_EG = Object.freeze([
-  'JO', 'LB', 'IQ', 'LY', 'SD', 'YE', 'SY', 'PS', 'MA', 'TN', 'DZ', 'MR'
-]);
+// 26 Oct 2026 (Ziad): only Egypt pays the Egyptian price. Every other country
+// pays the international fee set for its market (charged in EGP): a non-Gulf
+// Arab country (JO LB IQ LY SD YE SY PS MA TN DZ MR) has no list of its own, so
+// it falls through to the rest-of-world (US) list like any other country.
+// Kept as an empty list so callers and tests that read it still load; add a
+// country here only if it should ever be priced at the Egyptian fee again.
+const ARAB_TO_EG = Object.freeze([]);
 
 const REST_OF_WORLD = 'US';
 
@@ -149,7 +148,7 @@ function normaliseCountry(country) {
  *   EG                                   → 'EG' (services.base_price, EGP)
  *   a priced market (AE BH GB KW OM QA SA US) → itself
  *   Europe (EUROPE_TO_GB)                → 'GB'
- *   non-Gulf Arab (ARAB_TO_EG)           → 'EG'
+ *   non-Gulf Arab (no list of its own)   → 'US' (ARAB_TO_EG is empty)
  *   anything else, or unrecognisable     → 'US'
  *
  * The card is ALWAYS charged in EGP whatever this returns (fx.egpChargeFromLocal).

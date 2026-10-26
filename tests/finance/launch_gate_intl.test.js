@@ -34,10 +34,10 @@ test('launch gate: a UAE order still charges EGP (currency pinned, price = EGP-e
 test('launch gate: coerceCountry still clamps (admin-only), but pricing goes through pricingMarketFor', () => {
   // 26 Oct 2026 — any country may sign up. coerceCountry is kept for EG-scoped
   // callers only; a French patient is priced from the GB list, a Libyan from
-  // the Egyptian price, and the charge is EGP either way.
+  // the US list (only Egypt pays the Egyptian fee), and the charge is EGP.
   assert.equal(coerceCountry('FR'), 'EG');
   const { pricingMarketFor } = require('../../src/services/pricing_market');
   assert.equal(pricingMarketFor('FR'), 'GB');
-  assert.equal(pricingMarketFor('LY'), 'EG');
+  assert.equal(pricingMarketFor('LY'), 'US');
   assert.equal(pricingMarketFor('JP'), 'US');
 });
