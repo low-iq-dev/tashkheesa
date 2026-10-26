@@ -28,6 +28,7 @@
 // per-phone OTP caps (./otp_phone_limits.js) are untouched.
 
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const { rateLimit } = require('express-rate-limit');
 const { clientIpKey } = require('./client_ip');
 
@@ -59,25 +60,61 @@ function jsonLimitHandler(body) {
   };
 }
 
+/**
+ * The user a bearer token was signed for, or '' when there is none or the
+ * signature does not check out. Signature only: no database, no revocation
+ * lookup (requireJWT still does both before any route runs). Expiry is
+ * ignored on purpose — an app holding a just-expired access token is about to
+ * refresh, and must not drop into the shared address bucket for that one call.
+ * Cached on the request; both limiters ask.
+ */
+function verifiedUserId(req) {
+  if (req._rlUserId !== undefined) return req._rlUserId;
+  let id = '';
+  const t = bearerOf(req);
+  const secret = process.env.JWT_SECRET;
+  if (t && secret) {
+    try {
+      const decoded = jwt.verify(t, secret, { ignoreExpiration: true });
+      if (decoded && (typeof decoded.id === 'string' || typeof decoded.id === 'number') && String(decoded.id)) {
+        id = String(decoded.id);
+      }
+    } catch (_) { /* forged, malformed or another secret: not a verified caller */ }
+  }
+  req._rlUserId = id;
+  return id;
+}
+
 function buildApiLimiters() {
-  // Abuse backstop per address. Also bounds anyone minting throwaway
-  // Authorization headers to collect fresh per-token buckets.
+  // 2026-10-26 — Abuse backstop per address, for traffic that is NOT a
+  // verified signed-in user: anonymous calls and tokens whose signature fails.
+  // It still bounds anyone minting throwaway Authorization headers to collect
+  // fresh per-token buckets. Signed-in users are bounded per USER below and
+  // never count here: on 26 Oct this ceiling (then 3000, counted for everyone,
+  // 429s included) filled for the whole office address and every patient and
+  // doctor behind it got "We're busy for a moment". Raised to 6000 because
+  // hospital and office networks put many people behind one address.
   const ipCeilingLimiter = rateLimit({
     windowMs: WINDOW_MS,
-    max: 3000,
+    max: 6000,
     validate: false,
+    skip: (req) => !!verifiedUserId(req),
     keyGenerator: (req) => 'ip:' + clientIpKey(req),
     handler: jsonLimitHandler(RATE_LIMITED_BODY),
-    standardHeaders: false,
+    standardHeaders: true,
     legacyHeaders: false,
   });
 
-  // Per signed-in caller: 600 (40/min sustained). Anonymous, per address: 300.
+  // Per verified user: 600 (40/min sustained), whichever token or device they
+  // use. A token that fails its signature check keeps its own per-token bucket
+  // (behind the ceiling above). Anonymous, per address: 300.
   const callerLimiter = rateLimit({
     windowMs: WINDOW_MS,
     max: (req) => (bearerOf(req) ? 600 : 300),
     validate: false,
     keyGenerator: (req) => {
+      const uid = verifiedUserId(req);
+      if (uid) return 'user:' + uid;
       const t = bearerOf(req);
       return t ? 'tok:' + sha(t) : 'ip:' + clientIpKey(req);
     },
@@ -168,4 +205,4 @@ function refreshKey(req) {
   return b ? 'tok:' + sha(b) : '';
 }
 
-module.exports = { buildApiLimiters, jsonLimitHandler, RATE_LIMITED_BODY, AUTH_LIMITED_BODY };
+module.exports = { buildApiLimiters, verifiedUserId, jsonLimitHandler, RATE_LIMITED_BODY, AUTH_LIMITED_BODY };

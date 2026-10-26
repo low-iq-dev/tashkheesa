@@ -46,8 +46,9 @@ module.exports = function (db, helpers, deploy) {
   // The limiters live in ../middleware/api_rate_limits.js (one place, testable
   // without a server). In short:
   //   apiLimiter           every route below except the two exemptions:
-  //                        600 / 15 min per signed-in token, 300 per address
-  //                        when anonymous, 3000 per address as the ceiling.
+  //                        600 / 15 min per verified user, 300 per address
+  //                        when anonymous, 6000 per address as the ceiling
+  //                        (anonymous and unverified tokens only).
   //   authLimiter          sign-in / sign-up / OTP / reset attempts: 20 / 15 min
   //                        per address. Skips refresh and sign-out.
   //   tokenLimiter         refresh and sign-out: 20 / 15 min per token.
