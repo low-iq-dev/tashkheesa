@@ -98,6 +98,22 @@ function setupCsrf(app, opts) {
     if (req.originalUrl && req.originalUrl.startsWith('/api/v1')) {
       return next();
     }
+    // BEACON-POST 2026-10-26 — the funnel beacon. navigator.sendBeacon is the
+    // only reliable way to record a CTA tap as the browser navigates away
+    // (fetch(keepalive) dies with the page in Meta's in-app WebView), and it
+    // always POSTs with no way to attach a header or a token.
+    //
+    // Safe to exempt because the endpoint changes nothing but an aggregate
+    // counter: it reads an allow-listed step name from the query string,
+    // increments funnel_daily_counts, and returns 204. It touches no user
+    // record, reads no body, and returns no data to the caller, so a forged
+    // cross-site POST can at most inflate a page-view count — which the
+    // GET form has always allowed anyway (any page can embed an <img> at it).
+    // If this endpoint ever learns to write anything else, this exemption must
+    // go with it.
+    if (p === '/f/e') {
+      return next();
+    }
     // Public marketing-site intake endpoint. The caller is cross-origin
     // and cannot read the httpOnly csrf_token cookie. Auth/abuse defense
     // lives in the dedicated /api/cases rate limiter (src/middleware.js).
