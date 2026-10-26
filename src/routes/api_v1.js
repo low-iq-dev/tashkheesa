@@ -56,7 +56,7 @@ module.exports = function (db, helpers, deploy) {
   //   loginAccountLimiter  wrong passwords: 10 / 15 min per account.
   // "Per address" means the caller's address (../middleware/client_ip.js), not
   // req.ip, which on this service is an edge hop.
-  const { apiLimiter, authLimiter, tokenLimiter, loginAccountLimiter } = buildApiLimiters();
+  const { apiLimiter, authLimiter, tokenLimiter, loginAccountLimiter, pushTokenLimiter } = buildApiLimiters();
 
   // AUDIT-APP-H4 — apiLimiter WAS 100 req / 15 min PER IP and was applied to
   // every route. The patient app polled /health every 30s (permanently), the
@@ -84,8 +84,16 @@ module.exports = function (db, helpers, deploy) {
     isExempt: (req) => RATE_LIMIT_EXEMPT.test(req.path),
   }));
 
+  // 2026-10-26 — a verified user's POST push-token (patient, doctor, Command)
+  // is counted in its own bucket (pushTokenLimiter, 20 / 15 min, 200 when
+  // full), never in the 600 / 15 min API bucket. Anything unverified still
+  // goes through apiLimiter.
+  const PUSH_TOKEN_POST = /^\/(profile|doctor|admin)\/push-token$/;
   router.use((req, res, next) => {
     if (RATE_LIMIT_EXEMPT.test(req.path)) return next();
+    if (req.method === 'POST' && PUSH_TOKEN_POST.test(req.path) && verifiedUserId(req)) {
+      return pushTokenLimiter(req, res, next);
+    }
     return apiLimiter(req, res, next);
   });
 

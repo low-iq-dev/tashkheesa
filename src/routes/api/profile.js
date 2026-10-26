@@ -227,6 +227,10 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     // C1 — store on this device's session row when the access token names one
     // (`sid`); a sid-less token was minted pre-C1 and keeps the single-slot
     // behaviour. The send path reads the union of both.
+    // 2026-10-26 — the same token again (builds 13-15 loop on iOS): no write.
+    if (await sessionStore.pushTokenAlreadyStored({ sessionId: req.user.sid, userId: req.user.id, pushToken: token })) {
+      return res.ok({ message: 'Push token registered', deduped: true });
+    }
     let stored = false;
     if (req.user.sid) {
       stored = await sessionStore.setPushToken(req.user.sid, token, req.user.id);
