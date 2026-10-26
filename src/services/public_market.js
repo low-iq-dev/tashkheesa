@@ -13,7 +13,8 @@
 // The rule here is the CHECKOUT's rule, so the page and the card form agree:
 //   - Egypt, or anything we cannot place → the EGP home price (unchanged).
 //   - A market with its own list (GB, US, AE, SA, QA, KW, BH, OM) → that list.
-//   - Anywhere else → pricing_market.pricingProxyFor (Europe → GB, rest → US).
+//   - Anywhere else → pricing_market.pricingMarketFor (Europe → GB, non-Gulf
+//     Arab → the EGP home price, rest → US).
 //
 // Where the country comes from, in order:
 //   1. ?market=GB on the URL (an ad can pin it), remembered in the `mkt` cookie;
@@ -27,7 +28,7 @@
 // This module only decides what is DISPLAYED. What a patient is charged is
 // still decided at checkout by case_intake_pricing.js from their account.
 
-const { pricingProxyFor, normaliseCountry, PRICED_MARKETS } = require('./pricing_market');
+const { pricingMarketFor, normaliseCountry } = require('./pricing_market');
 
 let geoip = null;
 try { geoip = require('geoip-lite'); } catch (_) { geoip = null; }
@@ -72,12 +73,17 @@ function visitorCountry(req) {
   return 'EG';
 }
 
-/** The price list a country is shown: 'EG' or one of PRICED_MARKETS. */
+/**
+ * The price list a country is shown: 'EG' or one of PRICED_MARKETS — the SAME
+ * answer checkout gives (pricing_market.pricingMarketFor), so a Libyan visitor
+ * reads the Egyptian price here and pays it at the card form, a German reads
+ * the GB list, a Japanese the US list. Only a visitor we cannot place at all
+ * keeps the home-market page.
+ */
 function marketFor(country) {
   const cc = normaliseCountry(country);
-  if (!cc || cc === 'EG') return 'EG';
-  if (PRICED_MARKETS.indexOf(cc) !== -1) return cc;
-  return pricingProxyFor(cc) || 'EG';
+  if (!cc) return 'EG';
+  return pricingMarketFor(cc);
 }
 
 function formatAmount(amount, currency) {

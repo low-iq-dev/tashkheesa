@@ -92,3 +92,22 @@ test('every wizard join still falls back to base_price', () => {
     'base_price only ' + coalesces + '. A join without the fallback prices a service ' +
     'with no regional row at NULL.');
 });
+
+test('every regional price lookup is keyed on pricingMarketFor, never the raw country (26 Oct 2026)', () => {
+  // Signup is open to every country. A raw country with no rows of its own
+  // (DE, LY, JP …) misses the join and falls through to services.base_price —
+  // the Egyptian price in EGP. Each lookup must ask pricing_market which LIST
+  // the country is priced from.
+  const pat = read('src/routes/patient.js');
+  const joins = (pat.match(/service_regional_prices\s+cp/g) || []).length;
+  const keyed = (pat.match(/\[pricingMarketFor\(countryCode\)/g) || []).length;
+  assert.strictEqual(keyed, joins,
+    'patient.js joins service_regional_prices ' + joins + ' time(s) but keys only ' + keyed +
+    ' of them on pricingMarketFor(countryCode).');
+  const api = read('src/routes/api/services.js');
+  assert.match(api, /function pricingCountryFor[\s\S]{0,200}pricingMarketFor\(/,
+    'the app catalogue must price from pricingMarketFor');
+  assert.doesNotMatch(api, /coerceCountry\(/, 'the app catalogue must not clamp to the launch markets');
+  const pub = read('src/services/public_market.js');
+  assert.match(pub, /return pricingMarketFor\(cc\)/, 'public pages must quote the checkout list');
+});

@@ -67,17 +67,31 @@ const HOME_MARKET = 'EG';
 
 // Europe → the GB price list. These are exactly the countries
 // country-currency.js already displays in GBP, so display and charge agree.
+// 26 Oct 2026: the rest of geographic Europe joins (the small states and the
+// Balkans/East; country-currency.js already displays most of them in GBP).
+// TR, RU and the Caucasus stay on the rest-of-world list.
 const EUROPE_TO_GB = Object.freeze([
   'IE', 'FR', 'DE', 'IT', 'ES', 'PT', 'NL', 'BE', 'AT', 'CH',
   'SE', 'NO', 'DK', 'FI', 'PL', 'CZ', 'SK', 'HU', 'RO', 'BG',
-  'GR', 'HR', 'SI', 'EE', 'LV', 'LT', 'LU', 'MT', 'CY', 'IS'
+  'GR', 'HR', 'SI', 'EE', 'LV', 'LT', 'LU', 'MT', 'CY', 'IS',
+  'AD', 'MC', 'SM', 'LI', 'VA', 'RS', 'BA', 'ME', 'MK', 'AL', 'MD', 'UA', 'BY'
+]);
+
+// 26 Oct 2026 — non-Gulf Arab countries pay the EGYPTIAN price (services.base_price,
+// in EGP). They are Egypt's medical-travel market: a Libyan or Sudanese
+// patient compares us with flying to Cairo, not with a London clinic, and the
+// US list (the old default for them) priced them out at roughly four times the
+// domestic fee. The Gulf (SA AE KW QA BH OM) keeps its own lists.
+const ARAB_TO_EG = Object.freeze([
+  'JO', 'LB', 'IQ', 'LY', 'SD', 'YE', 'SY', 'PS', 'MA', 'TN', 'DZ', 'MR'
 ]);
 
 const REST_OF_WORLD = 'US';
 
-const PROXY = Object.freeze(
-  EUROPE_TO_GB.reduce(function (acc, cc) { acc[cc] = 'GB'; return acc; }, {})
-);
+const PROXY = Object.freeze(Object.assign(
+  EUROPE_TO_GB.reduce(function (acc, cc) { acc[cc] = 'GB'; return acc; }, {}),
+  ARAB_TO_EG.reduce(function (acc, cc) { acc[cc] = HOME_MARKET; return acc; }, {})
+));
 
 // users.country is NOT clean. Checked in production 22 Sep: of 30 patient
 // rows, 16 hold 'EG', 12 hold NULL and 2 hold the string 'Egypt'.
@@ -104,7 +118,9 @@ const NAME_TO_ISO = Object.freeze({
   POLAND: 'PL', GERMANY: 'DE', FRANCE: 'FR', ITALY: 'IT', SPAIN: 'ES',
   NETHERLANDS: 'NL', BELGIUM: 'BE', IRELAND: 'IE', SWITZERLAND: 'CH',
   SWEDEN: 'SE', NORWAY: 'NO', DENMARK: 'DK', FINLAND: 'FI', AUSTRIA: 'AT',
-  PORTUGAL: 'PT', GREECE: 'GR', CZECHIA: 'CZ', 'CZECH REPUBLIC': 'CZ'
+  PORTUGAL: 'PT', GREECE: 'GR', CZECHIA: 'CZ', 'CZECH REPUBLIC': 'CZ',
+  JORDAN: 'JO', LEBANON: 'LB', IRAQ: 'IQ', LIBYA: 'LY', SUDAN: 'SD', YEMEN: 'YE',
+  SYRIA: 'SY', PALESTINE: 'PS', MOROCCO: 'MA', TUNISIA: 'TN', ALGERIA: 'DZ', MAURITANIA: 'MR'
 });
 
 /**
@@ -123,34 +139,62 @@ function normaliseCountry(country) {
 }
 
 /**
- * The market whose price list `country` should be charged from.
+ * THE pricing-market resolver (26 Oct 2026): the price list a patient from
+ * `country` is quoted and charged from. Every price lookup — public pages
+ * (public_market.marketFor), the web wizard, the app catalogue/quote and the
+ * intake pricer — goes through this, so the page, the quote and the card form
+ * agree. The patient's REAL country is what is stored on the account; this
+ * only decides which list prices it.
+ *
+ *   EG                                   → 'EG' (services.base_price, EGP)
+ *   a priced market (AE BH GB KW OM QA SA US) → itself
+ *   Europe (EUROPE_TO_GB)                → 'GB'
+ *   non-Gulf Arab (ARAB_TO_EG)           → 'EG'
+ *   anything else, or unrecognisable     → 'US'
+ *
+ * The card is ALWAYS charged in EGP whatever this returns (fx.egpChargeFromLocal).
+ *
+ * @param {string} country ISO-3166-1 alpha-2, or a country name we recognise
+ * @returns {string} 'EG' or one of PRICED_MARKETS
+ */
+function pricingMarketFor(country) {
+  const cc = normaliseCountry(country);
+  // Unrecognisable, empty or null. Resolves upward rather than to the
+  // Egyptian price — that is the whole point of this module — but a caller
+  // that wants to shout about it can ask normaliseCountry() itself.
+  if (!cc) return REST_OF_WORLD;
+  if (cc === HOME_MARKET) return HOME_MARKET;
+  if (PRICED_MARKETS.indexOf(cc) !== -1) return cc;
+  return PROXY[cc] || REST_OF_WORLD;
+}
+
+/**
+ * The market whose price list `country` should FALL BACK to when it has no
+ * rows of its own.
  *
  * Returns null for the home market and for any country that has its own price
  * list — in both cases the caller's normal lookup is already correct and must
- * not be second-guessed here.
+ * not be second-guessed here. Otherwise pricingMarketFor(country), which for
+ * the non-Gulf Arab countries is 'EG' — the caller must then price from
+ * services.base_price, never from an EG row in service_regional_prices.
  *
  * @param {string} country ISO-3166-1 alpha-2, or a country name we recognise
  * @returns {string|null} a market code to fall back to, or null
  */
 function pricingProxyFor(country) {
   const cc = normaliseCountry(country);
-
-  // Unrecognisable, empty or null. Still resolves upward rather than to the
-  // Egyptian price — that is the whole point of this module — but a caller
-  // that wants to shout about it can ask normaliseCountry() itself, which is
-  // why the two functions are separate and both exported.
-  if (!cc) return REST_OF_WORLD;
-
-  if (cc === HOME_MARKET) return null;
-  if (PRICED_MARKETS.indexOf(cc) !== -1) return null;
-  return PROXY[cc] || REST_OF_WORLD;
+  const market = pricingMarketFor(country);
+  if (cc && market === cc) return null;  // EG, or a country with its own list
+  return market;
 }
 
 module.exports = {
+  pricingMarketFor,
   pricingProxyFor,
   normaliseCountry,
   PRICED_MARKETS,
   EUROPE_TO_GB,
+  ARAB_TO_EG,
   REST_OF_WORLD,
   HOME_MARKET
 };

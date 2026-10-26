@@ -504,7 +504,8 @@ router.post('/patient/profile', requireRole('patient'), async function(req, res)
     const emailOptOut = req.body.email_marketing_opt_out === '1' ? 1 : 0;
     const dateOfBirth = String(req.body.date_of_birth || '').trim().slice(0, 10) || null;
     const gender = ['male', 'female', 'other'].includes(req.body.gender) ? req.body.gender : null;
-    const countryCode = isLaunchMarket(req.body.country_code) ? String(req.body.country_code).trim().toUpperCase() : null;
+    // 26 Oct 2026 — any real country (was isLaunchMarket: nine markets only).
+    const countryCode = signupCountry(req.body.country_code);
 
     if (!name) {
       return renderPatientProfile(req, res, { error: isAr ? 'الاسم مطلوب' : 'Name is required' });
@@ -540,7 +541,10 @@ router.post('/patient/profile', requireRole('patient'), async function(req, res)
     // still reaches logErrorToDb.
     try {
       await execute(
-        'UPDATE users SET name = $1, phone = $2, lang = $3, notify_whatsapp = $4, email_marketing_opt_out = $5, date_of_birth = $6, gender = $7, country_code = $8 WHERE id = $9',
+        // 26 Oct 2026 — country moves with country_code (the intake pricer reads
+        // users.country), and an unrecognisable/blank value keeps what is stored
+        // instead of wiping it.
+        'UPDATE users SET name = $1, phone = $2, lang = $3, notify_whatsapp = $4, email_marketing_opt_out = $5, date_of_birth = $6, gender = $7, country_code = COALESCE($8, country_code), country = COALESCE($8, country) WHERE id = $9',
         [name, phone, prefLang, notifyWhatsapp, emailOptOut, dateOfBirth, gender, countryCode, userId]
       );
     } catch (writeErr) {
@@ -559,7 +563,7 @@ router.post('/patient/profile', requireRole('patient'), async function(req, res)
         name: name,
         phone: phone,
         lang: prefLang,
-        country_code: countryCode
+        country_code: countryCode || req.user.country_code
       }));
     } catch (_) { /* cookie refresh is non-critical */ }
 
@@ -1166,7 +1170,12 @@ async function ensureServicesVisibilityColumn() {
 }
 
 const { COUNTRY_TO_CURRENCY, getCurrencyForCountry } = require('../country-currency');
-const { coerceCountry, isLaunchMarket } = require('../launch-market');
+const { coerceCountry, signupCountry } = require('../launch-market');
+// 26 Oct 2026 — every price lookup below joins service_regional_prices on
+// pricingMarketFor(country), never on the raw country: a German patient has no
+// DE rows and was falling through to services.base_price — the EGYPTIAN price
+// in EGP, about a seventh of the GB list the intake pricer charges.
+const { pricingMarketFor } = require('../services/pricing_market');
 const ALLOWED_COUNTRY_CODES = new Set(Object.keys(COUNTRY_TO_CURRENCY));
 const COUNTRY_CURRENCY = COUNTRY_TO_CURRENCY;
 
@@ -1826,7 +1835,7 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
   // write site FX-converts + pins currency 'EGP'). getUserCountryCode would clamp
   // to EG and show EGP prices that then mismatch the stored intl display fields.
   const countryCode = await getPricingCountryCode(req, 'web.wizard');
-  const countryCurrency = getCountryCurrency(countryCode);
+  const countryCurrency = getCountryCurrency(pricingMarketFor(countryCode));
 
   // Resolve draft + step.
   let draft = null;
@@ -1959,7 +1968,7 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
                        AND COALESCE(cp.status, 'active') = 'active'
                       WHERE ${visibleClause}
                       ORDER BY sv.name ASC`,
-        [countryCode]
+        [pricingMarketFor(countryCode)]
       );
     } catch (_) { services = []; }
   }
@@ -1987,7 +1996,7 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
                          AND cp.country_code = $1
                          AND COALESCE(cp.status, 'active') = 'active'
                         WHERE sv.id = $2 AND ${bookableClause}`,
-          [countryCode, draft.service_id]
+          [pricingMarketFor(countryCode), draft.service_id]
         );
         const localCurrency = String((localPrice && localPrice.currency) || countryCurrency || 'EGP').toUpperCase();
         // ALWAYS-CHARGE-EGP: the EGP secondary lane must be the ACTUAL EGP charge
@@ -2281,7 +2290,7 @@ router.post('/patient/new-case/step1', requireRole('patient'), async (req, res) 
       step: 1,
       draft: draft || { clinical_question: clinicalQuestion, medical_history: medicalHistory, current_medications: currentMedications },
       files: [],
-      countryCurrency: getCountryCurrency(getUserCountryCode(req)),
+      countryCurrency: getCountryCurrency(pricingMarketFor(getDisplayCountryCode(req))),
       needsDemographics: !!demographics.missing,
       demoForm: { date_of_birth: String(body.date_of_birth || '').slice(0, 10), gender: String(body.gender || '').slice(0, 10) },
       error: { step: 1, message: clinicalQuestion.length < 10
@@ -2790,7 +2799,7 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
              ON cp.service_id = sv.id AND cp.country_code = $1
             AND COALESCE(cp.status, 'active') = 'active'
            WHERE sv.id = $2 AND ${bookableClause}`,
-    [countryCode, owned.service_id]
+    [pricingMarketFor(countryCode), owned.service_id]
   );
   if (!service) {
     return res.redirect('/patient/new-case?step=3&id=' + encodeURIComponent(orderId) + '&err=invalid_service');
@@ -2856,7 +2865,7 @@ router.post('/patient/new-case/step4/urgency-resolve', requireRole('patient'), a
              ON cp.service_id = sv.id AND cp.country_code = $1
             AND COALESCE(cp.status, 'active') = 'active'
            WHERE sv.id = $2 AND ${bookableClause}`,
-    [countryCode, owned.service_id]
+    [pricingMarketFor(countryCode), owned.service_id]
   );
   if (!service) {
     return res.redirect('/patient/new-case?step=3&id=' + encodeURIComponent(orderId) + '&err=invalid_service');
@@ -3343,7 +3352,7 @@ router.get('/patient/new-case/:id/files.json', requireRole('patient'), async (re
 router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
   const patientId = req.user.id;
   const countryCode = await getPricingCountryCode(req, 'web.new_case');   // real market → local price; charge stays EGP via egpChargeFromLocal
-  const countryCurrency = getCountryCurrency(countryCode);
+  const countryCurrency = getCountryCurrency(pricingMarketFor(countryCode));
   const { specialty_id, service_id, notes, file_urls, sla_type } = req.body || {};
 
   const specialties = await queryAll('SELECT id, name, name_ar FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
@@ -3367,7 +3376,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
         AND COALESCE(cp.status, 'active') = 'active'
        WHERE ${bookableClauseUC}
        ORDER BY sv.name ASC`,
-    [countryCode]
+    [pricingMarketFor(countryCode)]
   );
 
   const service = await safeGet(
@@ -3386,7 +3395,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
         AND cp.country_code = $1
         AND COALESCE(cp.status, 'active') = 'active'
        WHERE sv.id = $2 AND ${bookableClauseUC}`,
-    [countryCode, service_id]
+    [pricingMarketFor(countryCode), service_id]
   );
 
   // 2026-08-25: was `SELECT 1 FROM specialties WHERE id = $1` — any specialty,
@@ -3592,7 +3601,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
   const lang = getLang(req, res);
   const patientId = req.user.id;
   const countryCode = getUserCountryCode(req);
-  const countryCurrency = getCountryCurrency(countryCode);
+  const countryCurrency = getCountryCurrency(pricingMarketFor(countryCode));
   const {
     service_id,
     specialty_id,
@@ -3626,7 +3635,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
         AND COALESCE(cp.status, 'active') = 'active'
        WHERE ${visibleClause}
        ORDER BY sp.name ASC, sv.name ASC`,
-    [countryCode]
+    [pricingMarketFor(countryCode)]
   );
 
   const service = await safeGet(
@@ -3643,7 +3652,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
         AND cp.country_code = $1
         AND COALESCE(cp.status, 'active') = 'active'
        WHERE sv.id = $2 AND ${visibleClause}`,
-    [countryCode, service_id]
+    [pricingMarketFor(countryCode), service_id]
   );
 
   // Immutable price/currency/fee snapshot (TASK 2)
@@ -3935,7 +3944,7 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
   // Launch eve 2026-09-24: same account-country rule as the wizard (T5), so the
   // pay page can never quote a different country than the case was priced in.
   const countryCode = await getPricingCountryCode(req, 'pay');
-  const countryCurrency = getCountryCurrency(countryCode);
+  const countryCurrency = getCountryCurrency(pricingMarketFor(countryCode));
   // ALWAYS-CHARGE-EGP: add-ons are CHARGED in EGP (payments.js resolves them at
   // order.currency='EGP'), so price + display them in EGP too — never the local
   // currency — or the pay page would show a total that doesn't match the charge.

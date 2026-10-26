@@ -6,7 +6,7 @@
  */
 
 const router = require('express').Router();
-const { coerceCountry } = require('../../launch-market');
+const { pricingMarketFor } = require('../../services/pricing_market');
 const { serviceBookableClause } = require('../../services/service_bookable');
 // NEW-CASE-4 — the SAME window rule the submit path enforces
 // (case_intake_pricing.assertUrgentWindowOpen → URGENT_UNAVAILABLE), so the
@@ -95,10 +95,18 @@ module.exports = function (db, { safeGet, safeAll }) {
 // So: a signed-in caller is priced for the country on their account, and the
 // query parameter is honoured only for anonymous catalogue browsing, where
 // there is no account to read and no charge to make.
+//
+// 26 Oct 2026 — the value returned is the PRICE LIST (pricing_market.
+// pricingMarketFor), not a clamp to the nine launch markets: a German account
+// is quoted the GB list, a Libyan the Egyptian price, a Japanese the US list —
+// the same answer the intake pricer charges. The launch-market clamp turned every
+// one of them into EG, so the app catalogue showed EGP prices and the case
+// was then charged from a different list. No country at all → EG (home).
 function pricingCountryFor(req) {
   const fromUser = req && req.user && (req.user.country_code || req.user.country);
-  if (fromUser) return coerceCountry(fromUser);
-  return coerceCountry(req && req.query && req.query.country);
+  if (fromUser) return pricingMarketFor(fromUser);
+  const q = req && req.query && req.query.country;
+  return q ? pricingMarketFor(q) : 'EG';
 }
 
   // ─── GET /services ───────────────────────────────────────

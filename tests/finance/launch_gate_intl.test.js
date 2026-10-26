@@ -31,6 +31,13 @@ test('launch gate: a UAE order still charges EGP (currency pinned, price = EGP-e
   assert.notEqual(charge.egpBase, 1199);        // never charge the raw AED figure
 });
 
-test('launch gate: an unsupported country falls back to EG pricing (never a foreign charge)', () => {
+test('launch gate: coerceCountry still clamps (admin-only), but pricing goes through pricingMarketFor', () => {
+  // 26 Oct 2026 — any country may sign up. coerceCountry is kept for EG-scoped
+  // callers only; a French patient is priced from the GB list, a Libyan from
+  // the Egyptian price, and the charge is EGP either way.
   assert.equal(coerceCountry('FR'), 'EG');
+  const { pricingMarketFor } = require('../../src/services/pricing_market');
+  assert.equal(pricingMarketFor('FR'), 'GB');
+  assert.equal(pricingMarketFor('LY'), 'EG');
+  assert.equal(pricingMarketFor('JP'), 'US');
 });

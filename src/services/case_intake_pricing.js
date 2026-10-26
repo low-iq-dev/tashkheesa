@@ -256,7 +256,14 @@ async function priceCaseForMarket({ service, country, urgencyTier }) {
   let pricingMarket = displayCountry;
   if (!isHomeMarket && (!regionalPrice || regionalPrice.tashkheesa_price == null)) {
     const proxy = pricingProxyFor(displayCountry);
-    if (proxy) {
+    if (proxy === HOME_MARKET) {
+      // 26 Oct 2026 — the non-Gulf Arab countries (pricing_market.ARAB_TO_EG)
+      // pay the Egyptian price. That is services.base_price, exactly as for an
+      // Egyptian patient — NEVER an EG row in service_regional_prices, for the
+      // same reason the home market skips that table above.
+      regionalPrice = null;
+      pricingMarket = HOME_MARKET;
+    } else if (proxy) {
       const proxied = await queryOne(
         "SELECT tashkheesa_price, currency FROM service_regional_prices " +
         "WHERE service_id = $1 AND country_code = $2 AND COALESCE(status, 'active') = 'active'",
