@@ -13,7 +13,8 @@
  */
 
 const express = require('express');
-const { buildApiLimiters } = require('../middleware/api_rate_limits');
+const { buildApiLimiters, verifiedUserId } = require('../middleware/api_rate_limits');
+const { buildRateTally } = require('../middleware/api_rate_tally');
 const apiResponse = require('../middleware/apiResponse');
 const { requireJWT, requireRole } = require('../middleware/requireJWT');
 const { getSignedDownloadUrl } = require('../storage');
@@ -73,6 +74,16 @@ module.exports = function (db, helpers, deploy) {
   // limiter in src/middleware.js (100 / minute / address, plain-text 429) ran
   // first and counted both paths anyway. It now skips /api/v1 entirely.
   const RATE_LIMIT_EXEMPT = /^\/health$|^\/cases\/[^/]+\/payment$/;
+
+  // 2026-10-26 — per-user request tally (../middleware/api_rate_tally.js):
+  // counts every signed-in user's requests per route per minute, refused and
+  // exempt ones included, and logs one error_logs row (category
+  // 'api_rate_tally') when a user passes 60 in a minute.
+  router.use(buildRateTally({
+    userIdOf: verifiedUserId,
+    isExempt: (req) => RATE_LIMIT_EXEMPT.test(req.path),
+  }));
+
   router.use((req, res, next) => {
     if (RATE_LIMIT_EXEMPT.test(req.path)) return next();
     return apiLimiter(req, res, next);
