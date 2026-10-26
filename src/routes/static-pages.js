@@ -641,7 +641,13 @@ function setupStaticPages(opts) {
     var cat = null;
     try { cat = await siteStats.getCatalogueStats(); } catch (_) { cat = null; }
     var startPrices = await loadPriceBook(res, []);
+    // ?promo=SHIFA25 (hospital poster QR, migration 131): remembered in a cookie
+    // and forwarded on the CTA so the wizard's Step 5 can pre-fill it. Pre-fill
+    // only — the discount is applied server-side when the patient presses Apply.
+    var promoCode = null;
+    try { promoCode = require('../services/promo_codes').rememberFromQuery(req, res); } catch (_) { promoCode = null; }
     res.render('start', {
+      promoCode: promoCode,
       minLocal: startPrices.minFormatted,
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       title: isAr ? 'رأي طبي تاني مكتوب في 48 ساعة | تشخيصة' : 'A written second opinion in 48 hours | Tashkheesa',

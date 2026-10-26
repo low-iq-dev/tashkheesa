@@ -181,6 +181,14 @@
         <strong class="tabular"><%= _order.displayCurrency || 'EGP' %> <%= _order.displayPrice != null ? Number(_order.displayPrice).toLocaleString('en-US') : '—' %></strong>
         <span style="color:var(--fg-3);">· doctor fee <%= _order.displayDoctorFee != null ? Number(_order.displayDoctorFee).toLocaleString('en-US') : '—' %></span>
       </div>
+      <% if (typeof promo !== 'undefined' && promo) { %>
+        <div data-promo style="font-size:11.5px;color:var(--fg-3);margin-bottom:8px;">
+          Promo <strong class="mono" style="color:var(--fg-1);"><%= promo.code %></strong>
+          · list <span class="tabular"><s><%= Number(promo.priceBeforeDiscount).toLocaleString('en-US') %></s></span>
+          · discount <span class="tabular">−<%= Number(promo.discountEgp).toLocaleString('en-US') %></span> EGP
+          · doctor fee is on the list price
+        </div>
+      <% } %>
       <% if (_order.payment_method || _order.payment_reference) { %>
         <div style="font-size:11.5px;color:var(--fg-3);margin-bottom:8px;">
           <% if (_order.payment_method) { %>Method: <strong style="color:var(--fg-1);"><%= _order.payment_method %></strong><% } %>

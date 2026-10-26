@@ -107,9 +107,11 @@ module.exports = (async function run() {
     // the new quote route. The pin follows the call: the helper must hand its
     // userId to resolveAndPriceIntake, and both routes must give it req.user.id.
     const draftSrc = read('src/routes/api/cases_draft.js');
-    if (!/async function priceDraftIntake\(draft, choice, userId, context\)[\s\S]{0,1200}resolveAndPriceIntake\(\{[\s\S]{0,200}userId: userId, context: context/.test(draftSrc)) throw new Error('api/cases_draft.js helper');
+    // 26 Oct 2026 — the helper takes a trailing promoCode (migration 131); the
+    // pricing country rule it pins is unchanged.
+    if (!/async function priceDraftIntake\(draft, choice, userId, context(?:, promoCode)?\)[\s\S]{0,1200}resolveAndPriceIntake\(\{[\s\S]{0,200}userId: userId, context: context/.test(draftSrc)) throw new Error('api/cases_draft.js helper');
     if (!/priceDraftIntake\(\s*draft, b, req\.user\.id, 'api\.cases_draft'/.test(draftSrc)) throw new Error('api/cases_draft.js submit');
-    if (!/priceDraftIntake\(draft, null, req\.user\.id, 'api\.cases_draft\.quote'\)/.test(draftSrc)) throw new Error('api/cases_draft.js quote');
+    if (!/priceDraftIntake\(\s*draft, null, req\.user\.id, 'api\.cases_draft\.quote'(?:, req\.query && req\.query\.promo)?\s*\)/.test(draftSrc)) throw new Error('api/cases_draft.js quote');
   });
 
   await check('every web-funnel pricing site uses the account-country resolver', () => {

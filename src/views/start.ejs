@@ -8,7 +8,10 @@
   const __ctaOn = (typeof bookingCtaEnabled !== 'undefined') ? !!bookingCtaEnabled : false;
   const __loggedIn = !!(typeof user !== 'undefined' && user && user.id);
   const __lp = (typeof langParam !== 'undefined' && langParam) ? langParam : (__isAr ? 'lang=ar' : '');
-  const __target = '/patient/new-case';
+  // ?promo= (validated server-side to [A-Z0-9_-]) rides into the wizard, which
+  // pre-fills it on Step 5. Migration 131.
+  const __promoCode = (typeof promoCode !== 'undefined' && promoCode) ? String(promoCode) : '';
+  const __target = '/patient/new-case' + (__promoCode ? '?promo=' + encodeURIComponent(__promoCode) : '');
   let __startHref = __loggedIn ? __target : '/register?next=' + encodeURIComponent(__target);
   if (__lp) __startHref += (__startHref.indexOf('?') === -1 ? '?' : '&') + __lp;
   const __min = (typeof minPrice !== 'undefined' && minPrice) ? Number(minPrice).toLocaleString('en-GB') : '1,600';

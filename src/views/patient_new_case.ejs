@@ -1208,6 +1208,23 @@
     // "You'll be billed in EGP (≈ EGP X) — your bank converts at checkout." null for
     // domestic. lang is already bound into res.locals.chargeDisclosure via middleware.
     const __chargeNote = (__isIntlOrder && typeof chargeDisclosure === 'function') ? chargeDisclosure(__draft) : null;
+    // Promo code (migration 131). `applied` is the server's figure read back from
+    // the order row: price is already the discounted charge, so __displayTotal
+    // above is the new total; here we only add the struck-through list price
+    // and the discount line. Intl: the same base x (price / base) derivation,
+    // run on price_before_discount.
+    const __promo = (typeof promo === 'object' && promo) ? promo : null;
+    const __promoApplied = (__promo && __promo.applied) ? __promo.applied : null;
+    let __promoOriginal = null, __promoDiscount = null;
+    if (__promoApplied) {
+      if (__isIntlOrder && __basePrice > 0) {
+        __promoOriginal = Math.round(__localBase * (Number(__promoApplied.priceBeforeDiscount) / __basePrice));
+        __promoDiscount = Math.max(0, __promoOriginal - __displayTotal);
+      } else {
+        __promoOriginal = Number(__promoApplied.priceBeforeDiscount) || 0;
+        __promoDiscount = Number(__promoApplied.discountEgp) || 0;
+      }
+    }
     const __tierLabel = __isStandard
       ? tt('Standard 48h', 'Standard 48h', 'قياسي 48 ساعة')
       : __tier === 'vip'
@@ -1260,6 +1277,11 @@
                   <% } %>
                 </div>
                 <div style="text-align:end;">
+                  <% if (__promoApplied && __promoOriginal) { %>
+                    <div class="p-num" data-promo-original style="font-size:14px;color:var(--muted);margin-bottom:6px;">
+                      <s><%= fmtMoney2(__promoOriginal, __displayCurrency) %></s>
+                    </div>
+                  <% } %>
                   <div class="p-num" style="font-family:var(--font-display);font-size:34px;font-weight:500;color:var(--accent-dark);letter-spacing:-0.005em;line-height:1;">
                     <%= fmtMoney2(__displayTotal, __displayCurrency) %>
                   </div>
@@ -1270,6 +1292,56 @@
                   <% } %>
                 </div>
               </div>
+              <% if (__promoApplied) { %>
+                <div data-promo-discount style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line, #ECE6DA);font-size:13px;">
+                  <span style="color:var(--accent-dark);font-weight:600;">
+                    <%= tt('Code', 'Code', 'كود') %> <span dir="ltr"><%= __promoApplied.code %></span>
+                  </span>
+                  <span class="p-num" style="color:var(--accent-dark);font-weight:600;" dir="ltr">−<%= fmtMoney2(__promoDiscount, __displayCurrency) %></span>
+                </div>
+              <% } %>
+            </div>
+
+            <%# Promo code (migration 131). Separate form: it only ever sends the
+                code — the discount is computed server-side from the order row. %>
+            <div data-promo-box style="margin-top:14px;">
+              <% if (__promo && __promo.flash === 'applied' && __promoApplied) { %>
+                <div role="status" style="font-size:12.5px;color:var(--accent-dark);margin-bottom:8px;">
+                  <%= tt('Code applied — your new total is shown above.', 'Code applied — your new total is shown above.', 'تم تطبيق الكود — الإجمالي الجديد ظاهر فوق.') %>
+                </div>
+              <% } %>
+              <% if (__promoApplied) { %>
+                <form method="post" action="/patient/new-case/promo" style="display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--muted);">
+                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                  <input type="hidden" name="id" value="<%= draftId %>" />
+                  <input type="hidden" name="action" value="remove" />
+                  <span><%= tt('Discount applied to this case.', 'Discount applied to this case.', 'الخصم متطبّق على الحالة دي.') %></span>
+                  <button type="submit" class="p-btn p-btn--ghost" style="font-size:12.5px;padding:6px 10px;"><%= tt('Remove code', 'Remove code', 'إزالة الكود') %></button>
+                </form>
+              <% } else { %>
+                <details <%= (__promo && (__promo.prefill || __promo.error)) ? 'open' : '' %>>
+                  <summary style="cursor:pointer;font-size:13px;color:var(--accent-dark);font-weight:600;"><%= tt('Have a code?', 'Have a code?', 'معاك كود خصم؟') %></summary>
+                  <form method="post" action="/patient/new-case/promo" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+                    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                    <input type="hidden" name="id" value="<%= draftId %>" />
+                    <label for="promo_code" class="visually-hidden" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);"><%= tt('Promo code', 'Promo code', 'كود الخصم') %></label>
+                    <input id="promo_code" name="promo_code" type="text" dir="ltr" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="32"
+                           value="<%= (__promo && __promo.prefill) || '' %>"
+                           placeholder="<%= tt('e.g. SHIFA25', 'e.g. SHIFA25', 'مثال: SHIFA25') %>"
+                           <% if (__promo && __promo.error) { %>aria-invalid="true" aria-describedby="promo_err"<% } %>
+                           style="flex:1 1 160px;min-width:0;padding:10px 12px;border:1px solid var(--line, #DDD5C6);border-radius:10px;font-size:14px;text-transform:uppercase;letter-spacing:0.04em;" />
+                    <button type="submit" class="p-btn p-btn--ghost" style="font-size:13px;"><%= tt('Apply', 'Apply', 'تطبيق') %></button>
+                  </form>
+                  <% if (__promo && __promo.error) { %>
+                    <div id="promo_err" role="alert" style="margin-top:8px;font-size:12.5px;color:var(--warn);"><%= __promo.error %></div>
+                  <% } %>
+                </details>
+              <% } %>
+              <% if (__promo && __promo.flash === 'removed' && !__promoApplied) { %>
+                <div role="status" style="font-size:12.5px;color:var(--muted);margin-top:8px;">
+                  <%= tt('Code removed.', 'Code removed.', 'تمت إزالة الكود.') %>
+                </div>
+              <% } %>
             </div>
 
             <form method="post" action="/patient/new-case/step5" style="margin-top:18px;">

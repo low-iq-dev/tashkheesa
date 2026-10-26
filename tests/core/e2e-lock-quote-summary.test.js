@@ -253,8 +253,11 @@ try {
 
   const helper = between(DRAFT, 'async function priceDraftIntake', "router.get('/:id/quote'");
   expect(/resolveAndPriceIntake\(/.test(helper), 'priceDraftIntake must call resolveAndPriceIntake');
-  expect(/chargedTotalEgp: intake\.pricing\.totalPrice/.test(helper),
-    'the charged total is pricing.totalPrice (base + tier uplift)');
+  // 26 Oct 2026 (migration 131) — a promo code, when one applies, discounts
+  // that same list total; without one it IS pricing.totalPrice.
+  expect(/const listTotalEgp = Number\(intake\.pricing\.totalPrice\);/.test(helper) &&
+         /chargedTotalEgp: promo \? promo\.totalEgp : listTotalEgp/.test(helper),
+    'the charged total is pricing.totalPrice (base + tier uplift), less a promo when one applies');
   const submit = between(DRAFT, "router.post('/:id/submit'");
   expect(/priceDraftIntake\(/.test(submit) && !/resolveAndPriceIntake\(/.test(submit),
     'submit must price through the SAME helper, not its own call');

@@ -2802,6 +2802,15 @@ async function markCasePaid(caseId) {
   // after the patient pays. Tracked as a pre-existing UX bug in
   // /Users/ziadelwahsh/.claude/projects/.../project_payment_reminder_cancellation.md.
 
+  // Promo codes (migration 131) — count the use HERE, in the paid transaction,
+  // because this is the one boundary every paid path crosses (Kashier webhook,
+  // stub success, superadmin mark-paid / InstaPay claim approval). Idempotent
+  // via orders.promo_redeemed_at, and inside its own SAVEPOINT so a promo
+  // failure can never roll back a confirmed payment.
+  if (existing.promo_code) {
+    await require('./services/promo_codes').redeemForPaidOrder(client, caseId);
+  }
+
   await logCaseEvent(caseId, 'PAYMENT_CONFIRMED', { sla_hours: slaHours, urgency_tier: existing.urgency_tier || 'standard' }, client);
   await logCaseEvent(caseId, 'CASE_READY_FOR_ASSIGNMENT', null, client);
   await triggerNotification(caseId, 'payment_confirmation', { sla_hours: slaHours, urgency_tier: existing.urgency_tier || 'standard' }, client);

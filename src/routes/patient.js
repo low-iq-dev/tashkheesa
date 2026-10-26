@@ -31,6 +31,9 @@ const { isAllowedFileUrl } = require('../services/file_url_allowlist');
 const caseLifecycle = require('../case_lifecycle');
 // Manual payment path (InstaPay / bank transfer) — see the service header.
 const manualPayment = require('../services/manual_payment');
+// Promo codes (SHIFA25, migration 131) — validate / apply / remove on the
+// Step 5 review; the code is carried in from ?promo= on /start and the wizard.
+const promoCodes = require('../services/promo_codes');
 // App funnel 2026-09-23 — fire-and-forget PostHog funnel events (never awaited).
 const { captureFunnel } = require('../services/analytics');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
@@ -1826,6 +1829,9 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
   const resumeId = (req.query && req.query.resume) ? String(req.query.resume) : '';
   const explicitId = (req.query && req.query.id) ? String(req.query.id) : '';
   const explicitStep = Number(req.query && req.query.step) || 0;
+  // ?promo=SHIFA25 (poster QR) — remembered so it survives the auto-resume
+  // redirect below and the steps in between; it only pre-fills Step 5.
+  promoCodes.rememberFromQuery(req, res);
 
   // Helper: resolve the country/currency context (for Step 4/5 pricing later).
   // ALWAYS-CHARGE-EGP: use the DISPLAY country (real market, NOT clamped to a
@@ -2050,7 +2056,23 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
   // neither on file (see loadDemographics).
   const demographics = step === 1 ? await loadDemographics(patientId) : null;
 
+  // Promo code block on Step 5 (migration 131). `applied` is read back from the
+  // order row — the server's figure, never a client one.
+  let promo = null;
+  if (draft && step === 5) {
+    const q = req.query || {};
+    const errReason = String(q.promo_err || '').replace(/[^a-z_]/g, '').slice(0, 30);
+    promo = {
+      applied: await promoCodes.orderPromoSummary(draft.id),
+      prefill: promoCodes.normaliseCode(q.promo_code) || promoCodes.prefillFromRequest(req) || '',
+      error: errReason ? promoCodes.messageFor(errReason, lang) : null,
+      flash: String(q.promo_ok || '') === 'applied' ? 'applied'
+        : String(q.promo_ok || '') === 'removed' ? 'removed' : null
+    };
+  }
+
   return res.render('patient_new_case', {
+    promo,
     user: req.user,
     lang,
     isAr,
@@ -2665,7 +2687,7 @@ router.post('/patient/new-case/step3', requireRole('patient'), async (req, res) 
 // Contract: `service` MUST carry base_price AND currency in the SAME currency
 // (the cp-join local price + its currency). Returns { ok: true } on success, or
 // { ok: false, step, error } naming the wizard step to bounce to.
-async function persistTierPricing({ orderId, patientId, tier, service, slaDeadline = null }) {
+async function persistTierPricing({ orderId, patientId, tier, service, slaDeadline = null, countryCode = null }) {
   // 1. LOCAL catalog price → EGP charge base. Identity for EGP, so the
   //    domestic path stays byte-identical to what it wrote before.
   let charge;
@@ -2721,6 +2743,8 @@ async function persistTierPricing({ orderId, patientId, tier, service, slaDeadli
          ${setSlaDeadline ? 'sla_deadline = $13,' : ''}
          paymob_intention_id = NULL,
          payment_link = NULL,
+         price_before_discount = NULL,
+         discount_egp = NULL,
          draft_step = GREATEST(COALESCE(draft_step, 0), 4),
          updated_at = $10
      WHERE id = $11 AND patient_id = $12 AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
@@ -2740,6 +2764,16 @@ async function persistTierPricing({ orderId, patientId, tier, service, slaDeadli
       ...(setSlaDeadline ? [slaDeadline] : [])
     ]
   );
+
+  // Promo codes (migration 131). The UPDATE above wrote a fresh LIST price and
+  // cleared the old discount figures; a code the patient already applied is put
+  // back on the new price (re-validated — an expired code is dropped, never
+  // honoured at a stale amount). Never throws.
+  await promoCodes.reapplyToOrder({
+    orderId,
+    patientId,
+    pricingMarket: pricingMarketFor(countryCode)
+  });
 
   return { ok: true };
 }
@@ -2808,7 +2842,7 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
   // ALWAYS-CHARGE-EGP: the cp-join gives the patient's LOCAL price + currency.
   // persistTierPricing converts it to the EGP charge base once, runs the
   // urgency math in EGP, and writes every money column (see its header).
-  const written = await persistTierPricing({ orderId, patientId, tier, service });
+  const written = await persistTierPricing({ orderId, patientId, tier, service, countryCode });
   if (!written.ok) {
     return res.redirect(
       '/patient/new-case?step=' + written.step + '&id=' + encodeURIComponent(orderId) + '&err=' + written.error
@@ -2884,7 +2918,7 @@ router.post('/patient/new-case/step4/urgency-resolve', requireRole('patient'), a
   // (currency / doctor_fee / display_price / display_currency included), and the
   // stale-intention invalidation.
   const written = await persistTierPricing({
-    orderId, patientId, tier: resolvedTier, service, slaDeadline
+    orderId, patientId, tier: resolvedTier, service, slaDeadline, countryCode
   });
   if (!written.ok) {
     return res.redirect(
@@ -2929,6 +2963,75 @@ const newCaseSubmitLimiter = rateLimit({
   keyGenerator: (req) => (req.user && req.user.id) ? 'user:' + String(req.user.id) : 'ip:' + req.ip,
   skip: () => !NEWCASE_RL_IS_PROD && String(process.env.RATE_LIMIT_DISABLED || '').toLowerCase() === 'true',
   message: 'Too many case submissions. Please wait 15 minutes and try again.'
+});
+
+// POST /patient/new-case/promo — "Have a code?" on Step 5 (migration 131).
+//
+// Body: id, promo_code, and action=remove to take a code off. The discount is
+// computed and written server-side by services/promo_codes.applyToOrder from
+// the order's own list price; the form carries no amount, so there is nothing
+// to tamper with. Applying again (or a different code) recomputes from the
+// list price — never stacks. Per-patient limiter so codes cannot be guessed
+// by brute force.
+const promoApplyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  validate: false,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user && req.user.id) ? 'user:' + String(req.user.id) : 'ip:' + req.ip,
+  skip: () => !NEWCASE_RL_IS_PROD && String(process.env.RATE_LIMIT_DISABLED || '').toLowerCase() === 'true',
+  message: 'Too many attempts. Please wait 15 minutes and try again.'
+});
+
+router.post('/patient/new-case/promo', requireRole('patient'), promoApplyLimiter, async (req, res) => {
+  if (isWizardUnavailable()) return res.redirect('/coming-soon');
+  const patientId = req.user.id;
+  const orderId = req.body && req.body.id ? String(req.body.id).trim() : '';
+  if (!orderId) return res.redirect('/patient/new-case');
+  const owned = await loadOwnedDraft(orderId, patientId);
+  if (!owned) return res.redirect('/dashboard');
+
+  const back = '/patient/new-case?step=5&id=' + encodeURIComponent(orderId);
+  const action = String((req.body && req.body.action) || 'apply').toLowerCase();
+  try {
+    if (action === 'remove') {
+      await promoCodes.removeFromOrder({ orderId, patientId });
+      return res.redirect(back + '&promo_ok=removed');
+    }
+    const raw = req.body && req.body.promo_code;
+    const code = promoCodes.normaliseCode(raw);
+    if (!code) return res.redirect(back + '&promo_err=invalid');
+    const countryCode = await getPricingCountryCode(req, 'web.promo');
+    const r = await promoCodes.applyToOrder({
+      orderId, patientId, code, pricingMarket: pricingMarketFor(countryCode)
+    });
+    if (!r.ok) {
+      return res.redirect(back + '&promo_err=' + encodeURIComponent(r.reason || 'invalid') +
+        '&promo_code=' + encodeURIComponent(code));
+    }
+    try {
+      logOrderEvent({
+        orderId,
+        label: 'promo_code_applied',
+        meta: JSON.stringify({ code: r.summary.code, percent_off: r.summary.percentOff,
+          price_before_discount: r.summary.priceBeforeDiscount, discount_egp: r.summary.discountEgp,
+          price: r.summary.price, via: 'web.wizard' }),
+        actorUserId: patientId,
+        actorRole: 'patient'
+      });
+    } catch (_) { /* audit is best effort */ }
+    return res.redirect(back + '&promo_ok=applied');
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'patient.new_case_promo',
+      requestId: req.requestId,
+      userId: patientId,
+      orderId,
+      category: 'patient_case'
+    });
+    return res.redirect(back + '&promo_err=invalid');
+  }
 });
 
 router.post('/patient/new-case/step5', requireRole('patient'), newCaseSubmitLimiter, async (req, res) => {

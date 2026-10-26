@@ -1564,6 +1564,8 @@ module.exports = function (db, helpers, deploy, deps) {
       // mustAll as the executor: a failed refunds read must 500 (fail closed),
       // never fall back to an overstated cap the write would then 409.
       const remainingRefundable = await remainingRefundableEgp(row, (sql, p) => mustAll(sql, p));
+      // Promo code (migration 131) — soft read from `orders`; null when none.
+      const promo = await require('../../services/promo_codes').orderPromoSummary(id);
 
       const norm = normalizeStatus(row.status);
 
@@ -1599,6 +1601,11 @@ module.exports = function (db, helpers, deploy, deps) {
         payment: {
           state: String(row.payment_status || 'unpaid').toLowerCase(),
           price: row.price == null ? null : Number(row.price),
+          // Promo (additive, migration 131). price above is already the
+          // discounted case fee; null on all three when no code was used.
+          promoCode: promo ? promo.code : null,
+          discountEgp: promo ? promo.discountEgp : null,
+          priceBeforeDiscount: promo ? promo.priceBeforeDiscount : null,
           // 2026-08-25 — grandTotal added. 2026-08-29 — made TRUE.
           //
           // grandTotal is what the patient was ACTUALLY charged: price + every

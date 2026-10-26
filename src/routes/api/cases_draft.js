@@ -50,6 +50,9 @@ const { generateReferenceId } = require('../../utils/reference');
 const { captureFunnel } = require('../../services/analytics');
 // E2E 2026-10-06 — orders.submitted_at (migration 129), stamped at submit.
 const { hasSubmittedAtColumn, submittedAtSetClause } = require('../../services/orders_submitted_at');
+// Promo codes (SHIFA25, migration 131) — quote ?promo= and submit promoCode.
+const promoCodes = require('../../services/promo_codes');
+const { pricingMarketFor } = require('../../services/pricing_market');
 
 router.use(require('express').json());
 
@@ -618,7 +621,18 @@ router.get('/:id/classification', async (req, res) => {
 // figure is produced by the same call. `chargedTotalEgp` is what submit writes
 // to orders.price — the amount GET /cases/:id/payment reports and the card or
 // transfer is for.
-async function priceDraftIntake(draft, choice, userId, context) {
+//
+// Promo codes (migration 131). `promoCode` (quote: ?promo=, submit: body
+// promoCode) is validated against the pricing market of the country the case
+// is PRICED from (pricing_market.pricingMarketFor, the single resolver) and
+// applied to the charged total by services/promo_codes.applyToEgp — the same
+// rounding the web wizard uses. An empty/absent code means no promo; a code
+// that does not apply throws a 422 IntakeError (PROMO_INVALID / PROMO_EXPIRED /
+// PROMO_NOT_ELIGIBLE) rather than silently charging the full price the patient
+// did not expect. chargedTotalEgp is the DISCOUNTED figure; amountBeforeDiscount
+// is the list price. doctor_fee is NOT derived from either (it comes from
+// intake.charge.doctorFeeEgp, the list base), so a promo never shrinks it.
+async function priceDraftIntake(draft, choice, userId, context, promoCode) {
   const c = choice || {};
   const specialtyId = c.specialtyId || draft.specialty_id || null;
   const serviceId = c.serviceId || draft.service_id || null;
@@ -633,7 +647,31 @@ async function priceDraftIntake(draft, choice, userId, context) {
     serviceId, specialtyId, country, urgencyTier, urgent: false,
     userId: userId, context: context
   });
-  return { serviceId, intake, chargedTotalEgp: intake.pricing.totalPrice };
+  const listTotalEgp = Number(intake.pricing.totalPrice);
+
+  let promo = null;
+  const rawCode = promoCode == null ? '' : String(promoCode).trim();
+  if (rawCode) {
+    const v = await promoCodes.validate(rawCode, {
+      pricingMarket: pricingMarketFor(intake.displayCountry)
+    });
+    if (!v.ok) {
+      throw new IntakeError(
+        promoCodes.errorCodeFor(v.reason), 422,
+        promoCodes.messageFor(v.reason, draft && draft.language)
+      );
+    }
+    const r = promoCodes.applyToEgp(listTotalEgp, v.percentOff);
+    promo = { code: v.code, percentOff: v.percentOff, discountEgp: r.discount, totalEgp: r.total };
+  }
+
+  return {
+    serviceId,
+    intake,
+    promo,
+    amountBeforeDiscount: listTotalEgp,
+    chargedTotalEgp: promo ? promo.totalEgp : listTotalEgp
+  };
 }
 
 // ─── GET /cases/draft/:id/quote ─────────────────────────────────────────────
@@ -656,7 +694,9 @@ router.get('/:id/quote', async (req, res) => {
     const draft = await loadOwnedDraft(req.params.id, req.user.id);
     if (!draft) return res.fail('Draft not found', 404, 'NOT_FOUND');
 
-    const priced = await priceDraftIntake(draft, null, req.user.id, 'api.cases_draft.quote');
+    const priced = await priceDraftIntake(
+      draft, null, req.user.id, 'api.cases_draft.quote', req.query && req.query.promo
+    );
     if (!priced.intake) {
       return res.fail('Please choose a service first.', 409, 'QUOTE_NOT_READY');
     }
@@ -675,7 +715,12 @@ router.get('/:id/quote', async (req, res) => {
       amount: Number(priced.chargedTotalEgp),
       currency: 'EGP',
       displayAmount: isIntl ? Math.round(Number(charge.displayPrice) * tierMult) : null,
-      displayCurrency: isIntl ? String(charge.displayCurrency).toUpperCase() : null
+      displayCurrency: isIntl ? String(charge.displayCurrency).toUpperCase() : null,
+      // Promo (additive, migration 131). amount above is already discounted;
+      // all three are null when no ?promo= was sent.
+      promoCode: priced.promo ? priced.promo.code : null,
+      discountEgp: priced.promo ? priced.promo.discountEgp : null,
+      amountBeforeDiscount: priced.promo ? Number(priced.amountBeforeDiscount) : null
     });
   } catch (err) {
     return failFromError(res, err, 'api.cases_draft.quote', req);
@@ -751,8 +796,11 @@ router.post('/:id/submit', async (req, res) => {
 
     // Validate + price — through priceDraftIntake, the same call the quote
     // route makes, so the figure the patient was shown is the figure charged.
-    const { intake, chargedTotalEgp } = await priceDraftIntake(
-      draft, b, req.user.id, 'api.cases_draft'
+    // promoCode (migration 131) is validated here, BEFORE the transition, so a
+    // code that does not apply is a 422 the app can show — not a case charged
+    // at a price the patient did not expect.
+    const { intake, chargedTotalEgp, promo, amountBeforeDiscount } = await priceDraftIntake(
+      draft, b, req.user.id, 'api.cases_draft', b.promoCode
     );
 
     // ── Override audit, best effort ──
@@ -862,6 +910,9 @@ router.post('/:id/submit', async (req, res) => {
               sla_hours = $12,
               urgency_flag = $13,
               urgency_tier = $14,
+              promo_code = $17,
+              price_before_discount = $18,
+              discount_egp = $19,
               draft_step = 5,
               ${submittedAtSet}
               updated_at = NOW()
@@ -875,7 +926,13 @@ router.post('/:id/submit', async (req, res) => {
        // here makes a VIP order render at base x 1.3 x 1.3.
        intake.charge.displayPrice, intake.charge.displayCurrency,
        slaDeadline, intake.slaHours, intake.urgencyFlag, intake.urgencyTier,
-       draft.id, req.user.id]
+       draft.id, req.user.id,
+       // Promo (migration 131): NULLs when no code, so a resubmitted draft
+       // never keeps a stale discount. price ($6) is already the discounted
+       // figure; doctor_fee ($8) is the list-base fee and is not touched.
+       promo ? promo.code : null,
+       promo ? amountBeforeDiscount : null,
+       promo ? promo.discountEgp : null]
     );
 
     if (!result || result.rowCount === 0) {
@@ -902,6 +959,20 @@ router.post('/:id/submit', async (req, res) => {
         context: 'api.cases_draft.timeline',
         userId: req.user.id, orderId: draft.id, category: 'patient_case'
       });
+    }
+
+    if (promo) {
+      try {
+        logOrderEvent({
+          orderId: draft.id,
+          label: 'promo_code_applied',
+          meta: JSON.stringify({ code: promo.code, percent_off: promo.percentOff,
+            price_before_discount: amountBeforeDiscount, discount_egp: promo.discountEgp,
+            price: chargedTotalEgp, via: 'api.cases_draft.submit' }),
+          actorUserId: req.user.id,
+          actorRole: 'patient'
+        });
+      } catch (_) { /* audit is best effort */ }
     }
 
     // App funnel — after the DRAFT→submitted UPDATE matched a row (rowCount
@@ -940,7 +1011,11 @@ router.post('/:id/submit', async (req, res) => {
       currency: created.display_currency || created.currency,
       slaHours: created.sla_hours != null ? Number(created.sla_hours) : null,
       slaDeadline: created.deadline_at || created.sla_deadline || null,
-      createdAt: created.created_at
+      createdAt: created.created_at,
+      // Promo (additive, migration 131) — null when no code was applied.
+      promoCode: promo ? promo.code : null,
+      discountEgp: promo ? promo.discountEgp : null,
+      amountBeforeDiscount: promo ? Number(amountBeforeDiscount) : null
     });
   } catch (err) {
     return failFromError(res, err, 'api.cases_draft.submit', req);

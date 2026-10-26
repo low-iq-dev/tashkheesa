@@ -76,6 +76,9 @@
                 <li><strong>Status:</strong> <%= order.status %></li>
                 <li><strong>Created:</strong> <%= order.created_at || '—' %></li>
                 <li><strong>Price:</strong> <%= order.price != null ? Number(order.price).toLocaleString('en-GB') + ' ' + (order.currency || 'EGP') : '—' %></li>
+                <% if (typeof promo !== 'undefined' && promo) { %>
+                <li data-promo><strong>Promo code:</strong> <%= promo.code %> — list <s><%= Number(promo.priceBeforeDiscount).toLocaleString('en-GB') %></s>, discount −<%= Number(promo.discountEgp).toLocaleString('en-GB') %> EGP (doctor fee on the list price)</li>
+                <% } %>
                 <li>
                   <strong>Payment:</strong>
                   <% if (order.payment_status === 'paid' || order.payment_status === 'captured') { %>

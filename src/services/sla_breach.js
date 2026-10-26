@@ -127,6 +127,13 @@ async function issueBreachRefund(orderId) {
     return { skipped: 'no_uplift_to_refund' };
   }
 
+  // Promo codes (migration 131): urgency_uplift_amount is the LIST uplift (it
+  // is not discounted, so the doctor's uplift share stays whole). On a promo
+  // order the patient paid only (price / price_before_discount) of it, and the
+  // refund must return what they paid, not more. No promo → unchanged.
+  // `uplift` stays the list figure for the earnings write below.
+  var refundOwed = await require('./promo_codes').paidShareEgp(orderId, uplift);
+
   var existing = await queryOne(
     "SELECT id FROM refunds WHERE order_id = $1 AND reason = 'sla_breach' LIMIT 1",
     [orderId]
@@ -166,13 +173,13 @@ async function issueBreachRefund(orderId) {
     [orderId]
   );
   if (blocking && blocking.id) {
-    await reportBreachRefundBlocked(orderId, uplift, blocking);
+    await reportBreachRefundBlocked(orderId, refundOwed, blocking);
     return {
       skipped: 'blocked_by_existing_refund',
       refundId: blocking.id,
       blockingReason: blocking.reason || null,
       blockingStatus: blocking.status || null,
-      amountOwed: uplift
+      amountOwed: refundOwed
     };
   }
 
@@ -203,7 +210,7 @@ async function issueBreachRefund(orderId) {
      VALUES ($1, $2, $3, 'sla_breach', NOW(), 'system', 'system',
              $3, $3, NULL, $4, 'auto_approved')`,
     [
-      refundId, orderId, uplift,
+      refundId, orderId, refundOwed,
       'Auto-refund: SLA deadline passed without case completion (tier ' +
         (order.urgency_tier || 'unknown') + '). Awaiting InstaPay payout.'
     ]
@@ -259,7 +266,7 @@ async function issueBreachRefund(orderId) {
   // When the call lands, populate refunds.paymob_refund_id with the
   // returned reference.
 
-  return { refunded: true, refundId: refundId, amount: uplift };
+  return { refunded: true, refundId: refundId, amount: refundOwed };
 }
 
 /**

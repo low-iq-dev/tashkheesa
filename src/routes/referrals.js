@@ -147,6 +147,11 @@ router.post('/api/referral/apply', requireRole('patient'), async function(req, r
     if (order.referral_code) {
       return res.status(400).json({ ok: false, error: 'Referral code already applied' });
     }
+    // Promo codes (migration 131) and a referral discount do not combine —
+    // services/promo_codes.applyToOrder refuses the other direction.
+    if (await require('../services/promo_codes').orderPromoSummary(orderId)) {
+      return res.status(400).json({ ok: false, error: 'A promo code is already applied — discounts cannot be combined' });
+    }
 
     // Validate referral code
     var codeRow = await safeGet(

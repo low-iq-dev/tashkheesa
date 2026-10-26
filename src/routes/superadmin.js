@@ -3296,6 +3296,9 @@ router.get('/superadmin/orders/:id', requireSuperadmin, async (req, res) => {
   const langCode = (req.user && req.user.lang) ? req.user.lang : 'en';
 
   return res.render('superadmin_order_detail', {
+    // Promo code + discount (migration 131), read from `orders` directly. Null
+    // when the order carries no code.
+    promo: await require('../services/promo_codes').orderPromoSummary(orderId),
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
     order: {
@@ -5116,6 +5119,9 @@ router.get('/superadmin/orders/:id/payment', requireSuperadmin, async (req, res)
   }
   const q = req.query || {};
   res.render('superadmin_order_payment', {
+    // Promo code + discount (migration 131) — the expected amount below is
+    // already the discounted charge; this says why it is lower than the list.
+    promo: await require('../services/promo_codes').orderPromoSummary(order.id),
     user: req.user,
     order,
     methods,

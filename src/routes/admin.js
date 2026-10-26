@@ -1541,6 +1541,8 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
 
   const langCode = (req.user && req.user.lang) ? req.user.lang : 'en';
   return res.render('admin_order_detail', {
+    // Promo code + discount (migration 131); null when the order has none.
+    promo: await require('../services/promo_codes').orderPromoSummary(orderId),
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
     lang: langCode,

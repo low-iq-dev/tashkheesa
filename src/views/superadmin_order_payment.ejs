@@ -60,6 +60,9 @@
       <div><div style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;">Status</div><div><%= _order.status || '—' %></div></div>
       <div><div style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;">Payment</div><div><%- include('partials/superadmin/c_chip', { label: _order.payment_status || 'unpaid', tone: (String(_order.payment_status).toLowerCase() === 'paid' ? 'green' : 'amber') }) %></div></div>
       <div><div style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;">Price</div><div class="tabular" style="font-weight:600;"><%= _order.currency || 'EGP' %> <%= _order.price != null ? Number(_order.price).toLocaleString('en-US') : '—' %></div></div>
+      <% if (typeof promo !== 'undefined' && promo) { %>
+      <div data-promo><div style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;">Promo code</div><div><strong class="mono"><%= promo.code %></strong> <span style="color:var(--fg-3);">· list <s class="tabular"><%= Number(promo.priceBeforeDiscount).toLocaleString('en-US') %></s> · −<span class="tabular"><%= Number(promo.discountEgp).toLocaleString('en-US') %></span> EGP</span></div></div>
+      <% } %>
     </div>
   <%- include('partials/superadmin/c_card_close') %>
 
