@@ -198,8 +198,21 @@
 (function () {
   var src = (location.search.match(/[?&]utm_source=([^&]+)/) || [])[1] || '';
   var camp = (location.search.match(/[?&]utm_campaign=([^&]+)/) || [])[1] || '';
+  // BEACON-POST 2026-10-26 — a CTA tap is fired as the browser navigates away.
+  // fetch(keepalive) does not survive that in Meta's in-app WebView (~99% of
+  // paid traffic): on 25 Oct this recorded 236 start_view but 1 start_cta,
+  // against 9 server-side register_view — and the CTA goes straight to
+  // /register, so at least nine taps happened. sendBeacon is built for the
+  // unload path; it POSTs, which /f/e now also accepts. fetch stays as the
+  // fallback for anything without sendBeacon.
   function hit(step) {
-    try { fetch('/f/e?s=' + encodeURIComponent(step) + (src ? '&src=' + encodeURIComponent(src) : '') + (camp ? '&c=' + encodeURIComponent(camp) : ''), { keepalive: true, credentials: 'same-origin' }); } catch (e) {}
+    var url = '/f/e?s=' + encodeURIComponent(step)
+      + (src ? '&src=' + encodeURIComponent(src) : '')
+      + (camp ? '&c=' + encodeURIComponent(camp) : '');
+    try {
+      if (navigator && typeof navigator.sendBeacon === 'function' && navigator.sendBeacon(url)) return;
+    } catch (e) {}
+    try { fetch(url, { keepalive: true, credentials: 'same-origin' }); } catch (e) {}
   }
   var sent = false, t = null;
   function arm() {

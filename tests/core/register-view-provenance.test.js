@@ -22,12 +22,25 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..', '..');
 
 // ---- stub src/pg before anything pulls it in -------------------------------
+// CACHE HYGIENE — tests/run.js require()s every test file into ONE process, so
+// require.cache is shared. Leaving src/pg stubbed hands a fake database to
+// every file loaded afterwards, which is how this stub turned a handful of
+// failures into hundreds. Snapshot, stub, load, then restore exactly.
 const pgPath = require.resolve('../../src/pg');
 // funnel_digest destructures { execute } at import time, so this stub is the
 // only handle on what gets written — reassigning pg.execute later is not seen.
 // Every write is kept whole; `bumped` is just the step names from it.
 let writes = [];
 let bumped = [];
+
+// funnel_digest is usually already loaded (bound to the real pg) by the time
+// this file runs inside tests/run.js, so simply installing the stub achieves
+// nothing — the cached copy keeps the execute it captured at ITS import. Force
+// one private re-evaluation against the stub, then put both entries back.
+const fdPath = require.resolve('../../src/services/funnel_digest');
+const realFdEntry = require.cache[fdPath];
+const realPgEntry = require.cache[pgPath];
+delete require.cache[fdPath];
 require.cache[pgPath] = {
   id: pgPath,
   filename: pgPath,
@@ -44,6 +57,12 @@ require.cache[pgPath] = {
 };
 
 const fd = require('../../src/services/funnel_digest');
+
+// Put both entries back exactly as found. `fd` above keeps the stub it
+// captured during its own evaluation; every other file in the suite keeps the
+// real pg and the real funnel_digest it already had.
+if (realFdEntry) require.cache[fdPath] = realFdEntry; else delete require.cache[fdPath];
+if (realPgEntry) require.cache[pgPath] = realPgEntry; else delete require.cache[pgPath];
 
 // A request that looks like a distinct visitor each time, so the in-memory
 // per-day dedupe (step|ip|ua) never swallows a case and masks a failure.
