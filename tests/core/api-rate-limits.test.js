@@ -167,6 +167,83 @@ const via = (caller, edge) => ({ 'CF-Connecting-IP': caller, 'X-Forwarded-For': 
     } finally { server.close(); }
   });
 
+  // ── 1b. 26 Oct 2026: one building, one address ──────────────────────────
+  // The office address hit the 3000 ceiling and every patient and doctor
+  // behind it got "We're busy for a moment". Verified signed-in users are now
+  // limited per USER and never count against the address ceiling (6000), which
+  // is kept for anonymous and unverified-token traffic.
+  if (!process.env.JWT_SECRET) process.env.JWT_SECRET = 'test-secret-for-rate-limits';
+  const jwt = require('jsonwebtoken');
+  const { verifiedUserId } = require('../../src/middleware/api_rate_limits');
+  const bearerFor = (id, opts = {}) => 'Bearer ' + jwt.sign({ id, role: 'patient' }, process.env.JWT_SECRET, Object.assign({ expiresIn: '15m' }, opts));
+  async function burst(server, n, headers) {
+    const out = { ok: 0, limited: 0, last: null };
+    for (let i = 0; i < n; i += 1) {
+      const r = await call(server, 'GET', '/cases', { headers });
+      if (r.status === 200) out.ok += 1; else if (r.status === 429) out.limited += 1;
+      out.last = r;
+    }
+    return out;
+  }
+
+  await test('verifiedUserId: signed token → its user; expired but signed → still its user; forged or no id → none', () => {
+    const r = (h) => ({ headers: h ? { authorization: h } : {} });
+    assert.strictEqual(verifiedUserId(r(bearerFor('u-1'))), 'u-1');
+    assert.strictEqual(verifiedUserId(r(bearerFor('u-2', { expiresIn: -60 }))), 'u-2');
+    const forged = 'Bearer ' + jwt.sign({ id: 'u-1' }, 'someone-elses-secret');
+    assert.strictEqual(verifiedUserId(r(forged)), '');
+    assert.strictEqual(verifiedUserId(r('Bearer ' + jwt.sign({ ops: true }, process.env.JWT_SECRET))), '');
+    assert.strictEqual(verifiedUserId(r('Bearer ' + 'a'.repeat(40))), '');
+    assert.strictEqual(verifiedUserId(r(null)), '');
+  });
+
+  await test('one address: users A and B each send 700 (each trips only its own 600); user C and anonymous still get 200', async () => {
+    const server = await listen(makeApp());
+    try {
+      const ip = via('196.156.131.143', '172.71.1.1');
+      const A = await burst(server, 700, Object.assign({ Authorization: bearerFor('user-a') }, ip));
+      const B = await burst(server, 700, Object.assign({ Authorization: bearerFor('user-b') }, ip));
+      assert.deepStrictEqual([A.ok, A.limited], [600, 100], 'user A');
+      assert.deepStrictEqual([B.ok, B.limited], [600, 100], 'user B');
+      assert.strictEqual(A.last.json && A.last.json.code, 'RATE_LIMITED');
+      assert.ok(Number(A.last.headers['retry-after']) > 0, 'Retry-After on the per-user 429');
+      assert.strictEqual(A.last.headers['ratelimit-policy'], '600;w=900', 'the per-user bucket answered, not the ceiling');
+      const C = await call(server, 'GET', '/cases', { headers: Object.assign({ Authorization: bearerFor('user-c') }, ip) });
+      assert.strictEqual(C.status, 200, 'a third user on the same address');
+      assert.strictEqual(Number(C.headers['ratelimit-remaining']), 599);
+      const anon = await call(server, 'GET', '/cases', { headers: ip });
+      assert.strictEqual(anon.status, 200, 'anonymous on the same address');
+      // A's next token (after a refresh) is the same user, the same bucket.
+      const A2 = await call(server, 'GET', '/cases', { headers: Object.assign({ Authorization: bearerFor('user-a', { expiresIn: '16m' }) }, ip) });
+      assert.strictEqual(A2.status, 429, 'a fresh token does not reset the user');
+    } finally { server.close(); }
+  });
+
+  await test('the ceiling (6000) still trips for anonymous traffic, and verified users never counted toward it', async () => {
+    const server = await listen(makeApp());
+    try {
+      const ip = via('196.156.131.144', '172.71.1.1');
+      // 1400 verified calls first: had they counted, the ceiling would trip at anonymous call 4601.
+      await burst(server, 700, Object.assign({ Authorization: bearerFor('user-a') }, ip));
+      await burst(server, 700, Object.assign({ Authorization: bearerFor('user-b') }, ip));
+      let trippedAt = 0;
+      let tripped = null;
+      for (let i = 1; i <= 6001; i += 1) {
+        const r = await call(server, 'GET', '/cases', { headers: ip });
+        if (r.status === 429 && r.headers['ratelimit-policy'] === '6000;w=900') { trippedAt = i; tripped = r; break; }
+      }
+      assert.strictEqual(trippedAt, 6001, 'ceiling tripped at anonymous call ' + trippedAt);
+      assert.strictEqual(tripped.json && tripped.json.code, 'RATE_LIMITED');
+      assert.ok(Number(tripped.headers['retry-after']) > 0, 'Retry-After on the ceiling 429');
+      assert.strictEqual(tripped.headers['ratelimit-remaining'], '0', 'RateLimit headers on the ceiling 429');
+      // Unverified (forged) tokens are behind the ceiling too; a verified user is not.
+      const forged = await call(server, 'GET', '/cases', { headers: Object.assign({ Authorization: 'Bearer ' + jwt.sign({ id: 'x' }, 'nope') }, ip) });
+      assert.strictEqual(forged.status, 429, 'a forged token is behind the ceiling');
+      const C = await call(server, 'GET', '/cases', { headers: Object.assign({ Authorization: bearerFor('user-c') }, ip) });
+      assert.strictEqual(C.status, 200, 'a verified user is not');
+    } finally { server.close(); }
+  });
+
   // ── 2. Refresh is not a sign-in attempt ─────────────────────────────────
   await test('25 patients behind one address can each refresh; the sign-in bucket is untouched', async () => {
     const server = await listen(makeApp());
@@ -285,7 +362,7 @@ const via = (caller, edge) => ({ 'CF-Connecting-IP': caller, 'X-Forwarded-For': 
     assert.deepStrictEqual(sent, RATE_LIMITED_BODY);
     assert.ok(Number(headers['Retry-After']) >= 41 && Number(headers['Retry-After']) <= 42, 'got ' + headers['Retry-After']);
 
-    // No reset time known (the ceiling limiter has no header family on).
+    // No reset time known.
     const headers2 = {};
     jsonLimitHandler(RATE_LIMITED_BODY)({}, {
       getHeader: (k) => headers2[k], setHeader: (k, v) => { headers2[k] = v; },
