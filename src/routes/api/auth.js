@@ -8,7 +8,7 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { randomUUID, randomInt } = require('crypto');
-const { coerceCountry, marketFromDialCode } = require('../../launch-market');
+const { signupCountry, marketFromDialCode } = require('../../launch-market');
 const { logErrorToDb } = require('../../logger');
 const { normalizePhone } = require('../../validators/phone_identity');
 const { loginBlockReason, LOGIN_BLOCKED } = require('../../services/login_gate');
@@ -157,10 +157,13 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       // web- and OTP-created ones did not — and the web session JWT
       // (signUserToken) embeds country_code, so pricing resolved inconsistently
       // depending on which surface created the account.
+      // 26 Oct 2026 — the patient's REAL country (any ISO code), no longer
+      // clamped to the nine launch markets; pricing_market.pricingMarketFor
+      // decides which price list it pays. Unrecognisable → EG, as before.
       await safeRun(`
         INSERT INTO users (id, name, email, phone, password_hash, country, country_code, lang, role, created_at, lang_chosen_at)
         VALUES ($1, $2, $3, $4, $5, $6, $6, $7, 'patient', NOW(), CASE WHEN $8::boolean THEN NOW() END)
-      `, [userId, name, email, normalizedPhone, hashedPassword, coerceCountry(country), lang || 'en',
+      `, [userId, name, email, normalizedPhone, hashedPassword, signupCountry(country) || 'EG', lang || 'en',
           // Migration 119: the app sent a language (its own setting) — a choice.
           lang === 'ar' || lang === 'en']);
 
@@ -623,9 +626,13 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
         // patient and was quoted EGP prices no matter where they were. Seed it
         // from the dialling code they just verified against instead; the app
         // sends the ISO explicitly on the password-register path, and this is
-        // the closest signal available on the OTP path. coerceCountry() clamps
-        // anything outside the 9 launch markets back to EG.
-        const seededCountry = coerceCountry(marketFromDialCode(countryCode));
+        // the closest signal available on the OTP path. 26 Oct 2026: any
+        // country now (+49 → DE, +218 → LY), no longer clamped to the nine
+        // launch markets; the verified number's own dial code wins over the
+        // picker, and only an unknown code falls back to EG.
+        const { dialCodeFromE164 } = require('../../validators/phone_identity');
+        const seededCountry = marketFromDialCode(dialCodeFromE164(normalizedPhone))
+          || marketFromDialCode(countryCode) || 'EG';
         const userId = randomUUID();
         // RETURNING id distinguishes a real signup from an ON CONFLICT skip.
         // This is the app's PRIMARY signup path and it is also the app's login

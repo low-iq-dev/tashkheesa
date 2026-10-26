@@ -1,265 +1,66 @@
 <%
-  // Country list, both languages.
+  // Country list, both languages — <option>s for a country <select>.
   //
-  // Every option used to render its ENGLISH name regardless of language, so the
-  // Arabic registration form showed "Egypt" rather than "مصر" on an otherwise
-  // fully Arabic page — and "Cote d'Ivoire" and "Sao Tome and Principe" were
-  // missing their diacritics on the English side too.
+  // 26 Oct 2026 — the data lives in src/lib/countries.js (app.locals.COUNTRIES),
+  // the same table the phone normaliser reads, so the dial code a patient picks
+  // here is always one the server can interpret. The English and Arabic names
+  // are the ones this partial used to carry inline (Arabic generated from ICU
+  // with Intl.DisplayNames('ar'), then committed — 198 hand-typed names is 198
+  // chances to misspell one, and a server on small-icu would degrade to "EG").
   //
-  // The Arabic names were GENERATED from ICU (Intl.DisplayNames with the 'ar'
-  // locale) rather than typed by hand, then committed as static data. Generated
-  // because 198 hand-typed country names is 198 chances to misspell one;
-  // committed rather than computed per request because a server whose Node
-  // ships small-icu would silently fall back to the two-letter code, and a
-  // country list that degrades to "EG" is worse than one that cannot change.
+  // Sorted at render time by the name actually displayed, so the Arabic list is
+  // in Arabic alphabetical order — localeCompare knows ال is not a sort prefix.
   //
-  // Sorted at render time by the name actually being displayed, so the Arabic
-  // list is in Arabic alphabetical order rather than English order with Arabic
-  // labels — using localeCompare, which knows that ال is not a sort prefix.
-  var _cc = (typeof _selectedCountry !== 'undefined') ? _selectedCountry : '';
+  // Locals:
+  //   _selectedCountry  ISO code to pre-select
+  //   _isAr             Arabic labels
+  //   _withDial         the signup form: each option carries data-dial (its
+  //                     dialling code) and data-ph (a local-format phone
+  //                     placeholder), and the label shows the code.
+  //
+  // AUDIT-SIGNUP-DEAD-END-2026-09-29 rendered only the nine markets POST
+  // /register then accepted. Since 26 Oct /register accepts every country on
+  // this list, so the signup form offers them all.
+  var _cc = (typeof _selectedCountry !== 'undefined' && _selectedCountry) ? String(_selectedCountry).toUpperCase() : '';
   var _ar = (typeof _isAr !== 'undefined' && _isAr);
-  function _sel(v) { return _cc === v ? 'selected' : ''; }
-  function _label(row) { return _ar ? row[2] : row[1]; }
-
-  // The nine markets isLaunchMarket() actually accepts (src/launch-market.js).
-  // Columns 4 and 5 are the dial code and national-number length, mirroring
-  // DIAL_CODES in src/validators/phone_identity.js — the register form reads
-  // them to prefix the phone field, so the patient types their number the way
-  // they say it out loud instead of guessing at E.164.
-  var _POPULAR = [
-    ["EG", "Egypt", "مصر", "+20", 10],
-    ["SA", "Saudi Arabia", "المملكة العربية السعودية", "+966", 9],
-    ["AE", "UAE", "الإمارات العربية المتحدة", "+971", 9],
-    ["KW", "Kuwait", "الكويت", "+965", 8],
-    ["BH", "Bahrain", "البحرين", "+973", 8],
-    ["QA", "Qatar", "قطر", "+974", 8],
-    ["OM", "Oman", "عُمان", "+968", 8],
-    ["GB", "United Kingdom", "المملكة المتحدة", "+44", 10],
-    ["US", "United States", "الولايات المتحدة", "+1", 10]
+  var _dial = (typeof _withDial !== 'undefined' && _withDial) || (typeof _onlyLiveMarkets !== 'undefined' && _onlyLiveMarkets);
+  // Fallback for a render without app.locals (unit renders): the nine markets.
+  var _rows = (typeof COUNTRIES !== 'undefined' && COUNTRIES && COUNTRIES.length) ? COUNTRIES : [
+    { iso: 'EG', en: 'Egypt', ar: 'مصر', dial: '+20', ex: '01X XXXX XXXX' },
+    { iso: 'SA', en: 'Saudi Arabia', ar: 'المملكة العربية السعودية', dial: '+966', ex: '05X XXX XXXX' },
+    { iso: 'AE', en: 'United Arab Emirates', ar: 'الإمارات العربية المتحدة', dial: '+971', ex: '05X XXX XXXX' },
+    { iso: 'KW', en: 'Kuwait', ar: 'الكويت', dial: '+965', ex: 'XXXX XXXX' },
+    { iso: 'BH', en: 'Bahrain', ar: 'البحرين', dial: '+973', ex: 'XXXX XXXX' },
+    { iso: 'QA', en: 'Qatar', ar: 'قطر', dial: '+974', ex: 'XXXX XXXX' },
+    { iso: 'OM', en: 'Oman', ar: 'عُمان', dial: '+968', ex: '9XXX XXXX' },
+    { iso: 'GB', en: 'United Kingdom', ar: 'المملكة المتحدة', dial: '+44', ex: '07XXX XXXXXX' },
+    { iso: 'US', en: 'United States', ar: 'الولايات المتحدة', dial: '+1', ex: '(XXX) XXX-XXXX' }
   ];
-  var _ALL = [
-    ["AF", "Afghanistan", "أفغانستان"],
-    ["AL", "Albania", "ألبانيا"],
-    ["DZ", "Algeria", "الجزائر"],
-    ["AD", "Andorra", "أندورا"],
-    ["AO", "Angola", "أنغولا"],
-    ["AG", "Antigua and Barbuda", "أنتيغوا وبربودا"],
-    ["AR", "Argentina", "الأرجنتين"],
-    ["AM", "Armenia", "أرمينيا"],
-    ["AU", "Australia", "أستراليا"],
-    ["AT", "Austria", "النمسا"],
-    ["AZ", "Azerbaijan", "أذربيجان"],
-    ["BS", "Bahamas", "جزر البهاما"],
-    ["BH", "Bahrain", "البحرين"],
-    ["BD", "Bangladesh", "بنغلاديش"],
-    ["BB", "Barbados", "بربادوس"],
-    ["BY", "Belarus", "بيلاروس"],
-    ["BE", "Belgium", "بلجيكا"],
-    ["BZ", "Belize", "بليز"],
-    ["BJ", "Benin", "بنين"],
-    ["BT", "Bhutan", "بوتان"],
-    ["BO", "Bolivia", "بوليفيا"],
-    ["BA", "Bosnia and Herzegovina", "البوسنة والهرسك"],
-    ["BW", "Botswana", "بوتسوانا"],
-    ["BR", "Brazil", "البرازيل"],
-    ["BN", "Brunei", "بروناي"],
-    ["BG", "Bulgaria", "بلغاريا"],
-    ["BF", "Burkina Faso", "بوركينا فاسو"],
-    ["BI", "Burundi", "بوروندي"],
-    ["CV", "Cabo Verde", "الرأس الأخضر"],
-    ["KH", "Cambodia", "كمبوديا"],
-    ["CM", "Cameroon", "الكاميرون"],
-    ["CA", "Canada", "كندا"],
-    ["CF", "Central African Republic", "جمهورية أفريقيا الوسطى"],
-    ["TD", "Chad", "تشاد"],
-    ["CL", "Chile", "تشيلي"],
-    ["CN", "China", "الصين"],
-    ["CO", "Colombia", "كولومبيا"],
-    ["KM", "Comoros", "جزر القمر"],
-    ["CG", "Congo", "الكونغو - برازافيل"],
-    ["CD", "Congo (DRC)", "الكونغو - كينشاسا"],
-    ["CR", "Costa Rica", "كوستاريكا"],
-    ["CI", "Côte d'Ivoire", "ساحل العاج"],
-    ["HR", "Croatia", "كرواتيا"],
-    ["CU", "Cuba", "كوبا"],
-    ["CY", "Cyprus", "قبرص"],
-    ["CZ", "Czechia", "التشيك"],
-    ["DK", "Denmark", "الدانمرك"],
-    ["DJ", "Djibouti", "جيبوتي"],
-    ["DM", "Dominica", "دومينيكا"],
-    ["DO", "Dominican Republic", "جمهورية الدومينيكان"],
-    ["EC", "Ecuador", "الإكوادور"],
-    ["EG", "Egypt", "مصر"],
-    ["SV", "El Salvador", "السلفادور"],
-    ["GQ", "Equatorial Guinea", "غينيا الاستوائية"],
-    ["ER", "Eritrea", "إريتريا"],
-    ["EE", "Estonia", "إستونيا"],
-    ["SZ", "Eswatini", "إسواتيني"],
-    ["ET", "Ethiopia", "إثيوبيا"],
-    ["FJ", "Fiji", "فيجي"],
-    ["FI", "Finland", "فنلندا"],
-    ["FR", "France", "فرنسا"],
-    ["GA", "Gabon", "الغابون"],
-    ["GM", "Gambia", "غامبيا"],
-    ["GE", "Georgia", "جورجيا"],
-    ["DE", "Germany", "ألمانيا"],
-    ["GH", "Ghana", "غانا"],
-    ["GR", "Greece", "اليونان"],
-    ["GD", "Grenada", "غرينادا"],
-    ["GT", "Guatemala", "غواتيمالا"],
-    ["GN", "Guinea", "غينيا"],
-    ["GW", "Guinea-Bissau", "غينيا بيساو"],
-    ["GY", "Guyana", "غيانا"],
-    ["HT", "Haiti", "هايتي"],
-    ["HN", "Honduras", "هندوراس"],
-    ["HK", "Hong Kong", "هونغ كونغ الصينية (منطقة إدارية خاصة)"],
-    ["HU", "Hungary", "هنغاريا"],
-    ["IS", "Iceland", "آيسلندا"],
-    ["IN", "India", "الهند"],
-    ["ID", "Indonesia", "إندونيسيا"],
-    ["IR", "Iran", "إيران"],
-    ["IQ", "Iraq", "العراق"],
-    ["IE", "Ireland", "أيرلندا"],
-    ["IL", "Israel", "إسرائيل"],
-    ["IT", "Italy", "إيطاليا"],
-    ["JM", "Jamaica", "جامايكا"],
-    ["JP", "Japan", "اليابان"],
-    ["JO", "Jordan", "الأردن"],
-    ["KZ", "Kazakhstan", "كازاخستان"],
-    ["KE", "Kenya", "كينيا"],
-    ["KI", "Kiribati", "كيريباتي"],
-    ["KP", "Korea (North)", "كوريا الشمالية"],
-    ["KR", "Korea (South)", "كوريا الجنوبية"],
-    ["KW", "Kuwait", "الكويت"],
-    ["KG", "Kyrgyzstan", "قيرغيزستان"],
-    ["LA", "Laos", "لاوس"],
-    ["LV", "Latvia", "لاتفيا"],
-    ["LB", "Lebanon", "لبنان"],
-    ["LS", "Lesotho", "ليسوتو"],
-    ["LR", "Liberia", "ليبيريا"],
-    ["LY", "Libya", "ليبيا"],
-    ["LI", "Liechtenstein", "ليختنشتاين"],
-    ["LT", "Lithuania", "ليتوانيا"],
-    ["LU", "Luxembourg", "لوكسمبورغ"],
-    ["MO", "Macau", "منطقة ماكاو الإدارية الخاصة"],
-    ["MG", "Madagascar", "مدغشقر"],
-    ["MW", "Malawi", "ملاوي"],
-    ["MY", "Malaysia", "ماليزيا"],
-    ["MV", "Maldives", "جزر المالديف"],
-    ["ML", "Mali", "مالي"],
-    ["MT", "Malta", "مالطا"],
-    ["MH", "Marshall Islands", "جزر مارشال"],
-    ["MR", "Mauritania", "موريتانيا"],
-    ["MU", "Mauritius", "موريشيوس"],
-    ["MX", "Mexico", "المكسيك"],
-    ["FM", "Micronesia", "ميكرونيزيا"],
-    ["MD", "Moldova", "مولدوفا"],
-    ["MC", "Monaco", "موناكو"],
-    ["MN", "Mongolia", "منغوليا"],
-    ["ME", "Montenegro", "الجبل الأسود"],
-    ["MA", "Morocco", "المغرب"],
-    ["MZ", "Mozambique", "موزمبيق"],
-    ["MM", "Myanmar", "ميانمار (بورما)"],
-    ["NA", "Namibia", "ناميبيا"],
-    ["NR", "Nauru", "ناورو"],
-    ["NP", "Nepal", "نيبال"],
-    ["NL", "Netherlands", "هولندا"],
-    ["NZ", "New Zealand", "نيوزيلندا"],
-    ["NI", "Nicaragua", "نيكاراغوا"],
-    ["NE", "Niger", "النيجر"],
-    ["NG", "Nigeria", "نيجيريا"],
-    ["MK", "North Macedonia", "مقدونيا الشمالية"],
-    ["NO", "Norway", "النرويج"],
-    ["OM", "Oman", "عُمان"],
-    ["PK", "Pakistan", "باكستان"],
-    ["PW", "Palau", "بالاو"],
-    ["PS", "Palestine", "الأراضي الفلسطينية"],
-    ["PA", "Panama", "بنما"],
-    ["PG", "Papua New Guinea", "بابوا غينيا الجديدة"],
-    ["PY", "Paraguay", "باراغواي"],
-    ["PE", "Peru", "بيرو"],
-    ["PH", "Philippines", "الفلبين"],
-    ["PL", "Poland", "بولندا"],
-    ["PT", "Portugal", "البرتغال"],
-    ["QA", "Qatar", "قطر"],
-    ["RO", "Romania", "رومانيا"],
-    ["RU", "Russia", "روسيا"],
-    ["RW", "Rwanda", "رواندا"],
-    ["KN", "Saint Kitts and Nevis", "سانت كيتس ونيفيس"],
-    ["LC", "Saint Lucia", "سانت لوسيا"],
-    ["VC", "Saint Vincent and the Grenadines", "سانت فنسنت وجزر غرينادين"],
-    ["WS", "Samoa", "ساموا"],
-    ["SM", "San Marino", "سان مارينو"],
-    ["ST", "São Tomé and Príncipe", "ساو تومي وبرينسيبي"],
-    ["SA", "Saudi Arabia", "المملكة العربية السعودية"],
-    ["SN", "Senegal", "السنغال"],
-    ["RS", "Serbia", "صربيا"],
-    ["SC", "Seychelles", "سيشل"],
-    ["SL", "Sierra Leone", "سيراليون"],
-    ["SG", "Singapore", "سنغافورة"],
-    ["SK", "Slovakia", "سلوفاكيا"],
-    ["SI", "Slovenia", "سلوفينيا"],
-    ["SB", "Solomon Islands", "جزر سليمان"],
-    ["SO", "Somalia", "الصومال"],
-    ["ZA", "South Africa", "جنوب أفريقيا"],
-    ["SS", "South Sudan", "جنوب السودان"],
-    ["ES", "Spain", "إسبانيا"],
-    ["LK", "Sri Lanka", "سريلانكا"],
-    ["SD", "Sudan", "السودان"],
-    ["SR", "Suriname", "سورينام"],
-    ["SE", "Sweden", "السويد"],
-    ["CH", "Switzerland", "سويسرا"],
-    ["SY", "Syria", "سوريا"],
-    ["TW", "Taiwan", "تايوان"],
-    ["TJ", "Tajikistan", "طاجيكستان"],
-    ["TZ", "Tanzania", "تنزانيا"],
-    ["TH", "Thailand", "تايلاند"],
-    ["TL", "Timor-Leste", "تيمور - ليشتي"],
-    ["TG", "Togo", "توغو"],
-    ["TO", "Tonga", "تونغا"],
-    ["TT", "Trinidad and Tobago", "ترينيداد وتوباغو"],
-    ["TN", "Tunisia", "تونس"],
-    ["TR", "Turkey", "تركيا"],
-    ["TM", "Turkmenistan", "تركمانستان"],
-    ["TV", "Tuvalu", "توفالو"],
-    ["UG", "Uganda", "أوغندا"],
-    ["UA", "Ukraine", "أوكرانيا"],
-    ["AE", "United Arab Emirates", "الإمارات العربية المتحدة"],
-    ["GB", "United Kingdom", "المملكة المتحدة"],
-    ["US", "United States", "الولايات المتحدة"],
-    ["UY", "Uruguay", "أورغواي"],
-    ["UZ", "Uzbekistan", "أوزبكستان"],
-    ["VU", "Vanuatu", "فانواتو"],
-    ["VA", "Vatican City", "الفاتيكان"],
-    ["VE", "Venezuela", "فنزويلا"],
-    ["VN", "Vietnam", "فيتنام"],
-    ["YE", "Yemen", "اليمن"],
-    ["ZM", "Zambia", "زامبيا"],
-    ["ZW", "Zimbabwe", "زيمبابوي"]
-  ];
+  var _popularIsos = (typeof POPULAR_COUNTRIES !== 'undefined' && POPULAR_COUNTRIES) ? POPULAR_COUNTRIES : ['EG', 'SA', 'AE', 'KW', 'BH', 'QA', 'OM', 'GB', 'US'];
+  var _byIso = {};
+  _rows.forEach(function (r) { _byIso[r.iso] = r; });
+  var _popular = _popularIsos.map(function (i) { return _byIso[i]; }).filter(Boolean);
+  function _label(r) {
+    var n = _ar ? (r.ar || r.en) : r.en;
+    if (!_ar && r.iso === 'AE') n = 'UAE';
+    return _dial ? n + ' (' + r.dial + ')' : n;
+  }
   var _collator = new Intl.Collator(_ar ? 'ar' : 'en', { sensitivity: 'base' });
-  var _allSorted = _ALL.slice().sort(function (a, b) {
-    return _collator.compare(_label(a), _label(b));
+  var _allSorted = _rows.slice().sort(function (a, b) {
+    return _collator.compare(_ar ? (a.ar || a.en) : a.en, _ar ? (b.ar || b.en) : b.en);
   });
-%>
-<%
-  // AUDIT-SIGNUP-DEAD-END-2026-09-29: this list offered 199 countries while
-  // POST /register accepts 9 (isLaunchMarket). Everyone else filled in the whole
-  // form — name, email, phone, password, terms — and was refused on submit with
-  // "country invalid". 26 people reached this page in the three days after
-  // launch and not one account was created. _liveOnly renders only what the
-  // server will accept, so the dead end cannot be reached.
-  var _liveOnly = (typeof _onlyLiveMarkets !== 'undefined' && _onlyLiveMarkets);
+  // The selected country is marked once — in Popular when it is there.
+  var _selDone = false;
+  function _sel(r) {
+    if (_selDone || r.iso !== _cc) return '';
+    _selDone = true;
+    return 'selected';
+  }
 %>
 <option value="" <%= !_cc ? 'selected' : '' %>><%= _ar ? 'اختر الدولة' : 'Select country' %></option>
-<% if (_liveOnly) { %>
-<% _POPULAR.forEach(function (c) { %>  <option value="<%= c[0] %>" data-dial="<%= c[3] %>" data-len="<%= c[4] %>" <%= _sel(c[0]) %>><%= _label(c) %> (<%= c[3] %>)</option>
-<% }); %>
-<% } else { %>
 <optgroup label="<%= _ar ? 'الأكثر شيوعاً' : 'Popular' %>">
-<% _POPULAR.forEach(function (c) { %>  <option value="<%= c[0] %>" <%= _sel(c[0]) %>><%= _label(c) %></option>
+<% _popular.forEach(function (r) { %>  <option value="<%= r.iso %>"<% if (_dial) { %> data-dial="<%= r.dial %>" data-ph="<%= r.ex || '' %>"<% } %> <%= _sel(r) %>><%= _label(r) %></option>
 <% }); %></optgroup>
-<optgroup label="<%= _ar ? 'كل الدول' : 'All Countries' %>">
-<% _allSorted.forEach(function (c) { %>  <option value="<%= c[0] %>" <%= _sel(c[0]) %>><%= _label(c) %></option>
+<optgroup label="<%= _ar ? 'كل الدول' : 'All countries' %>">
+<% _allSorted.forEach(function (r) { %>  <option value="<%= r.iso %>"<% if (_dial) { %> data-dial="<%= r.dial %>" data-ph="<%= r.ex || '' %>"<% } %> <%= _sel(r) %>><%= _label(r) %></option>
 <% }); %></optgroup>
-<% } %>

@@ -105,7 +105,7 @@
             <label class="p-field__label" for="profile-phone"><%= tt('Phone number', 'Phone number', 'رقم الهاتف') %></label>
             <input class="p-field__input" type="tel" id="profile-phone" name="phone"
                    value="<%= __user.phone || '' %>" dir="ltr" maxlength="30" autocomplete="tel"
-                   placeholder="+20 1XX XXX XXXX" />
+                   placeholder="<%= (function () { var cc = String(__user.country_code || 'EG').toUpperCase(); if (cc === 'EG') return '+20 1XX XXX XXXX'; var r = ((typeof COUNTRIES !== 'undefined' && COUNTRIES) || []).filter(function (c) { return c.iso === cc; })[0]; return r ? r.dial + ' …' : '+20 1XX XXX XXXX'; })() %>" />
             <div class="p-field__hint"><%= tt('We use this for WhatsApp updates only.', 'We use this for WhatsApp updates only.', 'نستخدمه لتنبيهات واتساب فقط.') %></div>
           </div>
 

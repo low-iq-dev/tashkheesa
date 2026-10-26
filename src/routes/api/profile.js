@@ -6,7 +6,7 @@
 
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
-const { coerceCountry } = require('../../launch-market');
+const { signupCountry } = require('../../launch-market');
 // Every other writer of users.phone goes through this validator (web /register,
 // the onboarding wizard, api/v1/auth register + otp/verify). This route did not,
 // so the app's own profile screen was the one path that could write a
@@ -179,7 +179,10 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     // meant a patient who switched market saw one price list in the app and a
     // different one in the portal.
     if (req.body.country) {
-      const iso = coerceCountry(req.body.country);
+      // 26 Oct 2026 — the patient's real country (any ISO code); it used to be
+      // clamped to the nine launch markets, so a German patient was saved as
+      // EG. An unrecognisable value still falls back to EG.
+      const iso = signupCountry(req.body.country) || 'EG';
       updates.push(`country = $${paramIndex++}`); values.push(iso);
       updates.push(`country_code = $${paramIndex++}`); values.push(iso);
     }

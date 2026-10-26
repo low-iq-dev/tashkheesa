@@ -7,7 +7,7 @@ const { randomUUID } = require('crypto');
 const { pool } = require('../../db');
 const { logErrorToDb } = require('../../logger');
 const emailService = require('../../services/emailService');
-const { coerceCountry } = require('../../launch-market');
+const { signupCountry } = require('../../launch-market');
 const { resolveIntakeLanguage } = require('../../services/intake_language');
 
 const { captureSignup } = require('../../services/analytics');
@@ -75,7 +75,8 @@ router.post('/intake', async (req, res) => {
   const signupNotes = reportedAge
     ? `website_portal_intake; reported_age=${reportedAge}`
     : 'website_portal_intake';
-  const country           = body.country ? coerceCountry(body.country) : null;
+  // 26 Oct 2026: the real country (any ISO code), not clamped to the nine launch markets.
+  const country           = body.country ? (signupCountry(body.country) || 'EG') : null;
   const test_type         = String(body.test_type || '').trim();
   const clinical_question = body.clinical_question ? String(body.clinical_question).trim() : null;
   const case_files_url    = body.case_files ? String(body.case_files).trim() : null;

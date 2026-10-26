@@ -39,9 +39,20 @@
           <label class="form-label" for="reg-phone"><%= isAr ? 'رقم الواتساب' : 'WhatsApp number' %></label>
           <div style="display:flex;gap:8px;align-items:stretch;direction:ltr;">
             <select class="form-control" id="reg-country" name="country_code" required aria-label="<%= isAr ? 'الدولة' : 'Country' %>" style="flex:0 0 auto;width:auto;max-width:44%;padding-inline:10px;">
-              <%- include('partials/country_options', { _selectedCountry: formValues.country_code || '', _isAr: (typeof isAr !== 'undefined' && isAr), _onlyLiveMarkets: true }) %>
+              <%- include('partials/country_options', { _selectedCountry: formValues.country_code || '', _isAr: (typeof isAr !== 'undefined' && isAr), _withDial: true }) %>
             </select>
-            <input class="form-control" style="flex:1;min-width:0;" type="tel" id="reg-phone" name="phone" value="<%= formValues.phone || '' %>" placeholder="01X XXXX XXXX" required inputmode="tel" dir="ltr" autocomplete="tel-national" />
+            <%
+              // 26 Oct 2026 — the placeholder follows the selected country (it
+              // was always the Egyptian "01X XXXX XXXX"). Server-rendered for the
+              // pre-selected country; the script below swaps it on change.
+              var _regRows = (typeof COUNTRIES !== 'undefined' && COUNTRIES) ? COUNTRIES : [];
+              var _regSel = String(formValues.country_code || '').toUpperCase();
+              var _regRow = null;
+              for (var _i = 0; _i < _regRows.length; _i++) { if (_regRows[_i].iso === _regSel) { _regRow = _regRows[_i]; break; } }
+              var _regPhGeneric = isAr ? 'رقمك بدون كود الدولة' : 'Your number, without the country code';
+              var _regPh = (_regRow && _regRow.ex) || (_regRow ? _regPhGeneric : (_regSel === 'EG' || !_regSel ? '01X XXXX XXXX' : _regPhGeneric));
+            %>
+            <input class="form-control" style="flex:1;min-width:0;" type="tel" id="reg-phone" name="phone" value="<%= formValues.phone || '' %>" placeholder="<%= _regPh %>" data-ph-generic="<%= _regPhGeneric %>" required inputmode="tel" dir="ltr" autocomplete="tel-national" />
           </div>
           <small id="reg-phone-hint" style="color:#64748b;font-size:0.78rem;"><%= isAr ? 'هنبعتلك تحديثات حالتك على الواتساب.' : "We'll send your case updates on WhatsApp." %></small>
         </div>
@@ -70,5 +81,37 @@
       </form>
     </div>
   </div>
+
+<%#
+  26 Oct 2026. (1) The phone placeholder follows the chosen country. (2) The
+  register_view funnel count fires only once this page has been VISIBLE for a
+  second (same rule as /start since 1 Oct): a server-side GET count also counts
+  link prefetch / in-app-browser preloads, which never show the page to anyone.
+  The raw GET is still counted server-side as register_get, for comparison.
+%>
+<script nonce="<%= (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '' %>">
+(function () {
+  var sel = document.getElementById('reg-country');
+  var ph = document.getElementById('reg-phone');
+  if (sel && ph) {
+    sel.addEventListener('change', function () {
+      var o = sel.options[sel.selectedIndex];
+      ph.placeholder = (o && o.getAttribute('data-ph')) || ph.getAttribute('data-ph-generic') || '';
+    });
+  }
+  var sent = false, t = null;
+  function arm() {
+    if (sent || document.visibilityState !== 'visible') return;
+    clearTimeout(t);
+    t = setTimeout(function () {
+      if (sent || document.visibilityState !== 'visible') return;
+      sent = true;
+      try { fetch('/f/e?s=register_view', { keepalive: true, credentials: 'same-origin' }); } catch (e) {}
+    }, 1000);
+  }
+  document.addEventListener('visibilitychange', arm);
+  arm();
+})();
+</script>
 
 <%- include('partials/footer', { showFooter: false }) %>

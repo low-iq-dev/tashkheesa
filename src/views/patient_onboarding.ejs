@@ -127,7 +127,7 @@
 
           <div class="form-group">
             <label><%= _isAr ? 'رقم الهاتف' : 'Phone Number' %> *</label>
-            <input type="tel" id="ob-phone" name="phone" autocomplete="tel" value="<%= _dbUser.phone || '' %>" placeholder="+20 1XX XXX XXXX" dir="ltr">
+            <input type="tel" id="ob-phone" name="phone" autocomplete="tel" value="<%= _dbUser.phone || '' %>" placeholder="<%= (function () { var cc = String(_dbUser.country_code || 'EG').toUpperCase(); if (cc === 'EG') return '+20 1XX XXX XXXX'; var r = ((typeof COUNTRIES !== 'undefined' && COUNTRIES) || []).filter(function (c) { return c.iso === cc; })[0]; return r ? r.dial + ' …' : '+20 1XX XXX XXXX'; })() %>" dir="ltr">
           </div>
 
           <%# AUDIT-2026-08-22 (L8): date of birth and sex became SERVER-required

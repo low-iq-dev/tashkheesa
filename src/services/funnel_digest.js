@@ -6,7 +6,9 @@
 // Steps and where each number comes from:
 //   start_view     /start + /ar/start page views      funnel_daily_counts (bumped here)
 //   start_view_meta  … of which utm_source=meta       funnel_daily_counts
-//   register_view  GET /register                      funnel_daily_counts
+//   register_view  /register seen for 1s (beacon /f/e) funnel_daily_counts (26 Oct: was the GET)
+//   register_get   GET /register (raw)                funnel_daily_counts
+//   register_submit / register_ok / register_err_*   POST /register outcome, by reason
 //   signups        users (role patient) created       users
 //   drafts         wizard/app cases started           orders_active
 //   uploaded       … of those, got past Documents     orders_active.draft_step >= 2
@@ -26,7 +28,16 @@ const STEPS = new Set(['start_view', 'start_view_meta', 'services_view', 'servic
   // 11 Oct 2026 — taps on the services page (hero Start / bottom CTA, a service or specialty card, the help link)
   'services_cta', 'services_card', 'services_help',
   // 16 Oct 2026 — the /uk landing page (view, Start tap, WhatsApp tap)
-  'uk_view', 'uk_view_meta', 'uk_cta', 'uk_wa']);
+  'uk_view', 'uk_view_meta', 'uk_cta', 'uk_wa',
+  // 26 Oct 2026 — the register leak: the raw server GET (register_view is now
+  // the visible-page beacon), every POST, each refusal by reason, and success.
+  'register_get', 'register_submit', 'register_ok',
+  'register_err_required', 'register_err_password', 'register_err_terms', 'register_err_country',
+  'register_err_phone', 'register_err_phone_taken', 'register_err_email', 'register_err_server']);
+const REGISTER_ERRORS = [
+  ['register_err_required', 'missing field'], ['register_err_terms', 'terms'], ['register_err_country', 'country'],
+  ['register_err_phone', 'phone invalid'], ['register_err_phone_taken', 'phone taken'], ['register_err_email', 'email'],
+  ['register_err_password', 'password'], ['register_err_server', 'server error']];
 // Per-campaign split (2 Oct 2026): '<page>_view@<utm_campaign>' so each ad's landing
 // views can be told apart. Slug is sanitised and capped; anything else is rejected.
 const CAMPAIGN_STEP = /^(start|services|uk)_view@[a-z0-9][a-z0-9_-]{0,39}$/;
@@ -54,6 +65,20 @@ function isBot(ua) {
 }
 
 /**
+ * A request nobody will look at: a browser prefetch/prerender (Sec-Purpose /
+ * Purpose: prefetch, X-Moz: prefetch) or a preload/preview fetch (X-Purpose:
+ * preview, sent by in-app-browser preloaders). These carry a normal browser
+ * user agent, so isBot() lets them through; counted as page views they
+ * inflate the funnel (26 Oct 2026).
+ */
+function isPrefetch(req) {
+  const h = (req && req.headers) || {};
+  const v = (k) => String(h[k] || '').toLowerCase();
+  return /prefetch|prerender/.test(v('sec-purpose')) || /prefetch|prerender/.test(v('purpose'))
+    || /prefetch|preview/.test(v('x-purpose')) || v('x-moz') === 'prefetch';
+}
+
+/**
  * Count one page view for `step`. Fire-and-forget: synchronous, never throws,
  * never awaited by the request.
  */
@@ -61,11 +86,16 @@ function bumpFunnelCount(step, req) {
   try {
     if (!STEPS.has(step) && !CAMPAIGN_STEP.test(step)) return;
     const ua = req && req.get ? req.get('user-agent') : '';
-    if (req && isBot(ua)) return;
+    if (req && (isBot(ua) || isPrefetch(req))) return;
     const day = cairoDay();
     if (day !== seenDay) { seenDay = day; seen = new Set(); }
     if (req) {
-      const ip = String((req.ip || (req.headers && req.headers['x-forwarded-for']) || '')).split(',')[0].trim();
+      // cf-connecting-ip first (26 Oct 2026): behind Cloudflare, req.ip with
+      // trust proxy 1 is the Cloudflare EDGE, so distinct visitors on one edge
+      // with the same browser collapsed into one and one visitor hopping edges
+      // counted twice.
+      const h = req.headers || {};
+      const ip = String(h['cf-connecting-ip'] || req.ip || h['x-forwarded-for'] || '').split(',')[0].trim();
       const key = crypto.createHash('sha1').update(step + '|' + ip + '|' + ua).digest('hex');
       if (seen.has(key)) return;
       if (seen.size < SEEN_CAP) seen.add(key);
@@ -180,6 +210,24 @@ function pct(a, b) {
   return ' (' + Math.round((a / b) * 100) + '%)';
 }
 
+/**
+ * The register form, step by step (26 Oct 2026): submits, accounts created,
+ * and every refusal by reason — nothing when nobody submitted. Unique
+ * visitors per step per day, like the views.
+ */
+function registerLines(f) {
+  const submits = f.register_submit || 0;
+  const refusals = REGISTER_ERRORS
+    .filter(function (e) { return f[e[0]]; })
+    .map(function (e) { return e[1] + ' ' + f[e[0]]; });
+  if (!submits && !refusals.length && !f.register_ok) return [];
+  return [
+    'Register form sent: ' + fmt(submits) + pct(submits, f.register_view || 0) +
+      ' · account created ' + fmt(f.register_ok || 0) + pct(f.register_ok || 0, submits),
+    '  Refused: ' + (refusals.length ? refusals.join(' · ') : 'none')
+  ];
+}
+
 function formatDigest(f, since) {
   const d = new Date(f.day + 'T12:00:00Z');
   const label = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -195,7 +243,10 @@ function formatDigest(f, since) {
     ...((f.uk_view || f.uk_cta || f.uk_wa) ? ['UK page /uk: views ' + fmt(f.uk_view || 0) + (f.uk_view_meta ? ' (Meta ' + f.uk_view_meta + ')' : '') +
       ' · Start ' + fmt(f.uk_cta || 0) + pct(f.uk_cta || 0, f.uk_view || 0) + ' · WhatsApp ' + fmt(f.uk_wa || 0)] : []),
     'WhatsApp ad clicks: ' + fmt(f.wa_redirect || 0),
-    'Register page views: ' + fmt(f.register_view || 0),
+    // 26 Oct 2026 — register_view is the visible-page beacon; register_get the
+    // raw server GET it replaced (prefetch/preload included until today).
+    'Register page views: ' + fmt(f.register_view || 0) + (f.register_get ? ' (server GETs ' + f.register_get + ')' : ''),
+    ...registerLines(f),
     'Signups: ' + fmt(f.signups) + pct(f.signups, f.register_view),
     'Cases started: ' + fmt(f.drafts) + pct(f.drafts, f.signups),
     'Files uploaded: ' + fmt(f.uploaded) + pct(f.uploaded, f.drafts),
@@ -327,5 +378,5 @@ async function runFunnelDigest(opts) {
 module.exports = {
   bumpFunnelCount, bumpStartView, bumpLandingView, computeFunnel, formatDigest, runFunnelDigest,
   formatOpsDigest, pushOpsDigest,
-  previousCairoDay, cairoDay, isBot,
+  previousCairoDay, cairoDay, isBot, isPrefetch, registerLines,
 };

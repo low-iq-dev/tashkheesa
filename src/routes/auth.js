@@ -7,7 +7,7 @@ const { randomUUID } = require('crypto');
 const { queueNotification } = require('../notify');
 const { sendEmail } = require('../services/emailService');
 const { logErrorToDb } = require('../logger');
-const { isLaunchMarket } = require('../launch-market');
+const { isValidCountry, signupCountry, marketFromDialCode } = require('../launch-market');
 const rateLimit = require('express-rate-limit');
 const { sendOtpViaTwilio, verifyOtpCode } = require('../services/twilio_verify');
 const { validatePhoneE164 } = require('../validators/phone');
@@ -541,14 +541,21 @@ router.post('/login/otp/verify', parseOtpPhone, otpIpLimiter, otpVerifyCap, asyn
         // for one number — so without RETURNING there is no way to tell "we
         // created this patient" from "someone else created them a millisecond
         // ago", and the loser of the race would be counted as a signup too.
+        // country_code (not just country) so signUserToken() embeds it in the JWT,
+        // matching password-registered patients (FIX #12 — avoids a per-request lookup).
+        // 26 Oct 2026 — the country was HARDCODED 'EG' here, so a web OTP
+        // signup from Germany became an Egyptian-priced account. Seed it from
+        // the verified number's own dial code (any country), else the dial
+        // code they picked, else EG — the mobile door does the same.
+        const { dialCodeFromE164 } = require('../validators/phone_identity');
+        const otpCountry = marketFromDialCode(dialCodeFromE164(phone))
+          || marketFromDialCode(req.body && req.body.countryCode) || 'EG';
         const created = await execute(
-          // country_code='EG' (not just country) so signUserToken() embeds it in the JWT,
-          // matching password-registered patients (FIX #12 — avoids a per-request lookup).
           `INSERT INTO users (id, phone, role, country, country_code, lang, created_at)
-           VALUES ($1, $2, 'patient', 'EG', 'EG', $3, NOW())
+           VALUES ($1, $2, 'patient', $4, $4, $3, NOW())
            ON CONFLICT (phone) WHERE phone IS NOT NULL DO NOTHING
            RETURNING id`,
-          [randomUUID(), phone, getReqLang(req)]
+          [randomUUID(), phone, getReqLang(req), otpCountry]
         );
         user = await queryOne(
           "SELECT * FROM users WHERE phone = $1 AND role IN ('patient', 'doctor')",
@@ -1068,12 +1075,18 @@ router.post('/reset-password/:token', welcomeTokenIpLimiter, async (req, res) =>
 // 302 (temporary) so browsers don't cache if the canonical route ever moves.
 router.get('/signup', (req, res) => res.redirect(302, '/register'));
 
-const ARAB_COUNTRIES = ['EG', 'SA', 'AE', 'KW', 'QA', 'BH', 'OM', 'JO', 'LB', 'IQ', 'LY', 'SD', 'MA', 'TN', 'DZ', 'YE', 'SY', 'PS'];
+const ARAB_COUNTRIES = ['EG', 'SA', 'AE', 'KW', 'QA', 'BH', 'OM', 'JO', 'LB', 'IQ', 'LY', 'SD', 'MA', 'TN', 'DZ', 'YE', 'SY', 'PS', 'MR'];
 
 router.get('/register', (req, res) => {
   if (req.user) return res.redirect('/');
   // FUNNEL 2026-09-27 — register-page views for the daily founder digest.
-  try { require('../services/funnel_digest').bumpFunnelCount('register_view', req); } catch (_) {}
+  // 26 Oct 2026: the server-side GET is now 'register_get' (raw, after the
+  // bot + prefetch filter). 'register_view' is counted by register.ejs once
+  // the page has actually been VISIBLE for a second — the same fix /start got
+  // on 1 Oct, because a GET also counts link prefetch and Meta's in-app
+  // browser preloads (180 "views" in 14 days for 3 accounts). Comparing the
+  // two counts in the digest shows how much of the old number was real.
+  try { require('../services/funnel_digest').bumpFunnelCount('register_get', req); } catch (_) {}
   setLangCookie(res, getReqLang(req));
   // A patient who clicked a service card lands on /login?next=/patient/new-case?...
   // and then taps "Create account". Carry that next through registration so the
@@ -1083,10 +1096,10 @@ router.get('/register', (req, res) => {
   var detectedCountry = res.locals.detectedCountry || 'EG';
   // 16 Oct 2026 — a visitor who came through /uk (or an ad with ?market=GB)
   // carries the `mkt` cookie; pre-select that country so the account is
-  // priced from the list the landing page quoted. Launch markets only.
+  // priced from the list the landing page quoted. Any real country (26 Oct).
   try {
-    var _mkt = String((req.cookies && req.cookies.mkt) || '').toUpperCase();
-    if (_mkt && require('../launch-market').isLaunchMarket(_mkt)) detectedCountry = _mkt;
+    var _mkt = signupCountry((req.cookies && req.cookies.mkt) || '');
+    if (_mkt) detectedCountry = _mkt;
   } catch (_) { /* keep the geo guess */ }
   // SHORT-SIGNUP 2026-09-27 — on Arabic pages, a non-Arab geo guess (VPNs,
   // Meta's in-app browser egress) pre-selected e.g. "United States" for an
@@ -1115,6 +1128,13 @@ router.post('/register', async (req, res) => {
   const form = { name, email, phone, country_code: normalizedCountry || '' };
   const c = authCopy(req);
   const langForMsg = c.isAr ? 'ar' : 'en';
+  // 26 Oct 2026 — the register leak. 180 register_view in 14 days became 3
+  // accounts and nothing said where the rest went. Every submit, every refusal
+  // by reason, and every success is now a funnel count (daily digest).
+  const regFunnel = (step) => {
+    try { require('../services/funnel_digest').bumpFunnelCount(step, req); } catch (_) {}
+  };
+  regFunnel('register_submit');
 
   // SIGNUP-LITE 2026-10-01: name + WhatsApp number (+ country for the dial
   // code) are the only required fields. Email and password are OPTIONAL — the
@@ -1122,6 +1142,7 @@ router.post('/register', async (req, res) => {
   // (/login/otp/*, find-or-create on the same number). If a client still sends
   // them, they are validated exactly as before.
   if (!String(name || '').trim() || !normalizedCountry || !String(phone || '').trim()) {
+    regFunnel('register_err_required');
     return res
       .status(400)
       .render('register', { error: c.register_required, form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
@@ -1130,6 +1151,7 @@ router.post('/register', async (req, res) => {
   // Server-side password minimum — only when a password is supplied. The other
   // password-setting routes (/set-password, /reset-password/:token) enforce >= 8.
   if (password && String(password).length < 8) {
+    regFunnel('register_err_password');
     return res
       .status(400)
       .render('register', { error: c.register_pw_short, form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
@@ -1141,16 +1163,23 @@ router.post('/register', async (req, res) => {
   // checkbox is simply omitted from the body, so presence is the whole test.
   const termsAccepted = terms === true || ['on', 'true', '1', 'yes'].includes(String(terms || '').trim().toLowerCase());
   if (!termsAccepted) {
+    regFunnel('register_err_terms');
     return res
       .status(400)
       .render('register', { error: c.register_terms_required, form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
   }
 
-  if (!isLaunchMarket(normalizedCountry)) {   // LAUNCH GATE (src/launch-market.js): EG-only at launch
+  // 26 Oct 2026 — ANY real country may sign up (src/lib/countries.js). This
+  // was isLaunchMarket(): nine markets, everyone else refused with "Please
+  // select a valid country". The account stores the patient's real country;
+  // what they pay is pricing_market.pricingMarketFor(country), charged in EGP.
+  if (!isValidCountry(normalizedCountry)) {
+    regFunnel('register_err_country');
     return res
       .status(400)
       .render('register', { error: c.register_country_invalid, form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
   }
+  const storedCountry = signupCountry(normalizedCountry);
 
   // P0-FORM-1: phone required + E.164 enforced. Was optional with no
   // format check, which produced the 78%-no-phone + truncated-format
@@ -1160,8 +1189,9 @@ router.post('/register', async (req, res) => {
   // every Egyptian writes their number — normalised to "+01003225382" and was
   // REJECTED as invalid, telling the user their own number was wrong with no
   // hint as to why. The country code is right there in the form; use it.
-  const phoneCheck = normalizePhone(phone, country_code || normalizedCountry, langForMsg);
+  const phoneCheck = normalizePhone(phone, country_code || storedCountry, langForMsg);
   if (!phoneCheck.ok) {
+    regFunnel('register_err_phone');
     return res
       .status(400)
       .render('register', { error: phoneCheck.error, form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
@@ -1170,12 +1200,14 @@ router.post('/register', async (req, res) => {
 
   const normalizedEmail = String(email || '').trim().toLowerCase() || null;
   if (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    regFunnel('register_err_email');
     return res
       .status(400)
       .render('register', { error: c.isAr ? 'البريد الإلكتروني غير صحيح.' : 'That email address looks wrong.', form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
   }
   const exists = normalizedEmail ? await queryOne('SELECT 1 FROM users WHERE email = $1', [normalizedEmail]) : null;
   if (exists) {
+    regFunnel('register_err_email');
     return res
       .status(400)
       .render('register', { error: c.register_email_exists, form, lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, copy: c });
@@ -1186,10 +1218,13 @@ router.post('/register', async (req, res) => {
   const lang = c.isAr ? 'ar' : 'en';
 
   try {
+    // 26 Oct 2026 — `country` too, not only country_code: the intake pricer
+    // (case_intake_pricing.resolvePricingCountry) reads users.country, and a
+    // web signup left it NULL, so pricing fell back to the request's guess.
     await execute(`
-      INSERT INTO users (id, email, password_hash, name, role, lang, country_code, phone, is_active, created_at)
-      VALUES ($1, $2, $3, $4, 'patient', $5, $6, $7, true, $8)
-    `, [id, normalizedEmail, passwordHash, name, lang, normalizedCountry, normalizedPhone, new Date().toISOString()]);
+      INSERT INTO users (id, email, password_hash, name, role, lang, country, country_code, phone, is_active, created_at)
+      VALUES ($1, $2, $3, $4, 'patient', $5, $6, $6, $7, true, $8)
+    `, [id, normalizedEmail, passwordHash, name, lang, storedCountry, normalizedPhone, new Date().toISOString()]);
   } catch (dbErr) {
     console.error('[REGISTER] DB insert failed:', dbErr.message);
     // AUDIT-PHONE-UNIQUE-2026-09-06 — a duplicate phone is not a system error.
@@ -1202,6 +1237,7 @@ router.post('/register', async (req, res) => {
     // value is the problem. 400, not 500: the request is refusable, not broken.
     const { isPhoneTakenError, phoneTakenMessage } = require('../validators/phone');
     if (isPhoneTakenError(dbErr)) {
+      regFunnel('register_err_phone_taken');
       return res.status(400).render('register', {
         error: phoneTakenMessage(langForMsg),
         form,
@@ -1211,6 +1247,7 @@ router.post('/register', async (req, res) => {
         copy: c
       });
     }
+    regFunnel('register_err_server');
     return res.status(500).render('register', {
       error: c.isAr ? 'حدث خطأ أثناء إنشاء الحساب. حاول مرة أخرى.' : 'Error creating account. Please try again.',
       form,
@@ -1225,6 +1262,7 @@ router.post('/register', async (req, res) => {
   // so this account exists. Fire-and-forget, never awaited — same shape as the
   // post-transaction pushOpsEvent in the doctor signup below.
   captureSignup({ userId: id, signupMethod: passwordHash ? 'password_web' : 'phone_web', role: 'patient', surface: 'web' });
+  regFunnel('register_ok');
 
   const user = {
     id,
@@ -1233,7 +1271,7 @@ router.post('/register', async (req, res) => {
     name,
     role: 'patient',
     lang: lang,
-    country_code: normalizedCountry,
+    country_code: storedCountry,
     phone: normalizedPhone   // P0-FORM-1: include phone so JWT carries it (gate clears immediately)
   };
 

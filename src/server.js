@@ -312,6 +312,11 @@ app.locals.urgentWindowNote = require('./services/urgency_window').urgentWindowN
 // Annotate button gate (portal_doctor_case.ejs) — the same raster set the
 // annotator's byte route serves (services/file_access.js).
 app.locals.isAnnotatableName = require('./services/file_access').isAnnotatableName;
+// 26 Oct 2026 — the country / dialling-code list for partials/country_options
+// (signup + profile). One source: src/lib/countries.js, which the phone
+// normaliser also reads.
+app.locals.COUNTRIES = require('./lib/countries').COUNTRIES;
+app.locals.POPULAR_COUNTRIES = require('./lib/countries').POPULAR;
 
 require('express-async-errors');
 

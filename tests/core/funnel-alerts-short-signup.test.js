@@ -56,7 +56,10 @@ test('funnel wiring: migration, /start + /register bumps, 15-min digest interval
   assert.match(read('src/migrations/122_funnel_daily_counts.sql'), /CREATE TABLE IF NOT EXISTS funnel_daily_counts/);
   assert.match(read('src/routes/static-pages.js'), /router\.get\('\/f\/e'/);
   assert.match(read('src/views/start.ejs'), /hit\('start_view'\)/);
-  assert.match(read('src/routes/auth.js'), /bumpFunnelCount\('register_view', req\)/);
+  // 26 Oct 2026: the GET is counted raw as register_get; register_view is the
+  // visible-page beacon from register.ejs (prefetch/preloads never count).
+  assert.match(read('src/routes/auth.js'), /bumpFunnelCount\('register_get', req\)/);
+  assert.match(read('src/views/register.ejs'), /\/f\/e\?s=register_view/);
   assert.match(read('src/server.js'), /runFunnelDigest\(\)/);
 });
 
