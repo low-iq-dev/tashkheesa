@@ -1,22 +1,31 @@
 'use strict';
 // ─────────────────────────────────────────────────────────────────────────────
-// LAUNCH MARKET GATE — 9 markets live (Egypt + GCC + GB/US).
+// MARKETS — who may sign up, and which nine markets carry their own price list.
 //
-// RESOLVED 2026-07-29: the old negative-margin block (241 GB/US/AE rows where
-// doctor_commission > tashkheesa_price) no longer applies. Under the ALWAYS-
-// CHARGE-EGP model the card is ALWAYS charged in EGP (the local price is
-// converted to EGP once at order creation via src/fx.js), and the doctor fee is a
-// flat 20% OF THE EGP CHARGE (NOT the local doctor_commission column), so the
-// platform margin is structurally positive (80%) in every market. The 8
-// international markets were repriced 2026-07-29.
+// 26 Oct 2026 — SIGNUP IS OPEN TO EVERY COUNTRY. Until today POST /register,
+// the OTP doors and the app API refused (or clamped to EG) any patient outside
+// the nine markets below. The platform had no paid patient yet, and a patient
+// in Germany, Libya or Japan simply could not get in. Now:
 //
-// coerceCountry still clamps to EG for callers that must stay EG-scoped; the
-// pricing DISPLAY country is resolved separately (patient.js getDisplayCountryCode /
-// the write sites' local lookup) so the real market drives display_price while
-// the charge stays EGP. Widening this Set opens the isLaunchMarket signup /
-// pricing-activation gates for the 9 markets.
+//   - any ISO-3166 alpha-2 country on src/lib/countries.js may sign up
+//     (isValidCountry), and users.country / country_code store the patient's
+//     REAL country;
+//   - what they are quoted and charged is decided by ONE resolver,
+//     services/pricing_market.pricingMarketFor (Europe → GB list, non-Gulf
+//     Arab → the Egyptian price, everywhere else → US list);
+//   - the card is still ALWAYS charged in EGP (src/fx.js), and the doctor fee
+//     is 20% of the EGP charge, so the margin is positive in every market.
+//
+// LAUNCH_MARKETS is now "the markets with their own price list" (EG prices
+// from services.base_price, the other eight from service_regional_prices).
+// isLaunchMarket still gates the ADMIN pricing-activation screens — a price
+// list can only be switched on for one of these — and coerceCountry is kept
+// for the few callers that must stay EG-scoped. Neither may be used to decide
+// who can sign up or what a patient pays.
 // See docs/superpowers/specs/2026-06-08-egypt-only-market-gate-design.md.
 // ─────────────────────────────────────────────────────────────────────────────
+const { isValidCountry, countryByIso, countryForDial } = require('./lib/countries');
+
 const LAUNCH_MARKETS = new Set(['EG', 'SA', 'AE', 'GB', 'US', 'KW', 'QA', 'BH', 'OM']);
 
 function isLaunchMarket(code) {
@@ -24,33 +33,30 @@ function isLaunchMarket(code) {
 }
 
 // Returns the code if it is a launch market, else falls back to 'EG'.
+// NOT for signup or pricing — see the header.
 function coerceCountry(code) {
   const u = String(code || '').trim().toUpperCase();
   return LAUNCH_MARKETS.has(u) ? u : 'EG';
 }
 
-// AUDIT-APP-H10: dialling code → ISO market. Used by the OTP signup path,
-// which has no explicit country field — the verified dialling code is the only
-// market signal available at account creation. Mirrors the app-side table in
-// constants/countries.ts; keep the two in sync. Codes that are not themselves
-// launch markets (+962 JO, +961 LB) intentionally return null so the caller
-// falls back rather than guessing.
-const DIAL_TO_ISO = {
-  '+20': 'EG',
-  '+966': 'SA',
-  '+971': 'AE',
-  '+965': 'KW',
-  '+974': 'QA',
-  '+973': 'BH',
-  '+968': 'OM',
-  '+44': 'GB',
-  '+1': 'US',
-};
-
-function marketFromDialCode(dialCode) {
-  const raw = String(dialCode || '').trim();
-  const key = raw.startsWith('+') ? raw : `+${raw.replace(/^0+/, '')}`;
-  return DIAL_TO_ISO[key] || null;
+/**
+ * The country to STORE for a patient: the ISO code when it is a real country
+ * ('de' → 'DE', 'UK' → 'GB', 'Egypt' → 'EG'), else null. Callers decide their
+ * own fallback.
+ */
+function signupCountry(code) {
+  const c = countryByIso(code)
+    || countryByIso(require('./services/pricing_market').normaliseCountry(code));
+  return c ? c.iso : null;
 }
 
-module.exports = { LAUNCH_MARKETS, isLaunchMarket, coerceCountry, marketFromDialCode };
+// AUDIT-APP-H10: dialling code → ISO country. Used by the OTP signup paths,
+// which have no explicit country field — the verified dialling code is the
+// only signal available at account creation. 26 Oct 2026: every country's
+// code resolves now (+49 → DE, +962 → JO); shared codes resolve to the main
+// country (+1 → US, +7 → RU). Unknown → null so the caller can fall back.
+function marketFromDialCode(dialCode) {
+  return countryForDial(dialCode);
+}
+
+module.exports = { LAUNCH_MARKETS, isLaunchMarket, coerceCountry, isValidCountry, signupCountry, marketFromDialCode };

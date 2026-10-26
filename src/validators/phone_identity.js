@@ -39,28 +39,40 @@
 // split.
 
 const { validatePhoneE164 } = require('./phone');
+const { COUNTRIES, DIAL_TO_ISO } = require('../lib/countries');
 
 // Dial code -> { iso, nationalLen } where nationalLen is the length of the
 // subscriber number WITHOUT the national trunk prefix. Used to tell a local
 // number from an already-international one.
-const DIAL_CODES = Object.freeze({
-  '+20':  { iso: 'EG', nationalLen: 10 },
-  '+966': { iso: 'SA', nationalLen: 9 },
-  '+971': { iso: 'AE', nationalLen: 9 },
-  '+965': { iso: 'KW', nationalLen: 8 },
-  '+974': { iso: 'QA', nationalLen: 8 },
-  '+973': { iso: 'BH', nationalLen: 8 },
-  '+968': { iso: 'OM', nationalLen: 8 },
-  '+44':  { iso: 'GB', nationalLen: 10 },
-  '+1':   { iso: 'US', nationalLen: 10 },
-});
-
-const ISO_TO_DIAL = Object.freeze(
-  Object.keys(DIAL_CODES).reduce((acc, dial) => {
-    acc[DIAL_CODES[dial].iso] = dial;
+//
+// 26 Oct 2026 — built from src/lib/countries.js, so EVERY country's dial
+// code is known, not just the nine priced markets. Before this a German
+// patient who picked Germany and typed "01512 3456789" was refused (no hint →
+// a leading 0 cannot be interpreted). nationalLen is null where it is not
+// certain; the rules below then fall back to conservative behaviour. The nine
+// markets keep exactly the lengths they had.
+const DIAL_CODES = Object.freeze(
+  Object.keys(DIAL_TO_ISO).reduce((acc, dial) => {
+    const iso = DIAL_TO_ISO[dial];
+    const row = COUNTRIES.find((c) => c.iso === iso);
+    acc[dial] = Object.freeze({ iso, nationalLen: (row && row.len) || null });
     return acc;
   }, {})
 );
+
+const ISO_TO_DIAL = Object.freeze(
+  COUNTRIES.reduce((acc, c) => { acc[c.iso] = c.dial; return acc; }, {})
+);
+
+// Countries whose national significant number legitimately STARTS with 0, so
+// a leading 0 is part of the number and must never be dropped as a trunk
+// prefix: Italy / Vatican (+39 06 …), San Marino, Côte d'Ivoire (since 2021),
+// Congo-Brazzaville.
+const KEEP_LEADING_ZERO = new Set(['+39', '+378', '+225', '+242']);
+
+// A number with no known national length is treated as already carrying its
+// country code only when it is at least this much longer than the dial code.
+const MIN_INTL_SUBSCRIBER = 9;
 
 // Longest-prefix match, so '+1' never shadows '+20' etc.
 const DIALS_BY_LENGTH = Object.keys(DIAL_CODES).sort((a, b) => b.length - a.length);
@@ -77,6 +89,7 @@ function dialCodeFor(hint) {
   if (!hint) return null;
   const raw = String(hint).trim().toUpperCase();
   if (ISO_TO_DIAL[raw]) return ISO_TO_DIAL[raw];
+  if (raw === 'UK') return ISO_TO_DIAL.GB;
   const withPlus = raw.startsWith('+') ? raw : '+' + raw.replace(/^0+/, '');
   return DIAL_CODES[withPlus] ? withPlus : null;
 }
@@ -98,11 +111,23 @@ function normalizePhone(input, countryHint, lang) {
   const raw = String(input == null ? '' : input).trim();
   if (!raw) return validatePhoneE164(raw, lang); // reuse the localised messages
 
-  const hadPlus = raw.charCodeAt(0) === 43;
+  let hadPlus = raw.charCodeAt(0) === 43;
   let digits = digitsOnly(raw);
   if (!digits) return validatePhoneE164(raw, lang);
 
   const dial = dialCodeFor(countryHint);
+
+  // '00' is the international call prefix almost everywhere ('0049 151 …').
+  // It means '+' when what follows is the hinted country's own code (or there
+  // is no hint at all). Anything else ('001012345678' from an Egyptian who
+  // hit 0 twice) keeps the old local reading.
+  if (!hadPlus && digits.length > 10 && digits.startsWith('00') && digits.charAt(2) !== '0') {
+    const rest = digits.slice(2);
+    if (dial ? rest.startsWith(dial.slice(1)) : true) {
+      hadPlus = true;
+      digits = rest;
+    }
+  }
 
   // 1. Already international and unambiguous — a leading '+' means the caller
   //    told us the country. Repair only the double-trunk shape below.
@@ -116,14 +141,21 @@ function normalizePhone(input, countryHint, lang) {
   //    that used to be rejected outright or misread as a US number.
   if (dial) {
     const dialDigits = dial.slice(1);
-    const spec = DIAL_CODES[dial];
+    const spec = DIAL_CODES[dial] || { nationalLen: null };
 
     // Already carries its own country code (user typed '201012345678').
-    if (digits.startsWith(dialDigits) && digits.length > spec.nationalLen) {
+    // Where the national length is not known, only a number clearly longer
+    // than any local number counts (see MIN_INTL_SUBSCRIBER).
+    const looksIntl = spec.nationalLen
+      ? digits.length > spec.nationalLen
+      : digits.length >= dialDigits.length + MIN_INTL_SUBSCRIBER;
+    if (digits.startsWith(dialDigits) && looksIntl) {
       const repaired = _stripTrunkAfterDialCode(digits);
       return validatePhoneE164('+' + repaired, lang);
     }
-    const local = digits.replace(/^0+/, '');
+    // The national trunk '0' is dropped — except where a leading 0 is part of
+    // the number itself (Italy, San Marino, Côte d'Ivoire, Congo).
+    const local = KEEP_LEADING_ZERO.has(dial) ? digits : digits.replace(/^0+/, '');
     return validatePhoneE164('+' + dialDigits + local, lang);
   }
 
@@ -149,7 +181,16 @@ function _stripTrunkAfterDialCode(digits) {
     const spec = DIAL_CODES[dial];
     // Only strip when doing so yields exactly the expected national length —
     // otherwise a legitimate subscriber number starting with 0 would be eaten.
-    if (rest.charAt(0) === '0' && rest.length === spec.nationalLen + 1) {
+    if (spec.nationalLen) {
+      if (rest.charAt(0) === '0' && rest.length === spec.nationalLen + 1) {
+        return dialDigits + rest.slice(1);
+      }
+      return digits;
+    }
+    // No known length (26 Oct 2026, all countries): in E.164 a national
+    // number never starts with the trunk 0, except in the KEEP_LEADING_ZERO
+    // countries — so '+49 0151 …' is the trunk glued on and loses it.
+    if (rest.charAt(0) === '0' && rest.charAt(1) !== '0' && rest.length >= 7 && !KEEP_LEADING_ZERO.has(dial)) {
       return dialDigits + rest.slice(1);
     }
     return digits;
@@ -159,7 +200,7 @@ function _stripTrunkAfterDialCode(digits) {
 
 /**
  * The dial code of an already-international number, by longest-prefix match.
- * Returns null for a number outside our nine markets.
+ * Returns null when no country on src/lib/countries.js uses the prefix.
  */
 function dialCodeFromE164(e164) {
   const digits = digitsOnly(e164);
