@@ -125,6 +125,7 @@ function isoOrNull(v) {
 module.exports = function (db, helpers) {
   const { safeGet, safeAll, safeRun } = helpers || {};
   const router = express.Router();
+  const sessionStore = require('../../services/user_sessions')({ safeGet, safeAll, safeRun });
 
   router.use(requireJWT);
   router.use(requireRole('doctor'));
@@ -566,6 +567,11 @@ module.exports = function (db, helpers) {
 
     const sid = req.user && req.user.sid ? String(req.user.sid) : '';
     try {
+      // 2026-10-26 — the same token again: no write. This route writes the
+      // session row AND the mirror, so both must already hold it.
+      if (await sessionStore.pushTokenAlreadyStored({ sessionId: sid, userId: me, pushToken: token, alsoMirror: true })) {
+        return res.ok({ ok: true, deduped: true });
+      }
       if (sid) {
         // Ownership clause as services/user_sessions.setPushToken: a sid from
         // another user's token can never retarget their device row.

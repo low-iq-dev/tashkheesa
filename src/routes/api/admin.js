@@ -3397,6 +3397,10 @@ module.exports = function (db, helpers, deploy, deps) {
       return res.fail('Invalid push token format', 400, 'INVALID_PUSH_TOKEN');
     }
     try {
+      // 2026-10-26 — the same token again: no write (see profile.js).
+      if (await sessionStore.pushTokenAlreadyStored({ sessionId: req.user.sid, userId: req.user.id, pushToken: token })) {
+        return res.ok({ message: 'Push token registered', deduped: true });
+      }
       let stored = false;
       if (req.user.sid) {
         stored = await sessionStore.setPushToken(req.user.sid, token, req.user.id);

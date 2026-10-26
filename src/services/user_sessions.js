@@ -257,6 +257,38 @@ module.exports = function createSessionStore({ safeGet, safeAll, safeRun }) {
   }
 
   /**
+   * 2026-10-26 — is `pushToken` already what this device has stored? Patient
+   * app builds 13-15 re-POST the same token about once a second (an iOS
+   * listener loop), so the push-token routes skip the write when nothing would
+   * change. Mirrors how each route stores: the session row named by `sid` when
+   * it exists, else the users.push_token mirror; `alsoMirror` for a route that
+   * writes both. Any lookup failure answers false (the route then writes, as
+   * before).
+   */
+  async function pushTokenAlreadyStored({ sessionId, userId, pushToken, alsoMirror = false }) {
+    if (!pushToken || !userId) return false;
+    try {
+      const mirrorMatches = async () => {
+        const u = await safeGet('SELECT push_token FROM users WHERE id = $1', [userId]);
+        return !!u && u.push_token === pushToken;
+      };
+      if (sessionId) {
+        const s = await safeGet(
+          'SELECT push_token FROM user_sessions WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL',
+          [sessionId, userId]
+        );
+        if (s) {
+          if (s.push_token !== pushToken) return false;
+          return alsoMirror ? await mirrorMatches() : true;
+        }
+      }
+      return await mirrorMatches();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
    * Every live device push token for a user — sessions UNION the transition
    * mirror (users.push_token), deduped, so a device registered by pre-C1 code
    * keeps receiving push until it re-registers.
@@ -287,6 +319,7 @@ module.exports = function createSessionStore({ safeGet, safeAll, safeRun }) {
     revokeLegacyForUser,
     revokeAllForUser,
     setPushToken,
+    pushTokenAlreadyStored,
     livePushTokensForUser,
   };
 };

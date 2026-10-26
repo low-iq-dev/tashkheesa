@@ -182,7 +182,26 @@ function buildApiLimiters() {
     legacyHeaders: false,
   });
 
-  return { apiLimiter, authLimiter, tokenLimiter, loginAccountLimiter };
+  // 2026-10-26 — push-token registration has its own bucket. Patient app
+  // builds 13-15 POST /profile/push-token about once a second on iPhone (an
+  // expo-notifications listener that re-triggers itself); on the per-user
+  // bucket above that exhausted 600 / 15 min in about ten minutes and every
+  // screen got "We're busy". Verified users only (see api_v1.js): 20 per user
+  // per 15 minutes, and past that a 200 { deduped: true } with nothing
+  // written — never a 429, so an installed build sees no error and does not
+  // retry harder. Registering a token twenty times in fifteen minutes is
+  // already far more than any real device needs.
+  const pushTokenLimiter = rateLimit({
+    windowMs: WINDOW_MS,
+    max: 20,
+    validate: false,
+    keyGenerator: (req) => 'push:user:' + verifiedUserId(req),
+    handler: (req, res) => res.status(200).json({ success: true, data: { deduped: true } }),
+    standardHeaders: false,
+    legacyHeaders: false,
+  });
+
+  return { apiLimiter, authLimiter, tokenLimiter, loginAccountLimiter, pushTokenLimiter };
 }
 
 // The same normalisation the sign-in handler applies (express-validator's
