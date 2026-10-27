@@ -1,10 +1,45 @@
 #!/usr/bin/env node
 // tests/run.js — Tashkheesa test runner
-// Runs all test files, skips any that require SQLite (legacy)
-// Compatible with PostgreSQL-only setup
+//
+// Runs every test file in its OWN process, one at a time, and counts what each
+// one reported. A file passes only if it reported at least one result, none of
+// them failed, and it exited cleanly in time.
+//
+//   node tests/run.js                    the suite (tests/ and src/**/*.test.js)
+//   node tests/run.js --dir <path>       every *.test.js under <path> instead
+//   node tests/run.js --update-baseline  rewrite tests/baseline-nodb-failures.txt
+//
+// 2026-10-27 — why every file gets its own process. The runner used to
+// require() all files into one process and tally only its own harness
+// (global._testRunner). Files written with node:test were invisible to it: their
+// failures were printed and never counted, and most of them never even ran —
+// node:test schedules its tests asynchronously, the runner waited only for its
+// own counters to go quiet, then called process.exit() underneath them. On
+// origin/main that produced "Failed: 5" while node:test files held dozens of
+// failing tests, and a "no database" run that still wrote fixtures into a local
+// Postgres. The AUDIT 2026-08-16 drain fixed the same blind spot for the
+// harness's own late results; node:test was never covered.
+//
+// Now, per file:
+//   - node:test files run under `node --test` with a counting reporter
+//     (tests/_helpers/node-test-reporter.js) next to the usual spec output;
+//   - every other file runs under tests/_helpers/run-one.js, which records each
+//     global._testRunner result to disk as it happens;
+//   - a failing test or subtest, a hook failure, an uncaught exception, an
+//     unhandled rejection, a file that throws while loading, a file that exits
+//     non-zero, a file that reports nothing and a file that outlives its timeout
+//     are all failures. Nothing is skipped unless a test skipped itself, or the
+//     file is one `npm test` never runs (RUN_SEPARATELY, below) — and then it
+//     is printed and counted as skipped.
+//
+// Process-per-file also ends the cross-file leaks the old runner had to patch
+// around (require.cache stubs, process.env flips, ejs.cache): no file can see
+// another file's state.
 
 const path = require('path');
 const fs   = require('fs');
+const os   = require('os');
+const { spawn, spawnSync } = require('child_process');
 
 // Load .env before anything else. The individual test files each call
 // dotenv.config() themselves, but the readiness probe below runs BEFORE any of
@@ -12,42 +47,78 @@ const fs   = require('fs');
 // where it is set in .env, and skip every integration test unconditionally.
 try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
 
-const RED   = '\x1b[31m';
-const GREEN = '\x1b[32m';
+const baseline = require('./_helpers/baseline');
+
+const RED    = '\x1b[31m';
+const GREEN  = '\x1b[32m';
 const YELLOW = '\x1b[33m';
-const RESET = '\x1b[0m';
+const DIM    = '\x1b[2m';
+const RESET  = '\x1b[0m';
+
+const ROOT      = path.join(__dirname, '..');
+const TESTS_DIR = __dirname;
+const RUN_ONE   = path.join(__dirname, '_helpers', 'run-one.js');
+const REPORTER  = path.join(__dirname, '_helpers', 'node-test-reporter.js');
+const NO_DB_GUARD = path.join(__dirname, '_helpers', 'no-db-guard.js');
+// Runs last: it compares every earlier file's failures with the baseline.
+const GATE_FILE = path.join(__dirname, 'lint', 'nodb-baseline-gate.test.js');
+// Directories `npm test` never runs, but lists and counts as skipped rather than
+// leaving out silently. tests/pin needs a migrated database and turns
+// admin_settings.auto_assign_enabled on for its duration — a global switch on
+// whatever database it is pointed at, restored only in a `finally` a timeout
+// kill would skip. Run it on purpose: `npm run test:pin`.
+const RUN_SEPARATELY = { [path.join(__dirname, 'pin')]: 'it flips admin_settings.auto_assign_enabled on its database — run it on purpose with `npm run test:pin`' };
+
+// A file that has not exited after this long is killed and counted as failed.
+const FILE_TIMEOUT_MS = Number(process.env.TEST_FILE_TIMEOUT_MS || 120000);
+// A single node:test test that runs longer than this fails (and does not hang the file).
+const TEST_TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS || 60000);
+
+const argv = process.argv.slice(2);
+const dirArg = argv.indexOf('--dir') >= 0 ? argv[argv.indexOf('--dir') + 1] : null;
+const updateBaseline = argv.includes('--update-baseline');
+const customDir = dirArg ? path.resolve(dirArg) : null;
 
 let totalPassed = 0;
 let totalFailed = 0;
 let totalSkipped = 0;
 
-// ── Shared test helpers exported to test files ─────────────────────────────
-global._testRunner = {
-  pass: (name) => { totalPassed++; console.log(`  ${GREEN}✅${RESET} ${name}`); },
-  fail: (name, err) => { totalFailed++; console.error(`  ${RED}❌${RESET} ${name}: ${err.message || err}`); },
-  skip: (name, reason) => { totalSkipped++; console.log(`  ${YELLOW}⏭️${RESET}  ${name} (skipped: ${reason})`); },
-};
-
 // ── Discover test files ────────────────────────────────────────────────────
-// tests/pin/ is excluded: those tests need a real Postgres with the app's
-// schema and are designed for the long-running async pattern that the
-// require()-based runner here doesn't await. Run them with
-// `npm run test:pin` after migrations.
 function findTests(dir) {
   const results = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== 'pin') {
+    if (entry.isDirectory() && entry.name !== 'node_modules') {
       results.push(...findTests(full));
     } else if (entry.isFile() && entry.name.endsWith('.test.js')) {
       results.push(full);
     }
   }
-  return results;
+  return results.sort();
 }
 
-const testsDir = path.join(__dirname);
-const testFiles = findTests(testsDir).filter(f => !f.includes('run.js'));
+// The name a file is printed (and keyed in the baseline) under: relative to
+// tests/ for the files there, as it always was; relative to the repo for src/.
+function displayName(file) {
+  if (customDir) return path.relative(customDir, file);
+  return file.startsWith(TESTS_DIR + path.sep) ? path.relative(TESTS_DIR, file) : path.relative(ROOT, file);
+}
+
+const testFiles = customDir
+  ? findTests(customDir)
+  : findTests(TESTS_DIR).concat(findTests(path.join(ROOT, 'src')));
+// The baseline gate goes last, so it sees every other file's result.
+if (testFiles.includes(GATE_FILE)) testFiles.push(testFiles.splice(testFiles.indexOf(GATE_FILE), 1)[0]);
+
+// A statement that loads node:test — at the start of a line, so a test that
+// merely mentions require('node:test') in a string or comment (the runner's own
+// guard writes such files) is not mistaken for one. A file put in the wrong
+// mode cannot pass silently either way: it reports no results, or exits
+// non-zero, and both are failures.
+const NODE_TEST_RE = /^\s*(?:(?:const|let|var)\s+[^=\n]+=\s*require\(\s*['"](?:node:)?test['"]\s*\)|import\s[^\n]*from\s+['"](?:node:)?test['"])/m;
+function usesNodeTest(file) {
+  try { return NODE_TEST_RE.test(fs.readFileSync(file, 'utf8')); } catch (_) { return false; }
+}
 
 console.log(`\n🧪 Tashkheesa Test Suite\n${'─'.repeat(50)}`);
 console.log(`Found ${testFiles.length} test files\n`);
@@ -65,7 +136,8 @@ console.log(`Found ${testFiles.length} test files\n`);
 // Probe the schema once, up front. If it isn't there, blank DATABASE_URL for
 // the run so every one of those files takes its own existing skip path, and
 // say plainly why — once, at the top and again in the summary — instead of
-// dozens of misleading assertion failures.
+// dozens of misleading assertion failures. Files that open their own pool
+// regardless are refused a connection (tests/_helpers/no-db-guard.js).
 let dbSkipReason = null;
 
 async function probeDatabase() {
@@ -92,95 +164,131 @@ async function probeDatabase() {
   return null;
 }
 
-// ── Async straggler drain ──────────────────────────────────────────────────
-//
-// AUDIT (2026-08-16). The file loop below is synchronous: it require()s each
-// file and moves on. Source-grep tests finish inside that require; database
-// tests do not — they kick off promises that resolve long after. The summary
-// was printed the instant the loop ended, so those results landed in an
-// already-printed tally and an already-decided exit code. The suite could and
-// did report "Failed: 0" while 47 assertions had failed, and exit 0 with it.
-// tests/run.js even carried a comment acknowledging this pattern (it is why
-// tests/pin is excluded) — these files were simply never covered by it.
-//
-// Wait for the counters to stop moving before reporting. Bounded, so a hung
-// connection cannot make the suite hang forever — and a timeout is reported
-// as a failure rather than passed over.
-function counterTotal() { return totalPassed + totalFailed + totalSkipped; }
+// ── Run one file in its own process ────────────────────────────────────────
+const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tashkheesa-tests-'));
+const failuresSoFar = path.join(workDir, 'failures.txt');
+let current = null;
 
-async function drainAsyncResults({ quietMs = 2000, maxMs = 120000 }) {
-  const startedAt = Date.now();
-  const before = counterTotal();
-  let last = before;
-  let lastChangeAt = Date.now();
+function killGroup(child) {
+  try { process.kill(-child.pid, 'SIGKILL'); } catch (_) { try { child.kill('SIGKILL'); } catch (__) { /* gone */ } }
+}
+process.on('SIGINT', () => { if (current) killGroup(current); process.exit(130); });
 
-  while (Date.now() - startedAt < maxMs) {
-    await new Promise((r) => setTimeout(r, 250));
-    const now = counterTotal();
-    if (now !== last) { last = now; lastChangeAt = Date.now(); continue; }
-    if (Date.now() - lastChangeAt >= quietMs) {
-      return { late: counterTotal() - before, timedOut: false };
-    }
+// Whether this node accepts a flag (--test-force-exit arrived in 20.14 and
+// --test-timeout in 20.11; CI pins Node 20). allowedNodeEnvironmentFlags is
+// no use here: it lists NODE_OPTIONS flags, and these are not among them.
+const flagSupport = {};
+function has(flag) {
+  if (!(flag in flagSupport)) flagSupport[flag] = spawnSync(process.execPath, [flag, '-e', ''], { stdio: 'ignore' }).status === 0;
+  return flagSupport[flag];
+}
+
+function nodeTestArgs(resultsFile) {
+  return ['--test']
+    // End the file when its tests have finished, even if a pool or server is still open.
+    .concat(has('--test-force-exit') ? ['--test-force-exit'] : [])
+    .concat(has(`--test-timeout=${TEST_TIMEOUT_MS}`) ? [`--test-timeout=${TEST_TIMEOUT_MS}`] : [])
+    .concat([
+      '--test-reporter=spec', '--test-reporter-destination=stdout',
+      `--test-reporter=${REPORTER}`, `--test-reporter-destination=${resultsFile}`,
+    ]);
+}
+
+function childEnv(resultsFile, file) {
+  const env = Object.assign({}, process.env, { TEST_RUNNER_RESULTS: resultsFile });
+  if (dbSkipReason) {
+    env.DATABASE_URL = '';
+    env.TEST_RUNNER_NO_DB = dbSkipReason;
+    env.NODE_OPTIONS = `${env.NODE_OPTIONS || ''} --require "${NO_DB_GUARD}"`.trim();
   }
-  return { late: counterTotal() - before, timedOut: true };
+  if (file === GATE_FILE) {
+    env.TEST_RUNNER_FAILURES = failuresSoFar;
+    if (dbSkipReason && !customDir) env.TEST_RUNNER_BASELINE_APPLIES = '1';
+  }
+  return env;
+}
+
+function readResults(resultsFile) {
+  let text = '';
+  try { text = fs.readFileSync(resultsFile, 'utf8'); } catch (_) { return []; }
+  const out = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try { out.push(JSON.parse(line)); } catch (_) { /* a torn last line is not a result */ }
+  }
+  return out;
+}
+
+function runFile(file, index) {
+  const resultsFile = path.join(workDir, `${index}.ndjson`);
+  fs.writeFileSync(resultsFile, '');
+  const args = usesNodeTest(file) ? nodeTestArgs(resultsFile).concat([file]) : [RUN_ONE, file];
+  return new Promise((resolve) => {
+    let timedOut = false;
+    let child;
+    try {
+      child = spawn(process.execPath, args, {
+        cwd: process.cwd(),
+        env: childEnv(resultsFile, file),
+        stdio: ['ignore', 'inherit', 'inherit'],
+        detached: true, // its own process group, so a timeout takes its children with it
+      });
+    } catch (err) {
+      resolve({ code: null, signal: null, timedOut, spawnError: err, results: [] });
+      return;
+    }
+    current = child;
+    const timer = setTimeout(() => { timedOut = true; killGroup(child); }, FILE_TIMEOUT_MS);
+    child.on('error', (err) => { clearTimeout(timer); current = null; resolve({ code: null, signal: null, timedOut, spawnError: err, results: readResults(resultsFile) }); });
+    child.on('exit', (code, signal) => { clearTimeout(timer); current = null; resolve({ code, signal, timedOut, results: readResults(resultsFile) }); });
+  });
 }
 
 (async function main() {
   dbSkipReason = await probeDatabase();
   if (dbSkipReason) {
-    // Every DB-gated file already skips cleanly on an absent DATABASE_URL.
-    process.env.DATABASE_URL = '';
     console.log(`${YELLOW}⚠  Database integration tests will be SKIPPED:${RESET} ${dbSkipReason}.`);
     console.log(`   Run the migrations against your local Postgres to exercise them.\n`);
   }
 
-  // ── Run each test file ───────────────────────────────────────────────────
-  for (const file of testFiles) {
-    const rel = path.relative(testsDir, file);
-    console.log(`\n📋 ${rel}`);
-    try {
-      // AUDIT (2026-08-16) — await the file before starting the next one.
-      //
-      // Async test files now `module.exports = (async function () { … })()`, so
-      // the runner can wait for them. Previously they were fire-and-forget:
-      // the runner require()d a file, the file's async body started, and the
-      // runner immediately loaded the NEXT file while it was still running.
-      // Test files share process.env and the require cache, so they were
-      // racing each other through global state — tests/core/email-stub-mode
-      // sets EMAIL_TEST_STUB=true and restores it in a `finally`, but by then
-      // emailService.guard had already run against the flipped flag and failed
-      // on a condition its own code never created. Both files pass alone.
-      //
-      // Serialising them removes a whole class of phantom failure.
-      const exported = require(file);
-      if (exported && typeof exported.then === 'function') await exported;
-      // 2026-09-25 — ejs.cache is process-global. Seven view tests stub
-      // partials (header/footer/...) with ejs.cache.set so they can render one
-      // page body in isolation, and most never remove the stub. Every later
-      // file that rendered a real page (seo-titles-meta, seo-internal-links)
-      // then got an empty <head> and failed ~46 assertions that pass alone.
-      // Clear it between files so no file can leak a stub into the next.
-      try { require('ejs').clearCache(); } catch (_) { /* ejs optional */ }
-    } catch (err) {
-      // If it's a SQLite/legacy error, skip gracefully
-      if (err.message && (err.message.includes('better-sqlite3') || err.message.includes('sqlite3') || err.message.includes('portal.db'))) {
-        totalSkipped++;
-        console.log(`  ${YELLOW}⏭️${RESET}  Skipped (SQLite legacy test — not applicable with PostgreSQL)`);
-      } else {
-        totalFailed++;
-        console.error(`  ${RED}❌${RESET} Test file crashed: ${err.message}`);
-      }
-    }
-  }
+  const failureKeys = [];
+  let filesWithFailures = 0;
 
-  const drain = await drainAsyncResults({});
-  if (drain.late > 0) {
-    console.log(`\n${YELLOW}⏳ ${drain.late} result(s) arrived asynchronously after the last file loaded${RESET}`);
-    console.log(`   (counted below — before 2026-08-16 these were printed but never tallied)`);
-  }
-  if (drain.timedOut) {
-    totalFailed++;
-    console.error(`\n  ${RED}❌${RESET} async test results were still arriving after 120s — the suite gave up waiting. Some results may be missing from the tally below.`);
+  for (let i = 0; i < testFiles.length; i++) {
+    const file = testFiles[i];
+    const rel = displayName(file);
+    console.log(`\n📋 ${rel}`);
+
+    let passed = 0, failed = 0, skipped = 0;
+    const fail = (name, why) => {
+      failed++;
+      failureKeys.push(baseline.failureKey(rel, name));
+      if (why) console.error(`  ${RED}❌${RESET} ${name}: ${why}`);
+    };
+
+    const separately = customDir ? null : Object.keys(RUN_SEPARATELY).find((d) => file.startsWith(d + path.sep));
+    if (separately) {
+      skipped++;
+      console.log(`  ${YELLOW}⏭️${RESET}  whole file skipped: ${RUN_SEPARATELY[separately]}`);
+    } else {
+      const run = await runFile(file, i);
+      for (const r of run.results) {
+        if (r.r === 'pass') passed++;
+        else if (r.r === 'skip') skipped++;
+        else if (r.r === 'fail') fail(r.name);
+      }
+      if (run.spawnError) fail('(file) could not be started', run.spawnError.message);
+      else if (run.timedOut) fail('(file) timed out', `still running after ${FILE_TIMEOUT_MS / 1000}s — killed`);
+      else if ((run.code !== 0 || run.signal) && failed === 0) fail('(file) exited non-zero', `exit ${run.signal || run.code} with no failing test recorded`);
+      else if (run.results.length === 0 && failed === 0) fail('(file) reported no results', 'it ran, passed nothing, failed nothing and skipped nothing');
+    }
+
+    totalPassed += passed;
+    totalFailed += failed;
+    totalSkipped += skipped;
+    if (failed) filesWithFailures++;
+    console.log(`  ${failed ? RED : DIM}↳ ${rel} · ${passed} passed · ${failed} failed · ${skipped} skipped${RESET}`);
+    fs.writeFileSync(failuresSoFar, failureKeys.join('\n') + '\n');
   }
 
   // ── Summary ─────────────────────────────────────────────────────────────
@@ -188,10 +296,31 @@ async function drainAsyncResults({ quietMs = 2000, maxMs = 120000 }) {
   console.log(`${GREEN}Passed:${RESET}  ${totalPassed}`);
   console.log(`${RED}Failed:${RESET}  ${totalFailed}`);
   console.log(`${YELLOW}Skipped:${RESET} ${totalSkipped}`);
+  console.log(`Files:   ${testFiles.length} (${filesWithFailures} with failures)`);
   if (dbSkipReason) {
     console.log(`${YELLOW}Note:${RESET}   database integration tests skipped — ${dbSkipReason}`);
   }
   console.log(`${'─'.repeat(50)}\n`);
 
+  if (updateBaseline) {
+    if (!dbSkipReason || customDir) {
+      console.error(`${RED}--update-baseline needs a no-database run of the whole suite; nothing written.${RESET}`);
+      totalFailed++;
+    } else {
+      const gateRel = displayName(GATE_FILE);
+      const keys = failureKeys.filter((k) => !k.startsWith(gateRel + ' :: '));
+      fs.writeFileSync(baseline.BASELINE_PATH, baseline.format(keys));
+      console.log(`Baseline written: ${keys.length} failure(s) → ${path.relative(ROOT, baseline.BASELINE_PATH)}\n`);
+    }
+  }
+
+  // TEST_RUNNER_KEEP_RESULTS=1 keeps every file's results (<n>.ndjson, indexed
+  // by files.json) for triage, instead of deleting them.
+  if (process.env.TEST_RUNNER_KEEP_RESULTS === '1') {
+    fs.writeFileSync(path.join(workDir, 'files.json'), JSON.stringify(testFiles.map(displayName), null, 2));
+    console.log(`Results kept in ${workDir}\n`);
+  } else {
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (_) { /* tmp */ }
+  }
   process.exit(totalFailed > 0 ? 1 : 0);
 })();
