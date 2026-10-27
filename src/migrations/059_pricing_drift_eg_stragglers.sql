@@ -36,6 +36,15 @@
 --
 -- Forensic note for #46-style audits: the pre-migration state of these
 -- 4 rows is preserved in docs/audits/PRICING_DRIFT_2026-05-16.md.
+--
+-- 2026-10-27 — the guard is enforced only where its rows exist. These 4
+-- rows exist only in data that came from production; a database built from
+-- the migrations alone (CI, a new staging, a rebuild) has none of them, so
+-- the guard failed and a plain migrate could never get past this file. Now:
+-- if NONE of the 4 EG rows exists (in any status), there is nothing to align
+-- and the guard is skipped with a NOTICE; if ANY exists, it is enforced
+-- exactly as before (all 4, active, at 1250). Production applied this file
+-- long ago and the ledger matches on filename, so it never runs this text.
 
 BEGIN;
 
@@ -53,6 +62,18 @@ UPDATE service_regional_prices
 DO $$
 DECLARE aligned_count INT;
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM service_regional_prices
+     WHERE country_code = 'EG'
+       AND service_id IN (
+         'card_ecg_12lead', 'card_rhythm_strip',
+         'rad_cxr_review',  'lab_cytology'
+       )
+  ) THEN
+    RAISE NOTICE 'Migration 059: none of the 4 EG straggler rows exists (a database not built from production data) — nothing to align, post-condition skipped';
+    RETURN;
+  END IF;
+
   SELECT COUNT(*) INTO aligned_count
     FROM service_regional_prices
    WHERE country_code = 'EG'
