@@ -128,29 +128,63 @@ defect turned up while I tried to run the database tests:
    - Production boots today, and boot exits on a failed migrate, so production presumably
      applied 110 against a view built another way. That is an inference: I did not check
      production.
-   - **Any new environment built from migrations stops at 109**: CI with migrations, a new
-     staging, a disaster-recovery rebuild. Reproduced on a throwaway local DB, since dropped.
-     The local `tashkheesa_mobile` scratch DB also stops at 109 (108 applied). That is
-     consistent with this, but it may simply have been migrated before 110 existed.
-   - Introduced in `f6dd359` (2026-09-22).
-   - **It is also why the 163 database tests below cannot be run anywhere yet.**
+   - **A database built from migrations stops at 109** even when 059 and 067 are tolerated
+     (below): CI with migrations, a new staging, a disaster-recovery rebuild. Reproduced on a
+     throwaway local DB, since dropped. The local `tashkheesa_mobile` scratch DB also stops at
+     109 (108 applied). That is consistent with this, but it may simply have been migrated
+     before 110 existed.
+   - **A plain boot on an empty database stops earlier, at 059.** 059 and 067 assert
+     production-only rows (four price rows, eight named doctors). Only a tolerant wrapper such
+     as `scripts/mobile-fixtures.js --migrate` gets past them.
+   - Introduced in `f6dd359` (2026-09-22). The same file, as a bare `create or replace view`,
+     also reset the view's options, dropping 072's `security_invoker` wherever it ran.
+   - **Fixed on branch `fix/fresh-db-migrate-2026-10-27` (`f6ccc63`).** 110 now uses the
+     084/121/129 re-sync (`SELECT *` with `security_invoker`, REVOKE, parity guard), and
+     `tests/lint/orders-active-view-keeps-hardening.test.js` pins the rule. An empty DB then
+     migrates to 131 with `migration_strict` on (059/067 tolerated).
 
-**Unverified, highest money/patient risk first.** These are the database tests that would
-separate (a) from (b), all blocked by #1:
+**The database tests, run on that migrated DB.** This was a full run with CI's environment
+variables: 3720 passed, 32 failed. 20 of the 22 database files are fully green, including every
+money path:
 
-| Files | What is at stake |
-|---|---|
-| `admin/admin_refund`, `admin_refund_approve`, `admin_refund_deny`, `admin_refund_mark_paid` | issuing, approving, denying and paying out refunds |
-| `admin/admin_verify_claim`, `admin/payment_event_review` | marking cases paid from claims and payment events |
-| `src/services/addons/__tests__/pricing`, `prescription`, `video_consult` | add-on prices and fulfilment |
-| `admin/admin_bulk_assign`, `src/__tests__/auto_assign`, `services/auto_assign_eligibility`, `assign_pick_eligibility`, `doctor_eligibility_integration`, `sla/sla-worker-eligibility` | which doctor gets a paid case, and when |
-| `admin/admin_doctor_approve`, `admin_doctor_invite`, `admin_doctor_bulk_invite`, `admin_doctor_pause`, `admin_doctor_reject` | doctor lifecycle |
-| `services/services_coming_soon_sync`, `services/seed_my_services_fixtures` | the service catalogue |
+| Files | What is at stake | Result |
+|---|---|---|
+| `admin/admin_refund`, `admin_refund_approve`, `admin_refund_deny`, `admin_refund_mark_paid` | issuing, approving, denying and paying out refunds | all pass |
+| `admin/admin_verify_claim`, `admin/payment_event_review` | marking cases paid from claims and payment events | all pass |
+| `src/services/addons/__tests__/pricing`, `prescription` | add-on prices and fulfilment | all pass |
+| `src/services/addons/__tests__/video_consult` | video add-on commission | 2 fail, stale: expects 80%; migration 026 (2026-04-29) set 85% per the payout policy |
+| `admin/admin_bulk_assign`, `src/__tests__/auto_assign`, `services/auto_assign_eligibility`, `assign_pick_eligibility`, `doctor_eligibility_integration`, `sla/sla-worker-eligibility` | which doctor gets a paid case, and when | all pass |
+| `admin/admin_doctor_approve`, `admin_doctor_bulk_invite`, `admin_doctor_pause`, `admin_doctor_reject` | doctor lifecycle | all pass |
+| `admin/admin_doctor_invite` | doctor invite | 1 fails, environment (below) |
+| `services/services_coming_soon_sync`, `services/seed_my_services_fixtures` | the service catalogue | all pass |
+
+**Harness files that skip without a database, and fail with one:** none is a product
+regression.
+
+- **Stale (c):**
+  - `services/recompute-on-refund` (4): encodes the 2026-05-12 clawback policy. Since then,
+    the scaled clawback (2026-08-17) and the Batch B decisions (2026-09-15) changed it: an SLA
+    breach now reverses only the uplift. Documented in `src/services/earnings_writer.js` above
+    `recomputeOnRefund`.
+  - `finance/reassignment-earnings` (1): the in-transaction `doctor_sla_events` insert is
+    still there (`earnings_writer.js:966`), past the test's fixed 4,000-character search
+    window.
+  - `sla/recalc-sla-breaches` (1): uses a REJECTED_FILES row as its "bad row", but that case
+    may breach since `5b26d51` (2026-08-22).
+  - `admin/doctor-approval` (3): byte-identical ar/en welcome templates (they diverged by
+    design on 2026-08-25 and 2026-09-27), and source checks for a constant that moved to
+    `doctor_welcome_payload.js`.
+  - `core/notify-whatsapp` (1): the recipient guard (`697009b`, 2026-08-16) blocks
+    non-production recipients before the misconfiguration branch the test aims for.
+- **Environment (b):** `admin/admin_doctor_invite` (1) measures a 168 h token TTL as a
+  wall-clock difference. This Mac's Postgres runs in `Africa/Cairo`, and in the week before
+  Egypt leaves DST that difference is 167 h. Production pins its sessions to UTC.
 
 ### (b) Broken by environment
 
 - **163 failures in the 22 files above.** Each one is a connection refused by the no-database
-  guard: not exercised, outcome unknown.
+  guard. On a migrated database those 22 files report 3 failures in total; see the table
+  above.
 - **`core/email-stub-mode` (5 failures).**
   - `src/services/emailService.js:39` reads `EMAIL_ENABLED` once, at load. The test sets it
     *after* its fresh `require`, so it passes only where `EMAIL_ENABLED=true` was already in
@@ -181,7 +215,9 @@ separate (a) from (b), all blocked by #1:
 - Its Postgres service is never migrated (as known). The probe reports `orders_active` missing,
   so the run is a no-database run: 183 failures, exit 1. **The `tests` job will go red, and so
   will `deploy-check`, which needs it.**
-- Adding a migrate step today would not help: it stops at migration 110 (a#1).
+- On `origin/main`, a migrate step alone would not help: a plain migrate stops at 059, and a
+  tolerant one at 110. With `fix/fresh-db-migrate-2026-10-27`, a tolerant migrate (059/067
+  recorded, as `scripts/mobile-fixtures.js` does) reaches the end.
 - CI pins Node 20; this was verified on Node 24 only. `--test-force-exit` (20.14+) and
   `--test-timeout` are probed before use rather than assumed. **That CI goes red is certain;
   that its gate shows "0 NEW" is not.** If node:test's events or names differ on Node 20,
