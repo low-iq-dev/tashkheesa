@@ -134,14 +134,18 @@ defect turned up while I tried to run the database tests:
      109 (108 applied). That is consistent with this, but it may simply have been migrated
      before 110 existed.
    - **A plain boot on an empty database stops earlier, at 059.** 059 and 067 assert
-     production-only rows (four price rows, eight named doctors). Only a tolerant wrapper such
-     as `scripts/mobile-fixtures.js --migrate` gets past them.
+     production-only rows (four price rows, eight named doctors). On `origin/main` only a
+     tolerant wrapper such as `scripts/mobile-fixtures.js --migrate` gets past them.
    - Introduced in `f6dd359` (2026-09-22). The same file, as a bare `create or replace view`,
      also reset the view's options, dropping 072's `security_invoker` wherever it ran.
    - **Fixed on branch `fix/fresh-db-migrate-2026-10-27` (`f6ccc63`).** 110 now uses the
      084/121/129 re-sync (`SELECT *` with `security_invoker`, REVOKE, parity guard), and
-     `tests/lint/orders-active-view-keeps-hardening.test.js` pins the rule. An empty DB then
-     migrates to 131 with `migration_strict` on (059/067 tolerated).
+     `tests/lint/orders-active-view-keeps-hardening.test.js` pins the rule.
+   - **059 and 067 fixed on the same branch (`cae4a3c`).** Each post-condition is skipped,
+     with a NOTICE, only when none of its target rows exists, and enforced exactly as before
+     when any does. **A plain `db.migrate()` on an empty DB now applies all 130 files, through
+     131, with `migration_strict` on.** Controls with one target row planted still fail as
+     the originals did.
 
 **The database tests, run on that migrated DB.** This was a full run with CI's environment
 variables: 3720 passed, 32 failed. 20 of the 22 database files are fully green, including every
@@ -216,8 +220,8 @@ regression.
   so the run is a no-database run: 183 failures, exit 1. **The `tests` job will go red, and so
   will `deploy-check`, which needs it.**
 - On `origin/main`, a migrate step alone would not help: a plain migrate stops at 059, and a
-  tolerant one at 110. With `fix/fresh-db-migrate-2026-10-27`, a tolerant migrate (059/067
-  recorded, as `scripts/mobile-fixtures.js` does) reaches the end.
+  tolerant one at 110. With `fix/fresh-db-migrate-2026-10-27`, a plain migrate reaches the
+  end, so CI needs only a migrate step against its Postgres service before `npm test`.
 - CI pins Node 20; this was verified on Node 24 only. `--test-force-exit` (20.14+) and
   `--test-timeout` are probed before use rather than assumed. **That CI goes red is certain;
   that its gate shows "0 NEW" is not.** If node:test's events or names differ on Node 20,
@@ -227,3 +231,41 @@ regression.
   the 23 node:test DB files under `tests/` already did. Only point a checkout's `.env` at a
   database you are willing to have test rows written to.
 - CI triggers only on pushes to `main`/`staging` and PRs into `main`.
+
+## Follow-up: the stale tests, repaired
+
+Branch `fix/stale-tests-2026-10-27`, on top of this one. Test files only; no product code.
+Every (b) and (c) test above now tests the intended behaviour:
+
+- **The six no-database files:**
+  - `admin_command_api`: reassignment is pinned as a hand-off to
+    `case_lifecycle.reassignCase`. Two new tests: a refusal is `REASSIGN_FAILED`, and the
+    lifecycle owns the previous-doctor notice. Each invite call presents its own caller
+    address, and one new test pins the 10-per-15-minutes limit.
+  - `api-cases-coming-soon-reject`: a fake `src/pg` under the real bookability rule, the
+    fixtures placed in a real specialty, and a control that a bookable service passes.
+  - `worker_watchdog_push`: the fake pool answers the transaction-scoped lock.
+  - `email-stub-mode`: reloads the service with `EMAIL_ENABLED` on for the real-send cases.
+  - `urgency-tier-is-the-source`: accepts a `tier` read only when `urgency_tier` immediately
+    precedes it, not whole files, and reports true line numbers.
+  - `erasure-covers-every-patient-table`: `admin_notification_prefs` is operator-owned.
+- **The database-only files:**
+  - `recompute-on-refund`: the current clawback policy, plus two new cases: a partial refund,
+    and a refund after a breach write-down.
+  - `reassignment-earnings`: the source check slices to the end of the function.
+  - `recalc-sla-breaches`: an injected per-row failure.
+  - `doctor-approval`: the ar/en files must carry the same two language blocks, each leading
+    with its own; layout markers instead of colours; the constant where it now lives.
+  - `notify-whatsapp`: the test number goes on `WHATSAPP_TEST_RECIPIENTS`.
+  - `video_consult`: 85%.
+  - `admin_doctor_invite`: the TTL in real elapsed time, exact across a DST change.
+
+Verified:
+
+- **Migrated database:** an empty local DB migrated with `fix/fresh-db-migrate-2026-10-27`,
+  then the full suite with CI's environment variables: **3762 passed, 0 failed, 40 skipped,
+  exit 0.**
+- **No database:** **3498 passed, 163 failed, 64 skipped.** All 163 are database tests the
+  no-database guard refuses, in 22 files. The baseline is now those 163, down from 183: the 20
+  repaired entries are gone, and one renamed `video_consult` test changed its key. The gate
+  reports 0 NEW and 0 now passing.

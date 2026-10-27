@@ -57,6 +57,9 @@ const NOT_PATIENT_OWNED = new Set([
   'doctor_earnings', 'addon_earnings', 'doctor_assignments', 'doctor_availability',
   'doctor_services', 'doctor_specialties', 'prescribed_medications_log',
   'email_campaigns', 'admin_audit_log', 'ops_push_log', 'otp_codes',
+  // Migration 123: per-kind push loud/quiet/off for the Command app. user_id
+  // is the superadmin who set the preference, never a patient.
+  'admin_notification_prefs',
   'schema_migrations',
   // Financial skeleton, kept by design and anonymised via the order row.
   'refunds', 'order_addons',

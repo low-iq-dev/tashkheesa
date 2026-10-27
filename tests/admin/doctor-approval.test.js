@@ -138,12 +138,30 @@ module.exports = (async function run() {
       t.pass('doctor-welcome AR: v5 variables render, AR layout wrapper');
     } catch (e) { t.fail('doctor-welcome AR render', e); }
 
-    // ── 1b. ar/ and en/ template files stay byte-identical ──────────
+    // ── 1b. ar/ and en/ carry the same two language blocks ──────────
+    // Both files are the SAME bilingual email; they differ only in which
+    // language comes first (83808a4, 2026-08-25). This used to demand the
+    // files be byte-identical, which stopped being the design that day. What
+    // must hold is that each language's block is identical in both files —
+    // the drift 83808a4 fixed was an edit to one file's first block only.
     try {
       const fs = require('fs');
       const arSrc = fs.readFileSync(path.join(__dirname, '../../src/templates/email/ar/doctor-welcome.hbs'), 'utf8');
       const enSrc = fs.readFileSync(path.join(__dirname, '../../src/templates/email/en/doctor-welcome.hbs'), 'utf8');
-      assert.strictEqual(arSrc, enSrc, 'ar/ and en/ doctor-welcome.hbs must be byte-identical');
+      // Each block runs from its divider comment to the block's closing </div>.
+      const blocks = (src) => {
+        const out = {};
+        const re = /<!-- =+ (ARABIC|ENGLISH) =+ -->/g;
+        let m;
+        while ((m = re.exec(src))) out[m[1]] = src.slice(m.index, src.indexOf('\n</div>', m.index) + 7);
+        return out;
+      };
+      const order = (src) => (src.match(/<!-- =+ (?:ARABIC|ENGLISH) =+ -->/g) || []).map((d) => /ARABIC/.test(d) ? 'ar' : 'en').join(',');
+      assert.strictEqual(order(arSrc), 'ar,en', 'ar/ leads with the Arabic block');
+      assert.strictEqual(order(enSrc), 'en,ar', 'en/ leads with the English block');
+      const arB = blocks(arSrc), enB = blocks(enSrc);
+      assert.strictEqual(arB.ARABIC, enB.ARABIC, 'the Arabic block is identical in ar/ and en/');
+      assert.strictEqual(arB.ENGLISH, enB.ENGLISH, 'the English block is identical in ar/ and en/');
       // Guard the body-partial contract: _layout.hbs supplies the document
       // shell, so a full HTML document pasted in here would nest <html> in <td>.
       // Strip HTML comments first — the file's own header comment names those
@@ -151,7 +169,7 @@ module.exports = (async function run() {
       const markupOnly = enSrc.replace(/<!--[\s\S]*?-->/g, '');
       assert.ok(!/<!DOCTYPE|<html[\s>]|<body[\s>]/i.test(markupOnly),
         'template is a body partial — no doctype/html/body tags');
-      t.pass('doctor-welcome: ar/en identical + body-partial contract held');
+      t.pass('doctor-welcome: ar/en carry the same two blocks, own language first + body-partial contract held');
     } catch (e) { t.fail('doctor-welcome file parity', e); }
 
     // ── 1c. Per-template layout override seam ───────────────────────
@@ -169,14 +187,19 @@ module.exports = (async function run() {
       assert.ok(!/1a365d|2b6cb0/i.test(dw), 'no navy/blue from the shared layout');
       assert.ok(!/linear-gradient/.test(dw), 'no gradients — Outlook drops them');
 
-      // …while a sibling template still gets the shared navy layout untouched.
+      // …while a sibling template still gets the shared _layout. Since 120c0fc
+      // (2026-08-25) the shared layout is warm too (#F2EFE8, no navy), so the
+      // two are told apart by markup only one of them has.
+      const SHARED = /class="email-card-pad"/;          // _layout.hbs only
+      const WELCOME = /<!-- HEADER -->/;                // _layout-doctor-welcome.hbs only
+      assert.ok(WELCOME.test(dw) && !SHARED.test(dw), 'doctor-welcome renders in its own layout');
       const other = renderEmail('report-ready', 'en', FULL);
-      assert.ok(/1a365d/i.test(other), 'other templates still use the shared _layout');
-      assert.ok(!/#F2EFE8/.test(other), 'other templates did NOT pick up doctor-welcome chrome');
+      assert.ok(SHARED.test(other), 'other templates still use the shared _layout');
+      assert.ok(!WELCOME.test(other), 'other templates did NOT pick up the doctor-welcome layout');
 
       // explicit 4th-arg override still wins over the registry
       const forced = renderEmail('doctor-welcome', 'en', FULL, '_layout');
-      assert.ok(/1a365d/i.test(forced), 'explicit layout arg overrides the registry');
+      assert.ok(SHARED.test(forced) && !WELCOME.test(forced), 'explicit layout arg overrides the registry');
       t.pass('layout override: doctor-welcome re-chromed, siblings untouched');
     } catch (e) { t.fail('layout override seam', e); }
 
@@ -330,8 +353,13 @@ module.exports = (async function run() {
         'audit log for resent_doctor_welcome action');
       assert.ok(/\/superadmin\/doctors\/:id\/resend-welcome/.test(adminSrc),
         'POST /resend-welcome route registered');
-      assert.ok(/WELCOME_EXPIRY_HOURS\s*=\s*168/.test(adminSrc),
-        'WELCOME_EXPIRY_HOURS = 168 constant');
+      // The constant is single-sourced in services/doctor_welcome_payload.js
+      // (shared with the Command app's invite); superadmin.js imports it.
+      const payloadSrc = fs.readFileSync(require.resolve('../../src/services/doctor_welcome_payload'), 'utf8');
+      assert.ok(/WELCOME_EXPIRY_HOURS\s*=\s*168/.test(payloadSrc),
+        'WELCOME_EXPIRY_HOURS = 168 constant (doctor_welcome_payload.js)');
+      assert.ok(/\{[^}]*\bWELCOME_EXPIRY_HOURS\b[^}]*\}\s*=\s*require\(['"]\.\.\/services\/doctor_welcome_payload['"]\)/.test(adminSrc),
+        'superadmin.js takes WELCOME_EXPIRY_HOURS from doctor_welcome_payload');
       t.pass('superadmin.js: handler + helper + resend endpoint + audit logs all wired');
     } catch (e) { t.fail('superadmin.js source check', e); }
 

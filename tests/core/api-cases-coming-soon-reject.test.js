@@ -9,8 +9,41 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
+const path = require('path');
+
+// 2026-10-27 — since 7dfbdfd (2026-08-25) the handler resolves the service
+// through services/case_intake_pricing.resolveServiceForBooking, which reads
+// src/pg directly rather than the injected safeGet. With no database that read
+// threw (INTERNAL_ERROR); with one, the fixture ids below do not exist
+// (INVALID_SERVICE) — either way the rule under test never ran. A fake src/pg,
+// installed before anything loads it, answers that one query with the
+// fixture, so the REAL bookability rule decides.
+let currentService = null;
+const fakePool = {
+  query: async () => ({ rows: [], rowCount: 0 }),
+  connect: async () => ({ query: async () => ({ rows: [], rowCount: 0 }), release() {} }),
+  on() {},
+};
+const pgPath = require.resolve(path.join(__dirname, '..', '..', 'src', 'pg'));
+require.cache[pgPath] = {
+  id: pgPath, filename: pgPath, loaded: true, children: [], paths: [],
+  exports: {
+    pool: fakePool,
+    queryOne: async (sql) => (/FROM services sv/.test(String(sql)) ? currentService : null),
+    queryAll: async () => [],
+    execute: async () => ({ rows: [], rowCount: 0 }),
+    withTransaction: async (fn) => fn(await fakePool.connect()),
+    verifyPoolSettings: async () => {},
+    preflightPool: async () => {},
+  },
+};
 
 const buildCasesRouter = require('../../src/routes/api/cases');
+const { resolveServiceForBooking } = require('../../src/services/case_intake_pricing');
+
+// The fixtures sit in a real, visible specialty: a service with none is
+// refused for that reason alone, which would pass these tests for the wrong one.
+const IN_SPECIALTY = { specialty_id: 'spec-cardiology', specialty_exists: true, specialty_is_visible: true };
 
 // A minimal valid body that passes the express-validator chains on POST '/'.
 function validBody(serviceId) {
@@ -42,6 +75,7 @@ function postHandler(router) {
 // Run express-validator chains so validationResult(req) is populated, then
 // return the mock req/res pair.
 async function drive(router, service, body) {
+  currentService = service;
   let inserted = 0;
   const safeGet = async (sql) => {
     if (/FROM services WHERE id/.test(String(sql))) return service;   // service lookup
@@ -79,7 +113,7 @@ async function drive(router, service, body) {
 
 test('rejects a coming_soon service with SERVICE_NOT_BOOKABLE and writes nothing', async () => {
   const router = buildCasesRouter({}, { safeGet: async () => null, safeAll: async () => [], safeRun: async () => {} });
-  const svc = { id: 'card_echo', name: 'Echo', base_price: 1000, currency: 'EGP', is_visible: true, coming_soon: true };
+  const svc = { id: 'card_echo', name: 'Echo', base_price: 1000, currency: 'EGP', is_visible: true, coming_soon: true, ...IN_SPECIALTY };
   const { res, inserted } = await drive(router, svc, validBody('card_echo'));
   assert.equal(res._failCode, 'SERVICE_NOT_BOOKABLE', 'expected SERVICE_NOT_BOOKABLE, got ' + res._failCode);
   assert.equal(res.statusCode, 400);
@@ -88,7 +122,7 @@ test('rejects a coming_soon service with SERVICE_NOT_BOOKABLE and writes nothing
 
 test('rejects a hidden (is_visible=false) service with SERVICE_NOT_BOOKABLE', async () => {
   const router = buildCasesRouter({}, { safeGet: async () => null, safeAll: async () => [], safeRun: async () => {} });
-  const svc = { id: 'card_echo', name: 'Echo', base_price: 1000, currency: 'EGP', is_visible: false, coming_soon: false };
+  const svc = { id: 'card_echo', name: 'Echo', base_price: 1000, currency: 'EGP', is_visible: false, coming_soon: false, ...IN_SPECIALTY };
   const { res, inserted } = await drive(router, svc, validBody('card_echo'));
   assert.equal(res._failCode, 'SERVICE_NOT_BOOKABLE');
   assert.equal(inserted(), 0);
@@ -97,6 +131,11 @@ test('rejects a hidden (is_visible=false) service with SERVICE_NOT_BOOKABLE', as
 test('a missing service still fails (existing INVALID_SERVICE behavior preserved)', async () => {
   const router = buildCasesRouter({}, { safeGet: async () => null, safeAll: async () => [], safeRun: async () => {} });
   const { res } = await drive(router, null, validBody('nope'));
-  assert.ok(res._failCode === 'INVALID_SERVICE' || res._failCode === 'SERVICE_NOT_BOOKABLE',
-    'missing service must be rejected; got ' + res._failCode);
+  assert.equal(res._failCode, 'INVALID_SERVICE', 'missing service must be rejected as INVALID_SERVICE; got ' + res._failCode);
+});
+
+test('control: the same service, visible and not coming soon, passes the bookability gate', async () => {
+  currentService = { id: 'card_echo', name: 'Echo', base_price: 1000, currency: 'EGP', is_visible: true, coming_soon: false, ...IN_SPECIALTY };
+  const svc = await resolveServiceForBooking('card_echo');
+  assert.equal(svc.id, 'card_echo', 'a bookable service is returned, so the rejections above are the flags at work');
 });

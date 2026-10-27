@@ -15,14 +15,6 @@ admin/admin_bulk_assign.test.js :: practice exclusion: a paid practice case with
 admin/admin_bulk_assign.test.js :: skip reasons: no_doctor_for_specialty + no_available_doctor (only doctor is paused)
 admin/admin_bulk_assign.test.js :: skip reasons: not_found / already_assigned / payment_not_confirmed / not_assignable / no_specialty / flagged_manual_review
 admin/admin_bulk_assign.test.js :: §4.6: onboarding-incomplete + service-less doctors are skipped, not assigned
-admin/admin_command_api.test.js :: POST /assign — happy reassign: swap + reassigned_count + close prior window
-admin/admin_command_api.test.js :: POST /assign — reassign: notifies new doctor + previous doctor + patient (no inline email); conversation for new pair
-admin/admin_command_api.test.js :: POST /invite — body omitted defaults to BOTH (internal + email + whatsapp)
-admin/admin_command_api.test.js :: POST /invite — channel order is normalized regardless of input order
-admin/admin_command_api.test.js :: POST /invite — { channels: "email" } (not an array) → 400 INVALID_CHANNELS
-admin/admin_command_api.test.js :: POST /invite — { channels:[] } → 400 INVALID_CHANNELS, no token issued, no notification
-admin/admin_command_api.test.js :: POST /invite — { channels:[internal] } (internal is not operator-selectable) → 400 INVALID_CHANNELS
-admin/admin_command_api.test.js :: POST /invite — { channels:[sms] } (unknown channel) → 400 INVALID_CHANNELS, no token, no notify
 admin/admin_doctor_approve.test.js :: (file) failed outside any test
 admin/admin_doctor_approve.test.js :: approve a non-doctor (role=patient) → DOCTOR_NOT_FOUND, row unchanged
 admin/admin_doctor_approve.test.js :: approve a non-existent id → DOCTOR_NOT_FOUND
@@ -111,16 +103,6 @@ admin/payment_event_review.test.js :: atomicity: a fault on the error_logs audit
 admin/payment_event_review.test.js :: first review: creates row (reviewed_by, note), writes order_events + admin audit
 admin/payment_event_review.test.js :: re-review is idempotent: single row, note + reviewer + reviewed_at updated in place
 admin/payment_event_review.test.js :: review with no note → note null
-core/api-cases-coming-soon-reject.test.js :: a missing service still fails (existing INVALID_SERVICE behavior preserved)
-core/api-cases-coming-soon-reject.test.js :: rejects a coming_soon service with SERVICE_NOT_BOOKABLE and writes nothing
-core/api-cases-coming-soon-reject.test.js :: rejects a hidden (is_visible=false) service with SERVICE_NOT_BOOKABLE
-core/email-stub-mode.test.js :: email-stub-mode: gate strict: real transporter IS called when stub off
-core/email-stub-mode.test.js :: email-stub-mode: no transport: error_logs INSERT with message=email_not_configured
-core/email-stub-mode.test.js :: email-stub-mode: no transport: returns email_not_configured
-core/email-stub-mode.test.js :: email-stub-mode: transport throw: error_logs INSERT issued
-core/email-stub-mode.test.js :: email-stub-mode: transport throw: returns ok=false with error
-lint/erasure-covers-every-patient-table.test.js :: every table holding a patient column is handled by account deletion
-lint/urgency-tier-is-the-source.test.js :: no new code reads orders.tier to decide urgency
 services/assign_pick_eligibility.test.js :: (file) failed outside any test
 services/assign_pick_eligibility.test.js :: pickDoctorForOrder: picks the eligible doctor (onboarded + service-mapped + not paused)
 services/assign_pick_eligibility.test.js :: pickDoctorForOrder: returns null when only candidate has no doctor_services row
@@ -147,8 +129,6 @@ services/services_coming_soon_sync.test.js :: idempotent — a second resync rep
 services/services_coming_soon_sync.test.js :: re-mapping an active doctor flips coming_soon false
 services/services_coming_soon_sync.test.js :: unmapping the last active doctor flips coming_soon true
 services/services_coming_soon_sync.test.js :: when passed a client, the UPDATE is inside the caller txn and rolls back
-services/worker_watchdog_push.test.js :: LAYER 4: a notifySuperadmins failure never breaks the sweep, and cooldown still applies
-services/worker_watchdog_push.test.js :: LAYER 4: down→once, cooldown suppresses, survives restart, re-alerts after 30m, recovery once
 sla/sla-worker-eligibility.test.js :: (file) failed outside any test
 sla/sla-worker-eligibility.test.js :: countOnly with service gate counts exactly the eligible pool
 sla/sla-worker-eligibility.test.js :: service-keyed eligibility: only onboarded doctor holding the service row is selectable
@@ -177,7 +157,7 @@ src/services/addons/__tests__/pricing.test.js :: resolveAddonPrice returns EGP p
 src/services/addons/__tests__/pricing.test.js :: resolveAddonPrice returns null for unknown addon id
 src/services/addons/__tests__/pricing.test.js :: resolveCataloguePrices returns all 2 active addons in sort order
 src/services/addons/__tests__/video_consult.test.js :: (file) failed outside any test
-src/services/addons/__tests__/video_consult.test.js :: onComplete inserts addon_earnings row at 80% of locked price
+src/services/addons/__tests__/video_consult.test.js :: onComplete inserts addon_earnings row at 85% of locked price
 src/services/addons/__tests__/video_consult.test.js :: onComplete is idempotent (second call does not duplicate earnings)
 src/services/addons/__tests__/video_consult.test.js :: onComplete returns null if the addon is not fulfilled
 src/services/addons/__tests__/video_consult.test.js :: onFulfill transitions paid → fulfilled + stores appointment metadata

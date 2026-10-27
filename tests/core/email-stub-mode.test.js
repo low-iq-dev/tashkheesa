@@ -33,11 +33,18 @@ module.exports = (async function run() {
   const savedEnabled = process.env.EMAIL_ENABLED;
   const savedKey = process.env.RESEND_API_KEY;
 
-  // Force a fresh require so module-level reads are clean.
-  delete require.cache[require.resolve('../../src/services/recipientGuard')];
-  delete require.cache[require.resolve('../../src/services/emailService')];
+  // Force a fresh require so module-level reads are clean. EMAIL_ENABLED is
+  // one of those reads (src/services/emailService.js:39 — read ONCE, at load),
+  // so sections 1-3 load the service with email OFF: the stub must win over a
+  // disabled service. Section 4 reloads it with email ON (see there).
+  delete process.env.EMAIL_ENABLED;
+  function loadEmailService() {
+    delete require.cache[require.resolve('../../src/services/recipientGuard')];
+    delete require.cache[require.resolve('../../src/services/emailService')];
+    return require('../../src/services/emailService');
+  }
 
-  const emailService = require('../../src/services/emailService');
+  let emailService = loadEmailService();
 
   // Capture all transporter calls so we can assert the stub never touches it.
   const sendCalls = [];
@@ -122,6 +129,14 @@ module.exports = (async function run() {
     });
     assert(r3 && r3.ok === true && r3.stubbed === true,
       'stub overrides EMAIL_ENABLED=false (ok+stubbed)', JSON.stringify(r3));
+
+    // From here on the stub is off and the real send path is under test, so
+    // reload the service with EMAIL_ENABLED on. Setting the variable without
+    // reloading (as this file did until 2026-10-27) only worked where
+    // EMAIL_ENABLED=true was already in the environment when the service first
+    // loaded — a developer .env, never CI.
+    process.env.EMAIL_ENABLED = 'true';
+    emailService = loadEmailService();
 
     // ── 4. Gate is strict: EMAIL_TEST_STUB=false (string) must NOT stub ──
     // The gate compares lowercase to literal 'true'. Verify a non-'true'
