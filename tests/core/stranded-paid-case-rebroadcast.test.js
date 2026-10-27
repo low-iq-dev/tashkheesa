@@ -56,6 +56,10 @@ const { execFileSync } = require('child_process');
 const { stripComments } = require('../_helpers/strip-comments');
 
 try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
+// Its own secret (the child process below boots modules that refuse to load
+// without one): under the old shared-process runner an earlier file had always
+// set it by the time this ran (2026-10-27, tests/run.js now isolates files).
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-stranded-rebroadcast';
 
 const t = global._testRunner || {
   pass: function (n) { console.log('  \x1b[32m✅\x1b[0m ' + n); },
