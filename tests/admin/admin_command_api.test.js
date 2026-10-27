@@ -733,8 +733,12 @@ async function assignReq(over, body = { doctorId: 'doc-1' }) {
 // transaction to release the row lock, and hands the swap to
 // case_lifecycle.reassignCase, which takes its own pool connections (calling it
 // inside the lock self-deadlocked). It then bumps reassigned_count and writes
-// its audit rows through safeRun. reassignCase is stubbed here — it is tested
-// against a real database on its own — and these tests pin the hand-off.
+// its audit rows through safeRun. reassignCase is stubbed here and these tests
+// pin the hand-off. COVERAGE GAP (2026-10-27): nothing executes reassignCase
+// itself — the swap and the closing of the prior assignment window — against a
+// database. tests/finance/reassignment-earnings.test.js runs its earnings step
+// (markReassignedOnReassignment) on a real database and only source-checks the
+// rest of its wiring (§12).
 function stubReassignCase(impl) {
   const lifecycle = require('../../src/case_lifecycle');
   const real = lifecycle.reassignCase;
