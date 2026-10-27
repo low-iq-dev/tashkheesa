@@ -40,12 +40,21 @@ test('no new code reads orders.tier to decide urgency', () => {
       if (e.isDirectory()) { if (e.name !== 'node_modules') walk(rel); continue; }
       if (!e.name.endsWith('.js')) continue;
       if (ALLOWED.has(rel)) continue;
+      // Block comments keep their line breaks, so a hit's line number is the
+      // line in the file (it used to drift by every comment above it).
       const src = fs.readFileSync(path.join(ROOT, rel), 'utf8')
-        .replace(/\/\/[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ');
+        .replace(/\/\/[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '));
       // `o.tier`, `order.tier`, `orders.tier` — but never `*_tier`.
       const re = /(^|[^_\w])(o|order|orders|row)\.tier\b/g;
       let m;
       while ((m = re.exec(src))) {
+        // 2026-10-27 — urgency_tier immediately before it is the sanctioned
+        // precedence, in JS (`o.urgency_tier || o.tier`) or in a SELECT that
+        // hands both to such a reader (`o.urgency_tier, o.tier`). Allowed
+        // per expression rather than per file, so one safe read cannot
+        // exempt the rest of a 7,000-line router.
+        const before = src.slice(Math.max(0, m.index - 60), m.index + m[1].length);
+        if (/urgency_tier\s*(?:\|\||,)\s*$/.test(before)) continue;
         const line = src.slice(0, m.index).split('\n').length;
         hits.push(rel + ':' + line);
       }

@@ -5,12 +5,20 @@
 // Covers recomputeOnRefund(orderId, { reason }) in src/services/earnings_writer.js.
 // Hooks decoupled from recomputeOnBreach by design — see commit message.
 //
-// Policy (decided 2026-05-12):
-//   - reason='sla_breach'           → earned_amount = 0 (full clawback)
+// Policy — as documented above recomputeOnRefund (decided 2026-05-12, revised
+// by the AUDIT 2026-08-17 scaling and the Batch B decisions table 2026-09-15;
+// this file was updated to it on 2026-10-27):
+//   - reason='sla_breach'           → base stands, the urgency uplift is
+//                                     reversed ('sla_breach_uplift_zeroed'). A
+//                                     write-down stage, not a finished clawback:
+//                                     a later refund still claws back.
 //   - reason='patient_request' OR
-//     reason='operator_refund'      → earned_amount = 0.10 * (baseShare + upliftShare)
+//     reason='operator_refund'      → full × (1 − 0.9 × refundRatio), where
+//                                     refundRatio = refund / case fee (orders.price);
+//                                     no refund amount → ratio 1, i.e. keep 10%
+//                                     ('patient_or_operator_post_acceptance_scaled_90pct_clawback')
 //   - any reason + NO earnings row  → skip (pre-acceptance, doctor never engaged)
-//   - clawback_applied_at IS NOT NULL → skip (idempotent)
+//   - a finished clawback already stamped → skip (idempotent)
 //
 // Skips when DATABASE_URL is unset (mirrors other DB tests in tests/finance/
 // and tests/services/).
@@ -45,9 +53,12 @@ const ORDER_OPERATOR = PREFIX + 'order-op';
 const ORDER_PRE_ACCEPT = PREFIX + 'order-pre';
 const ORDER_IDEMPOTENT = PREFIX + 'order-idem';
 const ORDER_UNKNOWN = PREFIX + 'order-unk';
+const ORDER_PARTIAL = PREFIX + 'order-part';
+const ORDER_BREACH_THEN_REFUND = PREFIX + 'order-btr';
 
 const { execute, queryOne } = require('../../src/pg');
-const { recomputeOnRefund, MAIN_EARNINGS_PREFIX } = require('../../src/services/earnings_writer');
+const { recomputeOnRefund, MAIN_EARNINGS_PREFIX, BREACH_UPLIFT_CLAWBACK } = require('../../src/services/earnings_writer');
+const SCALED_REFUND_CLAWBACK = 'patient_or_operator_post_acceptance_scaled_90pct_clawback';
 
 async function cleanup() {
   await execute(`DELETE FROM doctor_earnings WHERE appointment_id LIKE $1`, [PREFIX + '%']).catch(() => {});
@@ -97,51 +108,64 @@ module.exports = (async function run() {
     await seedPatient(PATIENT);
     await seedDoctor(DOCTOR);
 
-    // ── 1. SLA breach → full clawback (earned_amount = 0)
+    // ── 1. SLA breach → the uplift is reversed, the base stands
+    //     computeDoctorEarnings({baseDoctorFee:200, upliftAmount:50, upliftDoctorPct:30})
+    //       full = 200 + 50*0.30 = 215; base-only = 200
     try {
       await seedOrder(ORDER_SLA, PATIENT, DOCTOR, /*fee*/ 200, /*uplift*/ 50);
-      const earningsId = await seedPendingEarnings(ORDER_SLA, DOCTOR, 200);
+      const earningsId = await seedPendingEarnings(ORDER_SLA, DOCTOR, 215);
       const r = await recomputeOnRefund(ORDER_SLA, { reason: 'sla_breach' });
       assert.ok(r.recomputed, 'recomputed=true: ' + JSON.stringify(r));
       assert.strictEqual(r.earningsId, earningsId, 'earningsId matches');
-      assert.strictEqual(r.newEarnedAmount, 0, 'earned=0 for sla_breach');
-      assert.strictEqual(r.policyApplied, 'sla_breach_full_clawback', 'policy stamped');
+      assert.strictEqual(r.newEarnedAmount, 200, 'base 200 stands, uplift share 15 reversed: ' + r.newEarnedAmount);
+      assert.strictEqual(r.policyApplied, BREACH_UPLIFT_CLAWBACK, 'policy stamped');
       const row = await queryOne('SELECT earned_amount, clawback_reason, clawback_applied_at FROM doctor_earnings WHERE id = $1', [earningsId]);
-      assert.strictEqual(Number(row.earned_amount), 0, 'DB earned_amount=0');
-      assert.strictEqual(row.clawback_reason, 'sla_breach_full_clawback', 'DB clawback_reason stamped');
+      assert.strictEqual(Number(row.earned_amount), 200, 'DB earned_amount=200');
+      assert.strictEqual(row.clawback_reason, BREACH_UPLIFT_CLAWBACK, 'DB clawback_reason stamped');
       assert.ok(row.clawback_applied_at, 'DB clawback_applied_at set');
-      t.pass('sla_breach: full clawback (earned_amount=0, audit columns set)');
+      t.pass('sla_breach: uplift reversed, base stands (215 → 200, audit columns set)');
     } catch (e) { t.fail('sla_breach path', e); }
 
-    // ── 2. patient_request post-acceptance → keep 10%
+    // ── 2. patient_request post-acceptance, no refund amount → keep 10%
     try {
       await seedOrder(ORDER_PATIENT_REQ, PATIENT, DOCTOR, /*fee*/ 200, /*uplift*/ 50);
       const earningsId = await seedPendingEarnings(ORDER_PATIENT_REQ, DOCTOR, 200);
       const r = await recomputeOnRefund(ORDER_PATIENT_REQ, { reason: 'patient_request' });
       assert.ok(r.recomputed, 'recomputed=true: ' + JSON.stringify(r));
-      // computeDoctorEarnings({baseDoctorFee:200, upliftAmount:50, upliftDoctorPct:30})
-      //   baseShare = 200 (doctor_fee already represents the doctor portion)
-      //   upliftShare = 50 * 0.30 = 15
-      //   fullEarning = 215
-      //   keep 10% = 21.5
+      // No refundAmountEgp → refundRatio 1 (the deliberate fallback towards
+      // the platform) → keep 10% of full = 10% of (200 + 50*0.30) = 21.5
+      assert.strictEqual(r.refundRatio, 1, 'no refund amount → ratio 1');
       assert.strictEqual(r.newEarnedAmount, 21.5, '10% of (200 + 50*0.30) = 21.5, got: ' + r.newEarnedAmount);
-      assert.strictEqual(r.policyApplied, 'patient_or_operator_post_acceptance_90pct_clawback', 'policy stamped');
+      assert.strictEqual(r.policyApplied, SCALED_REFUND_CLAWBACK, 'policy stamped');
       const row = await queryOne('SELECT earned_amount, clawback_reason FROM doctor_earnings WHERE id = $1', [earningsId]);
       assert.strictEqual(Number(row.earned_amount), 21.5, 'DB earned_amount=21.5');
-      assert.strictEqual(row.clawback_reason, 'patient_or_operator_post_acceptance_90pct_clawback', 'DB clawback_reason stamped');
-      t.pass('patient_request post-acceptance: keep 10% (earned_amount=21.5)');
+      assert.strictEqual(row.clawback_reason, SCALED_REFUND_CLAWBACK, 'DB clawback_reason stamped');
+      t.pass('patient_request post-acceptance, full refund: keep 10% (earned_amount=21.5)');
     } catch (e) { t.fail('patient_request path', e); }
 
-    // ── 3. operator_refund post-acceptance → same 10% policy
+    // ── 2b. A partial refund claws back proportionally (AUDIT 2026-08-17)
+    //     case fee = orders.price = 300; refund 150 → ratio 0.5
+    //     215 × (1 − 0.9 × 0.5) = 118.25
+    try {
+      await seedOrder(ORDER_PARTIAL, PATIENT, DOCTOR, /*fee*/ 200, /*uplift*/ 50);
+      await seedPendingEarnings(ORDER_PARTIAL, DOCTOR, 215);
+      const r = await recomputeOnRefund(ORDER_PARTIAL, { reason: 'patient_request', refundAmountEgp: 150 });
+      assert.ok(r.recomputed, 'recomputed=true: ' + JSON.stringify(r));
+      assert.strictEqual(r.refundRatio, 0.5, 'ratio = 150 / 300');
+      assert.strictEqual(r.newEarnedAmount, 118.25, '215 × 0.55 = 118.25, got: ' + r.newEarnedAmount);
+      t.pass('partial refund: half the case fee back → doctor keeps 55% (118.25)');
+    } catch (e) { t.fail('partial refund path', e); }
+
+    // ── 3. operator_refund post-acceptance → same policy as patient_request
     try {
       await seedOrder(ORDER_OPERATOR, PATIENT, DOCTOR, /*fee*/ 300, /*uplift*/ 0);
       const earningsId = await seedPendingEarnings(ORDER_OPERATOR, DOCTOR, 300);
       const r = await recomputeOnRefund(ORDER_OPERATOR, { reason: 'operator_refund' });
-      assert.ok(r.recomputed, 'recomputed=true: ' + JSON.stringify(r));
-      // base 300, uplift 0 → keep 10% = 30
+      assert.ok(r.recomputed, 'recomputed=true: ' + JSON.stringify(r) + ' ' + earningsId);
+      // base 300, uplift 0, no refund amount → keep 10% = 30
       assert.strictEqual(r.newEarnedAmount, 30, '10% of 300 = 30, got: ' + r.newEarnedAmount);
-      assert.strictEqual(r.policyApplied, 'patient_or_operator_post_acceptance_90pct_clawback', 'same policy as patient_request');
-      t.pass('operator_refund post-acceptance: same 10% policy as patient_request');
+      assert.strictEqual(r.policyApplied, SCALED_REFUND_CLAWBACK, 'same policy as patient_request');
+      t.pass('operator_refund post-acceptance: same policy as patient_request');
     } catch (e) { t.fail('operator_refund path', e); }
 
     // ── 4. Pre-acceptance (NO earnings row exists) → skip
@@ -154,28 +178,43 @@ module.exports = (async function run() {
       t.pass('pre-acceptance: skipped cleanly without touching anything');
     } catch (e) { t.fail('pre-acceptance path', e); }
 
-    // ── 5. Idempotency — second call on already-clawed row returns skipped
+    // ── 5. Idempotency — a second refund on an already-clawed row is skipped
     try {
       await seedOrder(ORDER_IDEMPOTENT, PATIENT, DOCTOR, /*fee*/ 200, /*uplift*/ 0);
       const earningsId = await seedPendingEarnings(ORDER_IDEMPOTENT, DOCTOR, 200);
-      // First call applies clawback.
-      await recomputeOnRefund(ORDER_IDEMPOTENT, { reason: 'sla_breach' });
+      // First call applies the clawback: keep 10% of 200.
+      await recomputeOnRefund(ORDER_IDEMPOTENT, { reason: 'patient_request' });
       const after1 = await queryOne('SELECT earned_amount, clawback_applied_at FROM doctor_earnings WHERE id = $1', [earningsId]);
-      assert.strictEqual(Number(after1.earned_amount), 0, '1st call: earned=0');
+      assert.strictEqual(Number(after1.earned_amount), 20, '1st call: earned=20');
       const firstStamp = after1.clawback_applied_at;
       assert.ok(firstStamp, '1st call set clawback_applied_at');
 
-      // Second call: should be skipped.
-      const r2 = await recomputeOnRefund(ORDER_IDEMPOTENT, { reason: 'sla_breach' });
+      // Second call (a double-click on mark-paid): skipped.
+      const r2 = await recomputeOnRefund(ORDER_IDEMPOTENT, { reason: 'patient_request' });
       assert.ok(r2.skipped, '2nd call skipped: ' + JSON.stringify(r2));
       assert.strictEqual(r2.skipped, 'clawback_already_applied', 'correct skip reason');
       assert.strictEqual(r2.earningsId, earningsId, 'returns the existing row id');
       const after2 = await queryOne('SELECT earned_amount, clawback_applied_at FROM doctor_earnings WHERE id = $1', [earningsId]);
-      assert.strictEqual(Number(after2.earned_amount), 0, '2nd call: earned still 0 (not mutated)');
+      assert.strictEqual(Number(after2.earned_amount), 20, '2nd call: earned still 20 (not mutated)');
       assert.strictEqual(new Date(after2.clawback_applied_at).getTime(), new Date(firstStamp).getTime(),
         '2nd call: clawback_applied_at unchanged (no row mutation)');
-      t.pass('idempotency: 2nd call returns skipped, row unchanged');
+      t.pass('idempotency: 2nd refund returns skipped, row unchanged');
     } catch (e) { t.fail('idempotency', e); }
+
+    // ── 5b. A breach write-down is a stage, not a finished clawback: a refund
+    //     afterwards still claws back (and never raises what the row holds).
+    try {
+      await seedOrder(ORDER_BREACH_THEN_REFUND, PATIENT, DOCTOR, /*fee*/ 200, /*uplift*/ 50);
+      const earningsId = await seedPendingEarnings(ORDER_BREACH_THEN_REFUND, DOCTOR, 215);
+      const r1 = await recomputeOnRefund(ORDER_BREACH_THEN_REFUND, { reason: 'sla_breach' });
+      assert.strictEqual(r1.newEarnedAmount, 200, 'breach write-down: 200');
+      const r2 = await recomputeOnRefund(ORDER_BREACH_THEN_REFUND, { reason: 'patient_request' });
+      assert.ok(r2.recomputed, 'refund after a breach write-down is applied, not skipped: ' + JSON.stringify(r2));
+      assert.strictEqual(r2.newEarnedAmount, 21.5, 'then the refund clawback: 10% of 215 = 21.5');
+      const row = await queryOne('SELECT earned_amount, clawback_reason FROM doctor_earnings WHERE id = $1', [earningsId]);
+      assert.strictEqual(row.clawback_reason, SCALED_REFUND_CLAWBACK, 'the finished clawback is what the row records');
+      t.pass('breach then refund: the write-down does not block the refund clawback (215 → 200 → 21.5)');
+    } catch (e) { t.fail('breach then refund', e); }
 
     // ── 6. Unknown reason → fail loud (skipped, with reason)
     try {

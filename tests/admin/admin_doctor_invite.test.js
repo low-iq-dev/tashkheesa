@@ -71,12 +71,18 @@ async function getDoctor(id) {
   )).rows[0];
 }
 
-// token rows for a user, with a tz-independent TTL: expires_at - created_at are
-// both written from the same NOW() in one INSERT, so the diff is EXACTLY the
-// configured interval regardless of session timezone.
+// token rows for a user, with the TTL in real elapsed seconds. Both columns
+// are timestamp WITHOUT time zone, written from one NOW() — i.e. wall-clock
+// times in the writing session's zone. Subtracting them directly is only exact
+// when no DST change falls inside the window: in Africa/Cairo (a local
+// Postgres's default) 168 real hours read as 167 in the week before Egypt
+// leaves DST (2026-10-27). Turning both back into instants in the session's
+// zone first makes the TTL exact in any zone (UTC, as production pins, too).
 async function tokenRows(userId) {
   return (await q(
-    `SELECT token, used_at, EXTRACT(EPOCH FROM (expires_at - created_at))::float AS ttl_secs
+    `SELECT token, used_at,
+            EXTRACT(EPOCH FROM ((expires_at AT TIME ZONE current_setting('TimeZone'))
+                              - (created_at AT TIME ZONE current_setting('TimeZone'))))::float AS ttl_secs
        FROM password_reset_tokens WHERE user_id = $1`,
     [userId]
   )).rows;

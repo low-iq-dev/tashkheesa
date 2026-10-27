@@ -35,7 +35,9 @@ test('onPurchase creates order_addons row at status=paid with locked price + com
   assert.equal(row.price_at_purchase_egp, 200);
   assert.equal(row.price_at_purchase_currency, 'EGP');
   assert.equal(row.price_at_purchase_amount, 200);
-  assert.equal(row.doctor_commission_pct_at_purchase, 80);
+  // 85% to the doctor: migration 026 (2026-04-29) moved the video add-on from
+  // 80 to 85 per docs/PAYOUT_AND_URGENCY_POLICY.md §1. This file predates it.
+  assert.equal(row.doctor_commission_pct_at_purchase, 85);
   assert.equal(row.doctor_commission_amount_egp, null);  // not computed yet
 });
 
@@ -71,7 +73,7 @@ test('onFulfill transitions paid → fulfilled + stores appointment metadata', a
   assert.equal(updated.metadata_json.doctor_id, doctor.id);
 });
 
-test('onComplete inserts addon_earnings row at 80% of locked price', async () => {
+test('onComplete inserts addon_earnings row at 85% of locked price', async () => {
   const addon = await require('../../../pg').queryOne(
     `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'video_consult'`,
     [order.id]
@@ -80,13 +82,13 @@ test('onComplete inserts addon_earnings row at 80% of locked price', async () =>
   assert.ok(earnings);
   assert.equal(earnings.doctor_id, doctor.id);
   assert.equal(earnings.gross_amount_egp, 200);
-  assert.equal(earnings.commission_pct, 80);
-  assert.equal(earnings.earned_amount_egp, 160);  // 200 * 80 / 100
+  assert.equal(earnings.commission_pct, 85);
+  assert.equal(earnings.earned_amount_egp, 170);  // 200 * 85 / 100
   assert.equal(earnings.status, 'pending');
 
   // doctor_commission_amount_egp should be back-written to the addon row
   const refreshed = await getOrderAddon(addon.id);
-  assert.equal(refreshed.doctor_commission_amount_egp, 160);
+  assert.equal(refreshed.doctor_commission_amount_egp, 170);
 });
 
 test('onComplete is idempotent (second call does not duplicate earnings)', async () => {

@@ -196,6 +196,12 @@ module.exports = (async function run() {
       const savedPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
       process.env.WHATSAPP_ACCESS_TOKEN = '';
       process.env.WHATSAPP_PHONE_NUMBER_ID = '';
+      // Since 697009b (2026-08-16) a non-production run only sends to numbers
+      // on WHATSAPP_TEST_RECIPIENTS — every other recipient is blocked before
+      // the misconfiguration check this case is about. Put the test number on
+      // the allowlist so the send reaches it; the guard itself stays on.
+      const savedAllow = process.env.WHATSAPP_TEST_RECIPIENTS;
+      process.env.WHATSAPP_TEST_RECIPIENTS = '+201001234567';
       delete require.cache[require.resolve('../../src/notify/whatsapp')];
       const { sendWhatsApp } = require('../../src/notify/whatsapp');
 
@@ -222,6 +228,8 @@ module.exports = (async function run() {
       // Restore env
       process.env.WHATSAPP_ACCESS_TOKEN = savedToken || '';
       process.env.WHATSAPP_PHONE_NUMBER_ID = savedPhoneId || '';
+      if (savedAllow === undefined) delete process.env.WHATSAPP_TEST_RECIPIENTS;
+      else process.env.WHATSAPP_TEST_RECIPIENTS = savedAllow;
       delete process.env.WHATSAPP_ENABLED;
       if (savedMasterFlag === undefined) delete process.env.NOTIFICATIONS_WHATSAPP_ENABLED;
       else process.env.NOTIFICATIONS_WHATSAPP_ENABLED = savedMasterFlag;

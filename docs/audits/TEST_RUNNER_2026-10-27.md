@@ -227,3 +227,41 @@ regression.
   the 23 node:test DB files under `tests/` already did. Only point a checkout's `.env` at a
   database you are willing to have test rows written to.
 - CI triggers only on pushes to `main`/`staging` and PRs into `main`.
+
+## Follow-up: the stale tests, repaired
+
+Branch `fix/stale-tests-2026-10-27`, on top of this one. Test files only; no product code.
+Every (b) and (c) test above now tests the intended behaviour:
+
+- **The six no-database files:**
+  - `admin_command_api`: reassignment is pinned as a hand-off to
+    `case_lifecycle.reassignCase`. Two new tests: a refusal is `REASSIGN_FAILED`, and the
+    lifecycle owns the previous-doctor notice. Each invite call presents its own caller
+    address, and one new test pins the 10-per-15-minutes limit.
+  - `api-cases-coming-soon-reject`: a fake `src/pg` under the real bookability rule, the
+    fixtures placed in a real specialty, and a control that a bookable service passes.
+  - `worker_watchdog_push`: the fake pool answers the transaction-scoped lock.
+  - `email-stub-mode`: reloads the service with `EMAIL_ENABLED` on for the real-send cases.
+  - `urgency-tier-is-the-source`: accepts a `tier` read only when `urgency_tier` immediately
+    precedes it, not whole files, and reports true line numbers.
+  - `erasure-covers-every-patient-table`: `admin_notification_prefs` is operator-owned.
+- **The database-only files:**
+  - `recompute-on-refund`: the current clawback policy, plus two new cases: a partial refund,
+    and a refund after a breach write-down.
+  - `reassignment-earnings`: the source check slices to the end of the function.
+  - `recalc-sla-breaches`: an injected per-row failure.
+  - `doctor-approval`: the ar/en files must carry the same two language blocks, each leading
+    with its own; layout markers instead of colours; the constant where it now lives.
+  - `notify-whatsapp`: the test number goes on `WHATSAPP_TEST_RECIPIENTS`.
+  - `video_consult`: 85%.
+  - `admin_doctor_invite`: the TTL in real elapsed time, exact across a DST change.
+
+Verified:
+
+- **Migrated database:** an empty local DB migrated with `fix/fresh-db-migrate-2026-10-27`,
+  then the full suite with CI's environment variables: **3762 passed, 0 failed, 40 skipped,
+  exit 0.**
+- **No database:** **3498 passed, 163 failed, 64 skipped.** All 163 are database tests the
+  no-database guard refuses, in 22 files. The baseline is now those 163, down from 183: the 20
+  repaired entries are gone, and one renamed `video_consult` test changed its key. The gate
+  reports 0 NEW and 0 now passing.

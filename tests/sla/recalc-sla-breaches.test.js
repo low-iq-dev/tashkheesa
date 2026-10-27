@@ -3,10 +3,9 @@
 // Tests sweepSlaBreaches() — the function that replaced the buggy
 // `recalcSlaBreaches: markSlaBreach` alias. Three scenarios:
 //   1. Happy path: 3 IN_REVIEW + paid orders past deadline → all breached
-//   2. Resilience: 3 candidates, one of them is in REJECTED_FILES (matches
-//      candidate query, but transitionCase rejects REJECTED_FILES → SLA_BREACH
-//      with "Only active review cases can escalate"). Sweep continues, the
-//      bad row goes to errors[], the good rows succeed.
+//   2. Resilience: 3 candidates, one of which fails while it is processed
+//      (an injected read failure — see below). Sweep continues, the bad row
+//      goes to errors[], the good rows succeed.
 //   3. No-arg call (the actual production bug): sweep no longer throws
 //      when called with no argument; it returns the structured object.
 //
@@ -34,7 +33,24 @@ if (!process.env.DATABASE_URL) {
 
 const TEST_PREFIX = 'test-sweep-';
 
-const { pool, execute, queryOne } = require('../../src/pg');
+const pgReal = require('../../src/pg');
+const { pool, execute, queryOne } = pgReal;
+
+// 2026-10-27 — the resilience case needs one swept row whose processing
+// throws. It used a REJECTED_FILES row, which transitionCase used to refuse;
+// since 5b26d51 (2026-08-22) a resumed rejected-files case may legitimately
+// breach, and no status the sweep selects is refused any more. So the fault is
+// injected: case_lifecycle takes src/pg's functions when it loads, and this
+// wrapper (installed first) fails the case read for one chosen id only.
+let faultCaseId = null;
+require.cache[require.resolve('../../src/pg')].exports = Object.assign({}, pgReal, {
+  queryOne: async (sql, params) => {
+    if (faultCaseId && Array.isArray(params) && params[0] === faultCaseId && /FROM orders WHERE id = \$1/.test(String(sql))) {
+      throw new Error('injected read failure for ' + faultCaseId);
+    }
+    return pgReal.queryOne(sql, params);
+  },
+});
 const lifecycle = require('../../src/case_lifecycle');
 const { sweepSlaBreaches, recalcSlaBreaches, CASE_STATUS } = lifecycle;
 
@@ -123,18 +139,20 @@ module.exports = (async function run() {
     // ── 2. Resilience: bad row in the middle does not poison the sweep ──
     try {
       const goodA = await insertOverdueOrder({ status: 'IN_REVIEW' });
-      const bad   = await insertOverdueOrder({ status: 'REJECTED_FILES' }); // transitionCase rejects this
+      const bad   = await insertOverdueOrder({ status: 'IN_REVIEW' }); // its case read is made to fail (see top)
       const goodB = await insertOverdueOrder({ status: 'IN_REVIEW' });
 
-      const result = await sweepSlaBreaches();
+      faultCaseId = bad;
+      let result;
+      try { result = await sweepSlaBreaches(); } finally { faultCaseId = null; }
       assert.ok(result.swept >= 3, 'should sweep at least our 3 rows');
 
-      // The bad row should be in the errors array, mentioning its id
+      // The bad row should be in the errors array, with its own error
       const ourError = result.errors.find((e) => e.case_id === bad);
-      assert.ok(ourError, 'errors should contain entry for the REJECTED_FILES row');
+      assert.ok(ourError, 'errors should contain an entry for the failing row');
       assert.match(
-        String(ourError.error || ''), /escalate|transition/i,
-        'error message should mention the rejected transition; got: ' + ourError.error
+        String(ourError.error || ''), /injected read failure/,
+        'error message should be the failing row\'s own; got: ' + ourError.error
       );
 
       // The good rows should have breached_at set even though bad row failed

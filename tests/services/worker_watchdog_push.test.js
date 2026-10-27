@@ -27,7 +27,10 @@ function makePool(state, opts) {
   opts = opts || {};
   const lockGranted = opts.lockGranted !== false;
   const handle = async (sql, params) => {
-    if (/pg_try_advisory_lock/.test(sql)) return { rows: [{ locked: lockGranted }] };
+    // The sweep takes pg_try_advisory_xact_lock inside a transaction since
+    // AUDIT-WATCHDOG-LOCK-1 (2026-08-22, released at COMMIT); this fake still
+    // answered only the old session lock, so it never granted the claim.
+    if (/pg_try_advisory(?:_xact)?_lock/.test(sql)) return { rows: [{ locked: lockGranted }] };
     if (/pg_advisory_unlock/.test(sql)) return { rows: [{ unlocked: true }] };
     if (/FROM agent_heartbeats/.test(sql)) {
       const rows = [];
