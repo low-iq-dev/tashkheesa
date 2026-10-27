@@ -134,14 +134,18 @@ defect turned up while I tried to run the database tests:
      109 (108 applied). That is consistent with this, but it may simply have been migrated
      before 110 existed.
    - **A plain boot on an empty database stops earlier, at 059.** 059 and 067 assert
-     production-only rows (four price rows, eight named doctors). Only a tolerant wrapper such
-     as `scripts/mobile-fixtures.js --migrate` gets past them.
+     production-only rows (four price rows, eight named doctors). On `origin/main` only a
+     tolerant wrapper such as `scripts/mobile-fixtures.js --migrate` gets past them.
    - Introduced in `f6dd359` (2026-09-22). The same file, as a bare `create or replace view`,
      also reset the view's options, dropping 072's `security_invoker` wherever it ran.
    - **Fixed on branch `fix/fresh-db-migrate-2026-10-27` (`f6ccc63`).** 110 now uses the
      084/121/129 re-sync (`SELECT *` with `security_invoker`, REVOKE, parity guard), and
-     `tests/lint/orders-active-view-keeps-hardening.test.js` pins the rule. An empty DB then
-     migrates to 131 with `migration_strict` on (059/067 tolerated).
+     `tests/lint/orders-active-view-keeps-hardening.test.js` pins the rule.
+   - **059 and 067 fixed on the same branch (`cae4a3c`).** Each post-condition is skipped,
+     with a NOTICE, only when none of its target rows exists, and enforced exactly as before
+     when any does. **A plain `db.migrate()` on an empty DB now applies all 130 files, through
+     131, with `migration_strict` on.** Controls with one target row planted still fail as
+     the originals did.
 
 **The database tests, run on that migrated DB.** This was a full run with CI's environment
 variables: 3720 passed, 32 failed. 20 of the 22 database files are fully green, including every
@@ -216,8 +220,8 @@ regression.
   so the run is a no-database run: 183 failures, exit 1. **The `tests` job will go red, and so
   will `deploy-check`, which needs it.**
 - On `origin/main`, a migrate step alone would not help: a plain migrate stops at 059, and a
-  tolerant one at 110. With `fix/fresh-db-migrate-2026-10-27`, a tolerant migrate (059/067
-  recorded, as `scripts/mobile-fixtures.js` does) reaches the end.
+  tolerant one at 110. With `fix/fresh-db-migrate-2026-10-27`, a plain migrate reaches the
+  end, so CI needs only a migrate step against its Postgres service before `npm test`.
 - CI pins Node 20; this was verified on Node 24 only. `--test-force-exit` (20.14+) and
   `--test-timeout` are probed before use rather than assumed. **That CI goes red is certain;
   that its gate shows "0 NEW" is not.** If node:test's events or names differ on Node 20,
