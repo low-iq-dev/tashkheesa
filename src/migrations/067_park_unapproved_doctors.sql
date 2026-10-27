@@ -38,6 +38,15 @@
 --
 -- End state: 9 user rows flipped to is_active=false. No other columns
 -- touched. Idempotent — re-running is a no-op.
+--
+-- 2026-10-27 — the guards are enforced only where their rows exist. These 9
+-- users exist only in data that came from production; a database built from
+-- the migrations alone (CI, a new staging, a rebuild) has none of them, so
+-- the "found 8 Group A rows" guard failed and a plain migrate could never get
+-- past this file. Now: if NONE of the 9 ids exists (any role), there is
+-- nothing to park and the guards are skipped with a NOTICE; if ANY exists, all
+-- three are enforced exactly as before. Production applied this file long ago
+-- and the ledger matches on filename, so it never runs this text.
 
 BEGIN;
 
@@ -71,6 +80,20 @@ DECLARE
   group_b_active INT;
   group_a_total INT;
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM users
+     WHERE id IN (
+       'doc_khaled_sultan_obgyn','doc_mohamed_eldars_obgyn',
+       'doc_taher_abulaban_obgyn','doc_hassan_abdelmaged_obgyn',
+       'doc_ahmed_borghout_ortho','doc_mahmoud_helwa_ortho',
+       'doc_ibrahim_hammad_ortho','doc_mohammed_jamaleddin_ortho',
+       '75334fe8-fb43-4202-ab18-3b87b8a325e2'
+     )
+  ) THEN
+    RAISE NOTICE 'Migration 067: none of the 9 target doctors exists (a database not built from production data) — nothing to park, post-conditions skipped';
+    RETURN;
+  END IF;
+
   -- All 8 Group A doctors should now be inactive (or never existed).
   SELECT COUNT(*) INTO group_a_active
     FROM users
