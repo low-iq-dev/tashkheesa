@@ -29,8 +29,8 @@
 //     unhandled rejection, a file that throws while loading, a file that exits
 //     non-zero, a file that reports nothing and a file that outlives its timeout
 //     are all failures. Nothing is skipped unless a test skipped itself, or the
-//     whole file needs a database this run does not have — and then it is
-//     printed and counted as skipped.
+//     file is one `npm test` never runs (RUN_SEPARATELY, below) — and then it
+//     is printed and counted as skipped.
 //
 // Process-per-file also ends the cross-file leaks the old runner had to patch
 // around (require.cache stubs, process.env flips, ejs.cache): no file can see
@@ -62,9 +62,12 @@ const REPORTER  = path.join(__dirname, '_helpers', 'node-test-reporter.js');
 const NO_DB_GUARD = path.join(__dirname, '_helpers', 'no-db-guard.js');
 // Runs last: it compares every earlier file's failures with the baseline.
 const GATE_FILE = path.join(__dirname, 'lint', 'nodb-baseline-gate.test.js');
-// Whole directories that cannot run, or skip themselves, without a migrated
-// database. Skipped — visibly — when there is none.
-const NEEDS_DB_DIRS = [path.join(__dirname, 'pin')];
+// Directories `npm test` never runs, but lists and counts as skipped rather than
+// leaving out silently. tests/pin needs a migrated database and turns
+// admin_settings.auto_assign_enabled on for its duration — a global switch on
+// whatever database it is pointed at, restored only in a `finally` a timeout
+// kill would skip. Run it on purpose: `npm run test:pin`.
+const RUN_SEPARATELY = { [path.join(__dirname, 'pin')]: 'it flips admin_settings.auto_assign_enabled on its database — run it on purpose with `npm run test:pin`' };
 
 // A file that has not exited after this long is killed and counted as failed.
 const FILE_TIMEOUT_MS = Number(process.env.TEST_FILE_TIMEOUT_MS || 120000);
@@ -263,9 +266,10 @@ function runFile(file, index) {
       if (why) console.error(`  ${RED}❌${RESET} ${name}: ${why}`);
     };
 
-    if (dbSkipReason && NEEDS_DB_DIRS.some((d) => file.startsWith(d + path.sep))) {
+    const separately = customDir ? null : Object.keys(RUN_SEPARATELY).find((d) => file.startsWith(d + path.sep));
+    if (separately) {
       skipped++;
-      console.log(`  ${YELLOW}⏭️${RESET}  whole file skipped: it needs a migrated database (${dbSkipReason})`);
+      console.log(`  ${YELLOW}⏭️${RESET}  whole file skipped: ${RUN_SEPARATELY[separately]}`);
     } else {
       const run = await runFile(file, i);
       for (const r of run.results) {

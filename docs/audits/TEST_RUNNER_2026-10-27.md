@@ -54,8 +54,13 @@ so an empty URL fell through to the local `tashkheesa` database (up, unmigrated:
 - **Failures:** a failing test or subtest, a hook failure, an uncaught exception, an unhandled
   rejection, a load crash, a non-zero exit, a file that reports nothing, and a file still
   running after 120 s (killed with its process group).
-- **Skips:** only a test's own skip, or `tests/pin/` when there is no migrated database. That
-  one is printed and counted.
+- **Skips:** only a test's own skip, or `tests/pin/`, which `npm test` never runs, as before.
+  It needs a migrated DB and turns `admin_settings.auto_assign_enabled` on for its duration;
+  run it on purpose with `npm run test:pin`. It is now printed and counted as skipped instead
+  of being left out silently.
+- **Counts agree with node:test's own.** In the final run, the per-file `ℹ` tally node prints
+  for each of the 82 node:test files matches the runner's `↳` line exactly: 782 tests (594
+  passed, 178 failed, 10 skipped or todo), 0 cancelled.
 - **Output** keeps its old shape, plus one line per file, `↳ file · N passed · N failed · N
   skipped`, and a `Files:` line in the summary.
 - `tests/_helpers/node-test-reporter.js` counts **leaf tests**. A parent that failed only
@@ -120,11 +125,13 @@ defect turned up while I tried to run the database tests:
      public.orders_active` with a column list in a different order from the view migrations
      043–045 build. Postgres refuses: `cannot change name of view column "broadcast_sent_at" to
      "reference_id"`.
-   - Production got there by another path, so it is unaffected today.
+   - Production boots today, and boot exits on a failed migrate, so production presumably
+     applied 110 against a view built another way. That is an inference: I did not check
+     production.
    - **Any new environment built from migrations stops at 109**: CI with migrations, a new
-     staging, a disaster-recovery rebuild. Boot exits on a failed migrate. The local
-     `tashkheesa_mobile` scratch DB is stuck at the same point (108 applied, last
-     `109_doctor_sla_events.sql`).
+     staging, a disaster-recovery rebuild. Reproduced on a throwaway local DB, since dropped.
+     The local `tashkheesa_mobile` scratch DB also stops at 109 (108 applied). That is
+     consistent with this, but it may simply have been migrated before 110 existed.
    - Introduced in `f6dd359` (2026-09-22).
    - **It is also why the 163 database tests below cannot be run anywhere yet.**
 
@@ -176,5 +183,11 @@ separate (a) from (b), all blocked by #1:
   will `deploy-check`, which needs it.**
 - Adding a migrate step today would not help: it stops at migration 110 (a#1).
 - CI pins Node 20; this was verified on Node 24 only. `--test-force-exit` (20.14+) and
-  `--test-timeout` are probed before use rather than assumed.
+  `--test-timeout` are probed before use rather than assumed. **That CI goes red is certain;
+  that its gate shows "0 NEW" is not.** If node:test's events or names differ on Node 20,
+  CI's first run will list `(file) …` entries as NEW. That first run is the real check.
+- **Runs that do have a migrated database now do more.** `npm test` also runs the
+  `src/**/__tests__` files (add-ons, auto_assign), which write fixtures to that database, as
+  the 23 node:test DB files under `tests/` already did. Only point a checkout's `.env` at a
+  database you are willing to have test rows written to.
 - CI triggers only on pushes to `main`/`staging` and PRs into `main`.
