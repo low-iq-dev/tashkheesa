@@ -27,7 +27,19 @@ Must pass:
 
 ---
 
-## 3) UI spot-check (5 minutes)
+## 3) Tests (required)
+```bash
+npm test
+```
+Must pass by the rule in `docs/RELEASE.md`:
+- with a migrated database: exit 0;
+- without a database: the baseline gate reports 0 NEW failures, and the refused database-test count is printed (record it).
+
+`Failed: 0` on its own is not the rule.
+
+---
+
+## 4) UI spot-check (5 minutes)
 
 Open the portal in the browser and confirm these work:
 
@@ -45,7 +57,7 @@ Open the portal in the browser and confirm these work:
 
 ---
 
-## 4) Log sanity
+## 5) Log sanity
 
 In the terminal while the server is running:
 - No repeating errors every few seconds/minutes
@@ -54,7 +66,7 @@ In the terminal while the server is running:
 
 ---
 
-## 5) Change discipline
+## 6) Change discipline
 
 ### One change set per commit
 - Small commits
@@ -75,7 +87,7 @@ npm run verify
 
 ---
 
-## 6) Rollback plan (know it before you ship)
+## 7) Rollback plan (know it before you ship)
 
 ### Code rollback
 ```bash
@@ -98,5 +110,5 @@ npm run verify
 
 ---
 
-## 7) Done
+## 8) Done
 If all steps pass, the release is considered **stable**.

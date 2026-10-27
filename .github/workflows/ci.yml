@@ -90,6 +90,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The service starts empty. Migrate it from zero with the same migrate()
+      # the server runs at boot, no tolerant wrapper, so a migration that cannot
+      # build a fresh database fails here. Strict mode turns the orders_active
+      # parity guards (084 onwards) from warnings into failures.
+      - name: Migrate the database from zero
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "ALTER DATABASE tashkheesa_test SET tashkheesa.migration_strict = 'on'"
+          node -e "require('./src/db').migrate().then(() => process.exit(0), (e) => { console.error(e); process.exit(1); })"
+
+      # With a migrated database the suite passes only on exit 0 (docs/RELEASE.md).
       - name: Run tests
         run: npm test
 
