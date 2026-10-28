@@ -335,6 +335,55 @@ p{margin:0}
 html[lang="ar"] .rv-laptop{width:min(880px,82vw,calc((100vh - 576px) * 1.6))}
 @media (max-width:760px){html[lang="ar"] .rv-laptop{width:min(92vw,max(160px,calc((100vh - 547px) * 1.6)))}}
 
+/* ---- The picture on the laptop's screen scales with the laptop. The laptop
+   takes its width from the viewport's height (above): 256px at 1280x720, 230px
+   in Arabic. The mock portal on its screen was laid out in fixed px, so on
+   short screens it kept its full-size type and only a corner of it showed
+   ("Welcome back" and the top of the case card). --u is one pixel of the mock:
+   1px wherever the screen is at least as wide as on the approved 1440x900
+   frame of its language (516px in English, 490px in Arabic), proportionally
+   less below that. A smaller screen shows that frame's composition, smaller,
+   and the approved frames are unchanged. Phones show the reference's reduced
+   mock (its <=760px rules), calibrated the same way on the approved 390x844
+   screen, 330px, in both languages. Below are the reference's own sizes in
+   --u; 1px borders stay 1px. The screen is the size container, so --u means
+   nothing outside it. ---- */
+.rv-screen{container-type:inline-size;--u:min(1px,100cqw / 515)}
+@media (min-width:761px){html[lang="ar"] .rv-screen{--u:min(1px,100cqw / 490)}}
+.rv-notch{width:calc(120*var(--u));height:calc(14*var(--u));border-radius:0 0 calc(8*var(--u)) calc(8*var(--u))}
+.rv-ui{font-size:calc(13*var(--u))}
+.rv-ui aside{padding:calc(22*var(--u)) calc(18*var(--u));gap:calc(14*var(--u))}
+.rv-ui aside .b{gap:calc(8*var(--u));font-size:calc(14*var(--u))}
+.rv-ui aside .b i{width:calc(22*var(--u));height:calc(22*var(--u));border-radius:calc(6*var(--u))}
+.rv-ui aside span{padding:calc(8*var(--u)) calc(10*var(--u))}
+.rv-ui aside span.on{margin-top:calc(10*var(--u));border-radius:calc(8*var(--u))}
+.rv-ui main{padding:calc(26*var(--u)) calc(28*var(--u));gap:calc(16*var(--u))}
+.rv-ui .top{gap:calc(12*var(--u))}
+.rv-ui .top .t{font-size:calc(22*var(--u))}
+.rv-ui .top .n{font-size:calc(12*var(--u));padding:calc(6*var(--u)) calc(12*var(--u))}
+.rv-ui .case{border-radius:calc(12*var(--u));padding:calc(16*var(--u)) calc(18*var(--u));gap:calc(10*var(--u))}
+.rv-ui .case .r{gap:calc(10*var(--u))}
+.rv-ui .case .r b{font-size:calc(15*var(--u))}
+.rv-ui .pill-ok{font-size:calc(11*var(--u));padding:calc(4*var(--u)) calc(9*var(--u));gap:calc(6*var(--u))}
+.rv-ui .pill-ok i{width:calc(6*var(--u));height:calc(6*var(--u))}
+.rv-ui .case .m{font-size:calc(12*var(--u))}
+.rv-ui .doc{gap:calc(10*var(--u));padding:calc(10*var(--u)) calc(12*var(--u));border-radius:calc(8*var(--u))}
+.rv-ui .doc i{width:calc(28*var(--u));height:calc(28*var(--u))}
+.rv-ui .doc .w b{font-size:calc(12*var(--u))}
+.rv-ui .doc .w span{font-size:calc(11*var(--u))}
+.rv-ui .doc a{font-size:calc(11*var(--u))}
+.rv-ui .steps{gap:calc(10*var(--u))}
+.rv-ui .steps div{border-radius:calc(10*var(--u));padding:calc(12*var(--u));gap:calc(4*var(--u))}
+.rv-ui .steps span{font-size:calc(11*var(--u))}
+.rv-ui .steps b{font-size:calc(12*var(--u))}
+@media (max-width:760px){
+  .rv-screen{--u:min(1px,100cqw / 330)}
+  .rv-ui main{padding:calc(12*var(--u)) calc(14*var(--u));gap:calc(8*var(--u))}
+  .rv-ui .top .t{font-size:calc(18*var(--u))}
+  .rv-ui .case{padding:calc(10*var(--u)) calc(12*var(--u));gap:calc(6*var(--u))}
+  .rv-ui .case .r b{font-size:calc(13*var(--u))}
+}
+
 /* ---- The opening's buttons are not reachable while they cannot be seen.
    .rv-head fades in over 380–820px of scroll; until it is half way (600px)
    its CTAs are visibility:hidden — out of the tab order, not clickable. Only
