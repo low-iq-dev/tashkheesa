@@ -7,9 +7,10 @@
 // through the real request pipeline (tests/_helpers/public_site_app.js, no
 // database), in both languages.
 //
-// «شفا» is matched only as a whole name: not when followed by ء (that is the
-// right spelling) or ف («شفافية», «شفاف» — transparent). «مستشفى» itself is
-// spelled with ى and never matches.
+// «شفا» is matched only as a whole word, the same rule the 28 Oct sweep used:
+// not when another Arabic letter or haraka touches it — «شفاء» (the right
+// spelling), «شفاف», «شفاه», «شفاعة», «إشفاق». «مستشفى» itself is spelled with
+// ى and never matches.
 //
 // Run: node --test tests/core/home-hospital-name-ar.test.js
 
@@ -17,7 +18,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const helper = require('../_helpers/public_site_app');
 
-const OLD_SPELLING = /شفا(?![ءف])/;
+const OLD_SPELLING = /(?<![\u0621-\u064A\u064B-\u0652\u0640])شفا(?![\u0621-\u064A\u064B-\u0652\u0640])/;
 const WITH_AL = /الشفاء?(?![ء-ي])/;
 
 function around(body, re) {

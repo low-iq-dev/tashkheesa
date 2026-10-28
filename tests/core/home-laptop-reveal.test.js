@@ -375,7 +375,7 @@ module.exports = (async function run() {
       assert.ok(/>الاسترداد والإلغاء<\/a>/.test(ar.body), 'the refund-policy link says refund (استرداد), not returns');
       // The hospital's name: «شفاء» — with the hamza, no ال — everywhere on the
       // page (Ziad, 27 Oct 2026; the 7 Oct ruling was «شفا» without it).
-      assert.ok(!/الشفا|شفا(?![ءف])/.test(arText), 'the hospital is «شفاء» on the home page');
+      assert.ok(!/الشفا|(?<![\u0621-\u064A])شفا(?![\u0621-\u064A\u064B-\u0652])/.test(arText), 'the hospital is «شفاء» on the home page');
     });
 
     await check('tablets get the phone card treatment: three side cards hidden up to 1100px', async () => {
