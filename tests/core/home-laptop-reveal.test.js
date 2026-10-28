@@ -371,6 +371,23 @@ module.exports = (async function run() {
       assert.ok(enText.includes("The group's New Cairo hospital is GAHAR-accredited, with 280 beds"), 'hospital paragraph (EN)');
       assert.ok(arText.includes('مستشفى المجموعة في القاهرة الجديدة معتمد من GAHAR، وفيه 280 سرير'), 'hospital paragraph (AR)');
       assert.ok(arText.includes('الرعاية المركزة لحديثي الولادة'), 'NICU is neonatal intensive care in Arabic, not "nurseries"');
+      // The Centres of Excellence line stays: founder-confirmed 28 Oct 2026 (brand-facts sheet).
+      assert.ok(enText.includes('Centres of Excellence in Stroke, NICU and Oncology'), 'Centres of Excellence (EN)');
+      // 28 Oct 2026 — claims the product does not back, rewritten (Ziad):
+      //   WhatsApp sends a "report ready" notice, not the report; "open" is the
+      //   catalogue's bookable rule, not a roster check; the PDF's Arabic body is
+      //   optional, so it is not "both languages, one PDF"; Urgent is sold only
+      //   where a doctor covers the 4-hour tier.
+      for (const gone of ['in your account and on WhatsApp', 'consultant on the roster', 'both languages, one PDF', 'Arabic + English']) {
+        assert.ok(enText.indexOf(gone) === -1, 'unbacked English claim is back: "' + gone + '"');
+      }
+      for (const gone of ['وعلى واتساب', 'عندنا فيها استشاري', 'نفس التقرير، باللغتين', 'عربي + إنجليزي']) {
+        assert.ok(arText.indexOf(gone) === -1, 'unbacked Arabic claim is back: "' + gone + '"');
+      }
+      assert.ok(enText.includes('a WhatsApp message when it\'s ready') && arText.includes('ورسالة على واتساب لما يجهز'), 'report step names WhatsApp as the notice');
+      assert.ok(enText.includes('These are the specialties you can book today.') && arText.includes('دي التخصصات اللي تقدر تحجز فيها النهارده.'), 'specialties lede');
+      assert.ok(enText.includes('Arabic or English — your recommendation in the language of your case, one PDF.') && arText.includes('عربي أو إنجليزي — التوصية بلغة حالتك، في PDF واحد.'), 'report language line');
+      assert.ok(enText.includes('or Urgent 4h where available.') && arText.includes('أو عاجل 4 ساعات حسب التوفر.'), 'Urgent is where available');
       assert.ok(enText.includes('Shifa Hospital Group · New Cairo & Sherouk City') && arText.includes('مجموعة مستشفيات شفاء · القاهرة الجديدة ومدينة الشروق'), 'footer line');
       assert.ok(/>الاسترداد والإلغاء<\/a>/.test(ar.body), 'the refund-policy link says refund (استرداد), not returns');
       // The hospital's name: «شفاء» — with the hamza, no ال — everywhere on the
