@@ -276,7 +276,7 @@ module.exports = (async function run() {
         'Choose how fast', 'Good questions', 'Before your next decision', 'Coming soon', 'specialties open', 'services', 'From EGP', 'Reach us']) {
         assert.ok(bodyText.indexOf(phrase) === -1, 'English copy on the Arabic page: "' + phrase + '"');
       }
-      for (const phrase of ['اللحظات اللي تستاهل رأي طبي ثانٍ.', '4 خطوات. من غير أوضة انتظار.', 'مستند بيفضل معاك.', 'وراءنا مستشفى حقيقي،',
+      for (const phrase of ['اللحظات اللي تستاهل رأي طبي ثانٍ.', '4 خطوات. من غير أوضة انتظار.', 'مستند بيفضل معاك.', 'ورانا مستشفى حقيقي،',
         'متاحة للمراجعة النهارده.', 'اختار السرعة. التقرير هو هو.', 'قبل قرارك الجاي،', 'من 1,600 جنيه', 'مجموعة مستشفيات شفاء']) {
         assert.ok(ar.body.indexOf(phrase) !== -1, 'missing Arabic copy: ' + phrase);
       }
@@ -391,6 +391,10 @@ module.exports = (async function run() {
       assert.ok(enText.includes('or Urgent 4h where available.') && arText.includes('أو عاجل 4 ساعات حسب التوفر.'), 'Urgent is where available');
       assert.ok(enText.includes('the same written, signed report. You only pay more for speed.') && arText.includes('نفس التقرير المكتوب والموقّع.'), 'tiers lede');
       assert.ok(enText.includes('We translate it, in plain language.') && arText.includes('بنشرحهولك بلغة بسيطة.'), 'moment 03');
+      // Native read, 28 Oct 2026: «ورانا» (spoken), not «وراءنا»; the crowd-answers
+      // line names where those answers come from.
+      assert.ok(arText.indexOf('وراءنا') === -1 && arText.indexOf('متجمّعة من الناس') === -1, 'the two Arabic lines the native read replaced are back');
+      assert.ok(arText.includes('مفيش إجابات من الجروبات والمنتديات.'), 'hospital paragraph: the groups-and-forums line');
       assert.ok(enText.includes('Shifa Hospital Group · New Cairo & Sherouk City') && arText.includes('مجموعة مستشفيات شفاء · القاهرة الجديدة ومدينة الشروق'), 'footer line');
       assert.ok(/>الاسترداد والإلغاء<\/a>/.test(ar.body), 'the refund-policy link says refund (استرداد), not returns');
       // The hospital's name: «شفاء» — with the hamza, no ال — everywhere on the

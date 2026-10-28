@@ -110,7 +110,7 @@ function setupStaticPages(opts) {
     securityEmail: 'security@tashkheesa.com',
     phone: '+20 110 200 9886',
     address: 'Shifa Hospital, 166 El Tesaeen El Shamaly Street, Fifth Settlement, New Cairo, Egypt',
-    address_ar: 'مستشفى شفاء، ١٦٦ شارع التسعين الشمالي، التجمع الخامس، القاهرة الجديدة',
+    address_ar: 'مستشفى شفاء، 166 شارع التسعين الشمالي، التجمع الخامس، القاهرة الجديدة',
     // LAUNCH-2026-09 — the platform accepts and processes cases 24/7. The only
     // time-boxed promise is the Urgent 4-hour tier, which runs 7am–7pm Cairo
     // (see src/services/urgency.js and patient_new_case.ejs §3). The old

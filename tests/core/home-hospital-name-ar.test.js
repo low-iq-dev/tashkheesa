@@ -66,3 +66,17 @@ test('a visitor outside Egypt gets the same spelling', async () => {
   assert.ok(ar.body.includes('مجموعة مستشفيات شفاء'));
   assert.ok(!OLD_SPELLING.test(ar.body) && !WITH_AL.test(ar.body), around(ar.body, OLD_SPELLING) || around(ar.body, WITH_AL));
 });
+
+test('the hospital\'s Arabic address uses Western digits: home footer, shared footer, About, Contact', async () => {
+  // 28 Oct 2026: visible Arabic copy writes numbers in Western digits (48, 280);
+  // the address was the one place still writing «١٦٦». It lives in three
+  // places: the home page's own footer (index.ejs), the shared public footer
+  // (partials/footer.ejs) and BUSINESS_INFO.address_ar (About, Contact).
+  const ADDRESS = 'مستشفى شفاء، 166 شارع التسعين الشمالي، التجمع الخامس، القاهرة الجديدة';
+  for (const p of ['/ar/', '/ar/about', '/ar/contact']) {
+    const r = await app.get(p);
+    assert.equal(r.status, 200, p);
+    assert.ok(r.body.includes(ADDRESS), p + ' does not show the address with 166');
+    assert.ok(!r.body.includes('١٦٦'), p + ' still writes the address number in Eastern digits');
+  }
+});
