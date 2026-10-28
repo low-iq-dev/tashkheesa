@@ -277,11 +277,11 @@ module.exports = (async function run() {
         assert.ok(bodyText.indexOf(phrase) === -1, 'English copy on the Arabic page: "' + phrase + '"');
       }
       for (const phrase of ['اللحظات اللي تستاهل رأي طبي ثانٍ.', '4 خطوات. من غير أوضة انتظار.', 'مستند بيفضل معاك.', 'وراءنا مستشفى حقيقي،',
-        'متاحة للمراجعة النهارده.', 'اختار السرعة. التقرير هو هو.', 'قبل قرارك الجاي،', 'من 1,600 جنيه', 'مجموعة مستشفيات شفا']) {
+        'متاحة للمراجعة النهارده.', 'اختار السرعة. التقرير هو هو.', 'قبل قرارك الجاي،', 'من 1,600 جنيه', 'مجموعة مستشفيات شفاء']) {
         assert.ok(ar.body.indexOf(phrase) !== -1, 'missing Arabic copy: ' + phrase);
       }
       // Brand rules that a translation can break without anyone noticing.
-      assert.ok(!/الشفاء|مستشفيات الشفا/.test(ar.body), 'the hospital is مجموعة مستشفيات شفا — no ال');
+      assert.ok(!/الشفاء|مستشفيات الشفا/.test(ar.body), 'the hospital is مجموعة مستشفيات شفاء — no ال');
       assert.ok(/مش ذكاء اصطناعي/.test(ar.body), 'the AI question must say a consultant writes it, not an AI');
       assert.ok(/<small> ساعة<\/small>/.test(ar.body) && /4<small> ساعات<\/small>/.test(ar.body) && !/\d+h</.test(ar.body.slice(ar.body.indexOf('<div class="page">'))),
         'hours read "48 ساعة" / "4 ساعات" on /ar/, never "48h"');
@@ -371,10 +371,11 @@ module.exports = (async function run() {
       assert.ok(enText.includes("The group's New Cairo hospital is GAHAR-accredited, with 280 beds"), 'hospital paragraph (EN)');
       assert.ok(arText.includes('مستشفى المجموعة في القاهرة الجديدة معتمد من GAHAR، وفيه 280 سرير'), 'hospital paragraph (AR)');
       assert.ok(arText.includes('الرعاية المركزة لحديثي الولادة'), 'NICU is neonatal intensive care in Arabic, not "nurseries"');
-      assert.ok(enText.includes('Shifa Hospital Group · New Cairo & Sherouk City') && arText.includes('مجموعة مستشفيات شفا · القاهرة الجديدة ومدينة الشروق'), 'footer line');
+      assert.ok(enText.includes('Shifa Hospital Group · New Cairo & Sherouk City') && arText.includes('مجموعة مستشفيات شفاء · القاهرة الجديدة ومدينة الشروق'), 'footer line');
       assert.ok(/>الاسترداد والإلغاء<\/a>/.test(ar.body), 'the refund-policy link says refund (استرداد), not returns');
-      // The hospital's name: شفا — no hamza, no ال — everywhere on the page.
-      assert.ok(!/شفاء|الشفا/.test(arText), 'the hospital is «شفا» on the home page');
+      // The hospital's name: «شفاء» — with the hamza, no ال — everywhere on the
+      // page (Ziad, 27 Oct 2026; the 7 Oct ruling was «شفا» without it).
+      assert.ok(!/الشفا|شفا(?![ءف])/.test(arText), 'the hospital is «شفاء» on the home page');
     });
 
     await check('tablets get the phone card treatment: three side cards hidden up to 1100px', async () => {

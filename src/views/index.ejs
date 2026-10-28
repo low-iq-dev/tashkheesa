@@ -275,7 +275,7 @@
 
 <section class="strip" aria-label="<%= tt('home.strip.aria', 'Trust', 'الثقة') %>">
   <div class="wrap">
-    <span><i class="dot"></i><%= tt('home.strip.hospital', 'Shifa Hospital Group · New Cairo', 'مجموعة مستشفيات شفا · القاهرة الجديدة') %></span>
+    <span><i class="dot"></i><%= tt('home.strip.hospital', 'Shifa Hospital Group · New Cairo', 'مجموعة مستشفيات شفاء · القاهرة الجديدة') %></span>
     <span><%= tt('home.strip.gahar', 'GAHAR-accredited', 'معتمد من GAHAR') %></span>
     <span><%= tt('home.strip.beds', __beds + ' beds', __beds + ' سرير') %></span>
     <% if (__openCount > 0) { %><span><%= __count(__openCount, 'home.strip.open', ['{n} specialty open', '{n} specialties open'], { one: 'تخصص واحد متاح', two: 'تخصصين متاحين', few: '{n} تخصصات متاحة', many: '{n} تخصص متاح' }) %></span><% } %>
@@ -310,7 +310,7 @@
   <ol class="steps">
     <li class="step"><span class="n">1</span><h3><%= tt('home.how.1.title', 'Tell us what you need', 'قولنا محتاج إيه') %></h3><p><%= tt('home.how.1.body', 'Pick the specialty and how fast you need an answer: Standard 48h, VIP 18h or Urgent 4h.', 'اختار التخصص وعايز الرد بسرعة قد إيه: قياسي 48 ساعة، VIP 18 ساعة، أو عاجل 4 ساعات.') %></p></li>
     <li class="step"><span class="n">2</span><h3><%= tt('home.how.2.title', 'Upload your files', 'ارفع ملفاتك') %></h3><p><%= tt('home.how.2.body', 'Scans, lab results, reports — PDF, photos or DICOM. Write the question you want answered.', 'أشعة، تحاليل، تقارير — PDF أو صور أو DICOM. واكتب السؤال اللي عايز إجابته.') %></p></li>
-    <li class="step"><span class="n">3</span><h3><%= tt('home.how.3.title', 'A consultant reads everything', 'استشاري بيقرا كل حاجة') %></h3><p><%= tt('home.how.3.body', 'A named Shifa Hospital Group consultant in that specialty reviews your whole file — not a summary of it.', 'استشاري باسمه من مجموعة مستشفيات شفا في التخصص ده بيراجع ملفك كله — مش ملخّص منه.') %></p></li>
+    <li class="step"><span class="n">3</span><h3><%= tt('home.how.3.title', 'A consultant reads everything', 'استشاري بيقرا كل حاجة') %></h3><p><%= tt('home.how.3.body', 'A named Shifa Hospital Group consultant in that specialty reviews your whole file — not a summary of it.', 'استشاري باسمه من مجموعة مستشفيات شفاء في التخصص ده بيراجع ملفك كله — مش ملخّص منه.') %></p></li>
     <li class="step last"><span class="n">4</span><h3><%= tt('home.how.4.title', 'Receive your written opinion', 'استلم الرأي المكتوب') %></h3><p><%= tt('home.how.4.body', 'A signed, bilingual report in your account and on WhatsApp. Yours to keep, and to show any doctor you choose.', 'تقرير موقّع باللغتين بيوصلك على حسابك وعلى واتساب. بيفضل معاك، وتوريه لأي دكتور تختاره.') %></p></li>
   </ol>
 </section>
@@ -343,18 +343,18 @@
     live. %>
 <section class="hospital">
   <div class="wrap reveal">
-    <img class="photo" src="/site/img/home/shifa-night.jpg" alt="<%= tt('home.hospital.img_alt', 'Shifa Hospital Group, Tagammo, lit at night from above', 'مجموعة مستشفيات شفا بالتجمع، منوّرة بالليل من فوق') %>">
+    <img class="photo" src="/site/img/home/shifa-night.jpg" alt="<%= tt('home.hospital.img_alt', 'Shifa Hospital Group, Tagammo, lit at night from above', 'مجموعة مستشفيات شفاء بالتجمع، منوّرة بالليل من فوق') %>">
     <div class="cols">
       <div class="copy">
         <p class="eyebrow"><%= tt('home.hospital.eyebrow', 'Why Tashkheesa', 'ليه تشخيصة') %></p>
         <h2 class="display"><%= tt('home.hospital.title1', 'Backed by a hospital,', 'وراءنا مستشفى حقيقي،') %><br><%= tt('home.hospital.title2', 'not a marketplace.', 'مش مجرد منصة.') %></h2>
         <p><%= tt('home.hospital.body',
           'Every opinion on Tashkheesa is written by a consultant of Shifa Hospital Group. The group\'s New Cairo hospital is GAHAR-accredited, with ' + __beds + ' beds and Centres of Excellence in Stroke, NICU and Oncology. No anonymous reviewers. No crowd-sourced answers. A name, a licence, and an institution that stands behind both.',
-          'كل رأي على تشخيصة بيكتبه استشاري من مجموعة مستشفيات شفا. مستشفى المجموعة في القاهرة الجديدة معتمد من GAHAR، وفيه ' + __beds + ' سرير ومراكز تميّز في السكتة الدماغية والأورام والرعاية المركزة لحديثي الولادة. مفيش مراجعين مجهولين. مفيش إجابات متجمّعة من الناس. اسم، وترخيص، ومؤسسة واقفة ورا الاتنين.') %></p>
+          'كل رأي على تشخيصة بيكتبه استشاري من مجموعة مستشفيات شفاء. مستشفى المجموعة في القاهرة الجديدة معتمد من GAHAR، وفيه ' + __beds + ' سرير ومراكز تميّز في السكتة الدماغية والأورام والرعاية المركزة لحديثي الولادة. مفيش مراجعين مجهولين. مفيش إجابات متجمّعة من الناس. اسم، وترخيص، ومؤسسة واقفة ورا الاتنين.') %></p>
         <a class="more" href="<%= locals.publicLinkPrefix || '' %>/about"><%= tt('home.hospital.more', 'About the hospital', 'عن المستشفى') %> <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
       </div>
       <dl class="stats">
-        <div><dt><%= __beds %></dt><dd><%= tt('home.hospital.stat_beds', 'beds at Shifa Hospital, New Cairo', 'سرير في مستشفى شفا بالتجمع الخامس') %></dd></div>
+        <div><dt><%= __beds %></dt><dd><%= tt('home.hospital.stat_beds', 'beds at Shifa Hospital, New Cairo', 'سرير في مستشفى شفاء بالتجمع الخامس') %></dd></div>
         <div><dt><%= __openCount %></dt><dd><%= __count(__openCount, 'home.hospital.stat_open', ['specialty open today', 'specialties open today'], { one: 'تخصص متاح النهارده', two: 'تخصصين متاحين النهارده', few: 'تخصصات متاحة النهارده', many: 'تخصص متاح النهارده' }) %></dd></div>
         <div><dt><%- __hours(48) %></dt><dd><%= tt('home.hospital.stat_standard', 'standard turnaround, in writing', 'مدة التسليم القياسية، برأي مكتوب') %></dd></div>
         <div class="brass"><dt><%- __hours(4) %></dt><dd><%= tt('home.hospital.stat_urgent', 'fastest, with Urgent', 'أسرع تسليم، لو اخترت «عاجل»') %></dd></div>
@@ -459,15 +459,15 @@
         <span style="display:flex;align-items:center;gap:10px;color:#fff"><span style="width:32px;height:32px;border-radius:9px;background:var(--brass);display:inline-flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l9 9-9 9-9-9 9-9z" fill="#0F1E2D"/><path d="M12 8l4 4-4 4-4-4 4-4z" fill="#B38B3E"/></svg></span><b style="font-size:17px">Tashkheesa</b><span lang="ar" dir="rtl" style="font-family:var(--font-ar);font-weight:700;font-size:14px;color:var(--brass-light)">تشخيصة</span></span>
         <p style="font-size:14px"><%= tt('home.footer.blurb',
           'Written second medical opinions from named consultants of Shifa Hospital Group. Second opinion only — not diagnosis or treatment.',
-          'آراء طبية تانية مكتوبة من استشاريين بأسمائهم في مجموعة مستشفيات شفا. رأي تاني بس — مش تشخيص ولا علاج.') %></p>
+          'آراء طبية تانية مكتوبة من استشاريين بأسمائهم في مجموعة مستشفيات شفاء. رأي تاني بس — مش تشخيص ولا علاج.') %></p>
         <p style="font-size:13px;color:#8A96A3"><%= tt('home.footer.hospital',
           'Shifa Hospital Group · New Cairo & Sherouk City',
-          'مجموعة مستشفيات شفا · القاهرة الجديدة ومدينة الشروق') %></p>
+          'مجموعة مستشفيات شفاء · القاهرة الجديدة ومدينة الشروق') %></p>
       </div>
       <div class="col"><span class="h"><%= tt('home.footer.col_patients', 'Patients', 'للمرضى') %></span><a href="<%= locals.publicLinkPrefix || '' %>/services"><%= tt('home.footer.services', 'Services & prices', 'الخدمات والأسعار') %></a><a href="<%= locals.publicLinkPrefix || '' %>/specialties"><%= tt('nav.specialties', 'Specialties', 'التخصصات') %></a><a href="<%= locals.publicLinkPrefix || '' %>/#how-it-works"><%= tt('home.how.kicker', 'How it works', 'إزاي بتشتغل') %></a><a href="<%= locals.publicLinkPrefix || '' %>/faq"><%= tt('nav.faq', 'FAQ', 'الأسئلة الشائعة') %></a><a href="/login<%= locals.langParam ? '?' + locals.langParam : '' %>"><%= tt('home.footer.patient_portal', 'Patient portal', 'بوابة المريض') %></a></div>
       <div class="col"><span class="h"><%= tt('home.footer.col_company', 'Company', 'الشركة') %></span><a href="<%= locals.publicLinkPrefix || '' %>/about"><%= tt('home.footer.about', 'About', 'من نحن') %></a><a href="<%= locals.publicLinkPrefix || '' %>/blog"><%= tt('home.footer.blog', 'Blog', 'المدونة') %></a><a href="<%= locals.publicLinkPrefix || '' %>/apply"><%= tt('home.footer.for_doctors', 'For doctors', 'للأطباء') %></a><a href="<%= locals.publicLinkPrefix || '' %>/contact"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a></div>
       <div class="col" style="flex-basis:220px"><span class="h"><%= tt('home.footer.col_legal', 'Legal', 'السياسات') %></span><a href="<%= locals.publicLinkPrefix || '' %>/privacy"><%= tt('home.footer.privacy', 'Privacy policy', 'سياسة الخصوصية') %></a><a href="<%= locals.publicLinkPrefix || '' %>/terms"><%= tt('home.footer.terms', 'Terms of service', 'شروط الخدمة') %></a><a href="<%= locals.publicLinkPrefix || '' %>/refund-policy"><%= tt('home.footer.refund', 'Refunds & cancellation', 'الاسترداد والإلغاء') %></a><a href="<%= locals.publicLinkPrefix || '' %>/delivery-policy"><%= tt('home.footer.delivery', 'Delivery policy', 'سياسة التسليم') %></a><a href="<%= locals.publicLinkPrefix || '' %>/delete-account"><%= tt('home.footer.delete_account', 'Delete your account', 'حذف حسابك') %></a></div>
-      <div class="col" style="flex-basis:240px"><span class="h"><%= tt('home.footer.col_reach', 'Reach us', 'تواصل معنا') %></span><a href="mailto:<%= __email %>"><%= __email %></a><a href="https://wa.me/201102009886" target="_blank" rel="noopener"><bdi dir="ltr"><%= __phone %></bdi> · WhatsApp</a><a href="https://www.instagram.com/tashkheesaa/" target="_blank" rel="noopener">Instagram</a><a href="https://www.facebook.com/profile.php?id=927504083784815" target="_blank" rel="noopener">Facebook</a><span><%= tt('home.footer.address', __address, 'مستشفى شفا، ١٦٦ شارع التسعين الشمالي، التجمع الخامس، القاهرة الجديدة') %></span>
+      <div class="col" style="flex-basis:240px"><span class="h"><%= tt('home.footer.col_reach', 'Reach us', 'تواصل معنا') %></span><a href="mailto:<%= __email %>"><%= __email %></a><a href="https://wa.me/201102009886" target="_blank" rel="noopener"><bdi dir="ltr"><%= __phone %></bdi> · WhatsApp</a><a href="https://www.instagram.com/tashkheesaa/" target="_blank" rel="noopener">Instagram</a><a href="https://www.facebook.com/profile.php?id=927504083784815" target="_blank" rel="noopener">Facebook</a><span><%= tt('home.footer.address', __address, 'مستشفى شفاء، ١٦٦ شارع التسعين الشمالي، التجمع الخامس، القاهرة الجديدة') %></span>
         <% if (locals.appFunnel) { %><div class="tk-app-badge-row tk-app-badge-row--start"><%- include('partials/app_badge', { placement: 'footer' }) %></div><% } %>
       </div>
     </div>

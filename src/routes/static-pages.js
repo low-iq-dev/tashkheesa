@@ -110,7 +110,7 @@ function setupStaticPages(opts) {
     securityEmail: 'security@tashkheesa.com',
     phone: '+20 110 200 9886',
     address: 'Shifa Hospital, 166 El Tesaeen El Shamaly Street, Fifth Settlement, New Cairo, Egypt',
-    address_ar: 'مستشفى شفا، ١٦٦ شارع التسعين الشمالي، التجمع الخامس، القاهرة الجديدة',
+    address_ar: 'مستشفى شفاء، ١٦٦ شارع التسعين الشمالي، التجمع الخامس، القاهرة الجديدة',
     // LAUNCH-2026-09 — the platform accepts and processes cases 24/7. The only
     // time-boxed promise is the Urgent 4-hour tier, which runs 7am–7pm Cairo
     // (see src/services/urgency.js and patient_new_case.ejs §3). The old
@@ -668,7 +668,7 @@ function setupStaticPages(opts) {
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       title: isAr ? 'رأي طبي تاني مكتوب في 48 ساعة | تشخيصة' : 'A written second opinion in 48 hours | Tashkheesa',
       description: isAr
-        ? 'ارفع تقريرك أو أشعتك واستشاري من مجموعة مستشفيات شفا يبعتلك رأيه مكتوب خلال 48 ساعة.'
+        ? 'ارفع تقريرك أو أشعتك واستشاري من مجموعة مستشفيات شفاء يبعتلك رأيه مكتوب خلال 48 ساعة.'
         : 'Upload your report or scan and a Shifa Hospital Group consultant sends you a written opinion within 48 hours.',
       canonical: '/start',
       BUSINESS_INFO: BUSINESS_INFO,
