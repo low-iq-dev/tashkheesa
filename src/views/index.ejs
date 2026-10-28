@@ -178,10 +178,28 @@
     ? __openSpecs.length
     : (typeof specialtyCount !== 'undefined' ? specialtyCount : 7);
   var __spName = function (sp) { return (__homeIsAr && sp.nameAr) ? sp.nameAr : sp.name; };
-  var __priceMin = (typeof priceRangeMin !== 'undefined' && priceRangeMin) ? String(priceRangeMin) : '';
+  // Visitors outside Egypt (16 Oct 2026, services/public_market.js): the
+  // catalogue minimum below is the EGP home price, so a visitor whose checkout
+  // charges another list (UK → GBP, rest of world → USD) is not shown it as
+  // theirs — the "From" price is simply left out, as on main's previous home
+  // page, and /services quotes their own list. Crawlers always resolve to EG.
+  var __pm = locals.publicMarket || {};
+  var __homeMarket = !__pm.code || __pm.code === 'EG';
+  var __priceMin = (__homeMarket && typeof priceRangeMin !== 'undefined' && priceRangeMin) ? String(priceRangeMin) : '';
   var __fromPrice = !__priceMin ? ''
     : tt('home.price.from', 'From ' + ((typeof currency !== 'undefined' && currency) ? currency : 'EGP') + ' {price}', 'من {price} جنيه')
       .replace('{price}', __priceMin);
+  // The not-for-emergencies line names the visitor's own emergency number
+  // (main, 16 Oct 2026): 123 in Egypt or when we cannot place them, else the
+  // country's number if public_market knows it, else "your local emergency
+  // number". Used under both Start buttons (here and partials/hero-reveal).
+  var __notEmergency = (!__pm.country || __pm.country === 'EG')
+    ? tt('home.hero.not_emergency',
+        'Not for emergencies. In an emergency, go to the nearest hospital or call 123.',
+        'الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بـ 123.')
+    : (__pm.emergency
+      ? tt('', 'Not for emergencies. In an emergency, go to the nearest hospital or call ' + __pm.emergency + '.', 'الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بـ ' + __pm.emergency + '.')
+      : tt('', 'Not for emergencies. In an emergency, go to the nearest hospital or call your local emergency number.', 'الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بالطوارئ في بلدك.'));
   // Facts main settled in the 6 Oct 2026 sweep (7589f6e), after the reference
   // was drawn — the reference said 220 beds, "Meeza", "USD, AED and SAR" and a
   // report "in your inbox":
@@ -250,7 +268,7 @@
 <main id="main-content">
 
 <!-- ================= THE OPENING ================= -->
-<%- include('partials/hero-reveal', { heroCta: { on: __ctaOn, href: __startHref, offLabel: __ctaOffLabel } }) %>
+<%- include('partials/hero-reveal', { heroCta: { on: __ctaOn, href: __startHref, offLabel: __ctaOffLabel }, notEmergency: __notEmergency }) %>
 
 <!-- ================= THE PAGE ================= -->
 <div class="page">
@@ -417,9 +435,7 @@
           page's Start button and loop-sweep-2026-10-06.test.js requires it on
           the page. It sits under both Start buttons: here and in the opening
           (partials/hero-reveal.ejs). %>
-      <p class="not-emergency"><%= tt('home.hero.not_emergency',
-        'Not for emergencies. In an emergency, go to the nearest hospital or call 123.',
-        'الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بـ 123.') %></p>
+      <p class="not-emergency"><%= __notEmergency %></p>
       <% if (locals.appFunnel) { %><div class="tk-app-badge-row tk-app-badge-row--start"><%- include('partials/app_badge', { placement: 'home' }) %></div><% } %>
     </div>
     <img src="/site/img/home/patient.jpg" alt="<%= tt('home.closing.img_alt', 'A woman at her kitchen table reading her printed report with a calm smile', 'سيدة قاعدة على ترابيزة المطبخ بتقرا تقريرها المطبوع بابتسامة هادية') %>">

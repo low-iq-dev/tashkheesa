@@ -232,6 +232,28 @@ module.exports = (async function run() {
       } finally { await none.close(); }
     });
 
+    // Main's 16 Oct rule (services/public_market.js): a visitor outside Egypt
+    // is never shown the EGP home price as theirs, and the emergency line
+    // names their own number. Crawlers always resolve to EG.
+    await check('outside Egypt: own emergency number under both Start buttons, no EGP price', async () => {
+      const uk = await shut.get('/', { 'cf-ipcountry': 'GB' });
+      assert.strictEqual(uk.status, 200);
+      assert.strictEqual((uk.body.match(/<p class="not-emergency">Not for emergencies\. In an emergency, go to the nearest hospital or call 999\.<\/p>/g) || []).length, 2,
+        'a UK visitor must read 999 under both Start buttons');
+      assert.ok(!/call 123/.test(uk.body), 'the Egyptian emergency number on a UK visitor\'s home page');
+      assert.ok(!/From EGP/.test(uk.body), 'a UK visitor was quoted the EGP home price as theirs');
+      const arUk = await shut.get('/ar/', { 'cf-ipcountry': 'GB' });
+      assert.ok(/اتصل بـ 999\./.test(arUk.body) && !/اتصل بـ 123/.test(arUk.body), '/ar/ for a UK visitor');
+      assert.ok(!/جنيه<\/span>/.test(arUk.body), '/ar/ quoted a UK visitor the price in pounds (EGP)');
+      const jp = await shut.get('/', { 'cf-ipcountry': 'JP' });
+      assert.strictEqual((jp.body.match(/call your local emergency number\./g) || []).length, 2, 'unknown number → "your local emergency number"');
+      const eg = await shut.get('/', { 'cf-ipcountry': 'EG' });
+      assert.strictEqual((eg.body.match(/call 123\./g) || []).length, 2, 'Egypt keeps 123');
+      assert.ok(/<span>From EGP 1,600<\/span>/.test(eg.body), 'Egypt keeps the starting price');
+      const bot = await shut.get('/', { 'cf-ipcountry': 'GB', 'user-agent': 'Googlebot/2.1' });
+      assert.ok(/<span>From EGP 1,600<\/span>/.test(bot.body) && /call 123\./.test(bot.body), 'crawlers index the Egyptian page');
+    });
+
     // ── 5. Arabic ──────────────────────────────────────────────────────────
     await check('/ar/ is RTL and Arabic throughout — no English-only sections left', async () => {
       assert.strictEqual(ar.status, 200);

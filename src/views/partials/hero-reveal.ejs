@@ -18,6 +18,9 @@
   Locals, passed by index.ejs:
     heroCta  { on, href, offLabel } — the booking gate (services/public_cta.js).
              Missing or malformed → the CTA renders locked. Fail closed.
+    notEmergency  the not-for-emergencies line with the visitor's own
+             emergency number (index.ejs works it out from publicMarket).
+             Missing → the Egyptian line with 123.
 
   Language. The opening is centred and is not mirrored for Arabic. Every
   string has its Arabic; the Arabic H1 is the one the SEO work specified (it is
@@ -67,7 +70,7 @@
       <%# Not in the reference: the not-for-emergencies line main requires on the
           home page (6 Oct 2026 sweep), back under the Start button. marketing.css
           gives the laptop a little less height to make room for it. %>
-      <p class="not-emergency"><%= tt('home.hero.not_emergency',
+      <p class="not-emergency"><%= (typeof notEmergency !== 'undefined' && notEmergency) ? notEmergency : tt('home.hero.not_emergency',
         'Not for emergencies. In an emergency, go to the nearest hospital or call 123.',
         'الخدمة مش للطوارئ. في الحالات الطارئة روح أقرب مستشفى أو اتصل بـ 123.') %></p>
     </div>
