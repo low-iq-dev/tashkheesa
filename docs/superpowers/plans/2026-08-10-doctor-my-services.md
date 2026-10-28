@@ -601,9 +601,9 @@
   Expected with a reachable clone: combined `pass 10`, `fail 0`. Expected without a DB: all DB assertions skip, file-presence assertions pass, `fail 0`. If this is green, the harness the note documents is proven; if it fails, the note is wrong — fix before committing.
 
 - [ ] **Step 3: Confirm the harness is picked up by the default suite as a graceful skip (no DB in CI).**
-  The repo's aggregate runner is `npm test` (`tests/run.js`) which `require()`s every `*.test.js`. The two new files use `node:test`; under `tests/run.js` they register `node:test` cases but the require-based harness doesn't await them — same situation as `tests/pin/*` and the addons tests, which are run separately. Confirm `npm test` still exits 0 (the new files don't throw at require time when no DB is set):
+  The repo's aggregate runner is `npm test` (`tests/run.js`) which `require()`s every `*.test.js`. The two new files use `node:test`; under `tests/run.js` they register `node:test` cases but the require-based harness doesn't await them — same situation as `tests/pin/*` and the addons tests, which are run separately. Confirm `npm test` still passes (the new files don't throw at require time when no DB is set):
   Command: `cd /Users/ziadelwahsh/tashkheesa-portal && npm test 2>&1 | tail -8`
-  Expected: `Failed:  0` in the summary and exit 0. (The `node:test` cases self-run/skip; they must not crash the aggregate runner at require-time. If they do, gate the top of each file with `if (!process.env.DATABASE_URL && !process.env.RUN_DB_TESTS) { return; }` before the `pool` is created — but only if `npm test` shows a failure.)
+  Expected: the suite passes by the rule in `docs/RELEASE.md`. (The `node:test` cases self-run/skip; they must not crash the aggregate runner at require-time. If they do, gate the top of each file with `if (!process.env.DATABASE_URL && !process.env.RUN_DB_TESTS) { return; }` before the `pool` is created — but only if `npm test` shows a failure.)
 
 - [ ] **Step 4: Commit.**
   `git add tests/services/README_my_services_harness.md && git commit` with the required `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` trailer. Suggested subject: `docs(test): document the My Services prod-schema-clone harness for downstream slices`.
@@ -2937,7 +2937,7 @@ node -e "process.env.JWT_SECRET='x'.repeat(40); require('./src/routes/doctor.js'
 
 Expected stdout ends with `doctor router loaded OK` and exit code 0. This proves the new `require`, the route registration, and all referenced symbols resolve. (This is the honest verification available here — the view render itself is exercised in the view task's headless-Chrome step.)
 
-- [ ] **Step 4: Run the full quick suite to confirm no regression.** Command: `npm test`. Expected: `Failed:  0` in the summary (the `tests/run.js` require-based harness must stay green; it does not exercise this route directly but catches any load-time crash in required modules).
+- [ ] **Step 4: Run the full quick suite to confirm no regression.** Command: `npm test`. Expected: the suite passes by the rule in `docs/RELEASE.md` (the `tests/run.js` harness must stay green; it does not exercise this route directly but catches any load-time crash in required modules).
 
 - [ ] **Step 5: Commit.** `git add src/routes/doctor.js && git commit -m "feat(doctor): GET /portal/doctor/services renders union catalog"` (with Co-Authored-By trailer).
 
@@ -3228,7 +3228,7 @@ ROLLBACK;
 
 Expected: `medhat_rows = 22`, `onboarded = true`, and the whole block runs without a type error, then discards. (This proves no-change save keeps 22 rows and flips onboarding — spec §8 regression. The full INSERT/DELETE diff is exercised hermetically in the save test; this dry-run validates the live-type UPDATE + resync coupling.)
 
-- [ ] **Step 7: Re-run both service tests + full suite.** Commands: `node --test tests/services/doctor_services_save.test.js` then `npm test`. Expected: save test green (`# fail 0`); `npm test` summary `Failed:  0`. Also re-run the router smoke require from the GET task (`node -e "process.env.JWT_SECRET='x'.repeat(40); require('./src/routes/doctor.js'); console.log('OK')"`) → prints `OK` (confirms the new resync require + POST route load cleanly).
+- [ ] **Step 7: Re-run both service tests + full suite.** Commands: `node --test tests/services/doctor_services_save.test.js` then `npm test`. Expected: save test green (`# fail 0`); `npm test` passes by the rule in `docs/RELEASE.md`. Also re-run the router smoke require from the GET task (`node -e "process.env.JWT_SECRET='x'.repeat(40); require('./src/routes/doctor.js'); console.log('OK')"`) → prints `OK` (confirms the new resync require + POST route load cleanly).
 
 - [ ] **Step 8: Commit.** `git add src/routes/doctor.js src/services/doctor_service_catalog.js tests/services/doctor_services_save.test.js && git commit -m "feat(doctor): POST /portal/doctor/services diff-save with union guard + resync"` (with Co-Authored-By trailer).
 
@@ -3438,7 +3438,7 @@ Expected: `RENDER OK len=<n>` and exit 0. If the include of `partials/header` ca
 
 - [ ] **Step 5: Visual verification via headless Chrome (against the compiled HTML).** Since EJS markup can't assert visual correctness through the harness, capture the rendered page. Write the `html` from Step 4 to `${scratchpad}/services.html` (redirect the node output to a file), then open it with claude-in-chrome and screenshot both LTR and an AR variant (re-run Step 4 with `isAr:true`, `tt:(k,en,ar)=>ar`). Confirm: (1) grouped checkbox rows render with visible checkboxes, (2) "You earn 200 EGP" shows, (3) the zero-confirm row renders, (4) AR variant reads right-to-left with Arabic labels ("خدماتي", "تكسب", "قريبًا"). This is a manual visual gate — record the two screenshots in the commit message body or PR.
 
-- [ ] **Step 6: Run lint + full suite.** Command: `npm test`. Expected: `Failed:  0` — specifically the `no-physical-margin-padding-in-css`, `directional-svgs-have-flip-class`, and `no-bare-tolocalestring` lint tests must pass over the new CSS/view (the `_money` helper wraps `toLocaleString` with an explicit locale, satisfying `no-bare-tolocalestring`; if that lint still flags it, switch `_money` to `res.locals.formatNumber` and re-run).
+- [ ] **Step 6: Run lint + full suite.** Command: `npm test`. Expected: the suite passes by the rule in `docs/RELEASE.md` — specifically the `no-physical-margin-padding-in-css`, `directional-svgs-have-flip-class`, and `no-bare-tolocalestring` lint tests must pass over the new CSS/view (the `_money` helper wraps `toLocaleString` with an explicit locale, satisfying `no-bare-tolocalestring`; if that lint still flags it, switch `_money` to `res.locals.formatNumber` and re-run).
 
 - [ ] **Step 7: Commit.** `git add src/views/portal_doctor_services.ejs public/css/doctor-portal-v2.css src/views/partials/doctor/sidebar.ejs && git commit -m "feat(doctor): My Services view, checkbox-row CSS, sidebar item"` (with Co-Authored-By trailer).
 
@@ -3702,7 +3702,7 @@ Replace the final block (the `return res.redirect(getHomeByRole(user.role));` at
 
 - [ ] **Step 7: Run the test — expect GREEN (6 groups).** Command: `node tests/auth/doctor-services-landing.test.js`. Expected: 6 `✅` lines, no `❌`, exit 0. The wiring guard confirms both call sites reference `resolveDoctorLanding(user)` and the import is present.
 
-- [ ] **Step 8: Run the full auth suite for regressions.** Command: `node tests/run.js 2>&1 | grep -Ei "doctor-services-landing|onboarding-self-heal|doctor-portal-redirect|Failed:"`. Expected: the landing test passes, the two existing auth tests are unaffected (pass or skip on `DATABASE_URL`), and `Failed:  0`. (Note: `doctor-portal-redirect` and any DB-backed auth tests will `⏭️ skip` locally because the local boot is broken — that is the expected pattern, not a failure.)
+- [ ] **Step 8: Run the full auth suite for regressions.** Command: `node tests/run.js 2>&1 | grep -Ei "doctor-services-landing|onboarding-self-heal|doctor-portal-redirect|Failed:"`. Expected: the landing test passes, the two existing auth tests are unaffected (pass or skip on `DATABASE_URL`), and the suite passes by the rule in `docs/RELEASE.md`. (Note: `doctor-portal-redirect` and any DB-backed auth tests will `⏭️ skip` locally because the local boot is broken — that is the expected pattern, not a failure.)
 
 - [ ] **Step 9: Commit.** Command: `git add src/services/doctor_landing.js src/routes/auth.js tests/auth/doctor-services-landing.test.js && git commit -m "feat(doctor): first-login landing → /portal/doctor/services for unconfirmed non-empty-union doctors
 
@@ -3930,7 +3930,7 @@ module.exports._computeServicesBannerFlag = _computeServicesBannerFlag;
   2. `grep -c 'v2-services-nudge' <the three files>`: expected `1`, `1`, `0` respectively — proves the flag gates the render and the EJS compiles without error.
   3. Open `banner_en.html` and `banner_ar.html` via headless Chrome (`mcp__claude-in-chrome__navigate` to `file://…/banner_en.html`, then `read_page`) and confirm: EN shows "Confirm the services you accept" + a "My Services" button linking to `/portal/doctor/services`; AR shows "أكد الخدمات التي تقبلها" + "خدماتي". Screenshot each for the record.
 
-- [ ] **Step 8: Run the full suite for regressions.** Command: `node tests/run.js 2>&1 | grep -Ei "doctor-services-banner-flag|doctor-services-landing|Failed:"`. Expected: both new tests pass; `Failed:  0`. (DB-backed doctor tests continue to `⏭️ skip` locally — expected.)
+- [ ] **Step 8: Run the full suite for regressions.** Command: `node tests/run.js 2>&1 | grep -Ei "doctor-services-banner-flag|doctor-services-landing|Failed:"`. Expected: both new tests pass; the suite passes by the rule in `docs/RELEASE.md`. (DB-backed doctor tests continue to `⏭️ skip` locally — expected.)
 
 - [ ] **Step 9: Commit.** Command: `git add src/routes/doctor.js src/views/partials/doctor/topbar.ejs src/views/partials/doctor/services_banner.ejs tests/auth/doctor-services-banner-flag.test.js && git commit -m "feat(doctor): soft-nudge 'confirm your services' banner in doctor topbar
 
@@ -5059,7 +5059,7 @@ const { pool, queryOne, queryAll, execute, withTransaction } = require('../pg');
   Expected: `# pass 3`, `# fail 0` (two service tests + route-wiring test).
 
 - [ ] **Step 6: Full suite sanity + boot-import check.**
-  Commands: `node -e "require('./src/routes/superadmin.js'); console.log('superadmin.js loads OK')"` (catches a bad require/typo at module load — expected: `superadmin.js loads OK`), then `node tests/run.js` (expected: existing `Failed: 0`; the new hermetic file is not picked up by `run.js`'s `_testRunner` counter, which is fine — it runs under `node --test`).
+  Commands: `node -e "require('./src/routes/superadmin.js'); console.log('superadmin.js loads OK')"` (catches a bad require/typo at module load — expected: `superadmin.js loads OK`), then `node tests/run.js` (expected: the suite passes by the rule in `docs/RELEASE.md`; the new hermetic file is not picked up by `run.js`'s `_testRunner` counter, which is fine — it runs under `node --test`).
 
 - [ ] **Step 7: Commit.**
   Command: `git add src/routes/superadmin.js tests/admin/admin_doctor_bulk_invite.test.js && git commit -m "feat(doctors): POST /superadmin/doctors/bulk-welcome-passwordless — gated bulk invite, post-commit dedupe'd notifications; ship with the assignment gate"` (append the mandated `Co-Authored-By` trailer).

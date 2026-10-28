@@ -237,7 +237,12 @@ module.exports = (async function run() {
       const writerSrc = fs.readFileSync(require.resolve('../../src/services/earnings_writer'), 'utf8');
       const fnIdx = writerSrc.indexOf('async function markReassignedOnReassignment');
       assert.ok(fnIdx >= 0, 'markReassignedOnReassignment exists');
-      const fnSlice = writerSrc.substring(fnIdx, fnIdx + 4000);
+      // To the function's closing brace (the first column-0 `}` after it). A
+      // fixed 4,000-character window stopped short once the function grew
+      // past it and missed the insert below (2026-10-27).
+      const fnEnd = writerSrc.indexOf('\n}\n', fnIdx);
+      assert.ok(fnEnd > fnIdx, 'end of markReassignedOnReassignment found');
+      const fnSlice = writerSrc.substring(fnIdx, fnEnd);
       assert.ok(/withTransaction/.test(fnSlice),
         'markReassignedOnReassignment uses withTransaction (flip + event are atomic)');
       assert.ok(/FOR UPDATE/.test(fnSlice),

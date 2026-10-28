@@ -164,7 +164,7 @@ MODE=development PG_SSL=false \
   DATABASE_URL="postgresql://app_owner:app@localhost:5433/tash_clone" \
   npm test | tee baseline_tests.txt
 ```
-> `tests/run.js` can under-count async failures (P1-14), so the **HTTP smoke (§6) is the authoritative portal-works check**; `npm test` is a secondary signal.
+> The **HTTP smoke (§6) is the authoritative portal-works check**; `npm test` is a secondary signal. (`tests/run.js` under-counted async failures (P1-14) until 27 October 2026; it now counts every failure, and when the suite passes is defined in `docs/RELEASE.md`.)
 
 ---
 

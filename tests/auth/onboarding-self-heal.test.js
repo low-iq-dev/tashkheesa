@@ -15,6 +15,10 @@
 
 'use strict';
 
+// Its own secret: under the old shared-process runner an earlier file had
+// always set one by the time this ran (2026-10-27, tests/run.js now isolates files).
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-onboarding-self-heal';
+
 const assert = require('assert');
 
 const t = global._testRunner || {

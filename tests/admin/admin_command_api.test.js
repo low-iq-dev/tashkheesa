@@ -712,14 +712,39 @@ function assignHandler(over = {}) {
 
 async function assignReq(over, body = { doctorId: 'doc-1' }) {
   const client = txClient(assignHandler(over));
-  const app = makeApp({ pool: poolWith(client) });
+  // Writes made outside the route's transaction (safeRun) — the reassign path
+  // makes its follow-up writes there once it has released the lock.
+  const runs = [];
+  const app = makeApp({
+    pool: poolWith(client),
+    safeRun: async (sql) => { runs.push(String(sql).replace(/\s+/g, ' ').trim()); return { rowCount: 0 }; },
+  });
   try {
     const res = await fetch(`${app.base}/api/v1/admin/cases/ord-1/assign`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${mintToken(SUPERADMIN)}` },
       body: JSON.stringify(body),
     });
-    return { res, body: await res.json().catch(() => null), calls: client.calls };
+    return { res, body: await res.json().catch(() => null), calls: client.calls, runs };
   } finally { app.server.close(); }
+}
+
+// 2026-10-27 — a reassignment is delegated. Since 5b26d51 (2026-08-22) the
+// route validates under its own SELECT … FOR UPDATE, ROLLBACKs that read-only
+// transaction to release the row lock, and hands the swap to
+// case_lifecycle.reassignCase, which takes its own pool connections (calling it
+// inside the lock self-deadlocked). It then bumps reassigned_count and writes
+// its audit rows through safeRun. reassignCase is stubbed here and these tests
+// pin the hand-off. COVERAGE GAP (2026-10-27): nothing executes reassignCase
+// itself — the swap and the closing of the prior assignment window — against a
+// database. tests/finance/reassignment-earnings.test.js runs its earnings step
+// (markReassignedOnReassignment) on a real database and only source-checks the
+// rest of its wiring (§12).
+function stubReassignCase(impl) {
+  const lifecycle = require('../../src/case_lifecycle');
+  const real = lifecycle.reassignCase;
+  const calls = [];
+  lifecycle.reassignCase = async (...args) => { calls.push(args); return impl ? impl(...args) : { ok: true }; };
+  return { calls, restore: () => { lifecycle.reassignCase = real; } };
 }
 
 test('POST /admin/cases/:id/assign — gate: 401 no token, 403 patient', async () => {
@@ -745,13 +770,31 @@ test('POST /assign — happy first-assign: 200, commits, writes orders+assignmen
   assert.ok(calls.some((s) => /INSERT INTO error_logs/.test(s)));
 });
 
-test('POST /assign — happy reassign: swap + reassigned_count + close prior window', async () => {
-  const { res, body, calls } = await assignReq({ order: { doctor_id: 'doc-old', status: 'in_progress' } });
+test('POST /assign — happy reassign: releases its lock, hands the swap to case_lifecycle.reassignCase, bumps reassigned_count', async (t) => {
+  const stub = stubReassignCase();
+  t.after(stub.restore);
+  const { res, body, calls, runs } = await assignReq({ order: { doctor_id: 'doc-old', status: 'in_progress' } });
   assert.equal(res.status, 200);
   assert.equal(body.data.reassigned, true);
-  assert.ok(calls.some((s) => /reassigned_count = COALESCE\(reassigned_count,0\) \+ 1/.test(s)));
-  assert.ok(calls.some((s) => /UPDATE doctor_assignments SET completed_at/.test(s)));
-  assert.ok(calls.includes('COMMIT'));
+  assert.equal(stub.calls.length, 1, 'reassignCase called once');
+  assert.deepEqual(stub.calls[0], ['ord-1', 'doc-1', { reason: 'admin_manual', operatorInitiated: true }],
+    'operator-initiated, with the admin_manual reason prefix doctor_pause filters on');
+  assert.ok(calls.includes('ROLLBACK'), 'the read-only lock transaction is released before the hand-off');
+  assert.ok(!calls.includes('COMMIT'));
+  assert.ok(!calls.some((s) => /^(UPDATE|INSERT)/i.test(s)), 'nothing is written under the route\'s own lock; the lifecycle does the swap');
+  assert.ok(runs.some((s) => /reassigned_count = COALESCE\(reassigned_count,0\) \+ 1/.test(s)));
+  assert.ok(runs.some((s) => /INSERT INTO order_events/.test(s)), 'order_events audit row');
+  assert.ok(runs.some((s) => /INSERT INTO error_logs/.test(s)), 'admin_audit row');
+});
+
+test('POST /assign — a reassignCase refusal is 500 REASSIGN_FAILED with its reason, and bumps nothing', async (t) => {
+  const stub = stubReassignCase(async () => { throw new Error('case is no longer reassignable'); });
+  t.after(stub.restore);
+  const { res, body, runs } = await assignReq({ order: { doctor_id: 'doc-old', status: 'in_progress' } });
+  assert.equal(res.status, 500);
+  assert.equal(body.code, 'REASSIGN_FAILED');
+  assert.ok(/case is no longer reassignable/.test(JSON.stringify(body)), 'the lifecycle\'s reason is surfaced');
+  assert.ok(!runs.some((s) => /reassigned_count/.test(s)), 'no reassigned_count bump for a refused reassignment');
 });
 
 test('POST /assign — rejections roll back with the right codes', async () => {
@@ -862,28 +905,30 @@ test('POST /assign — first-assign: post-commit fires conversation + doctor + p
   });
 });
 
-test('POST /assign — reassign: notifies new doctor + previous doctor + patient (no inline email); conversation for new pair', async () => {
+test('POST /assign — reassign: notifies new doctor + patient (no inline email), leaves the previous doctor to the lifecycle; conversation for new pair', async (t) => {
+  const stub = stubReassignCase();
+  t.after(stub.restore);
   const spy = notifierSpy();
   const { res, body } = await assignReqN({ order: { doctor_id: 'doc-old', status: 'in_progress' } }, spy);
   assert.equal(res.status, 200);
   assert.equal(body.data.reassigned, true);
 
+  // The previous doctor's 'order_reassigned_from_doctor' is NOT queued here:
+  // since 7529d11 (2026-08-22) case_lifecycle.reassignCase is its single owner
+  // (it alone knows the partial-pay figures; the route's copy was a duplicate
+  // that rendered an empty partial-pay box).
   const tmpls = spy.calls.queue.map((q) => q.template).sort();
-  assert.deepEqual(tmpls, ['order_reassigned_doctor', 'order_reassigned_from_doctor', 'order_reassigned_patient']);
+  assert.deepEqual(tmpls, ['order_reassigned_doctor', 'order_reassigned_patient']);
 
   const newDoc = spy.calls.queue.find((q) => q.template === 'order_reassigned_doctor');
   assert.equal(newDoc.toUserId, 'doc-1');
   assert.deepEqual(newDoc.channels, ['internal', 'email', 'whatsapp']);
 
-  const prevDoc = spy.calls.queue.find((q) => q.template === 'order_reassigned_from_doctor');
-  assert.equal(prevDoc.toUserId, 'doc-old');
-  assert.deepEqual(prevDoc.channels, ['internal', 'email']); // no whatsapp template mapped
-
   const pat = spy.calls.queue.find((q) => q.template === 'order_reassigned_patient');
   assert.deepEqual(pat.channels, ['internal', 'whatsapp']); // email unmapped for this template
 
   assert.equal(spy.calls.email.length, 0, 'no inline patient email on reassign');
-  assert.equal(body.data.notifications.previousDoctor, 'queued');
+  assert.equal(body.data.notifications.previousDoctor, 'queued_by_lifecycle');
   assert.equal(body.data.notifications.patientEmail, undefined);
   // conversation for the NEW pair
   assert.deepEqual(spy.calls.convo[0], { orderId: 'ord-1', patientId: 'pat-1', doctorId: 'doc-1' });
@@ -1606,8 +1651,14 @@ function inviteApp(over = {}) {
   return { ...makeApp({ pool, notifiers }), calls };
 }
 
-async function invitePost(base, id, token, body) {
-  const headers = { 'Content-Type': 'application/json' };
+// 2026-10-27 — the invite route is rate limited per caller (inviteIpLimiter:
+// 10 per 15 minutes, keyed on CF-Connecting-IP since 70a22bb), and the limiter
+// is one instance for the whole process. This file sends far more than 10
+// invites, so each call presents its own caller address (TEST-NET-3); the
+// limit itself is pinned by its own test below, on an address no other call uses.
+let inviteCaller = 0;
+async function invitePost(base, id, token, body, callerIp) {
+  const headers = { 'Content-Type': 'application/json', 'CF-Connecting-IP': callerIp || '203.0.113.' + (1 + (inviteCaller++ % 200)) };
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(`${base}/api/v1/admin/doctors/${id}/invite`, {
     method: 'POST', headers, body: body !== undefined ? JSON.stringify(body) : '{}',
@@ -1803,6 +1854,20 @@ test('POST /invite — { channels: "email" } (not an array) → 400 INVALID_CHAN
     assert.equal(res.status, 400);
     assert.equal(json.code, 'INVALID_CHANNELS');
     assert.equal(app.calls.issue.length, 0);
+  } finally { app.server.close(); }
+});
+
+test('POST /invite — one caller gets 10 invites per 15 minutes; the 11th is 429', async () => {
+  const app = inviteApp();
+  try {
+    const statuses = [];
+    for (let i = 0; i < 11; i++) {
+      const { res } = await invitePost(app.base, 'doc-1', mintToken(SUPERADMIN), undefined, '203.0.113.250');
+      statuses.push(res.status);
+    }
+    assert.deepEqual(statuses.slice(0, 10), Array(10).fill(200), 'the first 10 go through');
+    assert.equal(statuses[10], 429, 'the 11th from the same caller is refused');
+    assert.equal(app.calls.issue.length, 10, 'no token is issued for the refused one');
   } finally { app.server.close(); }
 });
 

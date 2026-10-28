@@ -1,0 +1,168 @@
+# Known failures of `npm test` with no usable database (tests/run.js no-database mode).
+# One line per failing test: <file> :: <test name>. Regenerate with:
+#   node tests/run.js --update-baseline
+# This is a ledger, not a waiver: the suite still exits non-zero while any line here fails.
+# tests/lint/nodb-baseline-gate.test.js fails on any failure NOT listed here.
+admin/admin_bulk_assign.test.js :: (file) failed outside any test
+admin/admin_bulk_assign.test.js :: atomicity: a fault at COMMIT rolls back the entire batch — nothing persists
+admin/admin_bulk_assign.test.js :: atomicity: a fault on case #2 audit insert rolls back ONLY case #2; #1 and #3 commit
+admin/admin_bulk_assign.test.js :: cumulative capacity: doctor at 4/5 takes exactly ONE of three cases
+admin/admin_bulk_assign.test.js :: dryRun: returns the plan but persists nothing
+admin/admin_bulk_assign.test.js :: happy: two cases distribute across two zero-load doctors (least-loaded + name tiebreak)
+admin/admin_bulk_assign.test.js :: manual_queue exclusion: a manual case with an available doctor is still skipped, writes nothing
+admin/admin_bulk_assign.test.js :: partial success: mixed batch → some assigned, some skipped, assigned+skipped===requested
+admin/admin_bulk_assign.test.js :: practice exclusion: a paid practice case with an available doctor is skipped (practice_case), writes nothing
+admin/admin_bulk_assign.test.js :: skip reasons: no_doctor_for_specialty + no_available_doctor (only doctor is paused)
+admin/admin_bulk_assign.test.js :: skip reasons: not_found / already_assigned / payment_not_confirmed / not_assignable / no_specialty / flagged_manual_review
+admin/admin_bulk_assign.test.js :: §4.6: onboarding-incomplete + service-less doctors are skipped, not assigned
+admin/admin_doctor_approve.test.js :: (file) failed outside any test
+admin/admin_doctor_approve.test.js :: approve a non-doctor (role=patient) → DOCTOR_NOT_FOUND, row unchanged
+admin/admin_doctor_approve.test.js :: approve a non-existent id → DOCTOR_NOT_FOUND
+admin/admin_doctor_approve.test.js :: approve an already-approved doctor → NOT_PENDING, row unchanged
+admin/admin_doctor_approve.test.js :: approve recomputes coming_soon for the doctor's services
+admin/admin_doctor_approve.test.js :: approve: pending → active, stamps approved_at + approved_by, audit; SILENT
+admin/admin_doctor_approve.test.js :: atomicity: failure on the audit insert rolls back the approve
+admin/admin_doctor_bulk_invite.test.js :: (file) failed outside any test
+admin/admin_doctor_bulk_invite.test.js :: bulk: re-running within cooldown does not double-send (skipped → still one token each)
+admin/admin_doctor_bulk_invite.test.js :: bulk: two passwordless active doctors each get one live token; holder + inactive excluded
+admin/admin_doctor_invite.test.js :: (file) failed outside any test
+admin/admin_doctor_invite.test.js :: atomicity: a failure on the audit insert rolls back the token + stamp
+admin/admin_doctor_invite.test.js :: invite a non-doctor (role=patient) → DOCTOR_NOT_FOUND, row untouched
+admin/admin_doctor_invite.test.js :: invite a non-existent id → DOCTOR_NOT_FOUND (404)
+admin/admin_doctor_invite.test.js :: invite an ALREADY-invited ACTIVE doctor → succeeds (resend), fresh token, stamp refreshed
+admin/admin_doctor_invite.test.js :: invite an inactive/pending doctor → DOCTOR_NOT_ACTIVE (409), no token, no stamp
+admin/admin_doctor_invite.test.js :: invite: ACTIVE never-invited → token (7-day, unused) + welcome stamp + audit; payload carries the token
+admin/admin_doctor_invite.test.js :: v5 payload: NULL name_ar falls back to users.name (also Dr.-stripped)
+admin/admin_doctor_invite.test.js :: v5 payload: NULL specialty_id still invites (LEFT not INNER join) with empty specialty
+admin/admin_doctor_invite.test.js :: v5 payload: name_ar + joined specialty reach the welcome payload
+admin/admin_doctor_pause.test.js :: (file) failed outside any test
+admin/admin_doctor_pause.test.js :: atomicity: failure on the audit insert rolls back the flag write
+admin/admin_doctor_pause.test.js :: pause a non-doctor (role=patient) → DOCTOR_NOT_FOUND, row unchanged
+admin/admin_doctor_pause.test.js :: pause a non-existent id → DOCTOR_NOT_FOUND
+admin/admin_doctor_pause.test.js :: pause does not change coming_soon (is_paused is not supply-removing)
+admin/admin_doctor_pause.test.js :: pause when already paused → ALREADY_PAUSED, row unchanged
+admin/admin_doctor_pause.test.js :: pause: flips is_paused, stamps paused_at + reason, writes audit
+admin/admin_doctor_pause.test.js :: reactivate when not paused → NOT_PAUSED, row unchanged
+admin/admin_doctor_pause.test.js :: reactivate: clears all three pause columns, writes audit
+admin/admin_doctor_reject.test.js :: (file) failed outside any test
+admin/admin_doctor_reject.test.js :: atomicity: failure on the audit insert rolls back the reject
+admin/admin_doctor_reject.test.js :: reject a non-doctor (role=patient) → DOCTOR_NOT_FOUND, row unchanged
+admin/admin_doctor_reject.test.js :: reject a non-existent id → DOCTOR_NOT_FOUND (404)
+admin/admin_doctor_reject.test.js :: reject an already-approved doctor → NOT_PENDING, row unchanged
+admin/admin_doctor_reject.test.js :: reject: no reason supplied → rejection_reason defaults to 'Not approved'
+admin/admin_doctor_reject.test.js :: reject: pending → rejected with an explicit reason; audit carries the reason
+admin/admin_refund.test.js :: (file) failed outside any test
+admin/admin_refund.test.js :: atomicity: a fault on the error_logs audit insert rolls back everything
+admin/admin_refund.test.js :: happy: full refund records a pending row + order_events + admin audit
+admin/admin_refund.test.js :: partial: amount below the max records that amount
+admin/admin_refund.test.js :: reject AMOUNT_EXCEEDS_MAX — no row
+admin/admin_refund.test.js :: reject INSTAPAY_REQUIRED (empty + too short) — no row
+admin/admin_refund.test.js :: reject INVALID_AMOUNT (zero and negative) — no row
+admin/admin_refund.test.js :: reject ORDER_NOT_FOUND — no row
+admin/admin_refund.test.js :: reject ORDER_NOT_PAID — no row
+admin/admin_refund.test.js :: reject REFUND_ALREADY_EXISTS — original row untouched
+admin/admin_refund_approve.test.js :: (file) failed outside any test
+admin/admin_refund_approve.test.js :: AMOUNT_EXCEEDS_REQUESTED (> requested) → 409, row unchanged
+admin/admin_refund_approve.test.js :: INVALID_AMOUNT (0 and negative) → 400, row unchanged
+admin/admin_refund_approve.test.js :: NOT_APPROVABLE: already approved / denied / paid → 409, row unchanged
+admin/admin_refund_approve.test.js :: REFUND_NOT_FOUND → 404
+admin/admin_refund_approve.test.js :: atomicity: a fault on the error_logs audit insert rolls back everything
+admin/admin_refund_approve.test.js :: full approval: approved=requested → status approved, approved_amount=amount_egp=requested, audits
+admin/admin_refund_approve.test.js :: partial approval: approved<requested → approved_amount=amount_egp=partial (NOT requested)
+admin/admin_refund_deny.test.js :: (file) failed outside any test
+admin/admin_refund_deny.test.js :: NOT_DENIABLE: already approved / denied / paid → 409, row unchanged
+admin/admin_refund_deny.test.js :: REFUND_NOT_FOUND → 404
+admin/admin_refund_deny.test.js :: atomicity: a fault on the error_logs audit insert rolls back everything
+admin/admin_refund_deny.test.js :: deny happy: pending → denied, reason + reviewer stamped, amounts UNCHANGED, audits
+admin/admin_refund_mark_paid.test.js :: (file) failed outside any test
+admin/admin_refund_mark_paid.test.js :: NOT_PAYABLE: pending / denied / paid → 409, row unchanged
+admin/admin_refund_mark_paid.test.js :: REFUND_NOT_FOUND → 404
+admin/admin_refund_mark_paid.test.js :: atomicity: a fault on the error_logs audit insert rolls back everything
+admin/admin_refund_mark_paid.test.js :: mark-paid from approved: status=paid, reference + paid_at, amount_egp=approved, audits
+admin/admin_refund_mark_paid.test.js :: mark-paid from auto_approved (approved_amount NULL): amount_egp=requested AND approved_amount backfilled
+admin/admin_verify_claim.test.js :: (file) failed outside any test
+admin/admin_verify_claim.test.js :: B4 atomicity: a throw on the error_logs audit insert rolls EVERYTHING back; the retry is clean
+admin/admin_verify_claim.test.js :: B4 atomicity: a throw on the order_events insert rolls back the same way
+admin/admin_verify_claim.test.js :: B5: issueRefund refuses a paid PRACTICE case with 409 PRACTICE_CASE and writes no refund row
+admin/admin_verify_claim.test.js :: happy: order paid with the claim's method+reference; claim confirmed; both audits written
+admin/admin_verify_claim.test.js :: overrides: an explicit method/reference is recorded instead of the claim's
+admin/admin_verify_claim.test.js :: paid_at: an existing stamp is preserved, not clobbered
+admin/admin_verify_claim.test.js :: reject CLAIM_ALREADY_DECIDED — a rejected claim cannot be verified; order stays unpaid
+admin/admin_verify_claim.test.js :: reject CLAIM_NOT_FOUND — unknown claim id
+admin/admin_verify_claim.test.js :: reject ORDER_ALREADY_PAID — card raced the transfer; the pending claim is left for a human
+admin/admin_verify_claim.test.js :: reject ORDER_NOT_FOUND — claim on a soft-deleted order; claim stays pending
+admin/admin_verify_claim.test.js :: reject ORDER_NOT_PAYABLE — CANCELLED case; order unpaid, claim pending, no audit rows
+admin/admin_verify_claim.test.js :: reject ORDER_NOT_PAYABLE — cancelled case; order unpaid, claim pending, no audit rows
+admin/admin_verify_claim.test.js :: reject ORDER_NOT_PAYABLE — expired_unpaid case; order unpaid, claim pending, no audit rows
+admin/admin_verify_claim.test.js :: reject ORDER_NOT_PAYABLE — refunded case; order unpaid, claim pending, no audit rows
+admin/admin_verify_claim.test.js :: reject PRACTICE_CASE — training case; order unpaid, claim pending, no audit rows
+admin/admin_verify_claim.test.js :: replay: a second verify returns the same facts and writes NOTHING new
+admin/payment_event_review.test.js :: (file) failed outside any test
+admin/payment_event_review.test.js :: EVENT_NOT_FOUND → 404 for a non-existent payment event
+admin/payment_event_review.test.js :: atomicity: a fault on the error_logs audit insert rolls back the review + order_events
+admin/payment_event_review.test.js :: first review: creates row (reviewed_by, note), writes order_events + admin audit
+admin/payment_event_review.test.js :: re-review is idempotent: single row, note + reviewer + reviewed_at updated in place
+admin/payment_event_review.test.js :: review with no note → note null
+services/assign_pick_eligibility.test.js :: (file) failed outside any test
+services/assign_pick_eligibility.test.js :: pickDoctorForOrder: picks the eligible doctor (onboarded + service-mapped + not paused)
+services/assign_pick_eligibility.test.js :: pickDoctorForOrder: returns null when only candidate has no doctor_services row
+services/assign_pick_eligibility.test.js :: pickDoctorForOrder: returns null when only candidate has onboarding_complete=false
+services/assign_pick_eligibility.test.js :: pickDoctorForOrder: returns null when only candidate is paused (is_paused=true)
+services/assign_pick_eligibility.test.js :: pickDoctorForOrder: returns null when specialtyId is missing
+services/auto_assign_eligibility.test.js :: (file) failed outside any test
+services/auto_assign_eligibility.test.js :: eligibleDoctorsFor: NULL serviceId falls back to specialty-only (legacy path)
+services/auto_assign_eligibility.test.js :: eligibleDoctorsFor: includes only the onboarded + service-mapped doctor
+services/auto_assign_eligibility.test.js :: eligibleDoctorsFor: pending_approval gate still applies when serviceId is provided
+services/auto_assign_eligibility.test.js :: eligibleDoctorsFor: tier filter still applies when serviceId is provided
+services/doctor_eligibility_integration.test.js :: (file) failed outside any test
+services/doctor_eligibility_integration.test.js :: excludes a paused-but-active+onboarded doctor holding the service
+services/doctor_eligibility_integration.test.js :: excludes onboarding-incomplete + service-less doctors; includes the fully eligible one
+services/seed_my_services_fixtures.test.js :: seed is idempotent — a second run inserts no duplicate mappings
+services/seed_my_services_fixtures.test.js :: shape 1 (cross-specialty): empty own specialty but N cross-specialty mappings; onboarding stays false
+services/seed_my_services_fixtures.test.js :: shape 2 (empty-union): zero own-specialty services AND zero mappings
+services/seed_my_services_fixtures.test.js :: shape 3 (normal): all N own-specialty services are visible + mapped + pre-ticked
+services/seed_my_services_fixtures.test.js :: shape 4 (last-doctor-standing): the flagged service has exactly one active mapped doctor
+services/services_coming_soon_sync.test.js :: (file) failed outside any test
+services/services_coming_soon_sync.test.js :: a mapped INACTIVE doctor leaves coming_soon true
+services/services_coming_soon_sync.test.js :: a mapped-but-PAUSED (is_active still true) doctor keeps coming_soon false
+services/services_coming_soon_sync.test.js :: idempotent — a second resync reports rowCount but no state change
+services/services_coming_soon_sync.test.js :: re-mapping an active doctor flips coming_soon false
+services/services_coming_soon_sync.test.js :: unmapping the last active doctor flips coming_soon true
+services/services_coming_soon_sync.test.js :: when passed a client, the UPDATE is inside the caller txn and rolls back
+sla/sla-worker-eligibility.test.js :: (file) failed outside any test
+sla/sla-worker-eligibility.test.js :: countOnly with service gate counts exactly the eligible pool
+sla/sla-worker-eligibility.test.js :: service-keyed eligibility: only onboarded doctor holding the service row is selectable
+src/__tests__/auto_assign.test.js :: (file) failed outside any test
+src/__tests__/auto_assign.test.js :: NULL sla_tiers_supported is treated as standard-only
+src/__tests__/auto_assign.test.js :: Specialty filter still applies — doctors of other specialties are excluded
+src/__tests__/auto_assign.test.js :: Standard tier: every doctor eligible (incl. NULL prefs → defaults to standard)
+src/__tests__/auto_assign.test.js :: Urgent tier: only doctor C eligible
+src/__tests__/auto_assign.test.js :: VIP tier: only doctors who opted into vip — A and D excluded
+src/services/addons/__tests__/prescription.test.js :: (file) failed outside any test
+src/services/addons/__tests__/prescription.test.js :: onComplete inserts addon_earnings at the snapshotted pct of the snapshotted price
+src/services/addons/__tests__/prescription.test.js :: onComplete returns null if prescription is not fulfilled (no accidental payout)
+src/services/addons/__tests__/prescription.test.js :: onFulfill requires at least one of pdf_storage_key or text_body
+src/services/addons/__tests__/prescription.test.js :: onFulfill with pdf_storage_key stores attachment metadata
+src/services/addons/__tests__/prescription.test.js :: onPurchase creates order_addons row at status=paid (awaits doctor attach)
+src/services/addons/__tests__/prescription.test.js :: onPurchase keeps the local charged amount separate from the EGP base
+src/services/addons/__tests__/prescription.test.js :: onPurchase snapshots the CHARGED price over the catalogue price
+src/services/addons/__tests__/prescription.test.js :: onRefund is a no-op once the addon is fulfilled
+src/services/addons/__tests__/prescription.test.js :: onRefund transitions paid → refunded for unfulfilled addon
+src/services/addons/__tests__/prescription.test.js :: renderPatientPrompt / renderDoctorPrompt return partial references
+src/services/addons/__tests__/pricing.test.js :: AED, SAR and QAR are priced identically, as every service is
+src/services/addons/__tests__/pricing.test.js :: every currency the platform sells in has a prescription price
+src/services/addons/__tests__/pricing.test.js :: resolveAddonPrice falls back to EGP for unknown currency
+src/services/addons/__tests__/pricing.test.js :: resolveAddonPrice honours per-currency override when present
+src/services/addons/__tests__/pricing.test.js :: resolveAddonPrice returns EGP price for known addon
+src/services/addons/__tests__/pricing.test.js :: resolveAddonPrice returns null for unknown addon id
+src/services/addons/__tests__/pricing.test.js :: resolveCataloguePrices returns all 2 active addons in sort order
+src/services/addons/__tests__/video_consult.test.js :: (file) failed outside any test
+src/services/addons/__tests__/video_consult.test.js :: onComplete inserts addon_earnings row at 85% of locked price
+src/services/addons/__tests__/video_consult.test.js :: onComplete is idempotent (second call does not duplicate earnings)
+src/services/addons/__tests__/video_consult.test.js :: onComplete returns null if the addon is not fulfilled
+src/services/addons/__tests__/video_consult.test.js :: onFulfill transitions paid → fulfilled + stores appointment metadata
+src/services/addons/__tests__/video_consult.test.js :: onPurchase creates order_addons row at status=paid with locked price + commission
+src/services/addons/__tests__/video_consult.test.js :: onPurchase is idempotent (second call returns existing row without duplicate)
+src/services/addons/__tests__/video_consult.test.js :: onRefund is a no-op for already fulfilled addons
+src/services/addons/__tests__/video_consult.test.js :: onRefund transitions paid → refunded + sets refund_pending
+src/services/addons/__tests__/video_consult.test.js :: renderPatientPrompt / renderDoctorPrompt return partial references
