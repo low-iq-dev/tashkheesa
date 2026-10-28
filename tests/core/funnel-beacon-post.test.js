@@ -131,9 +131,12 @@ test('POST /f/e records the landing view with its campaign split intact', async 
 test('an unknown step writes nothing but still answers 204', async () => {
   // The endpoint is public and CSRF-exempt, so the allow-list is the only
   // thing standing between a stranger and an arbitrary counter name.
+  // register_view IS a beacon step since 26 Oct (register.ejs, visible for a
+  // second); register_get and its provenance split are counted server-side
+  // only, so the beacon must not be able to bump them.
   const { server, port } = await startApp(false);
   try {
-    for (const step of ['nonsense', 'paid', '__digest_sent', 'register_view']) {
+    for (const step of ['nonsense', 'paid', '__digest_sent', 'register_get', 'register_get_noref']) {
       recordBumps();
       const r = await beacon(port, 'POST', step);
       assert.equal(r.status, 204, step + ' must not error');
