@@ -704,10 +704,18 @@
   }
   document.addEventListener('visibilitychange', arm);
   arm();
+  // BEACON-POST 2026-10-28 — a tap fires as the browser navigates away, which
+  // fetch(keepalive) does not survive in Meta's in-app WebView; see start.ejs.
+  // The view above has nothing racing it, so it stays on fetch.
+  function tap(step) {
+    var url = '/f/e?s=' + encodeURIComponent(step);
+    try {
+      if (navigator && typeof navigator.sendBeacon === 'function' && navigator.sendBeacon(url)) return;
+    } catch (e) {}
+    try { fetch(url, { keepalive: true, credentials: 'same-origin' }); } catch (e) {}
+  }
   Array.prototype.forEach.call(document.querySelectorAll('[data-funnel]'), function (a) {
-    a.addEventListener('click', function () {
-      try { fetch('/f/e?s=' + encodeURIComponent(a.getAttribute('data-funnel')), { keepalive: true, credentials: 'same-origin' }); } catch (e) {}
-    });
+    a.addEventListener('click', function () { tap(a.getAttribute('data-funnel')); });
   });
 })();
 </script>

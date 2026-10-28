@@ -181,14 +181,39 @@ test('the CSRF exemption is exactly /f/e and nothing around it', async () => {
   );
 });
 
-test('start.ejs reaches for sendBeacon before falling back to fetch', () => {
-  const page = fs.readFileSync(path.join(ROOT, 'src/views/start.ejs'), 'utf8');
-  assert.match(page, /navigator\.sendBeacon/, 'the CTA beacon must use sendBeacon');
-  assert.match(page, /keepalive:\s*true/, 'fetch must remain as the fallback');
-  const beaconAt = page.indexOf('navigator.sendBeacon');
-  const fetchAt = page.indexOf("fetch(url,");
-  assert.ok(beaconAt > -1 && fetchAt > -1 && beaconAt < fetchAt, 'sendBeacon must be tried first');
-});
+// The function a page's [data-funnel] click listener hands the step to, with
+// its source. Brace-matched from the declaration: these scripts have no braces
+// inside string literals, so counting them is enough.
+function tapHandler(page) {
+  const m = page.match(/addEventListener\('click', function \(\) \{ (\w+)\(a\.getAttribute\('data-funnel'\)\); \}\)/);
+  assert.ok(m, 'the [data-funnel] click listener must hand the step to a named function');
+  const name = m[1];
+  const start = page.indexOf('function ' + name + '(');
+  assert.ok(start > -1, name + '() must be defined on the page');
+  let i = page.indexOf('{', start);
+  for (let depth = 0; i < page.length; i++) {
+    if (page[i] === '{') depth++;
+    else if (page[i] === '}' && --depth === 0) break;
+  }
+  return { name, body: page.slice(start, i + 1) };
+}
+
+// 28 Oct 2026 — /services and /uk taps (services_cta, services_card,
+// services_help, uk_cta, uk_wa) moved to sendBeacon too. Both pages still send
+// their page view with a plain fetch earlier in the file, so the check is
+// scoped to the function the click listener calls: a whole-file indexOf would
+// find that view fetch and prove nothing.
+for (const file of ['start.ejs', 'services.ejs', 'uk.ejs']) {
+  test(file + ' taps reach for sendBeacon before falling back to fetch', () => {
+    const page = fs.readFileSync(path.join(ROOT, 'src/views', file), 'utf8');
+    const { name, body } = tapHandler(page);
+    const beaconAt = body.indexOf('navigator.sendBeacon(url)) return;');
+    const fetchAt = body.indexOf('fetch(url, { keepalive: true');
+    assert.ok(beaconAt > -1, name + '() must try sendBeacon');
+    assert.ok(fetchAt > -1, name + '() must keep fetch(keepalive) as the fallback');
+    assert.ok(beaconAt < fetchAt, name + '() must try sendBeacon first');
+  });
+}
 
 test('every CTA and WhatsApp link still carries a data-funnel step', () => {
   // The listener is bound by querySelectorAll('[data-funnel]'). Losing the
