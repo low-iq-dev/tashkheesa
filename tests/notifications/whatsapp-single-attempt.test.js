@@ -94,6 +94,7 @@ async function check(name, fn) { try { await fn(); t.pass(name); } catch (e) { t
   const delivered = (orderId) => callsFor(orderId).filter((c) => c.status !== 530).length;
 
   const created = [];
+  const extraUsers = [];
   try {
     await check('1. 502, 502, 502, 200 → the mini is called once, one copy delivered, the row is final, one SMS row', async () => {
       const orderId = await newOrder(); created.push(orderId);
@@ -147,12 +148,54 @@ async function check(name, fn) { try { await fn(); t.pass(name); } catch (e) { t
       assert.strictEqual(callsFor(orderId).length, 1, 'still one call to the mini');
       assert.strictEqual((await queryOne('SELECT status FROM notifications WHERE id = $1', [wa.id])).status, 'failed');
     });
+    await check('4. a row left in "sending" by a crashed tick is retired, never re-sent; its SMS keeps the queued payload (the resume link)', async () => {
+      // Its own patient, so this draft is their newest case.
+      const u2 = 'pe-user2-' + suffix;
+      extraUsers.push(u2);
+      await execute(
+        `INSERT INTO users (id, name, phone, role, lang, notify_whatsapp, created_at) VALUES ($1, 'Draft Only', $2, 'patient', 'en', true, NOW())`,
+        [u2, '+2012' + String(Date.now()).slice(-8)]);
+      const draftId = crypto.randomUUID(); created.push(draftId);
+      await execute(
+        `INSERT INTO orders (id, patient_id, status, clinical_question, payment_status, source, draft_step, created_at, updated_at)
+         VALUES ($1, $2, 'DRAFT', 'Chest pain on exertion for a week', 'unpaid', 'patient_app_v1', 1, NOW() - INTERVAL '3 hours', NOW() - INTERVAL '2 hours')`,
+        [draftId, u2]);
+      await require('../../src/services/draft_nudges').runDraftNudgeSweep({ ignoreQuietHours: true });
+      // A crash mid-send: claimed, lease already expired, never answered.
+      const stuck = await execute(
+        "UPDATE notifications SET status = 'sending', retry_after = NOW() - INTERVAL '1 minute' WHERE order_id = $1 AND channel = 'whatsapp'", [draftId]);
+      assert.strictEqual(stuck.rowCount, 1, 'the nudge queued a whatsapp row');
+      // SMS "configured" and dry-run: processSms renders the body and reports its length.
+      const saved = {};
+      for (const k of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_MESSAGING_SERVICE_SID', 'NOTIFICATION_DRY_RUN']) saved[k] = process.env[k];
+      Object.assign(process.env, { TWILIO_ACCOUNT_SID: 'ACtest', TWILIO_AUTH_TOKEN: 'test', TWILIO_MESSAGING_SERVICE_SID: 'MGtest', NOTIFICATION_DRY_RUN: 'true' });
+      try { await tick(draftId, 3); }
+      finally { for (const k of Object.keys(saved)) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } }
+      assert.strictEqual(callsFor(draftId).length, 0, 'the mini is not called again');
+      const rows = await queryAll("SELECT channel, status, response FROM notifications WHERE order_id = $1 AND template = 'draft_resume_1h' ORDER BY channel", [draftId]);
+      const wa = rows.find((r) => r.channel === 'whatsapp');
+      assert.strictEqual(wa.status, 'failed');
+      assert.strictEqual(JSON.parse(wa.response).error, 'stuck_sending_outcome_unknown');
+      const sms = rows.filter((r) => r.channel === 'sms');
+      assert.strictEqual(sms.length, 1, 'one sms row');
+      const res = JSON.parse(sms[0].response);
+      assert.strictEqual(res.dryRun, true, JSON.stringify(res));
+      // With the token id carried through, the link is /r/<22 chars>; without it,
+      // the much longer /patient/new-case?resume=<uuid>.
+      const expected = require('../../src/notify/sms_templates').renderSms('draft_resume_1h', 'en', { resume_token: 'A'.repeat(22) }, draftId).body.length;
+      assert.strictEqual(res.length, expected);
+    });
   } finally {
     server.close();
     for (const id of created) await execute('DELETE FROM notifications WHERE order_id = $1', [id]).catch(() => {});
     await execute('DELETE FROM notifications WHERE to_user_id = $1', [userId]).catch(() => {});
     for (const id of created) await execute('DELETE FROM orders WHERE id = $1', [id]).catch(() => {});
     await execute('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
+    for (const u of extraUsers) {
+      await execute('DELETE FROM notifications WHERE to_user_id = $1', [u]).catch(() => {});
+      await execute('DELETE FROM draft_resume_tokens WHERE patient_id = $1', [u]).catch(() => {});
+      await execute('DELETE FROM users WHERE id = $1', [u]).catch(() => {});
+    }
     try { await require('../../src/pg').pool.end(); } catch (_) { /* best effort */ }
   }
 })();

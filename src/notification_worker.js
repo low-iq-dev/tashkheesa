@@ -720,21 +720,31 @@ async function runNotificationWorker(limit = 50) {
     // left in 'sending' by a crashed tick may already be in OpenClaw's queue or
     // at Twilio. It is retired, never handed back for a second send; a failed
     // WhatsApp then gets its SMS fallback like any other.
+    // The CTE hands back the payload as it was queued: the fallback SMS is
+    // built from it, and RETURNING alone would give the error written here.
     const singleShot = await queryAll(
-      `UPDATE notifications
+      `WITH due AS (
+         SELECT id, response AS original_response FROM notifications
+          WHERE status = 'sending'
+            AND (retry_after IS NULL OR retry_after <= $1)
+            AND channel IN ('whatsapp', 'sms')
+            AND template = ANY($3::text[])
+          FOR UPDATE
+       )
+       UPDATE notifications n
           SET status = 'failed',
-              attempts = COALESCE(attempts, 0) + 1,
+              attempts = COALESCE(n.attempts, 0) + 1,
               retry_after = NULL,
               response = $2
-        WHERE status = 'sending'
-          AND (retry_after IS NULL OR retry_after <= $1)
-          AND channel IN ('whatsapp', 'sms')
-          AND template = ANY($3::text[])
-        RETURNING *`,
+         FROM due
+        WHERE n.id = due.id
+        RETURNING n.*, due.original_response`,
       [nowIso, JSON.stringify({ error: 'stuck_sending_outcome_unknown', outcome: 'unknown', no_retry: true }), SMS_ALLOWLIST]
     );
     for (const r of (singleShot || [])) {
-      if (r.channel === 'whatsapp') await fallbackAfterFinal(r, 'failed', { outcome: 'unknown' });
+      if (r.channel === 'whatsapp') {
+        await fallbackAfterFinal(Object.assign({}, r, { response: r.original_response }), 'failed', { outcome: 'unknown' });
+      }
     }
 
     const retired = await queryAll(
