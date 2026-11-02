@@ -6,8 +6,10 @@ Branch `feat/patient-recovery-2026-10-16`, worktree `../tashkheesa-recovery`, cu
 rolled back — see §5).
 
 Commits, in order: Part D `7c68681`, Parts E + B `82d4429`, Part A `b53d320`,
-Part C `85d7064`, the recovery-path fix `0b12702`, the classifier source `837fc05`, and this
-report (head SHA in §9).
+Part C `85d7064`, the recovery-path fix `0b12702`, the classifier source `837fc05`, the
+first version of this report, then four follow-ups (§1a): set-password `next` `93974f2`,
+SMS quiet hours `15a7471`, absolute payment links `5f43f1c`, the draft tap target
+`8d33306`. Head SHA in §9.
 
 ---
 
@@ -383,44 +385,123 @@ Suite results are in §2.
   - `tests/core/coverage-leads-db.test.js` (the real API router, the unique index, the view,
     nudge exclusion, notify dry run + send + idempotency, conversion)
 
+### 1a. Follow-ups (2 Nov, second pass)
+
+1. **`next` survives `/set-password`** (`93974f2`, `src/routes/auth.js`, `src/views/set_password.ejs`).
+   - A password-less patient who signs in by phone OTP from a resume link went
+     `/login?next=<draft>` → `/set-password` → the dashboard.
+   - OTP verify and the password login now send `/set-password?next=…`; the form posts it
+     back; POST lands on it. Doctors keep their own landing. An off-site `next` is still
+     dropped by `safeNextPath`.
+   - **Also:** POST `/set-password` now re-issues the web session after the write. Its
+     `tokens_valid_after` cut revokes every credential minted in an earlier second, which
+     included the session the request arrived on. So a patient who chose a password was
+     signed out within a minute (the `access_revocation` cache TTL), on the draft or
+     anywhere else. The new session is minted after the cut and survives it; every other
+     session stays revoked. The existing revocation test already allows a same-request
+     credential and checks it isn't revoked.
+   - Test: `tests/auth/set-password-next.test.js` — the real handlers, with `pg` and Twilio
+     stubbed.
+2. **Patient SMS waits out Cairo quiet hours** (`15a7471`).
+   - 22:00–08:00 Cairo: `processSms` answers `{ deferUntil: <next 08:00 Cairo> }`. The
+     worker puts the row back to `queued` with `retry_after` then, payload and attempts
+     untouched, and sends it after 08:00 with the caps checked at that moment. Never
+     dropped.
+   - It applies to every allowlisted patient SMS. WhatsApp and in-app are unchanged.
+   - `utils/cairo_quiet_hours.nextCairoTime` reads Cairo's offset at the target, because
+     Egypt changes clocks at night.
+   - Tests:
+     - 03:00 waits for 08:00, with no send and no cap queries; 08:05 sends; 22:30 waits for
+       tomorrow; summer time (UTC+3).
+     - The worker's deferral branch.
+     - The end-to-end stuck-row scenario holds day or night. I ran it once with the Node
+       clock shifted to 23:00 Cairo: the real worker left the SMS queued for the next 08:00
+       with its payload intact.
+3. **Payment-reminder links are absolute** (`5f43f1c`).
+   - `orders.payment_link` is a bare `/portal/patient/pay/<id>` (`routes/patient.js:3598`).
+     The WhatsApp composer now makes every link absolute (`notify/case_url.absoluteAppUrl`
+     in `openclawTemplates.getOpenClawBody`).
+   - The payment email's button href had the same bare path and goes through the same
+     helper.
+   - **Found on the way, fixed:** the composer only hands a template the fields it lists.
+     `coverage_lead_open`'s `specialtyName` was not listed, so the WhatsApp notice could
+     never name the specialty.
+   - Tests:
+     - `tests/notifications/payment-reminder-link.test.js`: every level, EN/AR.
+     - End to end, the body the fake mini receives for an order whose `payment_link` is a
+       bare path.
+     - The coverage notice in EN and AR.
+4. **The draft nudge's tap target in the installed patient app** (`8d33306`). Read-only in
+   `~/tashkheesa-app` at `330487d7`.
+   - **Routing:** an in-app tap (`app/(tabs)/notifications.tsx:266-284`) and a push tap
+     (`lib/push.ts:136-152`) route on `data.screen` (`payment`, `chat`, `case-detail`).
+     Anything else with a `caseId` opens `/(tabs)/cases/[id]`.
+   - **What that screen does with a draft:** `GET /api/v1/cases/:id` serves drafts (no
+     status filter, `routes/api/cases.js:315-342`), so the screen opens, but it is a dead
+     end. A draft is not payable (`lib/caseDisplay.ts:15`, `PAYABLE_STATUSES = ['submitted']`)
+     and can be cancelled only in its first 10 minutes. Nothing on it continues the draft.
+   - **Where a draft can be resumed:** only on `/(tabs)/cases/new`, which asks the server
+     for the draft and offers to resume it at its step.
+   - **The change:** `GET /api/v1/notifications` adds `target: 'new-case'` and `draftId` to
+     `draft_resume_1h`, `draft_resume_24h` and `coverage_lead_open` while the case is still
+     the patient's draft (one scoped query). `screen` and `caseId` are unchanged.
+   - **What that means for installed builds:** they still open the case screen. A build
+     that reads `data.target === 'new-case'` should push `/(tabs)/cases/new`. That is an app
+     change, listed in §7.
+   - These templates are not in `services/patient_push` `PUSH_TEMPLATES`, so they are never
+     pushed and the push payload needs nothing.
+   - Test: `tests/notifications/draft-nudge-tap-target.test.js`.
+
 ## 2. Suite results on the final head
 
-Run on code head `837fc05`. The commits after it touch only this report. Both modes
-follow `docs/RELEASE.md`.
+Run on code head `8d33306`, the last code commit. The commit after it touches only this
+report. Both modes follow `docs/RELEASE.md`, and both were run from a freshly created
+database.
 
-- **With a database.** Built from zero: `createdb`, `migration_strict = on`, the app's own
-  `migrate()` through 134, then CI's env block.
+- **With a database.** `createdb`, `migration_strict = on`, the app's own `migrate()`
+  through 134, then CI's env block.
   - `npm test` → **exit 0**.
-  - `Passed: 3957 · Failed: 0 · Skipped: 40 · Files: 385 (0 with failures)`.
+  - `Passed: 3975 · Failed: 0 · Skipped: 40 · Files: 388 (0 with failures)`.
   - No "integration tests skipped" note.
-  - The new database tests ran rather than skipped: `core/draft-nudges-db` 11,
-    `core/coverage-leads-db` 6, `notifications/whatsapp-single-attempt` 4.
+  - **One intermittent failure on the first run at this head.**
+    - The test: `admin/admin_doctors.test.js`, "patient-role token → 403", which got a
+      401 that run.
+    - It passed 5 of 5 times on its own, and the whole suite passed on a second run from a
+      fresh database (the numbers above). It also passed in the earlier full run at
+      `837fc05`.
+    - Nothing in this branch touches that route or its auth. My reading: its fixed user id
+      `p-1` meets a revocation row in the shared test database. `services/access_revocation`
+      loads every user with a cut from the real database, and a 401 is what a revoked
+      token gets. I have not proven which file leaves that row.
 - **Without a database.** No `DATABASE_URL`, no `.env` in the worktree.
   - `npm test` → exit 1, as expected.
   - Gate: **`163 known failure(s) · 0 NEW · 0 baseline entries now passing`**, ✅.
-  - `Passed: 3666 · Failed: 163 · Skipped: 67`. Refused count: 163, the same as on
+  - `Passed: 3684 · Failed: 163 · Skipped: 67`. Refused count: 163, unchanged since
     27 Oct.
-  - The three new database test files skip themselves in this mode and are counted as
-    skipped, not failed. The baseline file is unchanged.
+  - The three database test files skip themselves in this mode; the baseline file is
+    unchanged.
 
 New test files and their counts (from the database run):
 
 - `auth/otp-phone-guard` 20
-- `notifications/sms-fallback` 23
+- `auth/set-password-next` 6
+- `notifications/sms-fallback` 26
 - `notifications/whatsapp-single-attempt` 4
+- `notifications/payment-reminder-link` 4
+- `notifications/draft-nudge-tap-target` 4
 - `lint/sms-templates-fit` 14
+- `lint/needs-attention-134-arms` 3
 - `core/draft-nudges` 22
 - `core/draft-nudges-db` 11
-- `lint/needs-attention-134-arms` 3
-- `core/coverage-leads` 20
+- `core/coverage-leads` 21
 - `core/coverage-leads-db` 6
 
 One existing test changed: `auth/batch-c-sessions-and-doctor-door`, whose doctor-door OTP
 seeds are now E.164 (§1, Part D).
 
 The web UI was checked by rendering the real templates in tests: the full step-3 wizard in
-EN and AR with the panel, and the superadmin page. It was **not** clicked through in a
-browser against a running server.
+EN and AR with the panel, the set-password form, and the superadmin page. It was **not**
+clicked through in a browser against a running server.
 
 ## 3. API and view changes — safe for installed builds?
 
@@ -432,7 +513,10 @@ browser against a running server.
 | `POST /api/v1/auth/register`, `PATCH /api/v1/profile`: refuse a +20 non-mobile | Safe. Existing `PHONE_INVALID` |
 | App delete-account code: a stored unsendable number gets the existing 502 `OTP_SEND_FAILED` without calling Twilio | Safe |
 | New `GET /api/v1/cases/draft/:id/coverage`, `POST …/coverage-lead` | Safe, additive |
-| New notification templates `draft_resume_1h/24h`, `coverage_lead_open` on channel internal | Safe for the list (title and body come from the server). **Check:** the app derives its tap target from `order_id`, which for a draft nudge is a draft. Confirm the app's case screen tolerates a draft id |
+| New notification templates `draft_resume_1h/24h`, `coverage_lead_open` on channel internal | Safe. The title and body come from the server. A tap opens the case screen, which serves the draft but cannot continue it (§1a.4) |
+| `GET /api/v1/notifications`: `data.target = 'new-case'` and `data.draftId` on draft nudges while the case is a draft | Safe, additive. `screen` and `caseId` are unchanged; installed builds ignore the new fields |
+| `POST /set-password` (web): honours `next`, re-issues the session after its revocation cut | Safe. Web only; without `next` it behaves as before, except the patient is no longer signed out a minute later |
+| WhatsApp bodies: a bare-path `link` becomes absolute; the payment email's `paymentUrl` too | Safe. A link that was already absolute is untouched |
 | Web `/login/otp/request` 422 | Safe. An old cached `login-phone.js` treats it as "advance", as before |
 | New web routes `/portal/patient/resume/:token`, `/r/:token`, `POST /patient/new-case/coverage-lead`, `/superadmin/coverage-leads` | Safe, additive |
 | Step-3 panel | Safe. Renders only with its context; the step renders as before without it |
@@ -514,13 +598,8 @@ service: it is shown visible specialties only.
   - For a later second provider, an Egyptian SMS gateway is one more adapter in
     `notify/sms_provider.js`.
 - **Optional:** `SMS_DAILY_CAP` if 100 a day is wrong.
-- **SMS at night — your call.**
-  - Payment reminders, report-ready and refund messages have no quiet hours today. Once SMS
-    is configured, a WhatsApp that fails at 03:00 produces an SMS at 03:00.
-  - The draft nudges are only sent 08:00–22:00, so they are unaffected.
-  - If the SMS fallback should wait for 08:00 Cairo, that is a small change in
-    `notify/sms_fallback.processSms` (`utils/cairo_quiet_hours` is there to reuse). Not
-    done here.
+- **SMS at night:** done in §1a.2. Patient SMS between 22:00 and 08:00 Cairo waits for
+  08:00.
 - **Production schema, checked read-only:** `notifications` has no triggers and no check
   constraints, only the primary key, so `channel = 'sms'` rows are accepted. The 3-column
   unique dedupe index the SMS keys rely on exists.
@@ -538,16 +617,14 @@ service: it is shown visible specialties only.
   `missing_or_empty`. Applied literally, it would block every phone-only patient from the
   nudges. It is applied to the email when there is one; phone-only patients pass. Not
   changed here.
-- **Password-less OTP sign-in and `next`.** A patient with no password who signs in by phone
-  OTP is sent to `/set-password` first. That is existing behaviour in `routes/auth.js`, and
-  it ignores `next`. A resume link opened without a session therefore lands them on
-  set-password, and the draft is then one tap away on the dashboard's "Continue your case"
-  tile. Carrying `next` through set-password is a small follow-up.
+- **Password-less OTP sign-in and `next`:** done in §1a.1.
+- **Patient app (follow-up, not in this branch):** honour `data.target === 'new-case'` in
+  `app/(tabs)/notifications.tsx` (and `lib/push.ts`, should these templates ever be
+  pushed) by opening `/(tabs)/cases/new`. The coverage-lead screen is the other app
+  follow-up.
 - **The doctor app** shows "could not send" for a 422 `PHONE_INVALID`. Showing the server's
-  field message is an app follow-up, as is the patient-app coverage screen.
-- **Payment-reminder links in WhatsApp are relative** (`/portal/patient/pay/<id>`, gateway
-  log, 14 Oct). The SMS builds absolute links. The WhatsApp body is out of scope here
-  (reminder copy) and deserves a fix.
+  field message is an app follow-up.
+- **Payment-reminder links:** done in §1a.3. The WhatsApp and email links are absolute.
 - **perf/fast-start-2026-10-15 is still unmerged.** It is one commit, `23f8af3`, touching
   `src/server.js`, `doctor.js`, `api/doctor_cases.js` and some views. This branch avoids
   its lines and should merge cleanly. `fix/patient-batch-2026-10-11` is merged.
@@ -562,5 +639,5 @@ the suite at that moment, it was stopped too.
 
 ## 9. Branch
 
-`feat/patient-recovery-2026-10-16`. Code head `837fc05`; the branch head is the commit that adds
-the final version of this report (named in the hand-back message). Not pushed.
+`feat/patient-recovery-2026-10-16`. Code head `8d33306`; the branch head is the commit that adds
+this version of the report (named in the hand-back message). Not pushed.
