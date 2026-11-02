@@ -124,7 +124,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     // what the OTP login lookups search for.
     let normalizedPhone = null;
     if (req.body.phone) {
-      const phoneCheck = validatePhoneE164(req.body.phone, req.body.lang === 'ar' ? 'ar' : 'en');
+      let phoneCheck = validatePhoneE164(req.body.phone, req.body.lang === 'ar' ? 'ar' : 'en');
+      // Part D (2 Nov 2026): plus the Egyptian-mobile shape on +20.
+      if (phoneCheck.ok) phoneCheck = require('../../validators/otp_phone_guard').checkOtpPhone(phoneCheck.normalized, null, req.body.lang === 'ar' ? 'ar' : 'en');
       if (!phoneCheck.ok) {
         return res.fail(phoneCheck.error, 422, 'PHONE_INVALID');
       }
@@ -415,8 +417,13 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     // in "invalid code" forever, for precisely the password-less accounts
     // this route exists to serve.
     const { sendOtpViaTwilio } = require('../../services/twilio_verify');
+    // Part D (2 Nov 2026) — a stored number no SMS can reach is never sent to;
+    // it gets the same answer a refused send gets.
+    const { checkOtpPhone, logRejectedOtpPhone } = require('../../validators/otp_phone_guard');
+    const sendable = checkOtpPhone(phone, null, 'en');
     let sent = null;
-    try { sent = await sendOtpViaTwilio(phone); } catch (_) { sent = null; }
+    if (!sendable.ok) logRejectedOtpPhone('app_delete_account', sendable);
+    else { try { sent = await sendOtpViaTwilio(phone); } catch (_) { sent = null; } }
     if (!sent || sent.stub || sent.ok === false) {
       return res.fail(
         'We could not send a confirmation code. Please try again shortly, or contact us and we will delete your account for you.',

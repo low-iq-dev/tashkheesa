@@ -95,6 +95,8 @@ router.post('/portal/patient/onboarding/profile', requireRole('patient'), async 
     // registered with and normalizePhone treats the digits as local (branch 2).
     // With no hint it behaves exactly as before, so this can only improve.
     var phoneCheck = normalizePhone(req.body.phone, req.user && req.user.country_code, lang);
+    // Part D (2 Nov 2026): plus the Egyptian-mobile shape on +20.
+    if (phoneCheck.ok) phoneCheck = require('../validators/otp_phone_guard').checkOtpPhone(phoneCheck.normalized, null, lang);
     var errors = [];
     if (!name) errors.push(isAr ? 'الاسم الكامل مطلوب' : 'Full name is required');
     if (!phoneCheck.ok) errors.push(phoneCheck.error);

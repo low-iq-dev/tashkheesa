@@ -12,6 +12,7 @@ const rateLimit = require('express-rate-limit');
 const { sendOtpViaTwilio, verifyOtpCode } = require('../services/twilio_verify');
 const { validatePhoneE164 } = require('../validators/phone');
 const { normalizePhone } = require('../validators/phone_identity');
+const { checkOtpPhone, logRejectedOtpPhone } = require('../validators/otp_phone_guard');
 const { resolveDoctorLanding } = require('../services/doctor_landing');
 const { buildDoctorWelcomePayload, WELCOME_EXPIRY_HOURS, SERVICES_READY_SQL } = require('../services/doctor_welcome_payload');
 const { captureSignup } = require('../services/analytics');
@@ -437,6 +438,21 @@ function parseOtpPhone(req, res, next) {
   return next();
 }
 
+// 2 Nov 2026 (patient recovery, Part D) — the one place the web door says no.
+// parseOtpPhone never rejects, and /request then masked an unsendable number as
+// success: the patient waited for a code that could not come, and Twilio was
+// asked anyway whenever normalizePhone accepted an E.164 shape that is not an
+// Egyptian mobile (+201990000177 on 11 Oct). A number's SHAPE says nothing
+// about whether an account exists, so refusing it here leaks nothing. Runs after
+// the per-IP limiter and before the per-phone ones, so a typo does not spend
+// the patient's three sends. validators/otp_phone_guard.js has the rule.
+function refuseUnsendableOtpPhone(req, res, next) {
+  const chk = checkOtpPhone(req.body && req.body.phone, req.body && req.body.countryCode, getReqLang(req));
+  if (chk.ok) return next();
+  logRejectedOtpPhone('web_login', chk);
+  return res.status(422).json({ ok: false, error: 'phone_invalid', message: chk.error });
+}
+
 const otpPhoneKey = (req) => (req.otpPhone && req.otpPhone.key) || 'unknown';
 const otpRlMsg = { ok: false, error: 'too_many_requests' };
 
@@ -478,7 +494,7 @@ const welcomeTokenIpLimiter = rateLimit({
 // Anti-enumeration: ALWAYS returns { ok: true }, regardless of whether the
 // number is registered or even valid, so the UI advances to code entry
 // uniformly and reveals nothing about which numbers have accounts.
-router.post('/login/otp/request', parseOtpPhone, otpIpLimiter, otpSendCooldown, otpSendCap, async (req, res) => {
+router.post('/login/otp/request', parseOtpPhone, otpIpLimiter, refuseUnsendableOtpPhone, otpSendCooldown, otpSendCap, async (req, res) => {
   try {
     if (req.otpPhone.normalized) {
       await sendOtpViaTwilio(req.otpPhone.normalized);
@@ -1193,7 +1209,10 @@ router.post('/register', async (req, res) => {
   // every Egyptian writes their number — normalised to "+01003225382" and was
   // REJECTED as invalid, telling the user their own number was wrong with no
   // hint as to why. The country code is right there in the form; use it.
-  const phoneCheck = normalizePhone(phone, country_code || storedCountry, langForMsg);
+  let phoneCheck = normalizePhone(phone, country_code || storedCountry, langForMsg);
+  // Part D (2 Nov 2026): and, on +20, an Egyptian mobile — the only thing an
+  // OTP or a WhatsApp message can reach (validators/otp_phone_guard.js).
+  if (phoneCheck.ok) phoneCheck = checkOtpPhone(phoneCheck.normalized, null, langForMsg);
   if (!phoneCheck.ok) {
     regFunnel('register_err_phone');
     return res

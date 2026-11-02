@@ -130,8 +130,14 @@
       busy = false;
       if (btn && !isResend) btn.disabled = false;
       if (r.status === 429) { showMsg(i18n.ratelimited); return; }
+      // 422: a number no code can reach (Part D, 2 Nov 2026). The server sends
+      // the field error in the page's language; stay on the phone step.
+      if (r.status === 422) {
+        return r.json().then(function (d) { showMsg((d && d.message) || i18n.error); },
+                             function () { showMsg(i18n.error); });
+      }
       // Anti-enumeration: advance to code entry regardless of whether the
-      // number is registered or valid — the server masks all cases as success.
+      // number is registered — the server masks that as success.
       if (target) target.textContent = p.countryCode + ' ' + p.phone;
       setStep('otp');
       clearBoxes();

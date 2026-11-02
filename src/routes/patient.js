@@ -361,7 +361,14 @@ router.post('/patient/delete-account/code', requireRole('patient'), deleteCodeSe
     // per ten minutes. And it would hit exactly the password-less population
     // this branch exists to serve. The catch below cannot save us here,
     // because nothing is thrown.
-    const sent = await sendOtpViaTwilio(phone);
+    //
+    // Part D (2 Nov 2026) — a stored number no SMS can reach is never sent
+    // to; it gets the same answer a refused send gets. Gate only: what is sent
+    // (and later checked) is still the stored string.
+    const { checkOtpPhone, logRejectedOtpPhone } = require('../validators/otp_phone_guard');
+    const sendable = checkOtpPhone(phone, req.user && req.user.country_code, isAr ? 'ar' : 'en');
+    if (!sendable.ok) logRejectedOtpPhone('web_delete_account', sendable);
+    const sent = sendable.ok ? await sendOtpViaTwilio(phone) : null;
     if (!sent || sent.stub || sent.ok === false) {
       return await renderDeleteAccount(req, res, {
         error: isAr
@@ -529,7 +536,9 @@ router.post('/patient/profile', requireRole('patient'), async function(req, res)
     // form (already launch-market gated above), fall back to the one the patient
     // registered with.
     const { normalizePhone } = require('../validators/phone_identity');
-    const phoneCheck = normalizePhone(rawPhone, countryCode || (req.user && req.user.country_code), lang);
+    let phoneCheck = normalizePhone(rawPhone, countryCode || (req.user && req.user.country_code), lang);
+    // Part D (2 Nov 2026): plus the Egyptian-mobile shape on +20.
+    if (phoneCheck.ok) phoneCheck = require('../validators/otp_phone_guard').checkOtpPhone(phoneCheck.normalized, null, lang);
     if (!phoneCheck.ok) {
       return renderPatientProfile(req, res, { error: phoneCheck.error });
     }
