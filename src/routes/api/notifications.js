@@ -21,6 +21,16 @@ const PAYMENT_SCREEN_TEMPLATES = new Set([
   'case_expired_unpaid_patient'
 ]);
 
+// Patient recovery (2 Nov 2026) — notifications about a case the patient has
+// STARTED but not sent. The installed app opens data.caseId on its case screen,
+// which shows a draft but offers nothing to finish it with (not payable, cancel
+// only in the first 10 minutes); resuming happens only on the new-case screen,
+// which finds the server draft itself. While the case is still a draft these
+// rows also carry target: 'new-case' and draftId — ADDITIVE: screen and caseId
+// are unchanged, so an installed build behaves exactly as before and a build
+// that knows `target` opens the wizard instead.
+const DRAFT_TARGET_TEMPLATES = new Set(['draft_resume_1h', 'draft_resume_24h', 'coverage_lead_open']);
+
 function screenForTemplate(template) {
   if (PAYMENT_SCREEN_TEMPLATES.has(String(template || ''))) return 'payment';
   if (String(template || '') === 'new_message') return 'chat';
@@ -126,6 +136,29 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     notifications.forEach(n => {
       if (n.data && n.data.screen === 'chat' && !n.data.conversationId) n.data.screen = 'case-detail';
     });
+
+    // Patient recovery — the new-case tap target (DRAFT_TARGET_TEMPLATES), only
+    // while the case is still this patient's draft: once sent, the case screen
+    // is the right place again.
+    try {
+      const drafts = notifications.filter(n => n.data && n.data.caseId && DRAFT_TARGET_TEMPLATES.has(n.template || n.type));
+      if (drafts.length) {
+        const ids = [...new Set(drafts.map(n => String(n.data.caseId)))];
+        const rows = await safeAll(
+          `SELECT id FROM orders
+            WHERE id = ANY($1::text[]) AND patient_id = $2 AND deleted_at IS NULL
+              AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
+          [ids, req.user.id]
+        );
+        const stillDraft = new Set((rows || []).map(r => String(r.id)));
+        drafts.forEach(n => {
+          if (stillDraft.has(String(n.data.caseId))) {
+            n.data.target = 'new-case';
+            n.data.draftId = String(n.data.caseId);
+          }
+        });
+      }
+    } catch (_) { /* no target: the case screen, as before */ }
 
     // AUDIT-APP — localise the title to the RECIPIENT's language.
     // notifications.title is written once at insert time in English
