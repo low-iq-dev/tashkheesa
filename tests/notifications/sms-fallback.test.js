@@ -26,7 +26,7 @@ const fb = require('../../src/notify/sms_fallback');
 const { outcomeForStatus } = require('../../src/lib/openclaw_client');
 const provider = require('../../src/notify/sms_provider');
 
-// A Cairo daytime clock for every send below (SMS waits out 22:00–08:00).
+// A Cairo daytime clock for every send below (SMS waits out 21:00–09:00, Egypt's operator curfew).
 const DAY = new Date('2026-11-02T10:00:00Z'); // 12:00 Cairo
 const PATIENT = { id: 'u-1', role: 'patient', phone: '+201012345678', email: null, lang: 'ar', notify_whatsapp: true };
 const ORDER = 'fb92814a-d2b3-426d-b259-e6456df1e1a8';
@@ -219,27 +219,31 @@ console.log('\n📲  WhatsApp single attempt + SMS fallback (Parts E, B)\n');
     assert.strictEqual(r.outcome, 'unknown');
   });
 
-  await check('D7: quiet hours — at 03:00 Cairo the SMS waits for 08:00 (no send, no cap queries); at 08:05 it goes', async () => {
+  await check('D7: quiet hours — at 03:00 Cairo the SMS waits for 09:00 (no send, no cap queries); at 09:05 it goes', async () => {
     const p = smsProvider(); const q = fakeQueryOne([{ n: 0 }, { n: 0 }]);
     const night = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: q, env: {}, now: new Date('2026-11-03T01:00:00Z') }); // 03:00 Cairo
-    assert.deepStrictEqual(night, { deferUntil: '2026-11-03T06:00:00.000Z', reason: 'sms_quiet_hours' }, '08:00 Cairo the same morning');
+    assert.deepStrictEqual(night, { deferUntil: '2026-11-03T07:00:00.000Z', reason: 'sms_quiet_hours' }, '09:00 Cairo the same morning');
     assert.strictEqual(p.sent.length, 0);
     assert.strictEqual(q.calls.length, 0, 'caps are counted when it is sent, not now');
-    const morning = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([{ n: 0 }, { n: 0 }]), env: {}, now: new Date('2026-11-03T06:05:00Z') }); // 08:05
+    const morning = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([{ n: 0 }, { n: 0 }]), env: {}, now: new Date('2026-11-03T07:05:00Z') }); // 09:05
     assert.strictEqual(morning.ok, true);
     assert.strictEqual(p.sent.length, 1);
   });
 
-  await check('D8: 22:30 Cairo waits for tomorrow 08:00; summer time (UTC+3) is honoured', async () => {
+  await check('D8: 21:30 and 22:30 Cairo wait for tomorrow 09:00; 20:30 still sends; summer time (UTC+3) is honoured', async () => {
     const p = smsProvider();
-    const late = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([]), env: {}, now: new Date('2026-11-02T20:30:00Z') });
-    assert.strictEqual(late.deferUntil, '2026-11-03T06:00:00.000Z');
+    const late = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([]), env: {}, now: new Date('2026-11-02T20:30:00Z') }); // 22:30 Cairo
+    assert.strictEqual(late.deferUntil, '2026-11-03T07:00:00.000Z');
+    const curfew = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([]), env: {}, now: new Date('2026-11-02T19:30:00Z') }); // 21:30 Cairo
+    assert.strictEqual(curfew.deferUntil, '2026-11-03T07:00:00.000Z');
+    const evening = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([{ n: 0 }, { n: 0 }]), env: {}, now: new Date('2026-11-02T18:30:00Z') }); // 20:30 Cairo
+    assert.strictEqual(evening.ok, true, '20:30 is before the curfew');
     const july = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([]), env: {}, now: new Date('2026-07-10T00:30:00Z') }); // 03:30 Cairo (UTC+3)
-    assert.strictEqual(july.deferUntil, '2026-07-10T05:00:00.000Z');
-    assert.strictEqual(p.sent.length, 0);
+    assert.strictEqual(july.deferUntil, '2026-07-10T06:00:00.000Z');
+    assert.strictEqual(p.sent.length, 1, 'only the 20:30 send went out');
   });
 
-  await check('D9: the worker re-queues a deferred SMS for 08:00 and leaves its payload and attempts alone', () => {
+  await check('D9: the worker re-queues a deferred SMS for 09:00 and leaves its payload and attempts alone', () => {
     const src = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'src', 'notification_worker.js'), 'utf8');
     assert.ok(/\} else if \(result\.deferUntil\) \{[\s\S]{0,600}UPDATE notifications SET status = \$1, retry_after = \$2 WHERE id = \$3', \[\s*'queued',\s*result\.deferUntil,/.test(src));
     const branch = src.slice(src.indexOf('} else if (result.deferUntil) {'), src.indexOf('} else if (result.skipped) {'));

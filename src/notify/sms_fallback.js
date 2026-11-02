@@ -58,12 +58,12 @@
 const { isSmsAllowlisted, renderSms } = require('./sms_templates');
 const { isCairoQuietHours, nextCairoTime } = require('../utils/cairo_quiet_hours');
 
-// QUIET HOURS (follow-up, 2 Nov 2026) — no patient SMS between 22:00 and 08:00
-// Cairo. A fallback that comes due at night is DEFERRED, never dropped: the
-// worker leaves the row queued with retry_after at the next 08:00 Cairo and
+// QUIET HOURS (follow-up, 2 Nov 2026) — no patient SMS between 21:00 and 09:00
+// Cairo (Egypt's operator curfew is 21:00–09:00; Twilio EG guidelines). A fallback that comes due at night is DEFERRED, never dropped: the
+// worker leaves the row queued with retry_after at the next 09:00 Cairo and
 // sends it then, after the caps are checked at that moment. WhatsApp and
 // in-app are untouched; the draft nudges are already 08:00–22:00 only.
-const SMS_QUIET = Object.freeze({ startHour: 22, endHour: 8 });
+const SMS_QUIET = Object.freeze({ startHour: 21, endHour: 9 });
 
 const FINAL_STATUSES = new Set(['sent', 'failed', 'skipped']);
 // A WhatsApp skip for these reasons is the patient's own state, not a delivery

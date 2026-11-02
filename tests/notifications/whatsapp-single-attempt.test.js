@@ -187,8 +187,8 @@ async function check(name, fn) { try { await fn(); t.pass(name); } catch (e) { t
       assert.strictEqual(sms.length, 1, 'one sms row');
       const res = JSON.parse(sms[0].response);
       const { isCairoQuietHours, nextCairoTime } = require('../../src/utils/cairo_quiet_hours');
-      if (isCairoQuietHours(new Date(), { startHour: 22, endHour: 8 })) {
-        // Run at night (Cairo): the SMS waits for 08:00, untouched — and the
+      if (isCairoQuietHours(new Date(), { startHour: 21, endHour: 9 })) {
+        // Run at night (Cairo): the SMS waits for 09:00, untouched — and the
         // payload it will be rendered from still carries the token id.
         // retry_after is timestamp WITHOUT time zone holding UTC digits: compared in SQL.
         const row = await queryOne(
@@ -197,7 +197,7 @@ async function check(name, fn) { try { await fn(); t.pass(name); } catch (e) { t
              FROM notifications WHERE order_id = $1 AND channel = 'sms'`, [draftId]);
         assert.strictEqual(row.status, 'queued');
         assert.strictEqual(row.future, true, 'deferred, not dropped');
-        assert.strictEqual(row.at_utc, nextCairoTime(new Date(), 8).toISOString().slice(0, 16), 'the next 08:00 Cairo');
+        assert.strictEqual(row.at_utc, nextCairoTime(new Date(), 9).toISOString().slice(0, 16), 'the next 09:00 Cairo');
         assert.ok(res.resume_token_id, 'the queued payload keeps the resume token id');
       } else {
         assert.strictEqual(res.dryRun, true, JSON.stringify(res));

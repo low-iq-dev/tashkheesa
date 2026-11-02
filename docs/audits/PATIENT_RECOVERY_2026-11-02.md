@@ -403,19 +403,20 @@ Suite results are in §2.
    - Test: `tests/auth/set-password-next.test.js` — the real handlers, with `pg` and Twilio
      stubbed.
 2. **Patient SMS waits out Cairo quiet hours** (`15a7471`).
-   - 22:00–08:00 Cairo: `processSms` answers `{ deferUntil: <next 08:00 Cairo> }`. The
+   - 21:00–09:00 Cairo (Egypt's operator curfew per Twilio's EG guidelines; amended from
+     22:00–08:00 on 2 Nov): `processSms` answers `{ deferUntil: <next 09:00 Cairo> }`. The
      worker puts the row back to `queued` with `retry_after` then, payload and attempts
-     untouched, and sends it after 08:00 with the caps checked at that moment. Never
+     untouched, and sends it after 09:00 with the caps checked at that moment. Never
      dropped.
    - It applies to every allowlisted patient SMS. WhatsApp and in-app are unchanged.
    - `utils/cairo_quiet_hours.nextCairoTime` reads Cairo's offset at the target, because
      Egypt changes clocks at night.
    - Tests:
-     - 03:00 waits for 08:00, with no send and no cap queries; 08:05 sends; 22:30 waits for
-       tomorrow; summer time (UTC+3).
+     - 03:00 waits for 09:00, with no send and no cap queries; 09:05 sends; 21:30 and 22:30
+       wait for tomorrow, 20:30 sends; summer time (UTC+3).
      - The worker's deferral branch.
      - The end-to-end stuck-row scenario holds day or night. I ran it once with the Node
-       clock shifted to 23:00 Cairo: the real worker left the SMS queued for the next 08:00
+       clock shifted to 23:00 Cairo: the real worker left the SMS queued for the next 09:00
        with its payload intact.
 3. **Payment-reminder links are absolute** (`5f43f1c`).
    - `orders.payment_link` is a bare `/portal/patient/pay/<id>` (`routes/patient.js:3598`).
@@ -598,8 +599,8 @@ service: it is shown visible specialties only.
   - For a later second provider, an Egyptian SMS gateway is one more adapter in
     `notify/sms_provider.js`.
 - **Optional:** `SMS_DAILY_CAP` if 100 a day is wrong.
-- **SMS at night:** done in §1a.2. Patient SMS between 22:00 and 08:00 Cairo waits for
-  08:00.
+- **SMS at night:** done in §1a.2. Patient SMS between 21:00 and 09:00 Cairo waits for
+  09:00.
 - **Production schema, checked read-only:** `notifications` has no triggers and no check
   constraints, only the primary key, so `channel = 'sms'` rows are accepted. The 3-column
   unique dedupe index the SMS keys rely on exists.
