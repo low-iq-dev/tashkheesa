@@ -40,6 +40,11 @@ const { emitNotificationDropped } = require('./notify');
 // Always-charge-EGP receipt figures (read-only over the stored EGP charge).
 const { isIntlOrder, primaryPrice, egpCharge } = require('./utils/money_display');
 const { formatMoney } = require('./utils/formatNumber');
+// Patient recovery, Parts E and B (2 Nov 2026) — one WhatsApp attempt that may
+// have reached the mini, and SMS when WhatsApp cannot reach a patient. Every
+// rule lives in notify/sms_fallback.js; this file only calls it.
+const smsFallback = require('./notify/sms_fallback');
+const { ALLOWLIST: SMS_ALLOWLIST } = require('./notify/sms_templates');
 
 // AUDIT-2026-08-22: parseInt('' | 'three' | 'null', 10) is NaN, and NaN poisons
 // the whole retry state machine rather than failing loudly:
@@ -656,6 +661,18 @@ async function processWhatsApp(notification, user, order) {
   return result;
 }
 
+// Part E — the SMS fallback for a row finalised outside the dispatch loop (the
+// stuck-'sending' recovery above), which has no user loaded yet.
+async function fallbackAfterFinal(row, status, result) {
+  try {
+    const user = await queryOne(
+      'SELECT id, email, name, phone, lang, role, notify_whatsapp FROM users WHERE id = $1', [row.to_user_id]);
+    if (user) await smsFallback.maybeQueueSmsFallback(row, user, status, result);
+  } catch (err) {
+    console.error('[notify-worker] sms fallback after recovery failed', err && err.message);
+  }
+}
+
 /**
  * Run the notification worker: poll queued/retry notifications and process them.
  * @param {number} limit - Max notifications to process per run
@@ -686,6 +703,27 @@ async function runNotificationWorker(limit = 50) {
   // being handed back to the worker. Two statements rather than one CASE
   // expression so the retire path can be counted and logged distinctly.
   try {
+    // Part E (2 Nov 2026) — a whatsapp or sms row of an allowlisted template
+    // left in 'sending' by a crashed tick may already be in OpenClaw's queue or
+    // at Twilio. It is retired, never handed back for a second send; a failed
+    // WhatsApp then gets its SMS fallback like any other.
+    const singleShot = await queryAll(
+      `UPDATE notifications
+          SET status = 'failed',
+              attempts = COALESCE(attempts, 0) + 1,
+              retry_after = NULL,
+              response = $2
+        WHERE status = 'sending'
+          AND (retry_after IS NULL OR retry_after <= $1)
+          AND channel IN ('whatsapp', 'sms')
+          AND template = ANY($3::text[])
+        RETURNING *`,
+      [nowIso, JSON.stringify({ error: 'stuck_sending_outcome_unknown', outcome: 'unknown', no_retry: true }), SMS_ALLOWLIST]
+    );
+    for (const r of (singleShot || [])) {
+      if (r.channel === 'whatsapp') await fallbackAfterFinal(r, 'failed', { outcome: 'unknown' });
+    }
+
     const retired = await queryAll(
       `UPDATE notifications
           SET status = 'failed',
@@ -815,6 +853,10 @@ async function runNotificationWorker(limit = 50) {
         result = await processEmail(n, user, order);
       } else if (channel === 'whatsapp') {
         result = await processWhatsApp(n, user, order);
+      } else if (channel === 'sms') {
+        // Part B — never retried: processSms answers sent, skipped, or a
+        // permanent failure.
+        result = await smsFallback.processSms(n, user, order);
       } else if (channel === 'internal') {
         // Internal notifications are already visible in-app; mark as sent
         result = { ok: true };
@@ -841,6 +883,7 @@ async function runNotificationWorker(limit = 50) {
           JSON.stringify(result),
           n.id
         ]);
+        await smsFallback.maybeQueueSmsFallback(n, user, 'skipped', result);
       } else if (result.permanent) {
         // AUDIT-P0-3 — a permanent, non-transient failure (e.g. no WhatsApp
         // template registered for this event). Retrying cannot help, but it
@@ -863,11 +906,39 @@ async function runNotificationWorker(limit = 50) {
           orderId: n.order_id || null,
           userId: n.to_user_id || null
         });
+        await smsFallback.maybeQueueSmsFallback(n, user, 'failed', result);
       } else {
         // Handle failure with retry
         const attempts = (n.attempts || 0) + 1;
+        // Part E — for an allowlisted patient template, a WhatsApp send that
+        // may have reached the mini is the last one (notify/sms_fallback.js).
+        const finalWhatsApp = channel === 'whatsapp' && smsFallback.whatsappFailureIsFinal(n.template, user, result);
 
-        if (attempts >= MAX_RETRIES) {
+        if (finalWhatsApp) {
+          await execute('UPDATE notifications SET status = $1, response = $2, attempts = $3, retry_after = NULL WHERE id = $4', [
+            'failed',
+            JSON.stringify({ error: result.error || 'send_failed', attempts, outcome: smsFallback.whatsappOutcome(result), no_retry: 'whatsapp_single_attempt' }),
+            attempts,
+            n.id
+          ]);
+          emitNotificationDropped({
+            orderId: n.order_id,
+            reason: 'whatsapp_single_attempt',
+            channel,
+            template: n.template,
+            toUserId: n.to_user_id
+          });
+          logErrorToDb(new Error(result.error || 'whatsapp_send_failed'), {
+            context: 'notification_worker.whatsapp_single_attempt',
+            category: 'notification_worker',
+            candidateId: n.id,
+            template: n.template,
+            channel,
+            attempts,
+            workerPhase: 'per_candidate'
+          });
+          await smsFallback.maybeQueueSmsFallback(n, user, 'failed', result);
+        } else if (attempts >= MAX_RETRIES) {
           await execute('UPDATE notifications SET status = $1, response = $2, attempts = $3 WHERE id = $4', [
             'failed',
             JSON.stringify({ error: result.error || 'max_retries_exceeded', attempts }),
@@ -906,6 +977,7 @@ async function runNotificationWorker(limit = 50) {
             workerPhase: 'per_candidate'
           });
           console.error('[notify-worker] max retries reached', { id: n.id, template: n.template, channel, attempts });
+          await smsFallback.maybeQueueSmsFallback(n, user, 'failed', result);
         } else {
           // Exponential backoff: 30s, 120s, 480s
           const retryAfter = backoffFor(attempts);
@@ -934,7 +1006,9 @@ async function runNotificationWorker(limit = 50) {
       });
       console.error('[notify-worker] failed to process notification', n.id, err);
       const attempts = (n.attempts || 0) + 1;
-      const exhausted = attempts >= MAX_RETRIES;
+      // Part E — an exception mid-send of a single-shot row leaves its outcome
+      // unknown; it is final like any other unknown outcome.
+      const exhausted = attempts >= MAX_RETRIES || smsFallback.isSingleShot(n.channel, n.template);
       // AUDIT-2026-08-22: retry_after is now written on BOTH outcomes.
       //
       // This UPDATE used to leave the column alone. But the fetch UPDATE that
@@ -957,6 +1031,7 @@ async function runNotificationWorker(limit = 50) {
         exhausted ? null : backoffFor(attempts),
         n.id
       ]);
+      if (exhausted && n.channel === 'whatsapp') await fallbackAfterFinal(n, 'failed', { outcome: 'unknown' });
     }
   }
   } finally {

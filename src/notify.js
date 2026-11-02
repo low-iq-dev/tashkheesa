@@ -1106,6 +1106,13 @@ async function queueNotification({
       if (existing && String(existing.status || '').toLowerCase() !== 'failed') {
         return { ok: true, skipped: 'deduped', dedupe_key: normalizedDedupeKey };
       }
+      // Part E (patient recovery, 2 Nov 2026) — a failed whatsapp or sms row of
+      // an SMS-allowlisted patient template is NOT re-armed: its one attempt
+      // may already be in OpenClaw's delivery queue or at Twilio, and a re-arm
+      // is a second copy. Its fallback is the SMS the worker queues, not this.
+      if (existing && require('./notify/sms_fallback').isSingleShot(channel, template)) {
+        return { ok: true, skipped: 'deduped', dedupe_key: normalizedDedupeKey, single_shot: true };
+      }
       if (existing) {
         requeueRowId = existing.id;
       }

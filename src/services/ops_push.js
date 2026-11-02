@@ -193,6 +193,7 @@ function _burstTitle(kind, suppressed) {
     payment_capture_failed: 'payments captured but not processed',
     chat_reported: 'chat reports',
     worker_down: 'worker alerts',
+    coverage_lead: 'patients waiting for a specialty',
   };
   return n + ' more ' + (labels[kind] || String(kind).replace(/_/g, ' '));
 }
