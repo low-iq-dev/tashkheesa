@@ -23,6 +23,7 @@
 // FIX 13 — shared with notification_worker's email path so the two surfaces
 // render the same countdown with the same Arabic number agreement.
 const { formatTimeRemaining, formatHoldRemaining } = require('./duration');
+const { absoluteAppUrl } = require('./case_url');
 // E2E 2026-10-06 — the case reference shown in a body (never an id slice for a
 // patient) and the tidy-up for bodies composed without one. See case_label.js.
 const {
@@ -594,7 +595,13 @@ function getOpenClawBody(eventName, lang, rawVars, opts) {
     refundStatus: vars.refund_status || vars.refundStatus || vars.refund || '',
     cancelledBy: vars.cancelled_by || vars.cancelledBy || '',
     appointmentId: vars.appointment_id || vars.appointmentId || '',
-    link: vars.link || patientOrderUrl(orderId),
+    // Absolute, always: orders.payment_link is a bare '/portal/patient/pay/<id>'
+    // and a WhatsApp client cannot follow a path (payment reminders, 14 Oct).
+    link: absoluteAppUrl(vars.link, appUrl()) || patientOrderUrl(orderId),
+    // Part C (2 Nov 2026) — coverage_lead_open names the specialty; nothing
+    // reaches a composer unless it is listed here.
+    specialtyName: vars.specialtyName || '',
+    specialtyNameAr: vars.specialtyNameAr || '',
     orderId: orderId || '',
     // Manual payment claim (admin_payment_claim_received).
     transferReference: vars.transferReference || vars.transfer_reference || '',

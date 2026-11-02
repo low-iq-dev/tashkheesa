@@ -300,6 +300,14 @@ console.log('\n🧭  coverage leads (Part C)\n');
     assert.ok(/name="confirm"/.test(html) && /Type <strong>Neurology<\/strong> to send/.test(html));
   });
 
+  await check('F2b: the WhatsApp notice names the specialty (the composer is handed specialtyName)', () => {
+    const { getOpenClawBody } = require('../../src/notify/openclawTemplates');
+    const en = getOpenClawBody('coverage_lead_open', 'en', { specialtyName: 'Neurology', link: 'https://tashkheesa.com/portal/patient/resume/x' });
+    const ar = getOpenClawBody('coverage_lead_open', 'ar', { specialtyName: 'المخ والأعصاب', specialtyNameAr: 'المخ والأعصاب', link: 'https://tashkheesa.com/r/x' });
+    assert.ok(/^Tashkheesa: Neurology is now open\./.test(en), en);
+    assert.ok(/تخصص المخ والأعصاب فتح/.test(ar), ar);
+  });
+
   await check('F3: the attention kind and the ops catalogue carry coverage_lead (quiet, Arabic label)', () => {
     const na = require('../../src/services/needs_attention');
     assert.ok(na.ESCALATING_KINDS.indexOf('coverage_lead') !== -1);

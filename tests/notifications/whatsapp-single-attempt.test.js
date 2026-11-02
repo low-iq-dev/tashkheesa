@@ -48,7 +48,7 @@ async function check(name, fn) { try { await fn(); t.pass(name); } catch (e) { t
     req.on('end', () => {
       let j = {}; try { j = JSON.parse(body); } catch (_) { /* empty */ }
       const status = script.length ? script.shift() : 200;
-      calls.push({ ref: j.ref, status });
+      calls.push({ ref: j.ref, status, body: j.body });
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(status < 300 ? { sent: true, message_id: 'oc_' + calls.length } : { error: status === 530 ? 'origin_unreachable' : 'cli_failed' }));
     });
@@ -80,9 +80,10 @@ async function check(name, fn) { try { await fn(); t.pass(name); } catch (e) { t
   async function newOrder(over) {
     const id = crypto.randomUUID();
     await execute(
-      `INSERT INTO orders (id, patient_id, status, payment_status, reference_id, created_at, updated_at, submitted_at)
-       VALUES ($1, $2, $3, 'unpaid', $4, NOW() - INTERVAL '40 minutes', NOW(), NOW() - INTERVAL '31 minutes')`,
-      [id, userId, (over && over.status) || 'submitted', 'TSH-T-' + id.slice(0, 6)]);
+      `INSERT INTO orders (id, patient_id, status, payment_status, reference_id, payment_link, created_at, updated_at, submitted_at)
+       VALUES ($1, $2, $3, 'unpaid', $4, $5, NOW() - INTERVAL '40 minutes', NOW(), NOW() - INTERVAL '31 minutes')`,
+      // payment_link as routes/patient.js stores it: a bare path.
+      [id, userId, (over && over.status) || 'submitted', 'TSH-T-' + id.slice(0, 6), '/portal/patient/pay/' + id]);
     return id;
   }
   const rowsFor = (orderId) => queryAll(
@@ -127,6 +128,12 @@ async function check(name, fn) { try { await fn(); t.pass(name); } catch (e) { t
       assert.strictEqual(wa.length, 1, 'one row, reused');
       assert.strictEqual(wa[0].status, 'sent');
       assert.strictEqual(rows.filter((r) => r.channel === 'sms').length, 0);
+      // The body the mini received links to the pay page absolutely (the
+      // order's payment_link is a bare path).
+      const sentBody = callsFor(orderId).find((c) => c.status === 200).body;
+      const base = String(process.env.APP_URL || 'https://tashkheesa.com').replace(/\/+$/, '');
+      assert.ok(sentBody.indexOf(base + '/portal/patient/pay/' + orderId) !== -1, sentBody);
+      assert.ok(!/(^|\s)\/portal\//.test(sentBody), 'no bare path: ' + sentBody);
     });
 
     await check('3. the sweep three times in four minutes → one row per channel; the failed key is never re-armed', async () => {

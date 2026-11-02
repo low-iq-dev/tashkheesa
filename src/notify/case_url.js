@@ -24,4 +24,22 @@ function caseUrlForRecipient(recipientRole, orderId, appUrl) {
     : `${base}/portal/doctor/case/${id}`;
 }
 
-module.exports = { caseUrlForRecipient };
+/**
+ * A link a message can carry: absolute. A same-site path ('/portal/patient/
+ * pay/<id>' — what orders.payment_link holds, routes/patient.js) is prefixed
+ * with the app's base; an absolute URL, or nothing, is returned as it is.
+ * WhatsApp and email clients cannot follow a bare path: the 14 Oct payment
+ * reminders went out with one.
+ *
+ * @param {string|null|undefined} url
+ * @param {string} [appUrl] absolute base, default APP_URL / https://tashkheesa.com
+ * @returns {string}
+ */
+function absoluteAppUrl(url, appUrl) {
+  const u = String(url == null ? '' : url).trim();
+  if (!u || u.charAt(0) !== '/' || u.charAt(1) === '/') return u;
+  const base = String(appUrl || process.env.APP_URL || 'https://tashkheesa.com').replace(/\/+$/, '');
+  return base + u;
+}
+
+module.exports = { caseUrlForRecipient, absoluteAppUrl };

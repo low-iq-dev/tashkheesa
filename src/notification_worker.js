@@ -35,7 +35,7 @@ function caseReferenceForRecipient(payload, order, caseId, user) {
 // FIX 13 — bilingual countdown rendering (minutes under the hour, correct
 // Arabic number agreement). Shared with notify/openclawTemplates.js.
 const { formatTimeRemaining } = require('./notify/duration');
-const { caseUrlForRecipient } = require('./notify/case_url');
+const { caseUrlForRecipient, absoluteAppUrl } = require('./notify/case_url');
 const { emitNotificationDropped } = require('./notify');
 // Always-charge-EGP receipt figures (read-only over the stored EGP charge).
 const { isIntlOrder, primaryPrice, egpCharge } = require('./utils/money_display');
@@ -356,7 +356,9 @@ async function processEmail(notification, user, order) {
     doctorName: stripDrPrefix(data.doctorName),
     caseId: caseIdResolved,
     caseReference: caseReferenceForRecipient(data, order, caseIdResolved, user),
-    paymentUrl: paymentUrlResolved,
+    // Absolute (2 Nov 2026): orders.payment_link is a bare path, and an email
+    // button cannot follow one either.
+    paymentUrl: absoluteAppUrl(paymentUrlResolved),
     hoursRemaining: data.hoursRemaining || data.hours_remaining || slaHoursRemaining || '',
     // E2E 2026-10-06 — "6 days" / "6 أيام", for payment-reminder-24h.hbs. The
     // template used to print the raw hour count ("a final 144 hours"). Only
