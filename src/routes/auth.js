@@ -257,6 +257,13 @@ function getHomeByRole(role) {
 // Exported (see module.exports at the bottom of this file) so onboarding.js and
 // any future caller share ONE implementation; the previous duplicate
 // (_safeNext in onboarding.js) drifted and was missing the backslash case.
+// 2 Nov 2026 (patient recovery) — the first-time password step keeps `next`,
+// so a password-less patient who signs in from a draft-resume link
+// (/portal/patient/resume/<token> → /login?next=…) still lands on the draft.
+function setPasswordPath(next) {
+  return '/set-password' + (next ? '?next=' + encodeURIComponent(next) : '');
+}
+
 function safeNextPath(candidate) {
   if (!candidate) return null;
   const raw = String(candidate).trim();
@@ -378,12 +385,13 @@ router.post('/login', async (req, res) => {
     // === PHASE 3: FIX #12 - PASSWORD CHECK AT LOGIN ===
     // For patients who somehow have a valid token without a password,
     // redirect to set-password page (moved from middleware check on every request)
-    if (user.role === 'patient' && !user.password_hash) {
-      return res.redirect('/set-password');
-    }
-
     // Safe next redirect (same-site only)
     const next = safeNextPath((req.body && req.body.next) || (req.query && req.query.next));
+
+    if (user.role === 'patient' && !user.password_hash) {
+      return res.redirect(setPasswordPath(next));
+    }
+
     if (next) return res.redirect(next);
 
     // Role-based redirects
@@ -606,10 +614,10 @@ router.post('/login/otp/verify', parseOtpPhone, otpIpLimiter, otpVerifyCap, asyn
     establishWebSession(res, user);
     setLangCookie(res, user.lang || getReqLang(req));
 
-    if (user.role === 'patient' && !user.password_hash) {
-      return res.json({ ok: true, redirect: '/set-password' });
-    }
     const next = safeNextPath(req.body && req.body.next);
+    if (user.role === 'patient' && !user.password_hash) {
+      return res.json({ ok: true, redirect: setPasswordPath(next) });
+    }
     return res.json({ ok: true, redirect: next || getHomeByRole(user.role) });
   } catch (err) {
     console.error('[otp/verify] error:', err && err.message);
@@ -870,15 +878,16 @@ router.get('/set-password', welcomeTokenIpLimiter, async (req, res) => {
   const lang = c.isAr ? 'ar' : 'en';
   setLangCookie(res, lang);
 
-  if (!req.user) return res.redirect('/login');
+  const next = safeNextPath(req.query && req.query.next);
+  if (!req.user) return res.redirect('/login' + (next ? '?next=' + encodeURIComponent(next) : ''));
 
   const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role IN ('patient', 'doctor')", [req.user.id]);
   if (!user) return res.redirect('/login');
-  if (user.password_hash) return res.redirect(getHomeByRole(user.role));
+  if (user.password_hash) return res.redirect(next || getHomeByRole(user.role));
 
   // Send a doctor back to the doctor form, not the patient one, if they bail out.
   const backTo = user.role === 'doctor' ? '/doctor/login' : '/login';
-  return res.render('set_password', { error: null, success: null, lang, _lang: lang, isAr: c.isAr, copy: c, backTo });
+  return res.render('set_password', { error: null, success: null, lang, _lang: lang, isAr: c.isAr, copy: c, backTo, next });
 });
 
 // ============================================
@@ -889,11 +898,12 @@ router.post('/set-password', welcomeTokenIpLimiter, async (req, res) => {
   const lang = c.isAr ? 'ar' : 'en';
   setLangCookie(res, lang);
 
+  const next = safeNextPath(req.body && req.body.next);
   if (!req.user) return res.redirect('/login');
 
   const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role IN ('patient', 'doctor')", [req.user.id]);
   if (!user) return res.redirect('/login');
-  if (user.password_hash) return res.redirect(getHomeByRole(user.role));
+  if (user.password_hash) return res.redirect(next || getHomeByRole(user.role));
 
   const password = (req.body && req.body.password) || '';
   const confirm = (req.body && req.body.confirm_password) || '';
@@ -905,7 +915,8 @@ router.post('/set-password', welcomeTokenIpLimiter, async (req, res) => {
       _lang: lang,
       isAr: c.isAr,
       copy: c,
-      backTo: user.role === 'doctor' ? '/doctor/login' : '/login'
+      backTo: user.role === 'doctor' ? '/doctor/login' : '/login',
+      next
     });
   }
 
@@ -959,8 +970,20 @@ router.post('/set-password', welcomeTokenIpLimiter, async (req, res) => {
   // service union to /portal/doctor/services; empty-union doctors and everyone
   // else fall through to their normal home. One-time (driven by DB state, no
   // persistent guard) — a doctor who has confirmed services no longer matches.
+  // 2 Nov 2026 (patient recovery) — a fresh session for the person who just
+  // set the password. The UPDATE above stamped tokens_valid_after, which
+  // revokes every credential minted in an earlier second — including the
+  // session this very request arrived on (minted at OTP sign-in or magic
+  // login). Without this the patient was signed out within a minute
+  // (services/access_revocation TTL), on whatever page they had reached.
+  // Minted after the cut, so it survives it; every other session stays revoked.
+  establishWebSession(res, user);
+
   const doctorLanding = await resolveDoctorLanding(user);
   if (doctorLanding) return res.redirect(doctorLanding);
+
+  // …and back to where they were going: the draft a resume link was opening.
+  if (next) return res.redirect(next);
 
   return res.redirect(getHomeByRole(user.role));
 });
