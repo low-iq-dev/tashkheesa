@@ -45,6 +45,7 @@
           <input type="hidden" name="draft_id" value="<%= _draft %>" />
           <input type="hidden" name="wanted_specialty_id" value="<%= _c.chosen.id %>" />
           <input type="hidden" name="wanted_text" value="<%= _c.wantedText || '' %>" />
+          <% if (_c.viaClassifier) { %><input type="hidden" name="via" value="classifier" /><% } %>
           <button class="p-btn p-btn--primary" type="submit"><%= _t('Tell me when it opens', 'بلّغوني أول ما يفتح') %></button>
         </form>
         <a class="p-btn p-btn--ghost" href="/patient/new-case?step=3&id=<%= encodeURIComponent(_draft) %>#step3-form"><%= _t('Choose a related specialty', 'اختار تخصص قريب متاح') %></a>

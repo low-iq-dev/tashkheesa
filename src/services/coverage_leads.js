@@ -270,7 +270,10 @@ async function wizardContext(o, deps) {
   else if (pick) chosen = hidden.find((h) => String(h.id) === pick) || null;
   const leadSpecialty = lead && lead.wanted_specialty_id ? (hidden.find((h) => h.id === lead.wanted_specialty_id) || null) : null;
   const offers = (chosen && !lead) ? await reportReadOffers({ userId: o.userId }, deps) : [];
-  return { lead, leadSpecialty, hidden, trigger, chosen, wantedText: _cleanText(o.wantedText), offers, flash: o.leadFlash ? String(o.leadFlash) : null };
+  // The panel was opened by the classifier, not by the patient's own pick:
+  // a lead left from it is recorded with source 'classifier'.
+  const viaClassifier = !o.notListed && !!trigger;
+  return { lead, leadSpecialty, hidden, trigger, chosen, viaClassifier, wantedText: _cleanText(o.wantedText), offers, flash: o.leadFlash ? String(o.leadFlash) : null };
 }
 
 /** Leads whose draft has since been submitted: converted. Returns the count. */

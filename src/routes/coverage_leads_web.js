@@ -24,7 +24,8 @@ router.post('/patient/new-case/coverage-lead', requireRole('patient'), async (re
     await coverage.createLead({
       patientId: req.user.id, orderId: draftId || null,
       wantedSpecialtyId: b.wanted_specialty_id, wantedText: b.wanted_text,
-      source: 'web', lang,
+      // 'classifier' when the classifier opened the panel (wizardContext).
+      source: b.via === 'classifier' ? 'classifier' : 'web', lang,
     });
     return res.redirect(step3(draftId, '&lead=1'));
   } catch (err) {

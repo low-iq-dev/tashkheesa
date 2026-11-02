@@ -220,6 +220,19 @@ console.log('\n🧭  coverage leads (Part C)\n');
     assert.ok(ar.indexOf('لسه ما فتحناش تخصص المخ والأعصاب. سيب رقمك وهنبلغك أول ما يفتح — أو اختار تخصص قريب متاح.') !== -1, ar);
   });
 
+  await check('E1b: a panel the classifier opened records the lead as source "classifier"; a patient\'s own pick does not', async () => {
+    assert.ok(/name="via" value="classifier"/.test(render(Object.assign({}, chosen, { viaClassifier: true }))));
+    assert.ok(!/name="via"/.test(render(chosen)));
+    const st = seed();
+    const pg = Object.assign({}, st, { queryAll: async () => [Object.assign({ is_visible: false }, NEURO)] });
+    const ctx = await cl.wizardContext({ draftId: 'd-1', userId: 'p-1', classification: { specialty_id: 'spec-neurology', confidence: 0.97 }, visibleSpecialtyIds: ['spec-cardiology'] }, { pg, pricing: { resolveAndPriceIntake: async () => { throw new Error('x'); } } });
+    assert.strictEqual(ctx.viaClassifier, true);
+    assert.strictEqual(ctx.chosen.id, 'spec-neurology', 'the hidden specialty the classification named');
+    const own = await cl.wizardContext({ draftId: 'd-1', userId: 'p-1', classification: null, visibleSpecialtyIds: [], notListed: 'spec-neurology' }, { pg, pricing: { resolveAndPriceIntake: async () => { throw new Error('x'); } } });
+    assert.strictEqual(own.viaClassifier, false);
+    assert.ok(/source: b\.via === 'classifier' \? 'classifier' : 'web'/.test(read('src/routes/coverage_leads_web.js')));
+  });
+
   await check('E2: at the locked tier the general read is not offered (step 3 would refuse it)', () => {
     assert.ok(!/entry_read_internal-medicine/.test(render(chosen, { tier: 'locked' })));
     assert.ok(/Tell me when it opens/.test(render(chosen, { tier: 'locked' })), 'the lead is still offered');
