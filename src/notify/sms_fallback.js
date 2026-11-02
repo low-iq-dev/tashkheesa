@@ -187,7 +187,10 @@ async function maybeQueueSmsFallback(row, user, status, result, deps) {
     if (decision !== 'send') return { queued: false, reason: decision };
 
     const smsKey = channelKey(wa.dedupe_key, 'whatsapp', 'sms') || ('sms_fallback:' + wa.id);
-    const base = _parse(row.channel === 'whatsapp' ? row.response : wa.response);
+    // The payload of the row being finalised, as it was queued (the worker
+    // passes the claimed row). Never the sibling's stored response: once a
+    // row is final its response column holds the channel's result instead.
+    const base = _parse(row.response);
     const queue = d.queueNotification || require('../notify').queueNotification;
     const r = await queue({
       channel: 'sms',

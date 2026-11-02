@@ -1,0 +1,29 @@
+<!-- Coverage lead — the specialty the patient asked about is open (patient recovery, Part C). -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#0B6B5F;">
+  {{#if specialtyName}}{{specialtyName}} is now open{{else}}The specialty you asked about is now open{{/if}}
+</h2>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4A4640;">
+  Hi {{patientName}},
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4A4640;">
+  You asked us to tell you when this specialty opens on Tashkheesa. It is open now, and the case you started is saved, so you can pick up where you left off.
+</p>
+
+{{#if resumeUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px auto;">
+  <tr>
+    <td align="center" style="background-color:#0B6B5F;border-radius:8px;">
+      <a href="{{resumeUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        Continue my case
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
+
+<p style="margin:24px 0 0 0;font-size:13px;color:#7A736A;line-height:1.5;">
+  We will not send you anything else about this. Questions? Just reply to this email.<br>
+  — The Tashkheesa team
+</p>

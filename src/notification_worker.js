@@ -45,6 +45,7 @@ const { formatMoney } = require('./utils/formatNumber');
 // rule lives in notify/sms_fallback.js; this file only calls it.
 const smsFallback = require('./notify/sms_fallback');
 const { ALLOWLIST: SMS_ALLOWLIST } = require('./notify/sms_templates');
+const { withResumeLink } = require('./services/draft_resume');
 
 // AUDIT-2026-08-22: parseInt('' | 'three' | 'null', 10) is NaN, and NaN poisons
 // the whole retry state machine rather than failing loudly:
@@ -215,6 +216,12 @@ const TEMPLATE_TO_EMAIL = {
   // submission. Sent only when specialty changes (not for service-only
   // changes within the same specialty).
   case_routing_updated: 'case-routing-updated',
+  // Patient recovery (2 Nov 2026) — Part A's draft-resume nudges and Part C's
+  // "the specialty you asked about is open". The warm family, signed by the
+  // team; the link is {{resumeUrl}} (services/draft_resume.withResumeLink).
+  draft_resume_1h:    'draft-resume-1h',
+  draft_resume_24h:   'draft-resume-24h',
+  coverage_lead_open: 'coverage-lead-open',
 };
 
 /**
@@ -669,6 +676,12 @@ async function fallbackAfterFinal(row, status, result) {
       'SELECT id, email, name, phone, lang, role, notify_whatsapp FROM users WHERE id = $1', [row.to_user_id]);
     if (user) await smsFallback.maybeQueueSmsFallback(row, user, status, result);
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'notification_worker.sms_fallback_after_recovery',
+      category: 'notification_worker',
+      candidateId: row && row.id,
+      workerPhase: 'interval'
+    });
     console.error('[notify-worker] sms fallback after recovery failed', err && err.message);
   }
 }
@@ -849,14 +862,17 @@ async function runNotificationWorker(limit = 50) {
       const channel = n.channel || 'internal';
       let result = { ok: false, error: 'unknown_channel' };
 
+      // Part A — a draft-resume row carries the token's id, never the token;
+      // the link is rebuilt here for the send (services/draft_resume.js).
+      const nx = withResumeLink(n);
       if (channel === 'email') {
-        result = await processEmail(n, user, order);
+        result = await processEmail(nx, user, order);
       } else if (channel === 'whatsapp') {
-        result = await processWhatsApp(n, user, order);
+        result = await processWhatsApp(nx, user, order);
       } else if (channel === 'sms') {
         // Part B — never retried: processSms answers sent, skipped, or a
         // permanent failure.
-        result = await smsFallback.processSms(n, user, order);
+        result = await smsFallback.processSms(nx, user, order);
       } else if (channel === 'internal') {
         // Internal notifications are already visible in-app; mark as sent
         result = { ok: true };

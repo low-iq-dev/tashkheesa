@@ -522,6 +522,34 @@ async function scheduleFxRates() {
   return true;
 }
 
+/**
+ * The draft-resume nudges — every 15 minutes, singleton across instances
+ * (patient recovery, Part A, 2 Nov 2026). services/draft_nudges.js holds the
+ * rules. It heartbeats as 'draft_nudges', registered in
+ * admin_health.WORKER_SPECS, so /healthz notices if it stops.
+ */
+async function handleDraftNudges() {
+  const { runDraftNudgeSweep } = require('./services/draft_nudges');
+  pingOps('draft_nudges', 'nudging idle drafts');
+  const result = await runDraftNudgeSweep();
+  if (result && (result.nudged || result.converted)) {
+    logMajor('[draft-nudges] ' + JSON.stringify(result));
+  }
+  return result;
+}
+
+async function scheduleDraftNudges() {
+  if (!boss) return false;
+  // createQueue first — pg-boss throws "Queue <name> does not exist" from
+  // work()/schedule() otherwise (tests/lint/pgboss-queues-are-created.test.js;
+  // the note in scheduleAttentionSweep).
+  await boss.createQueue('draft-nudges');
+  await boss.work('draft-nudges', { teamSize: 1, teamConcurrency: 1 }, handleDraftNudges);
+  await boss.schedule('draft-nudges', '*/15 * * * *', {}, { singletonKey: 'draft-nudges' });
+  logMajor('[job-queue] draft nudges scheduled via pg-boss (*/15 * * * *, singleton)');
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Graceful shutdown
 // ---------------------------------------------------------------------------
@@ -545,6 +573,7 @@ module.exports = {
   scheduleAiCanary: scheduleAiCanary,
   scheduleClassifierLearning: scheduleClassifierLearning,
   scheduleFxRates: scheduleFxRates,
+  scheduleDraftNudges: scheduleDraftNudges,
   enqueueCaseIntelligence: enqueueCaseIntelligence,
   enqueueCaseReprocess: enqueueCaseReprocess,
   enqueueAutoAssign: enqueueAutoAssign,

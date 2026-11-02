@@ -296,6 +296,14 @@ function formatDigest(f, since) {
     'Paid: ' + fmt(f.paid) + (f.paid_amount ? ' · EGP ' + Number(f.paid_amount).toLocaleString('en-US') : ''),
   ];
   if (f.delivered !== undefined) lines.push('Reports delivered: ' + fmt(f.delivered));
+  // 2 Nov 2026 (patient recovery, Part A) — the draft-resume nudges, from
+  // funnel_daily_counts (services/draft_nudges.js, services/draft_resume.js):
+  // sent, links opened, and drafts submitted within 72 h of a nudge. Shown
+  // only on a day with any.
+  if (f.draft_resume_sent || f.draft_resumed || f.draft_resume_converted) {
+    lines.push('Draft nudges: sent ' + fmt(f.draft_resume_sent || 0) + ' · resumed ' + fmt(f.draft_resumed || 0) +
+      ' · submitted within 72h ' + fmt(f.draft_resume_converted || 0));
+  }
   const camps = Object.keys(f).filter(function (k) { return k.indexOf('_view@') !== -1; }).sort();
   if (camps.length) {
     lines.push('', 'By ad campaign (landing views):');

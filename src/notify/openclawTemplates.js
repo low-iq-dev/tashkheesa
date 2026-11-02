@@ -150,6 +150,28 @@ const OPENCLAW_TEMPLATES = {
     ar: (v) => `أهلاً${v.patientName ? ' ' + v.patientName : ''} 👋 لسه ممكن تبعت تقريرك أو أشعتك، واستشاري متخصص يرد عليك مكتوب خلال 48 ساعة. ابدأ من هنا: ${v.link}\n— فريق تشخيصة`
   },
 
+  // ── Draft-resume nudges (2 Nov 2026, services/draft_nudges.js) ──
+  // Patient recovery, Part A. Fixed copy approved in the brief, word for word;
+  // no AI. `link` is /portal/patient/resume/<token>, rebuilt by the worker from
+  // the token id (services/draft_resume.withResumeLink). An app draft has no
+  // reference until submit: cleanMissingReference turns "your case " into
+  // "your case" / "حالتك" then.
+  draft_resume_1h: {
+    en: (v) => `Tashkheesa: your case ${v.caseReference} is saved. Finish it in 2 minutes: ${v.link}`,
+    ar: (v) => `تشخيصة: حالتك ${v.caseReference} محفوظة. أكملها في دقيقتين: ${v.link}`
+  },
+  draft_resume_24h: {
+    en: (v) => `Tashkheesa: your case ${v.caseReference} is still waiting. A named consultant from Shifa Hospital Group can review it within 48 hours: ${v.link}`,
+    ar: (v) => `تشخيصة: حالتك ${v.caseReference} لسه مستنية. استشاري من مجموعة مستشفيات شفاء يراجعها خلال 48 ساعة: ${v.link}`
+  },
+  // Part C — sent by the superadmin's "Notify waiting leads" once a specialty
+  // opens (services/coverage_leads.js). Names the specialty: the patient asked
+  // for it by name. No clinical content.
+  coverage_lead_open: {
+    en: (v) => `Tashkheesa: ${v.specialtyName || 'the specialty you asked about'} is now open. You can continue your case here: ${v.link}\n— The Tashkheesa team`,
+    ar: (v) => `تشخيصة: تخصص ${v.specialtyNameAr || v.specialtyName || 'اللي سألت عنه'} فتح دلوقتي. تقدر تكمّل حالتك من هنا: ${v.link}\n— فريق تشخيصة`
+  },
+
   // ── h. Payment reminders for unpaid cases (#66) ────────────────────
   // Queued by case_lifecycle.dispatchUnpaidCaseReminders at 30m / 6h /
   // 24h after the case is SUBMITTED (not created — E2E 2026-10-06).

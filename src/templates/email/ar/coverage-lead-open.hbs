@@ -1,0 +1,29 @@
+<!-- طلب تخصص — التخصص اللي المريض سأل عنه فتح (استعادة المرضى، الجزء ج). -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#0B6B5F;">
+  {{#if specialtyName}}تخصص {{specialtyName}} فتح دلوقتي{{else}}التخصص اللي سألت عنه فتح دلوقتي{{/if}}
+</h2>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4A4640;">
+  أهلاً {{patientName}}،
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4A4640;">
+  طلبت مننا نبلغك أول ما التخصص ده يفتح على تشخيصة. هو فتح دلوقتي، والحالة اللي بدأتها محفوظة، فتقدر تكمّل من نفس المكان.
+</p>
+
+{{#if resumeUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px auto;">
+  <tr>
+    <td align="center" style="background-color:#0B6B5F;border-radius:8px;">
+      <a href="{{resumeUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        كمّل حالتي
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
+
+<p style="margin:24px 0 0 0;font-size:13px;color:#7A736A;line-height:1.6;">
+  مش هنبعتلك حاجة تانية عن الموضوع ده. لو عندك أي سؤال، رد على الإيميل ده.<br>
+  — فريق تشخيصة
+</p>

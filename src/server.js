@@ -1162,6 +1162,9 @@ app.use('/', require('./routes/webhooks_resend'));
 app.use('/', authRoutes);
 app.use('/', doctorRoutes);
 app.use('/', patientRoutes);
+// Patient recovery (2 Nov 2026) — the draft-resume links
+// (/portal/patient/resume/:token and the SMS short form /r/:token).
+app.use('/', require('./routes/draft_resume'));
 
 // Theme 13 Sub-issue A — patient direct-to-R2 upload endpoint (replaces the
 // Uploadcare widget on patient_new_case.ejs / patient_order.ejs). Mounted
@@ -1456,7 +1459,7 @@ async function runSlaEnforcementSweep(source) {
   }
 }
 
-var { startJobQueue, stopJobQueue, scheduleSlaSweep, scheduleAiCanary, scheduleClassifierLearning, scheduleAttentionSweep, scheduleSystemChecks, scheduleFxRates } = require('./job_queue');
+var { startJobQueue, stopJobQueue, scheduleSlaSweep, scheduleAiCanary, scheduleClassifierLearning, scheduleAttentionSweep, scheduleSystemChecks, scheduleFxRates, scheduleDraftNudges } = require('./job_queue');
 
 // Boot: wait for DB migration before starting workers
 _dbReady.then(async function() {
@@ -1503,6 +1506,12 @@ _dbReady.then(async function() {
   // worst) and the staleness alert in services/fx_rates_job says so.
   try { await scheduleFxRates(); } catch (e) {
     logMajor('FX rates pull schedule failed — rates will not refresh: ' + e.message);
+  }
+  // 2026-11-02 (patient recovery, Part A) — the draft-resume nudges, every 15
+  // minutes. Ungated like the attention sweep: it is patient recovery, not an
+  // SLA concern. Registered in admin_health.WORKER_SPECS as 'draft_nudges'.
+  try { await scheduleDraftNudges(); } catch (e) {
+    logMajor('Draft nudge schedule FAILED — abandoned drafts get no reminder: ' + e.message);
   }
   try {
     var _fx = require('./fx');
