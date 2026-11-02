@@ -25,4 +25,33 @@ function isCairoQuietHours(now, win) {
   return start > end ? (h >= start || h < end) : (h >= start && h < end);
 }
 
-module.exports = { isCairoQuietHours, cairoHour };
+// Cairo's offset from UTC at `d`, in minutes (+120 in winter, +180 in summer).
+function cairoOffsetMinutes(d) {
+  const parts = {};
+  new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Cairo', hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(d).forEach((p) => { parts[p.type] = p.value; });
+  const asUtc = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
+  return Math.round((asUtc - Math.floor(d.getTime() / 1000) * 1000) / 60000);
+}
+
+/**
+ * The next time the Cairo clock reads `hour`:00 — today's if it is earlier than
+ * that now, tomorrow's otherwise. Daylight saving is handled: the offset is
+ * read at the target, not at `now` (Egypt changes clocks at night).
+ * @returns {Date}
+ */
+function nextCairoTime(now, hour) {
+  const n = now || new Date();
+  const off = cairoOffsetMinutes(n);
+  const local = new Date(n.getTime() + off * 60000); // Cairo wall clock, read with UTC getters
+  let target = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), hour, 0, 0);
+  if (local.getUTCHours() >= hour) target += 24 * 3600e3;
+  let utc = target - off * 60000;
+  const offAtTarget = cairoOffsetMinutes(new Date(utc));
+  if (offAtTarget !== off) utc = target - offAtTarget * 60000;
+  return new Date(utc);
+}
+
+module.exports = { isCairoQuietHours, cairoHour, nextCairoTime, cairoOffsetMinutes };

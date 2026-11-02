@@ -56,6 +56,14 @@
 // WhatsApp failure can produce one SMS row, however many times this is asked.
 
 const { isSmsAllowlisted, renderSms } = require('./sms_templates');
+const { isCairoQuietHours, nextCairoTime } = require('../utils/cairo_quiet_hours');
+
+// QUIET HOURS (follow-up, 2 Nov 2026) — no patient SMS between 22:00 and 08:00
+// Cairo. A fallback that comes due at night is DEFERRED, never dropped: the
+// worker leaves the row queued with retry_after at the next 08:00 Cairo and
+// sends it then, after the caps are checked at that moment. WhatsApp and
+// in-app are untouched; the draft nudges are already 08:00–22:00 only.
+const SMS_QUIET = Object.freeze({ startHour: 22, endHour: 8 });
 
 const FINAL_STATUSES = new Set(['sent', 'failed', 'skipped']);
 // A WhatsApp skip for these reasons is the patient's own state, not a delivery
@@ -223,7 +231,9 @@ const CAIRO_MIDNIGHT_UTC_SQL = "((date_trunc('day', NOW() AT TIME ZONE 'Africa/C
 /**
  * Process one claimed sms row for the worker. Returns the worker's result
  * shape: { ok: true, … } | { skipped: '<reason>' } | { ok: false, error,
- * permanent: true }. An SMS is never retried — a failure is final.
+ * permanent: true } | { deferUntil: '<ISO>' } (quiet hours — the worker
+ * re-queues the row for then, payload and attempts untouched). An SMS is never
+ * retried — a failure is final.
  */
 async function processSms(n, user, order, deps) {
   const d = deps || {};
@@ -237,6 +247,11 @@ async function processSms(n, user, order, deps) {
 
   const provider = d.provider || require('./sms_provider');
   if (!provider.isSmsConfigured(env)) return { skipped: 'sms_unconfigured' };
+
+  const now = d.now || new Date();
+  if (isCairoQuietHours(now, SMS_QUIET)) {
+    return { deferUntil: nextCairoTime(now, SMS_QUIET.endHour).toISOString(), reason: 'sms_quiet_hours' };
+  }
 
   const lang = String(user.lang || '').toLowerCase() === 'ar' ? 'ar' : 'en';
   const msg = renderSms(n.template, lang, _parse(n.response), n.order_id || (order && order.id) || null);
@@ -260,7 +275,7 @@ async function processSms(n, user, order, deps) {
       const push = d.pushOpsEvent || require('../services/ops_push').pushOpsEvent;
       await push({
         kind: 'sms_cap',
-        dedupeKey: cairoDay(d.now),
+        dedupeKey: cairoDay(now),
         title: 'SMS daily cap reached',
         body: 'SMS fallback stopped for today at ' + cap + ' messages (SMS_DAILY_CAP). Later fallbacks are written skipped.',
         data: { screen: 'system' },
@@ -286,5 +301,5 @@ async function processSms(n, user, order, deps) {
 
 module.exports = {
   whatsappOutcome, whatsappFailureIsFinal, isSingleShot, channelKey, fallbackDecision,
-  maybeQueueSmsFallback, processSms, dailyCap, PER_PATIENT_CAP, DEFAULT_DAILY_CAP, NO_FALLBACK_SKIPS,
+  maybeQueueSmsFallback, processSms, dailyCap, PER_PATIENT_CAP, DEFAULT_DAILY_CAP, NO_FALLBACK_SKIPS, SMS_QUIET,
 };

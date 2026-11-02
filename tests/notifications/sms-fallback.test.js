@@ -26,6 +26,8 @@ const fb = require('../../src/notify/sms_fallback');
 const { outcomeForStatus } = require('../../src/lib/openclaw_client');
 const provider = require('../../src/notify/sms_provider');
 
+// A Cairo daytime clock for every send below (SMS waits out 22:00–08:00).
+const DAY = new Date('2026-11-02T10:00:00Z'); // 12:00 Cairo
 const PATIENT = { id: 'u-1', role: 'patient', phone: '+201012345678', email: null, lang: 'ar', notify_whatsapp: true };
 const ORDER = 'fb92814a-d2b3-426d-b259-e6456df1e1a8';
 const KEY30 = 'payment_reminder:30m:whatsapp:' + ORDER + ':u-1';
@@ -180,7 +182,7 @@ console.log('\n📲  WhatsApp single attempt + SMS fallback (Parts E, B)\n');
 
   await check('D3: per-patient cap — the 4th SMS in 24 hours is skipped sms_patient_cap', async () => {
     const p = smsProvider();
-    const r = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([{ n: 3 }]), env: {} });
+    const r = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([{ n: 3 }]), env: {}, now: DAY });
     assert.deepStrictEqual(r, { skipped: 'sms_patient_cap' });
     assert.strictEqual(p.sent.length, 0);
   });
@@ -199,7 +201,7 @@ console.log('\n📲  WhatsApp single attempt + SMS fallback (Parts E, B)\n');
 
   await check('D5: a send records the provider SID, price and segments; the Arabic body is reference + link only', async () => {
     const p = smsProvider();
-    const r = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([{ n: 0 }, { n: 0 }]), env: {} });
+    const r = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([{ n: 0 }, { n: 0 }]), env: {}, now: DAY });
     assert.strictEqual(r.ok, true);
     assert.strictEqual(r.sid, 'SM123');
     assert.strictEqual(r.segments, 2);
@@ -211,10 +213,37 @@ console.log('\n📲  WhatsApp single attempt + SMS fallback (Parts E, B)\n');
 
   await check('D6: a provider failure is final (permanent) — an SMS is never retried', async () => {
     const p = smsProvider({ sendSms: async () => ({ ok: false, error: 'timeout', outcome: 'unknown' }) });
-    const r = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([{ n: 0 }, { n: 0 }]), env: {} });
+    const r = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([{ n: 0 }, { n: 0 }]), env: {}, now: DAY });
     assert.strictEqual(r.ok, false);
     assert.strictEqual(r.permanent, true);
     assert.strictEqual(r.outcome, 'unknown');
+  });
+
+  await check('D7: quiet hours — at 03:00 Cairo the SMS waits for 08:00 (no send, no cap queries); at 08:05 it goes', async () => {
+    const p = smsProvider(); const q = fakeQueryOne([{ n: 0 }, { n: 0 }]);
+    const night = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: q, env: {}, now: new Date('2026-11-03T01:00:00Z') }); // 03:00 Cairo
+    assert.deepStrictEqual(night, { deferUntil: '2026-11-03T06:00:00.000Z', reason: 'sms_quiet_hours' }, '08:00 Cairo the same morning');
+    assert.strictEqual(p.sent.length, 0);
+    assert.strictEqual(q.calls.length, 0, 'caps are counted when it is sent, not now');
+    const morning = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([{ n: 0 }, { n: 0 }]), env: {}, now: new Date('2026-11-03T06:05:00Z') }); // 08:05
+    assert.strictEqual(morning.ok, true);
+    assert.strictEqual(p.sent.length, 1);
+  });
+
+  await check('D8: 22:30 Cairo waits for tomorrow 08:00; summer time (UTC+3) is honoured', async () => {
+    const p = smsProvider();
+    const late = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([]), env: {}, now: new Date('2026-11-02T20:30:00Z') });
+    assert.strictEqual(late.deferUntil, '2026-11-03T06:00:00.000Z');
+    const july = await fb.processSms(SMS_ROW, PATIENT, null, { provider: p, queryOne: fakeQueryOne([]), env: {}, now: new Date('2026-07-10T00:30:00Z') }); // 03:30 Cairo (UTC+3)
+    assert.strictEqual(july.deferUntil, '2026-07-10T05:00:00.000Z');
+    assert.strictEqual(p.sent.length, 0);
+  });
+
+  await check('D9: the worker re-queues a deferred SMS for 08:00 and leaves its payload and attempts alone', () => {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'src', 'notification_worker.js'), 'utf8');
+    assert.ok(/\} else if \(result\.deferUntil\) \{[\s\S]{0,600}UPDATE notifications SET status = \$1, retry_after = \$2 WHERE id = \$3', \[\s*'queued',\s*result\.deferUntil,/.test(src));
+    const branch = src.slice(src.indexOf('} else if (result.deferUntil) {'), src.indexOf('} else if (result.skipped) {'));
+    assert.ok(!/response|attempts/.test(branch.replace(/\/\/.*$/gm, '')), 'deferral touches neither response nor attempts');
   });
 
   // ════ E ════

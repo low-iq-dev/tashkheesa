@@ -894,6 +894,16 @@ async function runNotificationWorker(limit = 50) {
           JSON.stringify(result),
           n.id
         ]);
+      } else if (result.deferUntil) {
+        // Patient recovery follow-up (2 Nov 2026) — an SMS inside Cairo quiet
+        // hours waits for 08:00 (notify/sms_fallback.processSms). Back to
+        // 'queued' with retry_after then; the payload it will be rendered from
+        // and the attempt count are left exactly as they were.
+        await execute('UPDATE notifications SET status = $1, retry_after = $2 WHERE id = $3', [
+          'queued',
+          result.deferUntil,
+          n.id
+        ]);
       } else if (result.skipped) {
         // Theme 8 Phase 4-C — split skipped from sent. Pre-fix the
         // ops-dashboard "Notifications: sent" pill counted user-preference
