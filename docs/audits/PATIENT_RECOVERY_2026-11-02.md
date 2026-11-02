@@ -6,7 +6,8 @@ Branch `feat/patient-recovery-2026-10-16`, worktree `../tashkheesa-recovery`, cu
 rolled back — see §5).
 
 Commits, in order: Part D `7c68681`, Parts E + B `82d4429`, Part A `b53d320`,
-Part C `85d7064`, this report (head SHA in §8).
+Part C `85d7064`, the recovery-path fix `0b12702`, the classifier source `837fc05`, and this
+report (head SHA in §9).
 
 ---
 
@@ -384,7 +385,42 @@ Suite results are in §2.
 
 ## 2. Suite results on the final head
 
-<!-- SUITE-RESULTS -->
+Run on code head `837fc05`. The commits after it touch only this report. Both modes
+follow `docs/RELEASE.md`.
+
+- **With a database.** Built from zero: `createdb`, `migration_strict = on`, the app's own
+  `migrate()` through 134, then CI's env block.
+  - `npm test` → **exit 0**.
+  - `Passed: 3957 · Failed: 0 · Skipped: 40 · Files: 385 (0 with failures)`.
+  - No "integration tests skipped" note.
+  - The new database tests ran rather than skipped: `core/draft-nudges-db` 11,
+    `core/coverage-leads-db` 6, `notifications/whatsapp-single-attempt` 4.
+- **Without a database.** No `DATABASE_URL`, no `.env` in the worktree.
+  - `npm test` → exit 1, as expected.
+  - Gate: **`163 known failure(s) · 0 NEW · 0 baseline entries now passing`**, ✅.
+  - `Passed: 3666 · Failed: 163 · Skipped: 67`. Refused count: 163, the same as on
+    27 Oct.
+  - The three new database test files skip themselves in this mode and are counted as
+    skipped, not failed. The baseline file is unchanged.
+
+New test files and their counts (from the database run):
+
+- `auth/otp-phone-guard` 20
+- `notifications/sms-fallback` 23
+- `notifications/whatsapp-single-attempt` 4
+- `lint/sms-templates-fit` 14
+- `core/draft-nudges` 22
+- `core/draft-nudges-db` 11
+- `lint/needs-attention-134-arms` 3
+- `core/coverage-leads` 20
+- `core/coverage-leads-db` 6
+
+One existing test changed: `auth/batch-c-sessions-and-doctor-door`, whose doctor-door OTP
+seeds are now E.164 (§1, Part D).
+
+The web UI was checked by rendering the real templates in tests: the full step-3 wizard in
+EN and AR with the panel, and the superadmin page. It was **not** clicked through in a
+browser against a running server.
 
 ## 3. API and view changes — safe for installed builds?
 
@@ -421,8 +457,11 @@ they then go to the patient's home.
   `131_promo_codes.sql` (26 Oct), the same as main, and no unmerged branch carries
   migrations.
 - Each dry run ran cumulatively in one transaction and ended in `RAISE EXCEPTION`, which
-  rolls the transaction back. The 134 run sent the file's statements with the comments
-  stripped.
+  rolls the transaction back.
+- The 132 and 133 rows below came from runs I compacted by hand. The 134 run was then
+  repeated with the generated text: all three files' statements, verbatim, with only `--`
+  comment lines and blank lines removed. That run is the authoritative one, and its result
+  is identical.
 
 | Migration | Result |
 |---|---|
@@ -475,6 +514,17 @@ service: it is shown visible specialties only.
   - For a later second provider, an Egyptian SMS gateway is one more adapter in
     `notify/sms_provider.js`.
 - **Optional:** `SMS_DAILY_CAP` if 100 a day is wrong.
+- **SMS at night — your call.**
+  - Payment reminders, report-ready and refund messages have no quiet hours today. Once SMS
+    is configured, a WhatsApp that fails at 03:00 produces an SMS at 03:00.
+  - The draft nudges are only sent 08:00–22:00, so they are unaffected.
+  - If the SMS fallback should wait for 08:00 Cairo, that is a small change in
+    `notify/sms_fallback.processSms` (`utils/cairo_quiet_hours` is there to reuse). Not
+    done here.
+- **Production schema, checked read-only:** `notifications` has no triggers and no check
+  constraints, only the primary key, so `channel = 'sms'` rows are accepted. The 3-column
+  unique dedupe index the SMS keys rely on exists.
+- **`/r/` is free:** no route, view, public asset or marketing link uses it.
 - **The 202 gap.**
   - The gateway answers 202 on its common path, because the CLI takes 13–18 s. The portal
     then records `sent` for a send that may still fail, as happened on 15 Oct.
@@ -504,6 +554,13 @@ service: it is shown visible specialties only.
 - **`coverage_leads` did not exist on origin/main**, and the 25 Oct patient batch built
   none of these parts.
 
-## 8. Branch
+## 8. A note on this session
 
-`feat/patient-recovery-2026-10-16` — head `<!-- HEAD -->`. Not pushed.
+To stop my own test run I ran `pkill -f tests/run.js`. That pattern matches any test
+runner on this machine, not only the one in this worktree. If another session was running
+the suite at that moment, it was stopped too.
+
+## 9. Branch
+
+`feat/patient-recovery-2026-10-16`. Code head `837fc05`; the branch head is the commit that adds
+the final version of this report (named in the hand-back message). Not pushed.
