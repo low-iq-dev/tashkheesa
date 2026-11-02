@@ -28,3 +28,12 @@ test('auth pages use the teal background (portal-global no longer overrides it w
   assert.ok(block.includes('#F8F5EF'));
   assert.ok(!block.includes('var(--medical-blue)'));
 });
+
+// 2 Nov 2026 — register leak: no client-side gate that in-app browsers hide.
+test('register form: terms accepted by the tap, inline validation, no required checkbox', () => {
+  const v = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'views', 'register.ejs'), 'utf8');
+  assert.ok(!/type="checkbox"[^>]*name="terms"[^>]*required/.test(v), 'terms checkbox must not be required');
+  assert.ok(v.includes('<input type="hidden" name="terms" value="on" />'), 'terms travel as a hidden field');
+  assert.ok(/id="reg-form"[^>]*novalidate/.test(v), 'form is novalidate (inline messages instead)');
+  assert.ok(v.includes("beacon('register_tap')"), 'every tap is counted');
+});

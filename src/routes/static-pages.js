@@ -593,7 +593,9 @@ function setupStaticPages(opts) {
         }));
       } else if (step === 'start_cta' || step === 'start_wa' || step === 'services_cta' || step === 'services_card' || step === 'services_help' || step === 'uk_cta' || step === 'uk_wa' ||
                  // 26 Oct 2026 — /register seen for a second (register.ejs)
-                 step === 'register_view') {
+                 step === 'register_view' ||
+                 // 2 Nov 2026 — every tap on "Start my case", and taps stopped by an empty field
+                 step === 'register_tap' || step === 'register_blocked_name' || step === 'register_blocked_phone') {
         fd.bumpFunnelCount(step, req);
       }
     } catch (_) {}

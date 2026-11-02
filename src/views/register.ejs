@@ -24,7 +24,7 @@
         </div>
       <% } %>
 
-      <form method="post" action="/register">
+      <form method="post" action="/register" id="reg-form" novalidate>
         <%- (typeof csrfField === 'function') ? csrfField() : '' %>
         <% if (typeof regNext !== 'undefined' && regNext) { %>
           <input type="hidden" name="next" value="<%= regNext %>">
@@ -57,21 +57,30 @@
           <small id="reg-phone-hint" style="color:#64748b;font-size:0.78rem;"><%= isAr ? 'هنبعتلك تحديثات حالتك على الواتساب.' : "We'll send your case updates on WhatsApp." %></small>
         </div>
 
-        <div class="form-group">
-          <label class="form-label" style="display:flex;gap:8px;align-items:flex-start;font-weight:500;">
-            <input type="checkbox" name="terms" required style="margin-top:4px;" />
-            <span>
-              <%= isAr ? 'أوافق على' : 'I agree to the' %>
-              <a href="<%= locals.publicLinkPrefix || '' %>/terms" target="_blank"><%= isAr ? 'الشروط والأحكام' : 'Terms' %></a>
-              <%= isAr ? 'و' : 'and' %>
-              <a href="<%= locals.publicLinkPrefix || '' %>/privacy" target="_blank"><%= isAr ? 'سياسة الخصوصية' : 'Privacy Policy' %></a>
-            </span>
-          </label>
-        </div>
+        <%#
+          2 Nov 2026 — REGISTER LEAK. Between 26 Oct and 2 Nov the page was opened
+          91 times and POSTed once (register_submit counts every POST, and no
+          register_err_* fired), so taps were stopped in the browser. Most likely
+          the required 13px terms checkbox: in Meta's in-app browser (almost all
+          paid traffic) the validation bubble is easy to miss or absent, so the
+          button looked dead. Acceptance is
+          now by tapping the button, stated right below it, and the server still
+          refuses a POST without terms (hidden field below). Empty fields get a
+          visible inline message instead of a browser bubble (novalidate + JS).
+        %>
+        <input type="hidden" name="terms" value="on" />
+        <p id="reg-inline-error" role="alert" style="display:none;color:#b42318;font-size:0.9rem;margin:0 0 8px;"></p>
 
         <div class="auth-actions">
-          <button class="btn btn-primary btn-full" type="submit"><%= isAr ? 'ابدأ حالتك' : 'Start my case' %></button>
+          <button class="btn btn-primary btn-full" id="reg-submit" type="submit"><%= isAr ? 'ابدأ حالتك' : 'Start my case' %></button>
         </div>
+
+        <p class="flow-note" style="font-size:0.8rem;">
+          <%= isAr ? 'بالضغط على «ابدأ حالتك» حضرتك موافق على' : 'By tapping Start my case you agree to the' %>
+          <a href="<%= locals.publicLinkPrefix || '' %>/terms" target="_blank"><%= isAr ? 'الشروط والأحكام' : 'Terms' %></a>
+          <%= isAr ? 'و' : 'and' %>
+          <a href="<%= locals.publicLinkPrefix || '' %>/privacy" target="_blank"><%= isAr ? 'سياسة الخصوصية' : 'Privacy Policy' %></a>.
+        </p>
 
         <p class="flow-note"><%= isAr ? 'لن نشارك بياناتك مع أي طرف ثالث.' : 'We never share your data with third parties.' %></p>
 
@@ -111,6 +120,42 @@
   }
   document.addEventListener('visibilitychange', arm);
   arm();
+
+  // 2 Nov 2026 — inline validation (the form is novalidate: in-app browsers
+  // show no bubble) + funnel counts for every tap, sent with sendBeacon so
+  // they survive the navigation.
+  function beacon(step) {
+    try {
+      if (navigator.sendBeacon) navigator.sendBeacon('/f/e?s=' + step);
+      else fetch('/f/e?s=' + step, { keepalive: true, credentials: 'same-origin' });
+    } catch (e) {}
+  }
+  var form = document.getElementById('reg-form');
+  var errEl = document.getElementById('reg-inline-error');
+  var btn = document.getElementById('reg-submit');
+  var nameEl = document.getElementById('reg-name');
+  var isAr = <%- isAr ? 'true' : 'false' %>;
+  if (form) {
+    form.addEventListener('submit', function (ev) {
+      var missing = null;
+      if (!nameEl || !String(nameEl.value || '').trim()) missing = 'name';
+      else if (!ph || !String(ph.value || '').trim()) missing = 'phone';
+      if (missing) {
+        ev.preventDefault();
+        beacon('register_blocked_' + missing);
+        if (errEl) {
+          errEl.textContent = missing === 'name'
+            ? (isAr ? 'اكتب اسمك الأول.' : 'Please write your name first.')
+            : (isAr ? 'اكتب رقم الواتساب بتاعك.' : 'Please write your WhatsApp number.');
+          errEl.style.display = 'block';
+        }
+        try { (missing === 'name' ? nameEl : ph).focus(); } catch (e) {}
+        return;
+      }
+      beacon('register_tap');
+      if (btn) { btn.disabled = true; btn.textContent = isAr ? 'لحظة…' : 'One moment…'; }
+    });
+  }
 })();
 </script>
 
