@@ -1165,6 +1165,10 @@ app.use('/', patientRoutes);
 // Patient recovery (2 Nov 2026) — the draft-resume links
 // (/portal/patient/resume/:token and the SMS short form /r/:token).
 app.use('/', require('./routes/draft_resume'));
+// Part C — the wizard's "Tell me when it opens", and the superadmin's
+// "Notify waiting leads" (/superadmin/coverage-leads).
+app.use('/', require('./routes/coverage_leads_web'));
+app.use('/', require('./routes/superadmin_coverage'));
 
 // Theme 13 Sub-issue A — patient direct-to-R2 upload endpoint (replaces the
 // Uploadcare widget on patient_new_case.ejs / patient_order.ejs). Mounted

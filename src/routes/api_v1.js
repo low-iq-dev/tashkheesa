@@ -183,6 +183,10 @@ module.exports = function (db, helpers, deploy) {
   // This is the router that gives the app the SAME orders row the web wizard
   // uses for a half-finished case, which is what makes a case started on the
   // portal resumable on the phone and vice versa.
+  // Patient recovery, Part C (2 Nov 2026) — GET /cases/draft/:id/coverage and
+  // POST /cases/draft/:id/coverage-lead ("we don't open this specialty yet").
+  // Two new paths only; everything else falls through to the draft router.
+  router.use('/cases/draft', require('./api/coverage_leads'));
   router.use('/cases/draft', require('./api/cases_draft'));
 
   const casesRoutes = require('./api/cases')(db, helpers);

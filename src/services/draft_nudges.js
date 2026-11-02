@@ -155,6 +155,9 @@ async function runDraftNudgeSweep(opts) {
   const out = { ok: true, candidates: 0, nudged: 0, converted: 0 };
   try { out.converted = (await countConversions(o)).length; }
   catch (err) { console.error('[draft-nudges] conversion count failed', err && err.message); }
+  // Part C — a coverage lead whose draft has since been sent is converted.
+  try { out.leadsConverted = await require('./coverage_leads').markConverted(o); }
+  catch (err) { console.error('[draft-nudges] coverage conversion failed', err && err.message); }
 
   if (!o.ignoreQuietHours && isCairoQuietHours(now, QUIET)) return Object.assign(out, { skipped: 'quiet_hours' });
 
