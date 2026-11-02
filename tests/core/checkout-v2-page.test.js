@@ -120,7 +120,8 @@ check('urgent-hours note only on an Urgent case', function () {
 check('Arabic renders, with the Shifa name written the brand way', function () {
   const h = render({ isAr: true, lang: 'ar', manualPayment: mp() });
   assert(/اختار طريقة الدفع/.test(h) && /إنستاباي أو تحويل بنكي/.test(h), 'Arabic copy missing');
-  assert(!/الشفاء/.test(SRC), 'the hospital is «شفا», never «الشفاء»');
+  // 27 Oct 2026 (Ziad): the name is «شفاء», with the hamza — never «شفا», never «الشفاء».
+  assert(!/الشفاء|(?<![\u0621-\u064A])شفا(?![\u0621-\u064A\u064B-\u0652])/.test(SRC), 'the hospital is «شفاء», never «شفا» or «الشفاء»');
 });
 
 check('route: v2 is used only for the cases it was built for', function () {

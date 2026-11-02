@@ -8,7 +8,7 @@
 // Each count is a live query + 5-minute in-memory cache; on a brief DB blip it
 // falls back to the last good value (or a sane default) so a page never errors.
 
-const { queryOne } = require('../pg');
+const { queryOne, queryAll } = require('../pg');
 const { serviceBookableClause } = require('./service_bookable');
 
 var TTL_MS = 5 * 60 * 1000;
@@ -126,8 +126,87 @@ async function getCatalogueStats() {
   return (_cache.catalogue && _cache.catalogue.value) || FALLBACK;
 }
 
+// The id services.ejs gives a live specialty's section (`sectionId` there).
+// The homepage links its specialty cards to /services#<this>, so the two must
+// stay the same expression — tests/core/home-laptop-reveal.test.js renders
+// both pages and checks every homepage link lands on a real section.
+function specialtyAnchor(name) {
+  return String(name || '').replace(/[^a-z0-9]/gi, '-').toLowerCase();
+}
+
+/**
+ * Rows of { name, name_ar, bookable } (one or more per specialty name) → the
+ * two lists the homepage draws.
+ *
+ *   open — at least one BOOKABLE service; `services` is that bookable count.
+ *          Ordered by that count, largest first, then by name.
+ *   soon — listed in the catalogue, nothing bookable yet. By name.
+ *
+ * This is /services' own split (static-pages.js: "a specialty is LIVE if any
+ * of its services is bookable"), keyed by name as that page keys it, and
+ * `services` is the number /services prints beside the same heading. Pure, so
+ * the test harness can run fixtures through the real thing.
+ */
+function shapeSpecialtyList(rows) {
+  var byName = {};
+  (rows || []).forEach(function (r) {
+    var name = r && r.name ? String(r.name) : '';
+    if (!name) return;
+    var e = byName[name] || (byName[name] = { name: name, nameAr: null, services: 0 });
+    if (r.name_ar && !e.nameAr) e.nameAr = String(r.name_ar);
+    e.services += Number(r.bookable) || 0;
+  });
+  var all = Object.keys(byName).sort().map(function (k) { return byName[k]; });
+  return {
+    open: all.filter(function (e) { return e.services > 0; }).sort(function (a, b) {
+      return (b.services - a.services) || (a.name < b.name ? -1 : (a.name > b.name ? 1 : 0));
+    }).map(function (e) {
+      return { name: e.name, nameAr: e.nameAr, services: e.services, anchor: specialtyAnchor(e.name) };
+    }),
+    soon: all.filter(function (e) { return e.services === 0; }).map(function (e) {
+      return { name: e.name, nameAr: e.nameAr };
+    })
+  };
+}
+
+/**
+ * The homepage specialty grid: which specialties can be booked today, each
+ * with its bookable-service count, and which are listed but not yet open.
+ *
+ * Same 5-minute cache and same failure rule as the counts above — a failed or
+ * empty read keeps the last good list. With no good list at all it returns
+ * EMPTY lists rather than a typed-in fallback: the homepage then draws no
+ * cards, which is better than naming a specialty nobody can book.
+ */
+async function getSpecialtyList() {
+  var now = _now();
+  var c = _cache.specialtyList;
+  if (c && c.value && (now - c.ts) < TTL_MS) return c.value;
+  try {
+    var rows = await queryAll(
+      'SELECT sp.name AS name, sp.name_ar AS name_ar, ' +
+      '       count(*) FILTER (WHERE ' + serviceBookableClause('sv') + ')::int AS bookable ' +
+      '  FROM services sv ' +
+      '  JOIN specialties sp ON sv.specialty_id = sp.id ' +
+      ' WHERE sv.base_price IS NOT NULL AND sv.base_price > 0 ' +
+      ' GROUP BY sp.id, sp.name, sp.name_ar'
+    );
+    if (rows && rows.length) {
+      var value = shapeSpecialtyList(rows);
+      _cache.specialtyList = { value: value, ts: now };
+      return value;
+    }
+  } catch (_) {
+    // Fall through to the last good list, then to empty.
+  }
+  return (_cache.specialtyList && _cache.specialtyList.value) || { open: [], soon: [] };
+}
+
 module.exports = {
   getVisibleSpecialtyCount: getVisibleSpecialtyCount,
   getVisibleServiceCount: getVisibleServiceCount,
-  getCatalogueStats: getCatalogueStats
+  getCatalogueStats: getCatalogueStats,
+  getSpecialtyList: getSpecialtyList,
+  shapeSpecialtyList: shapeSpecialtyList,
+  specialtyAnchor: specialtyAnchor
 };

@@ -91,9 +91,13 @@ module.exports = (async function run() {
       const ar = bodies['/ar/'] || '';
       assert.strictEqual(helper.readHead(en).title, 'Medical Second Opinion from Egyptian Consultants in 48h | Tashkheesa');
       assert.strictEqual(helper.readHead(ar).title, 'رأي طبي ثانٍ من استشاريين مصريين خلال ٤٨ ساعة | تشخيصة');
-      const h1 = (b) => helper.decodeEntities(((b.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/) || [])[1] || '').trim());
-      assert.strictEqual(h1(en), 'A written second opinion from a named Egyptian consultant — within 48 hours');
-      assert.strictEqual(h1(ar), 'رأي طبي ثانٍ مكتوب من استشاري باسمه — خلال ٤٨ ساعة');
+      // 7 Oct 2026 — the laptop-reveal home page. The English H1 carries a line
+      // break and an italic word, so compare its text, not its markup.
+      const h1 = (b) => helper.decodeEntities(((b.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/) || [])[1] || '')
+        .replace(/<br\s*\/?>/g, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim());
+      assert.strictEqual(h1(en), 'A second opinion with a name on it.');
+      // 7 Oct 2026 (Ziad): the H1 uses Western digits like the rest of the page. The <title> above keeps ٤٨.
+      assert.strictEqual(h1(ar), 'رأي طبي ثانٍ مكتوب من استشاري باسمه — خلال 48 ساعة');
     });
 
     await check('specialty snippet: cut at a word boundary + suffix; too short → full sentence', async () => {

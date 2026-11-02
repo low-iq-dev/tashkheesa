@@ -110,7 +110,7 @@ function setupStaticPages(opts) {
     securityEmail: 'security@tashkheesa.com',
     phone: '+20 110 200 9886',
     address: 'Shifa Hospital, 166 El Tesaeen El Shamaly Street, Fifth Settlement, New Cairo, Egypt',
-    address_ar: 'مستشفى شفا، ١٦٦ شارع التسعين الشمالي، التجمع الخامس، القاهرة الجديدة',
+    address_ar: 'مستشفى شفاء، 166 شارع التسعين الشمالي، التجمع الخامس، القاهرة الجديدة',
     // LAUNCH-2026-09 — the platform accepts and processes cases 24/7. The only
     // time-boxed promise is the Urgent 4-hour tier, which runs 7am–7pm Cairo
     // (see src/services/urgency.js and patient_new_case.ejs §3). The old
@@ -569,9 +569,21 @@ function setupStaticPages(opts) {
   });
 
   // /start — paid-ads landing page (26 Sep 2026). See views/start.ejs.
-  // FUNNEL BEACON (1 Oct 2026): tiny GET counter for steps a server cannot see
+  // FUNNEL BEACON (1 Oct 2026): tiny counter for steps a server cannot see
   // (page actually visible, CTA taps). Allow-listed steps only; returns 204.
-  router.get('/f/e', function(req, res) {
+  //
+  // BEACON-POST 2026-10-26 — the CTA tap is fired as the browser navigates
+  // away, and fetch(keepalive) does not survive that in Meta's in-app WebView,
+  // which is ~99% of paid traffic. On 25 Oct: 236 start_view (no navigation
+  // racing it, so it survived), 1 start_cta — against 9 server-side
+  // register_view, and the CTA links straight to /register. So at least nine
+  // taps happened and one was counted. navigator.sendBeacon is built for the
+  // unload path and sends a POST, so the same handler now answers both verbs.
+  // Worth knowing: start.ejs carries a 1 Oct note that "~0.5% of paid visitors
+  // tapped Start", and the hero was stripped down because of it. The beacon
+  // landed the same day, so that number was probably this bug. Do not redesign
+  // the page off start_cta until it has been read again after this fix.
+  function funnelBeacon(req, res) {
     try {
       var fd = require('../services/funnel_digest');
       var step = String((req.query && req.query.s) || '');
@@ -587,7 +599,11 @@ function setupStaticPages(opts) {
     } catch (_) {}
     res.set('Cache-Control', 'no-store');
     return res.status(204).end();
-  });
+  }
+  router.get('/f/e', funnelBeacon);
+  // sendBeacon always POSTs. Everything the handler reads is in the query
+  // string, so no body parser is involved and an empty body is expected.
+  router.post('/f/e', funnelBeacon);
 
   // /wa and /ar/wa — the WhatsApp ad destination: counts, then hands the
   // visitor to Tash with a pre-filled first message (1 Oct 2026).
@@ -652,7 +668,7 @@ function setupStaticPages(opts) {
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       title: isAr ? 'رأي طبي تاني مكتوب في 48 ساعة | تشخيصة' : 'A written second opinion in 48 hours | Tashkheesa',
       description: isAr
-        ? 'ارفع تقريرك أو أشعتك واستشاري من مجموعة مستشفيات شفا يبعتلك رأيه مكتوب خلال 48 ساعة.'
+        ? 'ارفع تقريرك أو أشعتك واستشاري من مجموعة مستشفيات شفاء يبعتلك رأيه مكتوب خلال 48 ساعة.'
         : 'Upload your report or scan and a Shifa Hospital Group consultant sends you a written opinion within 48 hours.',
       canonical: '/start',
       BUSINESS_INFO: BUSINESS_INFO,

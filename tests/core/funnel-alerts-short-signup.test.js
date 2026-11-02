@@ -58,7 +58,9 @@ test('funnel wiring: migration, /start + /register bumps, 15-min digest interval
   assert.match(read('src/views/start.ejs'), /hit\('start_view'\)/);
   // 26 Oct 2026: the GET is counted raw as register_get; register_view is the
   // visible-page beacon from register.ejs (prefetch/preloads never count).
-  assert.match(read('src/routes/auth.js'), /bumpFunnelCount\('register_get', req\)/);
+  // 25 Oct provenance: the route calls bumpRegisterView, which bumps register_get.
+  assert.match(read('src/routes/auth.js'), /bumpRegisterView\(req\)/);
+  assert.match(read('src/services/funnel_digest.js'), /function bumpRegisterView\(req\) \{\n  bumpFunnelCount\('register_get', req\);/);
   assert.match(read('src/views/register.ejs'), /\/f\/e\?s=register_view/);
   assert.match(read('src/server.js'), /runFunnelDigest\(\)/);
 });

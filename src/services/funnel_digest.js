@@ -24,6 +24,18 @@
 const crypto = require('crypto');
 const { queryAll, queryOne, execute } = require('../pg');
 
+// REGISTER-PROVENANCE 2026-10-25 — on 21 and 24 Oct /register took 69 and 41
+// views on days with ZERO services_view and no ads running, and converted at
+// 0% against a steady ~1-in-8 on real traffic. Almost certainly a scraper, but
+// funnel_daily_counts keeps aggregates only, so it could not be proven. These
+// three sub-counters split register_get (the raw server GET — the only place
+// the Referer header is seen) by where the visit came from without storing
+// anything personal (migration 122's design choice stands: no IP, no user
+// agent, no user id — just counters):
+//   register_get_ref    Referer header pointing at our own site — the real funnel path
+//   register_get_noref  no Referer at all — direct hit, the scraper signature
+//   register_get_utm    carried a utm_source — came from a campaign link
+// A repeat of the 21 Oct spike is then one query, not an afternoon.
 const STEPS = new Set(['start_view', 'start_view_meta', 'services_view', 'services_view_meta', 'register_view', 'start_cta', 'start_wa', 'wa_redirect',
   // 11 Oct 2026 — taps on the services page (hero Start / bottom CTA, a service or specialty card, the help link)
   'services_cta', 'services_card', 'services_help',
@@ -33,7 +45,9 @@ const STEPS = new Set(['start_view', 'start_view_meta', 'services_view', 'servic
   // the visible-page beacon), every POST, each refusal by reason, and success.
   'register_get', 'register_submit', 'register_ok',
   'register_err_required', 'register_err_password', 'register_err_terms', 'register_err_country',
-  'register_err_phone', 'register_err_phone_taken', 'register_err_email', 'register_err_server']);
+  'register_err_phone', 'register_err_phone_taken', 'register_err_email', 'register_err_server',
+  // 25 Oct 2026 — where each register_get came from (see the comment above)
+  'register_get_ref', 'register_get_noref', 'register_get_utm']);
 const REGISTER_ERRORS = [
   ['register_err_required', 'missing field'], ['register_err_terms', 'terms'], ['register_err_country', 'country'],
   ['register_err_phone', 'phone invalid'], ['register_err_phone_taken', 'phone taken'], ['register_err_email', 'email'],
@@ -125,6 +139,32 @@ function bumpLandingView(page, req) {
 
 /** Kept for callers that predate bumpLandingView. */
 function bumpStartView(req) { bumpLandingView('start', req); }
+
+/**
+ * REGISTER-PROVENANCE 2026-10-25 — bump register_get (the raw GET /register;
+ * register_view is the visible-page beacon since 26 Oct) plus one provenance
+ * counter saying where the visit came from. See the STEPS comment for why.
+ *
+ * The classification is deliberately coarse and derived only from headers we
+ * already see on the request; nothing is stored beyond the three counters.
+ * A visit counts as `_ref` only when the Referer is our OWN host — an inbound
+ * link from elsewhere is not the funnel path and must not read as one.
+ */
+function bumpRegisterView(req) {
+  bumpFunnelCount('register_get', req);
+  try {
+    const q = (req && req.query) || {};
+    if (String(q.utm_source || '').trim()) bumpFunnelCount('register_get_utm', req);
+    const ref = (req && req.get) ? String(req.get('referer') || req.get('referrer') || '') : '';
+    if (!ref.trim()) { bumpFunnelCount('register_get_noref', req); return; }
+    // Own-host check. URL parsing throws on junk Referer values — a malformed
+    // header is not evidence of a funnel path, so it falls through to neither
+    // counter rather than being credited as internal.
+    let host = '';
+    try { host = new URL(ref).hostname.toLowerCase(); } catch (_) { return; }
+    if (host === 'tashkheesa.com' || host.endsWith('.tashkheesa.com')) bumpFunnelCount('register_get_ref', req);
+  } catch (_) { /* analytics never blocks a page */ }
+}
 
 /**
  * Counts for one Cairo day (YYYY-MM-DD). Each query is independent so one
@@ -376,7 +416,7 @@ async function runFunnelDigest(opts) {
 }
 
 module.exports = {
-  bumpFunnelCount, bumpStartView, bumpLandingView, computeFunnel, formatDigest, runFunnelDigest,
+  bumpFunnelCount, bumpStartView, bumpLandingView, bumpRegisterView, computeFunnel, formatDigest, runFunnelDigest,
   formatOpsDigest, pushOpsDigest,
   previousCairoDay, cairoDay, isBot, isPrefetch, registerLines,
 };

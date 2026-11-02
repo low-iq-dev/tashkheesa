@@ -180,7 +180,7 @@ module.exports = (async function run() {
       const dw = renderEmail('doctor-welcome', 'en', FULL);
       // new chrome present
       assert.ok(/#F2EFE8/.test(dw), 'doctor-welcome uses the beige page background');
-      assert.ok(/بدعم من مجموعة مستشفيات شفا/.test(dw), 'Shifa credibility line in the masthead');
+      assert.ok(/بدعم من مجموعة مستشفيات شفاء/.test(dw), 'Shifa credibility line in the masthead');
       assert.ok(/القاهرة/.test(dw), 'Shifa/Cairo footer line');
       assert.ok(/tashkheesa\.com<\/a>/.test(dw), 'footer link uses the bare domain');
       // old chrome gone
