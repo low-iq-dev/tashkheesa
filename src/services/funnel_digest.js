@@ -47,7 +47,9 @@ const STEPS = new Set(['start_view', 'start_view_meta', 'services_view', 'servic
   'register_err_required', 'register_err_password', 'register_err_terms', 'register_err_country',
   'register_err_phone', 'register_err_phone_taken', 'register_err_email', 'register_err_server',
   // 25 Oct 2026 — where each register_get came from (see the comment above)
-  'register_get_ref', 'register_get_noref', 'register_get_utm']);
+  'register_get_ref', 'register_get_noref', 'register_get_utm',
+  // 2 Nov 2026 — taps on "Start my case" and taps stopped by an empty field (register.ejs)
+  'register_tap', 'register_blocked_name', 'register_blocked_phone']);
 const REGISTER_ERRORS = [
   ['register_err_required', 'missing field'], ['register_err_terms', 'terms'], ['register_err_country', 'country'],
   ['register_err_phone', 'phone invalid'], ['register_err_phone_taken', 'phone taken'], ['register_err_email', 'email'],
