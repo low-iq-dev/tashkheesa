@@ -70,7 +70,9 @@ const AGENT_NAME = 'attention_sweep';
 //   24 hours, as one digest through sendCriticalAlert.
 //
 // Snoozed and resolved items are off the list for both populations.
-const ESCALATING_KINDS = Object.freeze(['payment_claim', 'paid_unassigned', 'refund_stale', 'specialty_uncovered', 'send_failed']);
+// coverage_lead (migration 134, 2 Nov 2026): a patient waiting for a specialty
+// we do not open yet. Quiet in the catalogue — pushed once, then the digest.
+const ESCALATING_KINDS = Object.freeze(['payment_claim', 'paid_unassigned', 'refund_stale', 'specialty_uncovered', 'send_failed', 'coverage_lead']);
 
 // How long an escalating item must have waited before its FIRST push. The
 // view already applies each new kind's own threshold (15 minutes, 48 hours…),
@@ -323,6 +325,7 @@ const PUSH_TITLES = Object.freeze({
   refund_stale: 'Refund open over 48 hours',
   specialty_uncovered: 'Specialty not covered',
   send_failed: 'Message not delivered',
+  coverage_lead: 'Patient waiting for a specialty',
 });
 
 function ageLabel(minutes) {

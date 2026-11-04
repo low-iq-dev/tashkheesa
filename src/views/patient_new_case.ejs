@@ -708,6 +708,10 @@
     </div>
   </form>
 
+  <%# Patient recovery, Part C (2 Nov 2026) — "my specialty is not listed",
+      outside the step-3 form. partials/patient/coverage_lead_panel. %>
+  <%- include('partials/patient/coverage_lead_panel', { coverage: (typeof coverage !== 'undefined') ? coverage : null, draftId: draftId, isAr: __isAr, tier: __tier }) %>
+
   <% if (__tier === 'auto' || __tier === 'recommend') { %>
     <%# ─── Theme 14 — SLA-disclaimer modal (Q4 locked). ───────────────────
         Renders only when override is allowed (tiers 'auto' and 'recommend').

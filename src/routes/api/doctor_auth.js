@@ -58,6 +58,20 @@ const {
   otpSendCap,
   otpVerifyCap,
 } = require('../../middleware/otp_phone_limits');
+// Part D (2 Nov 2026) — this door glued countryCode onto phone with no
+// normalisation, which is how '+2010000000930129' (16 Oct) and
+// '+201550000000930129' (11, 12, 28 Oct) reached Twilio. Refused before the
+// limiters now; the store-review number is exempt (it never gets an SMS).
+const { refuseUnsendableApiOtpPhone, checkOtpPhone } = require('../../validators/otp_phone_guard');
+
+// The number an OTP is sent to and checked against — ONE function for both, so
+// they cannot disagree. E.164 when the guard accepts it (identical to the old
+// concatenation for everything the doctor app sends, which strips the trunk
+// zero); the old concatenation otherwise, so verify behaves as before.
+function doctorOtpPhone(phone, countryCode) {
+  const chk = checkOtpPhone(phone, countryCode, 'en');
+  return chk.ok ? chk.normalized : `${countryCode}${phone}`.replace(/\s/g, '');
+}
 
 module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) {
   const sessions = require('../../services/user_sessions')({ safeGet, safeAll, safeRun });
@@ -108,7 +122,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
   // and would leave an unknown applicant with no path to the "apply" answer.
   router.post(
     '/otp/request',
-    otpPhoneScope, otpSendCooldown, otpSendCap,
+    refuseUnsendableApiOtpPhone('app_doctor', storeReview.isReviewPhone), otpPhoneScope, otpSendCooldown, otpSendCap,
     [body('phone').trim().notEmpty(), body('countryCode').trim().notEmpty()],
     async (req, res) => {
       const errors = validationResult(req);
@@ -116,7 +130,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
         return res.fail(errors.array()[0].msg, 422, 'VALIDATION_ERROR');
       }
       const { phone, countryCode } = req.body;
-      const fullPhone = `${countryCode}${phone}`.replace(/\s/g, '');
+      const fullPhone = doctorOtpPhone(phone, countryCode);
 
       // Store review number: its code is fixed (services/store_review_login),
       // so nothing is stored and no SMS goes out. Same answer as a real send.
@@ -173,7 +187,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       }
 
       const { phone, countryCode, otp } = req.body;
-      const fullPhone = `${countryCode}${phone}`.replace(/\s/g, '');
+      const fullPhone = doctorOtpPhone(phone, countryCode);
 
       // Same two-source OTP check as the patient door: Twilio Verify when
       // configured, otp_codes fallback otherwise.

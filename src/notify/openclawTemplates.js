@@ -23,6 +23,7 @@
 // FIX 13 — shared with notification_worker's email path so the two surfaces
 // render the same countdown with the same Arabic number agreement.
 const { formatTimeRemaining, formatHoldRemaining } = require('./duration');
+const { absoluteAppUrl } = require('./case_url');
 // E2E 2026-10-06 — the case reference shown in a body (never an id slice for a
 // patient) and the tidy-up for bodies composed without one. See case_label.js.
 const {
@@ -148,6 +149,28 @@ const OPENCLAW_TEMPLATES = {
   signup_no_case_24h: {
     en: (v) => `Hi${v.patientName ? ' ' + v.patientName : ''} 👋 You can still send your report or scan, and a specialist consultant will reply in writing within 48 hours. Start here: ${v.link}\n— The Tashkheesa team`,
     ar: (v) => `أهلاً${v.patientName ? ' ' + v.patientName : ''} 👋 لسه ممكن تبعت تقريرك أو أشعتك، واستشاري متخصص يرد عليك مكتوب خلال 48 ساعة. ابدأ من هنا: ${v.link}\n— فريق تشخيصة`
+  },
+
+  // ── Draft-resume nudges (2 Nov 2026, services/draft_nudges.js) ──
+  // Patient recovery, Part A. Fixed copy approved in the brief, word for word;
+  // no AI. `link` is /portal/patient/resume/<token>, rebuilt by the worker from
+  // the token id (services/draft_resume.withResumeLink). An app draft has no
+  // reference until submit: cleanMissingReference turns "your case " into
+  // "your case" / "حالتك" then.
+  draft_resume_1h: {
+    en: (v) => `Tashkheesa: your case ${v.caseReference} is saved. Finish it in 2 minutes: ${v.link}`,
+    ar: (v) => `تشخيصة: حالتك ${v.caseReference} محفوظة. أكملها في دقيقتين: ${v.link}`
+  },
+  draft_resume_24h: {
+    en: (v) => `Tashkheesa: your case ${v.caseReference} is still waiting. A named consultant from Shifa Hospital Group can review it within 48 hours: ${v.link}`,
+    ar: (v) => `تشخيصة: حالتك ${v.caseReference} لسه مستنية. استشاري من مجموعة مستشفيات شفاء يراجعها خلال 48 ساعة: ${v.link}`
+  },
+  // Part C — sent by the superadmin's "Notify waiting leads" once a specialty
+  // opens (services/coverage_leads.js). Names the specialty: the patient asked
+  // for it by name. No clinical content.
+  coverage_lead_open: {
+    en: (v) => `Tashkheesa: ${v.specialtyName || 'the specialty you asked about'} is now open. You can continue your case here: ${v.link}\n— The Tashkheesa team`,
+    ar: (v) => `تشخيصة: تخصص ${v.specialtyNameAr || v.specialtyName || 'اللي سألت عنه'} فتح دلوقتي. تقدر تكمّل حالتك من هنا: ${v.link}\n— فريق تشخيصة`
   },
 
   // ── h. Payment reminders for unpaid cases (#66) ────────────────────
@@ -572,7 +595,13 @@ function getOpenClawBody(eventName, lang, rawVars, opts) {
     refundStatus: vars.refund_status || vars.refundStatus || vars.refund || '',
     cancelledBy: vars.cancelled_by || vars.cancelledBy || '',
     appointmentId: vars.appointment_id || vars.appointmentId || '',
-    link: vars.link || patientOrderUrl(orderId),
+    // Absolute, always: orders.payment_link is a bare '/portal/patient/pay/<id>'
+    // and a WhatsApp client cannot follow a path (payment reminders, 14 Oct).
+    link: absoluteAppUrl(vars.link, appUrl()) || patientOrderUrl(orderId),
+    // Part C (2 Nov 2026) — coverage_lead_open names the specialty; nothing
+    // reaches a composer unless it is listed here.
+    specialtyName: vars.specialtyName || '',
+    specialtyNameAr: vars.specialtyNameAr || '',
     orderId: orderId || '',
     // Manual payment claim (admin_payment_claim_received).
     transferReference: vars.transferReference || vars.transfer_reference || '',

@@ -38,6 +38,10 @@ const WORKER_SPECS = [
   // above: the watcher must not be the only thing that knows it is dead.
   // 12 minutes is ~2.5 intervals, the same budget as case_sla_worker.
   { key: 'system_checks', staleSeconds: 12 * 60 },
+  // 2026-11-02 (patient recovery, Part A) — the draft-resume nudge sweep
+  // (services/draft_nudges.js) runs every 15 minutes. 40 minutes is ~2.5
+  // intervals, the attention sweep's budget.
+  { key: 'draft_nudges', staleSeconds: 40 * 60 },
 ];
 
 /**

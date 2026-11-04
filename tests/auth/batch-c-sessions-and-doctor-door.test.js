@@ -288,7 +288,9 @@ function seedDoctor(over = {}) {
 
 // AUDIT-AUTH-3 (2026-09-23): the PATIENT door now stores and checks codes
 // under the NORMALISED number ('+20' + '0100…' → '+20100…'), so patient-door
-// seeds use that spelling. The doctor door still keys on the raw concatenation.
+// seeds use that spelling. Since Part D (2 Nov 2026) the doctor door does too:
+// it used to key on the raw concatenation ('+20' + '0100…' → '+200100…'),
+// which is how malformed numbers reached Twilio from the doctor app.
 function seedOtp(phone, code) {
   state.otps.push({ phone, code, expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString() });
 }
@@ -443,7 +445,7 @@ async function check(name, fn) {
 
   await check('C2: unknown phone → NOT_A_DOCTOR, and NO users row is created (before/after count identical)', async () => {
     resetState();
-    seedOtp('+2001112223334', '333333');
+    seedOtp('+201112223334', '333333');
     const before = state.users.length;
     const r = await post('/doctor/auth/otp/verify', { phone: '01112223334', countryCode: '+20', otp: '333333' });
     assert.strictEqual(r.status, 403, JSON.stringify(r.body));
@@ -455,7 +457,7 @@ async function check(name, fn) {
   await check('C2: a PATIENT\'s phone at the doctor door → the SAME NOT_A_DOCTOR (no role fingerprinting)', async () => {
     resetState();
     seedPatient();
-    seedOtp('+2001003225382', '444444');
+    seedOtp('+201003225382', '444444');
     const r = await post('/doctor/auth/otp/verify', { phone: '01003225382', countryCode: '+20', otp: '444444' });
     assert.strictEqual(r.status, 403);
     assert.strictEqual(r.body.code, 'NOT_A_DOCTOR');
@@ -465,7 +467,7 @@ async function check(name, fn) {
   await check('C2: pending doctor → ACCOUNT_PENDING_APPROVAL (its own answer)', async () => {
     resetState();
     seedDoctor({ pending_approval: true, phone: '+201007801001' });
-    seedOtp('+2001007801001', '555555');
+    seedOtp('+201007801001', '555555');
     const r = await post('/doctor/auth/otp/verify', { phone: '01007801001', countryCode: '+20', otp: '555555' });
     assert.strictEqual(r.status, 403);
     assert.strictEqual(r.body.code, 'ACCOUNT_PENDING_APPROVAL');
@@ -474,7 +476,7 @@ async function check(name, fn) {
   await check('C2: rejected doctor → ACCOUNT_REJECTED (distinct from plain deactivation)', async () => {
     resetState();
     seedDoctor({ is_active: false, rejection_reason: 'Not approved', phone: '+201007801002' });
-    seedOtp('+2001007801002', '666666');
+    seedOtp('+201007801002', '666666');
     const r = await post('/doctor/auth/otp/verify', { phone: '01007801002', countryCode: '+20', otp: '666666' });
     assert.strictEqual(r.status, 403);
     assert.strictEqual(r.body.code, 'ACCOUNT_REJECTED');
@@ -483,7 +485,7 @@ async function check(name, fn) {
   await check('C2: deactivated doctor → ACCOUNT_INACTIVE', async () => {
     resetState();
     seedDoctor({ is_active: false, phone: '+201007801003' });
-    seedOtp('+2001007801003', '777777');
+    seedOtp('+201007801003', '777777');
     const r = await post('/doctor/auth/otp/verify', { phone: '01007801003', countryCode: '+20', otp: '777777' });
     assert.strictEqual(r.status, 403);
     assert.strictEqual(r.body.code, 'ACCOUNT_INACTIVE');
@@ -492,7 +494,7 @@ async function check(name, fn) {
   await check('C2: paused doctor STILL signs in (is_paused is routing, not a lockout — login_gate.js)', async () => {
     resetState();
     seedDoctor({ is_paused: true, phone: '+201007801004' });
-    seedOtp('+2001007801004', '788788');
+    seedOtp('+201007801004', '788788');
     const r = await post('/doctor/auth/otp/verify', { phone: '01007801004', countryCode: '+20', otp: '788788' });
     assert.strictEqual(r.status, 200, JSON.stringify(r.body));
   });
@@ -500,7 +502,7 @@ async function check(name, fn) {
   await check('C2: active doctor signs in — 12-HOUR refresh (exactly 43200s, not 30d), sid, session row client=doctor_app', async () => {
     resetState();
     seedDoctor();
-    seedOtp('+2001007801095', '888888');
+    seedOtp('+201007801095', '888888');
     const r = await post('/doctor/auth/otp/verify', { phone: '01007801095', countryCode: '+20', otp: '888888', deviceId: 'doc-phone-1' });
     assert.strictEqual(r.status, 200, JSON.stringify(r.body));
     const dec = jwt.decode(r.body.data.refreshToken);
@@ -591,7 +593,7 @@ async function check(name, fn) {
 
   await check('REVIEW: the inactive waiver is id-scoped — any other inactive doctor is still ACCOUNT_INACTIVE', async () => {
     resetState(); reviewOn(); seedDoctor({ is_active: false });
-    seedOtp('+2001007801095', '777777');
+    seedOtp('+201007801095', '777777');
     const r = await post('/doctor/auth/otp/verify', { phone: '01007801095', countryCode: '+20', otp: '777777' });
     assert.strictEqual(r.status, 403);
     assert.strictEqual(r.body.code, 'ACCOUNT_INACTIVE');

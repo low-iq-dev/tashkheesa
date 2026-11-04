@@ -90,6 +90,13 @@ const KIND_CATALOGUE = Object.freeze([
     en: 'Specialty with no ready doctor',   ar: 'تخصص من غير دكتور جاهز' },
   { kind: 'send_failed',            group: 'system',  def: 'quiet',
     en: 'Message not delivered',            ar: 'رسالة موصلتش' },
+  // Patient recovery (2 Nov 2026). coverage_lead is a v_needs_attention kind
+  // (migration 134); sms_cap is the once-a-day notice that the SMS fallback
+  // reached SMS_DAILY_CAP (notify/sms_fallback.js).
+  { kind: 'coverage_lead',          group: 'growth',  def: 'quiet',
+    en: 'Patient waiting for a specialty',  ar: 'مريض مستني تخصص' },
+  { kind: 'sms_cap',                group: 'system',  def: 'quiet',
+    en: 'SMS daily cap reached',            ar: 'رسايل SMS وصلت للحد اليومي' },
 
   // ── System ───────────────────────────────────────────────────────────────
   { kind: 'critical_alert',         group: 'system',  def: 'loud',  lockOn: true,

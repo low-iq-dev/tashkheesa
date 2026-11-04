@@ -47,6 +47,8 @@ const {
   otpSendCap,
   otpVerifyCap,
 } = require('../../middleware/otp_phone_limits');
+// Part D (2 Nov 2026) — refuse a number no SMS can reach before the limiters.
+const { refuseUnsendableApiOtpPhone } = require('../../validators/otp_phone_guard');
 
 const RESET_EXPIRY_HOURS = 2; // matches src/routes/auth.js portal flow — keep in sync
 const APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
@@ -131,7 +133,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       //
       // normalizePhone knows the dial code is a COUNTRY, not a prefix to glue
       // on, so it drops the trunk digit and rebuilds the number correctly.
-      const phoneCheck = normalizePhone(phone, countryCode, lang === 'ar' ? 'ar' : 'en');
+      let phoneCheck = normalizePhone(phone, countryCode, lang === 'ar' ? 'ar' : 'en');
+      // Part D (2 Nov 2026): plus the Egyptian-mobile shape on +20.
+      if (phoneCheck.ok) phoneCheck = require('../../validators/otp_phone_guard').checkOtpPhone(phoneCheck.normalized, null, lang === 'ar' ? 'ar' : 'en');
       if (!phoneCheck.ok) {
         return res.fail(phoneCheck.error, 422, 'PHONE_INVALID');
       }
@@ -331,7 +335,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
 
   router.post(
     '/otp/request',
-    otpPhoneScope, otpSendCooldown, otpSendCap,
+    refuseUnsendableApiOtpPhone('app_patient'), otpPhoneScope, otpSendCooldown, otpSendCap,
     [body('phone').trim().notEmpty(), body('countryCode').trim().notEmpty()],
     async (req, res) => {
       // AUDIT-APP: the validators above were declared and never checked, so an

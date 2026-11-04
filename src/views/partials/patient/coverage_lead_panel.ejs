@@ -1,0 +1,103 @@
+<%#
+  Patient recovery, Part C (2 Nov 2026) — "we don't open this specialty yet".
+  Rendered on the wizard's specialty step, OUTSIDE the step-3 form (its own
+  forms must not nest). Server-rendered, no script: the specialty a patient
+  picks comes back as ?not_listed=<id|other> and the panel names it.
+
+  Locals: coverage (services/coverage_leads.wizardContext, or null),
+          draftId, isAr, tier ('locked' hides the general-read offer: the
+          step-3 POST would refuse a different specialty at that tier).
+  Copy is fixed, EN + AR, approved in the brief; no price but the one
+  case_intake_pricing returned.
+%>
+<%
+  var _c = (typeof coverage !== 'undefined' && coverage) ? coverage : null;
+  var _ar = !!isAr;
+  function _t(en, ar) { return _ar ? ar : en; }
+  function _spName(sp) { return sp ? ((_ar && sp.name_ar) ? sp.name_ar : sp.name) : null; }
+  var _draft = String(draftId || '');
+  var _tier = (typeof tier !== 'undefined') ? tier : null;
+%>
+<% if (_c) { %>
+<div class="p-card" id="coverage-panel" style="margin-top:14px;">
+  <div class="p-card__body">
+    <% if (_c.lead) { %>
+      <div role="status" style="padding:14px 16px;background:var(--primary-light);border:1px solid var(--primary);border-radius:12px;font-size:14px;line-height:1.6;color:var(--ink-2);">
+        <% var _ln = _spName(_c.leadSpecialty); %>
+        <% if (_ln) { %>
+          <%= _t('Done — we will tell you first when ' + _ln + ' opens. Your case is saved here.', 'تمام — هنبلغك أول ما تخصص ' + _ln + ' يفتح. حالتك محفوظة هنا.') %>
+        <% } else { %>
+          <%= _t('Done — we will tell you first when the specialty you need opens. Your case is saved here.', 'تمام — هنبلغك أول ما التخصص اللي محتاجه يفتح. حالتك محفوظة هنا.') %>
+        <% } %>
+      </div>
+    <% } else if (_c.chosen) { %>
+      <% var _name = _c.chosen.id === 'other' ? null : _spName(_c.chosen); %>
+      <div style="font-size:15px;line-height:1.7;color:var(--ink);margin-bottom:14px;">
+        <% if (_name) { %>
+          <%= _t('We don’t open ' + _name + ' yet. Leave your number and we’ll tell you first — or choose a related specialty that is open.', 'لسه ما فتحناش تخصص ' + _name + '. سيب رقمك وهنبلغك أول ما يفتح — أو اختار تخصص قريب متاح.') %>
+        <% } else { %>
+          <%= _t('We don’t open this specialty yet. Leave your number and we’ll tell you first — or choose a related specialty that is open.', 'لسه ما فتحناش التخصص ده. سيب رقمك وهنبلغك أول ما يفتح — أو اختار تخصص قريب متاح.') %>
+        <% } %>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <form method="post" action="/patient/new-case/coverage-lead" style="margin:0;">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <input type="hidden" name="draft_id" value="<%= _draft %>" />
+          <input type="hidden" name="wanted_specialty_id" value="<%= _c.chosen.id %>" />
+          <input type="hidden" name="wanted_text" value="<%= _c.wantedText || '' %>" />
+          <% if (_c.viaClassifier) { %><input type="hidden" name="via" value="classifier" /><% } %>
+          <button class="p-btn p-btn--primary" type="submit"><%= _t('Tell me when it opens', 'بلّغوني أول ما يفتح') %></button>
+        </form>
+        <a class="p-btn p-btn--ghost" href="/patient/new-case?step=3&id=<%= encodeURIComponent(_draft) %>#step3-form"><%= _t('Choose a related specialty', 'اختار تخصص قريب متاح') %></a>
+      </div>
+      <% if (_tier !== 'locked' && Array.isArray(_c.offers) && _c.offers.length) { %>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--rule);">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:10px;">
+            <%= _t('Or have a consultant read the report you already have and answer one question:', 'أو استشاري يقرا التقرير اللي معاك ويرد على سؤال واحد:') %>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <% _c.offers.forEach(function (of) { %>
+              <form method="post" action="/patient/new-case/step3" style="margin:0;">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <input type="hidden" name="id" value="<%= _draft %>" />
+                <input type="hidden" name="specialty_id" value="<%= of.specialtyId %>" />
+                <input type="hidden" name="service_id" value="<%= of.serviceId %>" />
+                <input type="hidden" name="override" value="0" />
+                <button type="submit" class="p-service-card" style="width:100%;text-align:start;cursor:pointer;display:flex;justify-content:space-between;gap:12px;border:1px solid var(--rule);background:#fff;border-radius:12px;padding:12px 14px;">
+                  <span style="font-size:14px;font-weight:600;color:var(--ink);"><%= (_ar && of.nameAr) ? of.nameAr : of.name %></span>
+                  <span class="p-num" style="font-size:14px;font-weight:600;color:var(--accent-dark);"><%= of.currency + ' ' + Number(of.price).toLocaleString('en-GB', { maximumFractionDigits: 0 }) %></span>
+                </button>
+              </form>
+            <% }); %>
+          </div>
+        </div>
+      <% } %>
+    <% } else { %>
+      <% var _open = !!_c.trigger; %>
+      <details <%= _open ? 'open' : '' %> style="font-size:14px;color:var(--ink-2);">
+        <summary style="cursor:pointer;color:var(--primary);font-weight:500;">
+          <% if (_c.trigger) { %>
+            <%= _t('Not sure which specialty fits? If yours isn’t listed, tell us.', 'مش متأكد أنهي تخصص يناسب حالتك؟ لو تخصصك مش موجود، قولنا.') %>
+          <% } else { %>
+            <%= _t('My specialty is not listed', 'التخصص بتاعي مش موجود') %>
+          <% } %>
+        </summary>
+        <form method="get" action="/patient/new-case" style="margin-top:12px;display:flex;flex-direction:column;gap:10px;max-width:420px;">
+          <input type="hidden" name="step" value="3" />
+          <input type="hidden" name="id" value="<%= _draft %>" />
+          <label style="font-size:13px;color:var(--muted);" for="coverage-not-listed"><%= _t('Which specialty do you need?', 'محتاج أنهي تخصص؟') %></label>
+          <select id="coverage-not-listed" name="not_listed" required style="padding:10px 12px;border:1px solid var(--rule);border-radius:10px;font-size:14px;background:#fff;">
+            <% (_c.hidden || []).forEach(function (sp) { %>
+              <option value="<%= sp.id %>"><%= _spName(sp) %></option>
+            <% }); %>
+            <option value="other"><%= _t('Another specialty', 'تخصص تاني') %></option>
+          </select>
+          <label style="font-size:13px;color:var(--muted);" for="coverage-wanted"><%= _t('Or type it (optional)', 'أو اكتبه (اختياري)') %></label>
+          <input id="coverage-wanted" name="wanted" type="text" maxlength="200" style="padding:10px 12px;border:1px solid var(--rule);border-radius:10px;font-size:14px;" />
+          <div><button class="p-btn p-btn--ghost" type="submit"><%= _t('Continue', 'كمّل') %></button></div>
+        </form>
+      </details>
+    <% } %>
+  </div>
+</div>
+<% } %>

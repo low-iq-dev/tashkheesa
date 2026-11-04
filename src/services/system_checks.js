@@ -668,7 +668,9 @@ const INTERNAL = [
                 ratio: c.ratio === null ? null : Math.round(c.ratio * 100) / 100 },
     };
   },
-];
+// Patient recovery (2 Nov 2026): notifications.sms, cases.draft_nudges,
+// growth.coverage_leads — services/recovery_checks.js.
+].concat(require('./recovery_checks').CHECKS);
 
 /**
  * Run every internal check. One that throws is reported as a warning naming

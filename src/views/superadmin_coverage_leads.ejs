@@ -1,0 +1,85 @@
+<%
+  // Coverage leads — "Notify waiting leads" (patient recovery, Part C, 2 Nov 2026).
+  // Locals: rows (per specialty: id, name, name_ar, is_visible, waiting),
+  //         preview (a dry run, or null), result (a send, or null), error (code or null).
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var _rows = (typeof rows !== 'undefined' && rows) ? rows : [];
+  var _preview = (typeof preview !== 'undefined') ? preview : null;
+  var _result = (typeof result !== 'undefined') ? result : null;
+  var _error = (typeof error !== 'undefined') ? error : null;
+  var ERR = {
+    NOT_OPEN: 'This specialty is still hidden. Make it visible (and give it a ready doctor) before telling anyone it is open.',
+    CONFIRM_MISMATCH: 'The name you typed does not match. Nothing was sent.',
+    UNKNOWN_SPECIALTY: 'Unknown specialty.'
+  };
+%>
+<%- include('partials/superadmin/header', {
+      title: 'Coverage leads',
+      currentSection: 'services',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: (typeof cspNonce !== 'undefined') ? cspNonce : ''
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: 'Coverage leads',
+      subtitle: 'Patients waiting for a specialty we do not open yet. Tell them once, when it opens.',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: 'Services', href: '/superadmin/services' },
+        { label: 'Coverage leads' }
+      ]
+    }) %>
+
+<div class="page-body">
+  <% if (_result) { %>
+    <%- include('partials/superadmin/c_card_open', {}) %>
+      <p style="margin:0;">Notified <strong><%= _result.notified %></strong> of <%= _result.count %> waiting patient(s) that <strong><%= _result.specialty.name %></strong> is open. Running it again sends nothing to them.</p>
+    <%- include('partials/superadmin/c_card_close') %>
+  <% } %>
+  <% if (_error && ERR[_error]) { %>
+    <%- include('partials/superadmin/c_card_open', {}) %>
+      <p style="margin:0;color:#B42318;"><%= ERR[_error] %></p>
+    <%- include('partials/superadmin/c_card_close') %>
+  <% } %>
+
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <% if (!_rows.length) { %>
+      <%- include('partials/superadmin/c_empty', { title: 'Nobody is waiting', sub: 'Leads appear here when a patient asks for a specialty we do not open.' }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: ['Specialty', 'Status', 'Waiting', { label: 'Action', align: 'end' }] }) %>
+        <% _rows.forEach(function (r) { var open = r.is_visible === true; %>
+          <tr>
+            <td><strong><%= r.name %></strong><% if (r.name_ar) { %> <span style="color:#7A736A;">· <%= r.name_ar %></span><% } %></td>
+            <td><%- include('partials/superadmin/c_chip', { label: open ? 'Open' : 'Hidden', tone: open ? 'green' : 'neutral', dot: true }) %></td>
+            <td class="mono"><%= r.waiting %></td>
+            <td style="text-align:end;">
+              <a class="btn<%= open ? ' primary' : '' %>" href="/superadmin/coverage-leads/<%= encodeURIComponent(r.id) %>/notify">Notify waiting leads</a>
+            </td>
+          </tr>
+          <% if (_preview && _preview.specialty && _preview.specialty.id === r.id) { %>
+            <tr>
+              <td colspan="4" style="background:#F4F1E9;">
+                <p style="margin:0 0 8px 0;"><strong>Dry run:</strong> <%= _preview.count %> patient(s) would be told once — in the app, on WhatsApp (SMS if WhatsApp fails), and by email where they have one — that <strong><%= _preview.specialty.name %></strong> is open, with a link back to the case they started. Nothing has been sent.</p>
+                <% if (_preview.specialty.is_visible !== true) { %>
+                  <p style="margin:0;color:#B42318;"><%= ERR.NOT_OPEN %></p>
+                <% } else if (_preview.count > 0) { %>
+                  <form method="post" action="/superadmin/coverage-leads/<%= encodeURIComponent(r.id) %>/notify" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0;">
+                    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                    <label for="confirm-<%= r.id %>">Type <strong><%= _preview.specialty.name %></strong> to send:</label>
+                    <input id="confirm-<%= r.id %>" name="confirm" type="text" autocomplete="off" required style="padding:6px 10px;border:1px solid #E3DED2;border-radius:6px;" />
+                    <button type="submit" class="btn primary">Send to <%= _preview.count %></button>
+                  </form>
+                <% } %>
+              </td>
+            </tr>
+          <% } %>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+</div>
+
+<%- include('partials/superadmin/footer', { isAr: isAr }) %>

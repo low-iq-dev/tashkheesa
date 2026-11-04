@@ -12,6 +12,7 @@ const rateLimit = require('express-rate-limit');
 const { sendOtpViaTwilio, verifyOtpCode } = require('../services/twilio_verify');
 const { validatePhoneE164 } = require('../validators/phone');
 const { normalizePhone } = require('../validators/phone_identity');
+const { checkOtpPhone, logRejectedOtpPhone } = require('../validators/otp_phone_guard');
 const { resolveDoctorLanding } = require('../services/doctor_landing');
 const { buildDoctorWelcomePayload, WELCOME_EXPIRY_HOURS, SERVICES_READY_SQL } = require('../services/doctor_welcome_payload');
 const { captureSignup } = require('../services/analytics');
@@ -256,6 +257,13 @@ function getHomeByRole(role) {
 // Exported (see module.exports at the bottom of this file) so onboarding.js and
 // any future caller share ONE implementation; the previous duplicate
 // (_safeNext in onboarding.js) drifted and was missing the backslash case.
+// 2 Nov 2026 (patient recovery) — the first-time password step keeps `next`,
+// so a password-less patient who signs in from a draft-resume link
+// (/portal/patient/resume/<token> → /login?next=…) still lands on the draft.
+function setPasswordPath(next) {
+  return '/set-password' + (next ? '?next=' + encodeURIComponent(next) : '');
+}
+
 function safeNextPath(candidate) {
   if (!candidate) return null;
   const raw = String(candidate).trim();
@@ -377,12 +385,13 @@ router.post('/login', async (req, res) => {
     // === PHASE 3: FIX #12 - PASSWORD CHECK AT LOGIN ===
     // For patients who somehow have a valid token without a password,
     // redirect to set-password page (moved from middleware check on every request)
-    if (user.role === 'patient' && !user.password_hash) {
-      return res.redirect('/set-password');
-    }
-
     // Safe next redirect (same-site only)
     const next = safeNextPath((req.body && req.body.next) || (req.query && req.query.next));
+
+    if (user.role === 'patient' && !user.password_hash) {
+      return res.redirect(setPasswordPath(next));
+    }
+
     if (next) return res.redirect(next);
 
     // Role-based redirects
@@ -437,6 +446,21 @@ function parseOtpPhone(req, res, next) {
   return next();
 }
 
+// 2 Nov 2026 (patient recovery, Part D) — the one place the web door says no.
+// parseOtpPhone never rejects, and /request then masked an unsendable number as
+// success: the patient waited for a code that could not come, and Twilio was
+// asked anyway whenever normalizePhone accepted an E.164 shape that is not an
+// Egyptian mobile (+201990000177 on 11 Oct). A number's SHAPE says nothing
+// about whether an account exists, so refusing it here leaks nothing. Runs after
+// the per-IP limiter and before the per-phone ones, so a typo does not spend
+// the patient's three sends. validators/otp_phone_guard.js has the rule.
+function refuseUnsendableOtpPhone(req, res, next) {
+  const chk = checkOtpPhone(req.body && req.body.phone, req.body && req.body.countryCode, getReqLang(req));
+  if (chk.ok) return next();
+  logRejectedOtpPhone('web_login', chk);
+  return res.status(422).json({ ok: false, error: 'phone_invalid', message: chk.error });
+}
+
 const otpPhoneKey = (req) => (req.otpPhone && req.otpPhone.key) || 'unknown';
 const otpRlMsg = { ok: false, error: 'too_many_requests' };
 
@@ -478,7 +502,7 @@ const welcomeTokenIpLimiter = rateLimit({
 // Anti-enumeration: ALWAYS returns { ok: true }, regardless of whether the
 // number is registered or even valid, so the UI advances to code entry
 // uniformly and reveals nothing about which numbers have accounts.
-router.post('/login/otp/request', parseOtpPhone, otpIpLimiter, otpSendCooldown, otpSendCap, async (req, res) => {
+router.post('/login/otp/request', parseOtpPhone, otpIpLimiter, refuseUnsendableOtpPhone, otpSendCooldown, otpSendCap, async (req, res) => {
   try {
     if (req.otpPhone.normalized) {
       await sendOtpViaTwilio(req.otpPhone.normalized);
@@ -590,10 +614,10 @@ router.post('/login/otp/verify', parseOtpPhone, otpIpLimiter, otpVerifyCap, asyn
     establishWebSession(res, user);
     setLangCookie(res, user.lang || getReqLang(req));
 
-    if (user.role === 'patient' && !user.password_hash) {
-      return res.json({ ok: true, redirect: '/set-password' });
-    }
     const next = safeNextPath(req.body && req.body.next);
+    if (user.role === 'patient' && !user.password_hash) {
+      return res.json({ ok: true, redirect: setPasswordPath(next) });
+    }
     return res.json({ ok: true, redirect: next || getHomeByRole(user.role) });
   } catch (err) {
     console.error('[otp/verify] error:', err && err.message);
@@ -854,15 +878,16 @@ router.get('/set-password', welcomeTokenIpLimiter, async (req, res) => {
   const lang = c.isAr ? 'ar' : 'en';
   setLangCookie(res, lang);
 
-  if (!req.user) return res.redirect('/login');
+  const next = safeNextPath(req.query && req.query.next);
+  if (!req.user) return res.redirect('/login' + (next ? '?next=' + encodeURIComponent(next) : ''));
 
   const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role IN ('patient', 'doctor')", [req.user.id]);
   if (!user) return res.redirect('/login');
-  if (user.password_hash) return res.redirect(getHomeByRole(user.role));
+  if (user.password_hash) return res.redirect(next || getHomeByRole(user.role));
 
   // Send a doctor back to the doctor form, not the patient one, if they bail out.
   const backTo = user.role === 'doctor' ? '/doctor/login' : '/login';
-  return res.render('set_password', { error: null, success: null, lang, _lang: lang, isAr: c.isAr, copy: c, backTo });
+  return res.render('set_password', { error: null, success: null, lang, _lang: lang, isAr: c.isAr, copy: c, backTo, next });
 });
 
 // ============================================
@@ -873,11 +898,12 @@ router.post('/set-password', welcomeTokenIpLimiter, async (req, res) => {
   const lang = c.isAr ? 'ar' : 'en';
   setLangCookie(res, lang);
 
+  const next = safeNextPath(req.body && req.body.next);
   if (!req.user) return res.redirect('/login');
 
   const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role IN ('patient', 'doctor')", [req.user.id]);
   if (!user) return res.redirect('/login');
-  if (user.password_hash) return res.redirect(getHomeByRole(user.role));
+  if (user.password_hash) return res.redirect(next || getHomeByRole(user.role));
 
   const password = (req.body && req.body.password) || '';
   const confirm = (req.body && req.body.confirm_password) || '';
@@ -889,7 +915,8 @@ router.post('/set-password', welcomeTokenIpLimiter, async (req, res) => {
       _lang: lang,
       isAr: c.isAr,
       copy: c,
-      backTo: user.role === 'doctor' ? '/doctor/login' : '/login'
+      backTo: user.role === 'doctor' ? '/doctor/login' : '/login',
+      next
     });
   }
 
@@ -943,8 +970,20 @@ router.post('/set-password', welcomeTokenIpLimiter, async (req, res) => {
   // service union to /portal/doctor/services; empty-union doctors and everyone
   // else fall through to their normal home. One-time (driven by DB state, no
   // persistent guard) — a doctor who has confirmed services no longer matches.
+  // 2 Nov 2026 (patient recovery) — a fresh session for the person who just
+  // set the password. The UPDATE above stamped tokens_valid_after, which
+  // revokes every credential minted in an earlier second — including the
+  // session this very request arrived on (minted at OTP sign-in or magic
+  // login). Without this the patient was signed out within a minute
+  // (services/access_revocation TTL), on whatever page they had reached.
+  // Minted after the cut, so it survives it; every other session stays revoked.
+  establishWebSession(res, user);
+
   const doctorLanding = await resolveDoctorLanding(user);
   if (doctorLanding) return res.redirect(doctorLanding);
+
+  // …and back to where they were going: the draft a resume link was opening.
+  if (next) return res.redirect(next);
 
   return res.redirect(getHomeByRole(user.role));
 });
@@ -1193,7 +1232,10 @@ router.post('/register', async (req, res) => {
   // every Egyptian writes their number — normalised to "+01003225382" and was
   // REJECTED as invalid, telling the user their own number was wrong with no
   // hint as to why. The country code is right there in the form; use it.
-  const phoneCheck = normalizePhone(phone, country_code || storedCountry, langForMsg);
+  let phoneCheck = normalizePhone(phone, country_code || storedCountry, langForMsg);
+  // Part D (2 Nov 2026): and, on +20, an Egyptian mobile — the only thing an
+  // OTP or a WhatsApp message can reach (validators/otp_phone_guard.js).
+  if (phoneCheck.ok) phoneCheck = checkOtpPhone(phoneCheck.normalized, null, langForMsg);
   if (!phoneCheck.ok) {
     regFunnel('register_err_phone');
     return res

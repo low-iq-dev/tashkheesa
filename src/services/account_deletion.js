@@ -131,6 +131,13 @@ const OPTIONAL_USER_TABLES = [
   // which is kept and anonymised like every other order. Optional-listed so
   // environments that predate 116 still delete cleanly.
   { table: 'payment_claims', column: 'patient_id' },
+  // Patient recovery (2 Nov 2026). Migration 132: the draft-resume links (an
+  // order id, a hash, open times). Migration 133: "tell me when this specialty
+  // opens" — it holds the patient's phone and, sometimes, the specialty they
+  // typed. Both are the patient's to erase; optional-listed so environments
+  // that predate them still delete cleanly.
+  { table: 'draft_resume_tokens', column: 'patient_id' },
+  { table: 'coverage_leads', column: 'patient_id' },
 ];
 
 class AccountDeletionError extends Error {

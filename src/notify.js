@@ -943,6 +943,20 @@ function renderNotificationMessage(template, payload, lang) {
       if (isAr) return 'مرحبًا بك في تشخيصة. ابدأ حالتك الأولى متى كنت مستعدًا.';
       return 'Welcome to Tashkheesa. Start your first case whenever you are ready.';
 
+    // Patient recovery (2 Nov 2026) — the bell's line for the draft nudges and
+    // the coverage notice. Fixed copy, reference only.
+    case 'draft_resume_1h':
+      if (isAr) return `${arCase || 'حالتك'} محفوظة. تقدر تكملها في دقيقتين.`;
+      return `${caseLabel || 'Your case'} is saved. You can finish it in 2 minutes.`;
+
+    case 'draft_resume_24h':
+      if (isAr) return `${arCase || 'حالتك'} لسه مستنية. استشاري من مجموعة مستشفيات شفاء يراجعها خلال 48 ساعة.`;
+      return `${caseLabel || 'Your case'} is still waiting. A named consultant from Shifa Hospital Group can review it within 48 hours.`;
+
+    case 'coverage_lead_open':
+      if (isAr) return 'التخصص اللي سألت عنه فتح. تقدر تكمّل حالتك دلوقتي.';
+      return 'The specialty you asked about is now open. You can continue your case.';
+
     default:
       return null;
   }
@@ -1105,6 +1119,13 @@ async function queueNotification({
 
       if (existing && String(existing.status || '').toLowerCase() !== 'failed') {
         return { ok: true, skipped: 'deduped', dedupe_key: normalizedDedupeKey };
+      }
+      // Part E (patient recovery, 2 Nov 2026) — a failed whatsapp or sms row of
+      // an SMS-allowlisted patient template is NOT re-armed: its one attempt
+      // may already be in OpenClaw's delivery queue or at Twilio, and a re-arm
+      // is a second copy. Its fallback is the SMS the worker queues, not this.
+      if (existing && require('./notify/sms_fallback').isSingleShot(channel, template)) {
+        return { ok: true, skipped: 'deduped', dedupe_key: normalizedDedupeKey, single_shot: true };
       }
       if (existing) {
         requeueRowId = existing.id;

@@ -137,6 +137,10 @@ const TEMPLATE_TITLES = {
   // informational (24h). AR uses gender-neutral phrasing.
   signup_no_case_1h:  { en: 'Ready when you are: send your case',        ar: 'جاهزين وقت ما تحب: ابعت حالتك' },
   signup_no_case_24h: { en: 'Your specialist review is one step away',    ar: 'مراجعة الاستشاري على بُعد خطوة' },
+  // Patient recovery (2 Nov 2026) — draft-resume nudges and the coverage notice.
+  draft_resume_1h:    { en: 'Your case is saved — finish it in 2 minutes', ar: 'حالتك محفوظة — أكملها في دقيقتين' },
+  draft_resume_24h:   { en: 'Your case is still waiting for you',          ar: 'حالتك لسه مستنياك' },
+  coverage_lead_open: { en: 'The specialty you asked about is open',       ar: 'التخصص اللي سألت عنه فتح' },
   payment_reminder_30m: { en: 'Reminder: complete payment for your case',     ar: 'تذكير: إكمال الدفع لحالتك' },
   payment_reminder_6h:  { en: 'Your case is still waiting for payment',       ar: 'حالتك لسة في انتظار الدفع' },
   // E2E 2026-10-06 — the 24h title said "your case spot is closing soon". A

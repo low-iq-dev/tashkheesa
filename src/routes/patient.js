@@ -361,7 +361,14 @@ router.post('/patient/delete-account/code', requireRole('patient'), deleteCodeSe
     // per ten minutes. And it would hit exactly the password-less population
     // this branch exists to serve. The catch below cannot save us here,
     // because nothing is thrown.
-    const sent = await sendOtpViaTwilio(phone);
+    //
+    // Part D (2 Nov 2026) — a stored number no SMS can reach is never sent
+    // to; it gets the same answer a refused send gets. Gate only: what is sent
+    // (and later checked) is still the stored string.
+    const { checkOtpPhone, logRejectedOtpPhone } = require('../validators/otp_phone_guard');
+    const sendable = checkOtpPhone(phone, req.user && req.user.country_code, isAr ? 'ar' : 'en');
+    if (!sendable.ok) logRejectedOtpPhone('web_delete_account', sendable);
+    const sent = sendable.ok ? await sendOtpViaTwilio(phone) : null;
     if (!sent || sent.stub || sent.ok === false) {
       return await renderDeleteAccount(req, res, {
         error: isAr
@@ -529,7 +536,9 @@ router.post('/patient/profile', requireRole('patient'), async function(req, res)
     // form (already launch-market gated above), fall back to the one the patient
     // registered with.
     const { normalizePhone } = require('../validators/phone_identity');
-    const phoneCheck = normalizePhone(rawPhone, countryCode || (req.user && req.user.country_code), lang);
+    let phoneCheck = normalizePhone(rawPhone, countryCode || (req.user && req.user.country_code), lang);
+    // Part D (2 Nov 2026): plus the Egyptian-mobile shape on +20.
+    if (phoneCheck.ok) phoneCheck = require('../validators/otp_phone_guard').checkOtpPhone(phoneCheck.normalized, null, lang);
     if (!phoneCheck.ok) {
       return renderPatientProfile(req, res, { error: phoneCheck.error });
     }
@@ -2051,6 +2060,24 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
   // only engages when specialtyRecommendation is non-null.
   const thresholds = await getThresholds();
 
+  // Patient recovery, Part C (2 Nov 2026) — "we don't open this specialty
+  // yet" on the specialty step: services/coverage_leads.wizardContext, shown by
+  // partials/patient/coverage_lead_panel. A failure costs the panel, never
+  // the step.
+  let coverageCtx = null;
+  if (draft && step === 3) {
+    try {
+      coverageCtx = await require('../services/coverage_leads').wizardContext({
+        draftId: draft.id, userId: patientId, classification: specialtyRec, thresholds,
+        visibleSpecialtyIds: (specialties || []).map((sp) => sp.id),
+        notListed: req.query.not_listed, wantedText: req.query.wanted, leadFlash: req.query.lead,
+      });
+    } catch (err) {
+      logErrorToDb(err, { context: 'patient.coverage_context', requestId: req.requestId, userId: req.user && req.user.id, url: req.originalUrl, method: req.method, category: 'patient_action' });
+      coverageCtx = null;
+    }
+  }
+
   // SHORT-SIGNUP 2026-09-27 — patients arriving from the booking path skip
   // onboarding, so Step 1 asks for date of birth + sex when the account has
   // neither on file (see loadDemographics).
@@ -2108,6 +2135,8 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     // yet (worker still running or failed). View polls classification.json
     // and reloads on status==='ready'.
     classifierPending: (typeof classifierPending !== 'undefined') ? classifierPending : false,
+    // Patient recovery, Part C — the coverage panel's context (null off step 3).
+    coverage: coverageCtx,
     // The Step 5 "(test mode)" label + "simulates a successful payment"
     // disclaimer must track whether payments are REAL — NOT NODE_ENV. In
     // production PAYMENT_MODE still defaults to 'stub' (simulated success via

@@ -21,6 +21,33 @@ const { maskPhone } = require('../utils/mask');
 
 const SEND_TIMEOUT_MS = 10000;
 
+// ── Did anything reach OpenClaw? (patient recovery, Part E, 2 Nov 2026) ──
+//
+// Every failure below now carries `outcome`:
+//   'not_sent'  nothing can have been queued — the gateway refused the request
+//               (every 4xx it answers is a refusal BEFORE it enqueues: bad
+//               input, bad key, not allowlisted, opted out), Cloudflare said the
+//               origin is unreachable (530), the connection was never made, or
+//               the portal itself is misconfigured;
+//   'unknown'   the request reached the gateway and may have been queued. The
+//               gateway writes its idempotency record and hands the message to
+//               OpenClaw BEFORE the send is attempted (openclaw-gateway
+//               lib/gateway.js), and OpenClaw persists every outbound message in
+//               its own delivery queue and replays pending ones when WhatsApp
+//               reconnects. A 502 or a timeout is therefore not "not delivered".
+// On 14 Oct one payment reminder became three gateway sends in four minutes —
+// the worker's 30 s / 120 s retries on a 502 — each a separate entry in
+// OpenClaw's queue. notify/sms_fallback.js reads `outcome` to decide whether a
+// WhatsApp may be tried again at all. Additive: { ok, error, status } unchanged.
+const PRE_CONNECT_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH']);
+
+function outcomeForStatus(status) {
+  const n = Number(status);
+  if (n === 530) return 'not_sent';
+  if (n >= 400 && n < 500) return 'not_sent';
+  return 'unknown';
+}
+
 function isStubMode() {
   return String(process.env.WHATSAPP_TEST_STUB || '').toLowerCase() === 'true';
 }
@@ -54,7 +81,7 @@ async function sendViaOpenClaw({ to, lang, body, ref, userId, template }) {
   }
 
   if (!to || !body) {
-    return { ok: false, error: 'oc_missing_to_or_body' };
+    return { ok: false, error: 'oc_missing_to_or_body', outcome: 'not_sent' };
   }
 
   const baseUrl = String(process.env.OPENCLAW_BASE_URL || '').replace(/\/+$/, '');
@@ -66,7 +93,7 @@ async function sendViaOpenClaw({ to, lang, body, ref, userId, template }) {
       to, template, lang, ref, userId,
       error: 'OPENCLAW_BASE_URL or OPENCLAW_SEND_KEY missing'
     });
-    return { ok: false, error: 'oc_env_misconfigured' };
+    return { ok: false, error: 'oc_env_misconfigured', outcome: 'not_sent' };
   }
 
   const url = `${baseUrl}/send`;
@@ -102,7 +129,7 @@ async function sendViaOpenClaw({ to, lang, body, ref, userId, template }) {
         status: res.status,
         error: data && data.error ? data.error : data
       });
-      return { ok: false, error: (data && data.error) || `http_${res.status}`, status: res.status };
+      return { ok: false, error: (data && data.error) || `http_${res.status}`, status: res.status, outcome: outcomeForStatus(res.status) };
     }
 
     console.log('[OC] sent', { to: maskPhone(to), lang, ref, message_id: data && data.message_id });
@@ -115,8 +142,13 @@ async function sendViaOpenClaw({ to, lang, body, ref, userId, template }) {
       to, template, lang, ref, userId,
       error: err && err.message ? err.message : String(err)
     });
-    return { ok: false, error: isAbort ? 'oc_timeout' : (err && err.message ? err.message : 'oc_send_exception') };
+    const preConnect = !isAbort && err && PRE_CONNECT_CODES.has(String(err.code || ''));
+    return {
+      ok: false,
+      error: isAbort ? 'oc_timeout' : (err && err.message ? err.message : 'oc_send_exception'),
+      outcome: preConnect ? 'not_sent' : 'unknown'
+    };
   }
 }
 
-module.exports = { sendViaOpenClaw };
+module.exports = { sendViaOpenClaw, outcomeForStatus };

@@ -1,0 +1,40 @@
+<!-- استكمال الحالة — بعد ساعة (استعادة المرضى، الجزء أ). نص ثابت، بدون ذكاء اصطناعي. -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#0B6B5F;">
+  حالتك محفوظة
+</h2>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4A4640;">
+  أهلاً {{patientName}}،
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4A4640;">
+  بدأت حالة على تشخيصة وكل اللي كتبته محفوظ. تكملتها بتاخد حوالي دقيقتين، واللينك تحت بيفتحها من نفس المكان اللي وقفت عنده.
+</p>
+
+{{#if caseReference}}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#F4F1E9;border-radius:8px;border:1px solid #E3DED2;">
+  <tr>
+    <td style="padding:16px 24px;">
+      <p style="margin:0 0 4px 0;font-size:12px;font-weight:600;color:#0B6B5F;letter-spacing:0.5px;">رقم المرجع</p>
+      <p style="margin:0;font-size:15px;font-weight:600;color:#2E2B26;">{{caseReference}}</p>
+    </td>
+  </tr>
+</table>
+{{/if}}
+
+{{#if resumeUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px auto;">
+  <tr>
+    <td align="center" style="background-color:#0B6B5F;border-radius:8px;">
+      <a href="{{resumeUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        أكمل حالتي
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
+
+<p style="margin:24px 0 0 0;font-size:13px;color:#7A736A;line-height:1.6;">
+  اللينك شغال ٧٢ ساعة، وبيفتح حالتك بس بعد ما تسجّل دخول. لو محتاج مساعدة في رفع الملفات أو اختيار الخدمة، رد على الإيميل ده.<br>
+  — فريق تشخيصة
+</p>

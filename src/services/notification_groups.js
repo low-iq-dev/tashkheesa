@@ -28,7 +28,9 @@ function categoryFor(template) {
   // Unpaid-case expiry/deletion is a payment consequence from the patient's
   // point of view ("you didn't pay, so the spot closed").
   if (/payment|paid|refund|invoice|claim|unpaid|transfer/.test(t)) return 'payments';
-  if (/report|order_|case_|sla_|breach|assign|accept|doctor|file|upload|review/.test(t)) return 'cases';
+  // draft_ / coverage_ (2 Nov 2026): the draft-resume nudges and the coverage
+  // notice are about a case the patient started.
+  if (/report|order_|case_|sla_|breach|assign|accept|doctor|file|upload|review|draft_|coverage_/.test(t)) return 'cases';
   return 'account';
 }
 
