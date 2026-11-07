@@ -150,17 +150,17 @@ module.exports = (async function run() {
       }
     });
 
-    await check('booking open: all three go to /start in the page language, like the inner-page header', async () => {
-      for (const [r, want] of [[enOpen, '/start'], [arOpen, '/ar/start']]) {
-        const links = [...r.body.matchAll(/<a class="btn btn-brass" href="([^"]*)"([^>]*)>/g)].map((m) => ({ href: m[1], rest: m[2] }));
+    await check('booking open: all three go straight into the case intake, in the page language (7 Nov 2026)', async () => {
+      for (const [r, want] of [[enOpen, '/register?next=%2Fpatient%2Fnew-case&lang=en'], [arOpen, '/register?next=%2Fpatient%2Fnew-case&lang=ar']]) {
+        const links = [...r.body.matchAll(/<a class="btn btn-brass" href="([^"]*)"([^>]*)>/g)].map((m) => ({ href: m[1].replace(/&amp;/g, '&'), rest: m[2] }));
         assert.deepStrictEqual(links.map((l) => l.href), [want, want, want], 'header + opening + closing CTA');
         assert.ok(/data-nav-start/.test(links[0].rest), 'the header Start carries data-nav-start, as layouts/public.ejs does');
-        assert.ok(!hrefs(r.body).some((h) => /register|new-case/.test(h)), 'the home page no longer links to register or the wizard');
+        assert.ok(!links.some((l) => /\/start(\?|$)/.test(l.href)), 'a home-page Start still goes to the /start ads landing page');
         assert.ok(!/is-cta-locked/.test(r.body), 'a locked CTA rendered while the gate is open');
       }
       // Source: the links are built from one variable the booking-gate lint watches.
       const src = read('src/views/index.ejs');
-      assert.ok(src.includes("var __startHref = (locals.publicLinkPrefix || '') + '/start';"), '__startHref is not /start with the language prefix');
+      assert.ok(src.includes("var __startTarget = '/patient/new-case';"), '__startHref is not built from the intake wizard');
       assert.strictEqual((src.match(/<% if \(__ctaOn\) \{ %><a class="btn btn-brass" href="<%= __startHref %>"/g) || []).length, 2, 'index.ejs: header and closing CTA behind __ctaOn');
       assert.ok(/<% if \(__ctaOn\) \{ %><a class="btn btn-brass" href="<%= __startHref %>"/.test(read('src/views/partials/hero-reveal.ejs')), 'hero-reveal.ejs: CTA behind __ctaOn');
     });

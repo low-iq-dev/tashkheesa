@@ -25,7 +25,7 @@ const view = (f) => fs.readFileSync(path.join(__dirname, '../../src/views', f), 
     assert.ok(!/1,600 EGP|5,500/.test(faq.body), 'FAQ still quotes the retired price range');
     assert.ok(/750 EGP/.test(faq.body) && /3,500 EGP/.test(faq.body), 'FAQ lacks the live price range');
     assert.ok(!/Fawry|Meeza/.test(faq.body), 'FAQ still lists payment methods we do not take');
-    assert.ok(/data-nav-start/.test(faq.body) && /href="\/ar\/start"/.test(faq.body), 'inner-page header has no Start button');
+    assert.ok(/data-nav-start/.test(faq.body) && /href="\/register\?next=%2Fpatient%2Fnew-case&(amp;)?lang=ar"/.test(faq.body), 'inner-page header Start does not go straight to the case intake');
     t.pass('FAQ: live prices and payment methods; inner pages carry a Start button');
 
     const home = await open.get('/ar/');
@@ -38,7 +38,7 @@ const view = (f) => fs.readFileSync(path.join(__dirname, '../../src/views', f), 
 
     const svc = await open.get('/ar/services');
     assert.ok(!/على إيميلك/.test(svc.body), 'services page still promises the report by email');
-    assert.ok(/href="\/ar\/start"/.test(svc.body) && /href="\/ar\/wa"/.test(svc.body), 'services hero lacks Start + WhatsApp');
+    assert.ok(/href="\/register\?next=%2Fpatient%2Fnew-case&(amp;)?lang=ar"/.test(svc.body) && /href="\/ar\/wa"/.test(svc.body), 'services hero lacks Start + WhatsApp');
     t.pass('services: Start + WhatsApp at the top, no "by email"');
 
     const start = await open.get('/ar/start');

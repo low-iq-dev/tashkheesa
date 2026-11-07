@@ -134,11 +134,15 @@
 <script src="/js/meta_pixel.js" defer></script>
 <%
   // ── Booking links ────────────────────────────────────────────────────────
-  // Every "Start your case" on this page goes to /start — the landing page the
-  // ads and the inner-page header (layouts/public.ejs) use — in the page's
-  // language. Unlike that header link, these stay behind __ctaOn
-  // (tests/lint/public-booking-ctas-are-gated.test.js watches __startHref).
-  var __startHref = (locals.publicLinkPrefix || '') + '/start';
+  // 7 Nov 2026 — every "Start your case" on this page goes straight into the
+  // case intake (the /patient/new-case wizard, through /register when signed
+  // out), in the page's language. It used to go to /start, the paid-ads
+  // landing page, which made the visitor read a second home page and press
+  // Start again. /start stays as the ads landing page. These links stay behind
+  // __ctaOn (tests/lint/public-booking-ctas-are-gated.test.js watches __startHref).
+  var __startTarget = '/patient/new-case';
+  var __startHref = (locals.user && locals.user.id) ? __startTarget : '/register?next=' + encodeURIComponent(__startTarget);
+  __startHref += (__startHref.indexOf('?') === -1 ? '?' : '&') + 'lang=' + (locals.isAr ? 'ar' : 'en');
   var __startLabel = tt('home.cta.start', 'Start your case', 'ابدأ حالتك');
 
   // ── Language ─────────────────────────────────────────────────────────────

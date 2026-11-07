@@ -189,9 +189,20 @@
         </li>
         <li><a href="/login<%= locals.langParam ? '?' + locals.langParam : '' %>" class="nav-link"><%= tt('nav.signin', 'Sign In', 'تسجيل الدخول') %></a></li>
         <%# 6 Oct 2026 — the pages that do the convincing (About, FAQ, Services)
-            had no way to convert from the header. Start goes to the same
-            landing page the ads use. %>
-        <li><a href="<%= locals.publicLinkPrefix || '' %>/start" class="nav-link nav-cta" data-nav-start><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a></li>
+            had no way to convert from the header.
+            7 Nov 2026 — with booking open, Start goes straight into the case
+            intake (through /register when signed out) instead of /start, the
+            ads landing page, which read as a second home page. With booking
+            shut it still goes to /start, which is gated itself. %>
+        <%
+          var __navStart = (locals.publicLinkPrefix || '') + '/start';
+          if (locals.bookingCtaEnabled) {
+            var __navTarget = '/patient/new-case';
+            __navStart = (locals.user && locals.user.id) ? __navTarget : '/register?next=' + encodeURIComponent(__navTarget);
+            __navStart += (__navStart.indexOf('?') === -1 ? '?' : '&') + 'lang=' + (locals.isAr ? 'ar' : 'en');
+          }
+        %>
+        <li><a href="<%= __navStart %>" class="nav-link nav-cta" data-nav-start><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a></li>
       </ul>
     </nav>
   </div>
